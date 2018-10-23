@@ -13,12 +13,3 @@ fi
 # Customize to your needs...
 source "${HOME}/.bashrc"
 
-
-export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$PATH"
-
-# added by travis gem
-[ -f /Users/emanuelemazzotta/.travis/travis.sh ] && source /Users/emanuelemazzotta/.travis/travis.sh
-
-#THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
-export SDKMAN_DIR="/Users/emanuelemazzotta/.sdkman"
-[[ -s "/Users/emanuelemazzotta/.sdkman/bin/sdkman-init.sh" ]] && source "/Users/emanuelemazzotta/.sdkman/bin/sdkman-init.sh"
