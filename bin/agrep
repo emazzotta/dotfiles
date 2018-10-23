@@ -20,14 +20,14 @@ if test "${1}"; then
         if [[ "${arg}" == "--exact" ]]; then
             grep -w export "${FILE}" | awk '{$1="export"; print $0}' | grep -iFw "${term}"
             grep -w alias "${FILE}" | awk '{$1="alias"; print $0}' | grep -iFw "${term}"
-			ls ${CUSTOM_BIN_DIR}* | while read line; do
+            ls ${CUSTOM_BIN_DIR}* | while read line; do
                 cat ${CUSTOM_BIN_DIR}/${line} | grep -qiFw "${term}" && cat ${CUSTOM_BIN_DIR}/${line} | grep -iFw "${term}" | xargs -I {} bash -c "echo -e '{} ${COLOR_RED}(${line})${COLOR_RESET}'"
             done
         else
             grep -w export "${FILE}" | awk '{$1="export"; print $0}' | grep -iF "${term}"
             grep -w alias "${FILE}" | awk '{$1="alias"; print $0}' | grep -iF "${term}"
-			ls ${CUSTOM_BIN_DIR}* | while read line; do
-                cat ${CUSTOM_BIN_DIR}/${line} | grep -qiF "${term}" && cat ${CUSTOM_BIN_DIR}/${line} | grep -iF "${term}" | xargs -I {} bash -c "echo -e '{} ${COLOR_RED}(${line})${COLOR_RESET}'" 
+            ls ${CUSTOM_BIN_DIR}* | while read line; do
+                cat ${CUSTOM_BIN_DIR}/${line} | grep -qiF "${term}" && cat ${CUSTOM_BIN_DIR}/${line} | grep -iF "${term}" | xargs -I {} bash -c "echo -e '{} ${COLOR_RED}(${line})${COLOR_RESET}'"
             done
         fi
     else
@@ -35,7 +35,7 @@ if test "${1}"; then
         FULL_PATH=${CUSTOM_BIN_DIR}/${term}
         if [[ "${arg}" == "--inexact" ]] && ls ${FULL_PATH}* &> /dev/null; then
             ls ${FULL_PATH}* | while read line; do
-            cat ${line}
+                cat ${line}
             done
         else
             [ -e ${FULL_PATH} ] && cat ${FULL_PATH}
