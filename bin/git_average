@@ -1,0 +1,27 @@
+#!/bin/bash
+
+# Extracting dates from the git log
+dates=$(git log | grep Date | awk '{print " : "$4" "$3" "$6}')
+
+# Checking if there are any dates extracted
+if [ -z "$dates" ]; then
+    echo "No dates found in the git logs."
+    exit 1
+fi
+
+# Sorting dates and counting occurrences
+sorted_dates=$(echo "$dates" | sort | uniq -c)
+
+# Calculate the sum of counts and count of unique dates
+read sum count <<< $(echo "$sorted_dates" | awk '{ sum+=$1; count++ } END { print sum, count }')
+
+# Checking if the count is non-zero to avoid division by zero
+if [ "$count" -eq 0 ]; then
+    echo "No unique dates to process."
+    exit 1
+fi
+
+# Calculating the average number of commits per unique date
+average=$(bc <<< "scale=2; $sum / $count")
+
+echo "The average number of commits day (on days committed) is: $average"

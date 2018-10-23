@@ -1,0 +1,11 @@
+#!/bin/bash
+
+if ! test "${TM_USER}"; then
+    echo "TM_USER not set"
+    exit 1
+fi
+
+COMMAND='SELECT * FROM tokens;'
+[[ "${1}" == "--token-only" ]] && COMMAND='SELECT access FROM tokens;'
+
+kubectl -n teslamate-mazzotta exec -ti deployment/teslamate-mazzotta-db-deployment -- /bin/sh -c "psql -U ${TM_USER} -d ${TM_USER} -c '${COMMAND}'"

@@ -1,0 +1,25 @@
+#!/bin/bash
+
+get_mem_usage_osx(){
+  local page_size=$(sysctl -nq "vm.pagesize")
+  vm_stat | awk -v page_size=$page_size -F ':' '
+    BEGIN { used=0 }
+
+    /Pages active/ ||
+    /Pages inactive/ {
+      gsub(/^[ \t]+|[ \t]+$/, "", $2); used+=$2;
+    }
+
+    END { print (used * page_size)/(1024*1024*1024) }
+  '
+}
+
+echo "scale=2; $(get_mem_usage_osx) / 1" | bc -l
+
+TOTAL=$(($(sysctl hw.memsize | awk '{print $2}')/1024/1024))
+TOTAL_GB=$(echo "scale=2; $TOTAL/1024" | bc -l)
+USED_GB=$(echo "scale=2; $(get_mem_usage_osx) / 1" | bc -l)
+
+echo "${USED_GB}G/${TOTAL_GB}G"
+
+# vm_stat | grep pages | awk '{print $NF}' | xargs -I {} echo {} | sed 's/\.//' | xargs -I {} echo "scale=2; {}*4096/1024/1024/1024" | bc -l | xargs -I {} echo {} GB

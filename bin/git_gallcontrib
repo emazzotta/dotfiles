@@ -1,0 +1,36 @@
+#!/bin/bash
+
+dir="."
+if [[ -n "$1" ]]; then
+    dir="$1"
+fi
+
+if [ ! -d "$dir" ]; then
+    echo "Error: The directory $dir does not exist."
+    exit 1
+fi
+
+function process_directory {
+    local current_dir="$1"
+    if [[ -d "$current_dir/.git" ]]; then
+        (cd "$current_dir" && git shortlog -sn --all -- .)
+    fi
+}
+
+export -f process_directory
+
+output=$(find "$dir" -type d -name .git | while read git_dir; do
+    process_directory "$(dirname "$git_dir")"
+done)
+
+echo "$output" | awk '
+{
+    name = substr($0, index($0, $2))
+    a[name] += $1
+} END {
+    if (length(a) == 0) {
+        print "No Git repositories found."
+        exit
+    }
+    for (x in a) print a[x], x
+}' | sort -nr

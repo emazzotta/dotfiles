@@ -1,0 +1,13 @@
+services:
+  filebrowser:
+    image: filebrowser/filebrowser
+    user: "503:20"
+    command:
+      - "--cache-dir=/data/cache"
+      - "-d=/data/database.db"
+      - "-p=80"
+    volumes:
+      - "$DOTFILESPATH/filebrowser:/data"
+      - "/:/srv"
+    ports:
+      - "8080:80"

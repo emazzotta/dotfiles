@@ -1,0 +1,32 @@
+#!/bin/bash
+
+USERNAME="admin"
+PASSWORD="admin"
+SERVER_IP="192.168.5.7" # aka. devserver
+SHARE_NAME="Devserver-Windows-VM"
+PORT="4445"
+MOUNT_POINT="$HOME/$SHARE_NAME"
+
+NETWORK_DRIVE_FULL_URL="//${USERNAME}@${SERVER_IP}:${PORT}/${SHARE_NAME}"
+
+if mount | grep " on $MOUNT_POINT " > /dev/null; then
+    echo "Network drive '$SHARE_NAME' is already mounted"
+else
+    if [ ! -d "$MOUNT_POINT" ]; then
+        mkdir -p "$MOUNT_POINT"
+    fi
+
+    expect -c "
+    log_user 0
+    spawn mount_smbfs $NETWORK_DRIVE_FULL_URL $MOUNT_POINT
+    expect \"Password for $SERVER_IP:\"
+    send \"$PASSWORD\r\"
+    expect eof
+    "
+
+    if mount | grep " on $MOUNT_POINT " > /dev/null; then
+        echo "Network drive '$SHARE_NAME' mounted at $MOUNT_POINT"
+    else
+        echo "Failed to mount network drive '$SHARE_NAME' at $MOUNT_POINT"
+    fi
+fi

@@ -1,0 +1,109 @@
+#!/bin/bash
+
+set -e
+
+[[ "$(uname)" == "Darwin" ]] || { echo "macOS only"; exit 1; }
+
+cd "$(dirname "$0")"
+
+echo() { printf "\n\033[36m%s\033[0m\n" "$*"; }
+
+install_if_missing() {
+    local cmd=$1
+    local installer=$2
+    command -v "$cmd" >/dev/null || eval "$installer"
+}
+
+clone_if_missing() {
+    local dir=$1
+    local repo=$2
+    [[ -d "$dir" ]] || git clone "$repo" "$dir"
+}
+
+run_if_exists() {
+    local file=$1
+    if [[ -f "$file" ]]; then
+        "$file"
+    else
+        echo "Warning: $file not found, skipping"
+    fi
+}
+
+sudo -v
+while true; do sudo -n true; sleep 60; kill -0 "$" || exit; done 2>/dev/null &
+
+echo "Installing core tools"
+sudo xcode-select --install 2>/dev/null || true
+install_if_missing bun 'curl -s "https://bun.sh/install" | bash'
+install_if_missing brew '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+[[ -d "$HOME/.sdkman" ]] || curl -s "https://get.sdkman.io" | bash
+
+echo "Setting up Java"
+for version in 8.0.432.fx-zulu 17.0.13.fx-zulu 21.0.5.fx-zulu 23.0.1.fx-zulu; do
+    bash -c "source '$HOME/.sdkman/bin/sdkman-init.sh' && sdk install java $version"
+done
+bash -c "source '$HOME/.sdkman/bin/sdkman-init.sh' && sdk default java 21.0.5.fx-zulu"
+
+echo "Installing apps"
+brew analytics off
+brew install stow raycast iterm2 arc karabiner-elements visual-studio-code
+
+echo "Setting up dotfiles"
+run_if_exists ./stowsetup && source "$HOME/.bash_profile"
+
+[[ -f ./brew/Brewfile ]] && brew bundle --file=./brew/Brewfile
+[[ -f ./brew/mixed-in-key.rb ]] && brew install --cask ./brew/mixed-in-key.rb
+
+sudo chown -R root /Applications/KeeWeb.app
+ssh-keygen -y -f ~/.ssh/id_rsa > ~/.ssh/id_rsa.pub
+
+echo "Applying settings"
+run_if_exists ./.macos
+run_if_exists ./duti/setfiledefaults
+
+echo "Installing Node packages"
+npm install -g eslint vue yarn
+
+echo "Setting up Python"
+sudo ln -sf "$(which python3)" /usr/local/bin/python 2>/dev/null || true
+sudo ln -sf "$(which pip3)" /usr/local/bin/pip 2>/dev/null || true
+pip install --upgrade pip
+
+echo "Setting up terminal"
+clone_if_missing "$HOME/.tmux" "https://github.com/gpakosz/.tmux.git"
+clone_if_missing "${ZDOTDIR:-$HOME}/.zprezto" "https://github.com/sorin-ionescu/prezto.git --recursive"
+clone_if_missing "$HOME/.zgen" "https://github.com/tarjoilija/zgen.git"
+[[ "$SHELL" != "/bin/zsh" ]] && chsh -s /bin/zsh
+
+echo "Setting up Vim"
+clone_if_missing "$HOME/.vim_runtime" "https://github.com/amix/vimrc.git --depth=1"
+
+VIM_PLUGINS="$HOME/.vim_runtime/my_plugins"
+mkdir -p "$VIM_PLUGINS"
+
+for plugin in \
+    Glench/Vim-Jinja2-Syntax \
+    neoclide/coc.nvim \
+    ap/vim-css-color \
+    benmills/vimux \
+    editorconfig/editorconfig-vim \
+    jceb/vim-orgmode \
+    junegunn/fzf.vim \
+    mattn/emmet-vim \
+    scrooloose/nerdcommenter \
+    tmux-plugins/vim-tmux-focus-events \
+    tomlion/vim-solidity \
+    tpope/vim-dispatch \
+    vim-airline/vim-airline
+do
+    name=$(basename "$plugin")
+    clone_if_missing "$VIM_PLUGINS/$name" "git@github.com:$plugin.git"
+done
+
+echo "Building CoC plugin"
+cd "$VIM_PLUGINS/coc.nvim" && npm ci
+
+echo "Installing CoC extensions"
+vim -c 'CocInstall coc-clangd coc-tsserver coc-python coc-json coc-css coc-html' -c 'qa' 2>/dev/null || echo "Run :CocInstall manually in vim"
+
+echo "Setup complete! Restart your terminal."

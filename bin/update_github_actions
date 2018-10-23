@@ -1,0 +1,29 @@
+#!/bin/bash
+
+set -euo pipefail
+
+plugin_versions=(
+    "actions/cache@v4" # https://github.com/actions/cache/releases
+    "actions/checkout@v4" # https://github.com/actions/checkout/releases
+    "actions/download-artifact@v4" # https://github.com/actions/download-artifact/releases
+    "actions/setup-node@v4" # https://github.com/actions/setup-node/releases
+    "actions/upload-artifact@v4" # https://github.com/actions/upload-artifact/releases
+    "aws-actions/configure-aws-credentials@v4" # https://github.com/aws-actions/configure-aws-credentials/releases
+    "docker/build-push-action@v6" # https://github.com/docker/build-push-action/releases
+    "docker/login-action@v3" # https://github.com/docker/login-action/releases
+    "docker/setup-buildx-action@v3" # https://github.com/docker/setup-buildx-action/releases
+    "docker/setup-qemu-action@v3" # https://github.com/docker/setup-qemu-action/releases
+    "hashicorp/setup-terraform@v3" # https://github.com/hashicorp/setup-terraform/releases
+    "mikafi/ec2-github-runner@main"
+    "slackapi/slack-github-action@v1" # https://github.com/slackapi/slack-github-action/releases
+)
+
+for pair in "${plugin_versions[@]}"; do
+    plugin=$(echo "$pair" | cut -d'@' -f1)
+    version=$(echo "$pair" | cut -d'@' -f2)
+    echo "Updating $plugin to $version..."
+    replace_action_plugin_version "$plugin" "$version"
+done
+
+echo "All specified plugins have been updated to their target versions."
+

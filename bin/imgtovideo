@@ -1,0 +1,5 @@
+#!/bin/bash
+
+set -e
+
+ffmpeg -y -f image2 -pattern_type glob -framerate 1 -i *.jpg -pix_fmt yuv420p -b 1500k timelapsevid.mp4

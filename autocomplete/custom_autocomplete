@@ -1,0 +1,61 @@
+#!/bin/bash
+if test "${ZSH_VERSION}"; then
+    autoload bashcompinit
+    bashcompinit
+    compdef sshrc=ssh
+fi
+_agrep()
+{
+  _agrep_commands=$(ls ${CUSTOM_BIN_DIR})
+  _agrep_commands+=$(grep -Eo '^(alias ).*' ${HOME}/.bashrc | sed 's/=.*$//g' | sed 's/alias //g')
+  _agrep_commands+=$(grep -Eo '^(export ).*' ${HOME}/.bashrc | sed 's/=.*$//g' | sed 's/export //g')
+  local cur prev
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=($(compgen -W "${_agrep_commands}" -- ${cur}))
+}
+_kubeconf()
+{
+  _kubeconf_options=$(ls ${KUBE_DIR} | grep kubeconfig.yaml | sed 's/-kubeconfig.yaml//g')
+  local cur prev
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=($(compgen -W "${_kubeconf_options}" -- ${cur}))
+}
+_bundleid()
+{
+  while IFS= read -r line; do
+    COMPREPLY+=("$line")
+  done < <(find /Applications -mindepth 1 -maxdepth 1 -type d -print | sed 's/\/Applications\///g' | sed 's/ /\\ /g')
+}
+_compressvideo()
+{
+  while IFS= read -r line; do
+    COMPREPLY+=("$line")
+  done < <(find . -mindepth 1 -maxdepth 1 -type f -not -name ".*" -print | sed 's|./||' | sed 's/ /\\ /g')
+  COMPREPLY+=($(compressvideo -h | grep '\-\-' | sed 's/^.*--/--/g' | sed 's/ .*//g'))
+}
+_ef()
+{
+  _ef_commands=$(ls ${CUSTOM_BIN_DIR})
+  local cur prev
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=($(compgen -W "${_ef_commands}" -- ${cur}))
+}
+_repo() {
+  _repo_commands=""
+  for dir in $(find "${WDIR}" -mindepth 2 -maxdepth 2 -type d); do
+    _repo_commands+="$(basename ${dir}) "
+  done
+  local cur prev
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=($(compgen -W "${_repo_commands}" -- ${cur}))
+}
+complete -o nospace -F _agrep agrep
+complete -o nospace -F _kubeconf kubeconf
+complete -o nospace -F _bundleid bundleid
+complete -o nospace -F _compressvideo compressvideo
+complete -o nospace -F _ef ef
+complete -o nospace -F _repo repo c

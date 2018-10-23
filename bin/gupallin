@@ -1,0 +1,68 @@
+#!/bin/bash
+
+root_dir="$(pwd)"
+test "${1}" && root_dir="${1}"
+
+test -f "${CUSTOM_BIN_DIR}/prettyprint" && source "${CUSTOM_BIN_DIR}/prettyprint"
+
+CUSTOM_RELEASE_PATTERN="^[0-9]+.([0-9]+|x)(.[0-9]+|.x)?$" # Matches patterns like 1.x, 1.1.x, 23.x, 23.212.x, etc.
+
+function convert_git_url_to_http() {
+    local git_url="$1"
+    [[ "$git_url" =~ ^git@ ]] && git_url=$(echo "$git_url" | sed -E 's#git@([^:]+):#https://\1/#')
+    echo "${git_url%.git}"
+}
+
+function has_remote_access() {
+    local remote_url="$1"
+    curl -k --silent --head --connect-timeout 5 "$remote_url" &> /dev/null || return 1
+}
+
+function has_git_access() {
+    local remote_url=$(git -C "$1" remote get-url origin 2>/dev/null) || return 1
+    has_remote_access "$(convert_git_url_to_http "$remote_url")" || return 1
+}
+
+function pull_branch() {
+    test "${2}" || return 1
+    if git -C "${2}" rev-parse --verify "origin/${1}" &> /dev/null && git -C "${2}" checkout "${1}" &> /dev/null; then
+        if git -C "${2}" pull --quiet --rebase; then
+            substep_success "Pulled ${1}"
+        else
+            substep_error "Pulling ${1} failed"
+        fi
+        git -C "${2}" checkout --quiet -
+    fi
+}
+
+function pull_branches_by_regex() {
+    test "${2}" || return 1
+    git -C "${2}" branch -r | sed 's/origin\///g' | sed 's/ //g' | grep -E "${1}" | while read -r branch; do
+        pull_branch "${branch}" "${2}"
+    done
+}
+
+info "Checking ${root_dir} for git updates..."
+find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
+    if [ -d "${dir}/.git" ]; then
+        substep_info "Updating ${dir}"
+        
+        if has_git_access "${dir}"; then
+            pull_branch "main" "${dir}"
+            pull_branch "master" "${dir}"
+            pull_branches_by_regex "${CUSTOM_RELEASE_PATTERN}" "${dir}"
+            branch_name=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
+            if [ "${branch_name}" != "master" ] && [ "${branch_name}" != "main" ]; then
+                if git -C "${dir}" pull --quiet --rebase; then
+                    substep_success "Pulled ${branch_name}"
+                else
+                    substep_error "Pulling ${branch_name} failed"
+                fi
+            fi
+        else
+            substep_error "No access to remote for ${dir}" 
+        fi
+    fi
+done
+
+success "Done updating git repositories."

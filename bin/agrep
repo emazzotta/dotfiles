@@ -1,0 +1,44 @@
+#!/bin/bash
+
+FILE=${HOME}/.bashrc;
+
+if test "${1}"; then
+    arg="--inexact"
+    if test "${2}"; then
+        if [[ ${1} == "-e" || ${1} == "--exact" ]]; then
+            arg="--exact"
+        fi
+        term="${2}"
+    else
+        term="${1}"
+    fi
+    result=$(ls ${CUSTOM_BIN_DIR} | grep -qw "${term}")
+    # Is not a function
+    if [ $? -eq 1 ]; then
+        if [[ "${arg}" == "--exact" ]]; then
+            grep -w export "${FILE}" | awk '{$1="export"; print $0}' | grep -iFw "${term}"
+            grep -w alias "${FILE}" | awk '{$1="alias"; print $0}' | grep -iFw "${term}"
+            ls ${CUSTOM_BIN_DIR}* | while read line; do
+                cat ${CUSTOM_BIN_DIR}/${line} | grep -qiFw "${term}" && cat ${CUSTOM_BIN_DIR}/${line} | grep -iFw "${term}" | xargs -I {} bash -c "echo -e '{} ${COLOR_RED}(${line})${COLOR_RESET}'"
+            done
+        else
+            grep -w export "${FILE}" | awk '{$1="export"; print $0}' | grep -iF "${term}"
+            grep -w alias "${FILE}" | awk '{$1="alias"; print $0}' | grep -iF "${term}"
+            ls ${CUSTOM_BIN_DIR}* | while read line; do
+                cat ${CUSTOM_BIN_DIR}/${line} | grep -qiF "${term}" && cat ${CUSTOM_BIN_DIR}/${line} | grep -iF "${term}" | xargs -I {} bash -c "echo -e '{} ${COLOR_RED}(${line})${COLOR_RESET}'"
+            done
+        fi
+    else
+        # Is a function
+        FULL_PATH=${CUSTOM_BIN_DIR}/${term}
+        if [[ "${arg}" == "--inexact" ]] && ls ${FULL_PATH}* &> /dev/null; then
+            ls ${FULL_PATH}* | while read line; do
+                cat ${line}
+            done
+        else
+            [ -e ${FULL_PATH} ] && cat ${FULL_PATH}
+        fi
+    fi
+else
+    echo "usage: $(basename "${0}") [-e|--exact|-i|--inexact] <term>"
+fi

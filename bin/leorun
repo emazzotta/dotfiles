@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -e
+
+export LEONARDO_PROJECTS=/Users/emanuelemazzotta/Projects/leo-productions
+export JAVA_LIBRARY_PATH=$LEONARDO_PROJECTS/leonardo/leonardo-leonardo/target/natives.mac
+
+cd $LEONARDO_PROJECTS/leonardo
+mvn clean compile
+cd $LEONARDO_PROJECTS/leonardo/leonardo-resources
+mvn -f $LEONARDO_PROJECTS/leonardo/pom.xml exec:java -pl leonardo-leonardo -Dexec.mainClass='ifactory.leonardo.model.LeonardoApplication'

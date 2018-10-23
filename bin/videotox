@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import subprocess
+import sys
+from glob import glob
+
+
+def convert_video(input_file, output_format, output_path, delete_original):
+    filename, _ = os.path.splitext(os.path.basename(input_file))
+    if output_path:
+        output_file = f"{output_path}/{filename}.{output_format}"
+    else:
+        output_file = f"./{filename}.{output_format}"
+
+    if os.path.exists(output_file):
+        print(f"Output file '{output_file}' already exists, skipping...")
+        return
+
+    video_codec = {
+        'mp4': 'libx264',
+        'mkv': 'libx264',
+        'webm': 'libvpx-vp9',
+        'mpg': 'mpeg2video'
+    }.get(output_format)
+
+    audio_codec = {
+        'mp4': 'aac',
+        'mkv': 'aac',
+        'webm': 'libvorbis',
+        'mpg': 'mp2'
+    }.get(output_format)
+
+    if not video_codec or not audio_codec:
+        print(f"Error: Unsupported output format '{output_format}'")
+        sys.exit(1)
+
+    # Construct ffmpeg command
+    command = ["ffmpeg", "-i", input_file, "-c:v", video_codec, "-c:a", audio_codec, "-crf", "18", output_file]
+    subprocess.run(command, check=True)
+
+    if delete_original:
+        os.remove(input_file)
+        print(f"Original file '{input_file}' deleted.")
+
+    return output_file
+
+
+def get_video_files(directory):
+    video_extensions = ['mp4', 'mkv', 'webm', 'mpg']
+    video_files = []
+    for extension in video_extensions:
+        video_files.extend(glob(f"{directory}/**/*.{extension}", recursive=True))
+    return video_files
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Convert video files.')
+    parser.add_argument('-i', '--input', required=True, help='The video file or directory of video files to convert.')
+    parser.add_argument('-f', '--format', required=True, dest='output_format',
+                        help='The format of the output video file.')
+    parser.add_argument('-d', '--delete', action='store_true', help='Delete the original file(s) after conversion.')
+    parser.add_argument('-o', '--output-path', help='Path where to save the converted file(s).')
+
+    args = parser.parse_args()
+
+    if os.path.isfile(args.input):
+        input_files = [args.input]
+    elif os.path.isdir(args.input):
+        input_files = get_video_files(args.input)
+    else:
+        print(f"Error: Input '{args.input}' not found!")
+        sys.exit(1)
+
+    converted_files = []
+    for input_file in input_files:
+        converted_files.append(convert_video(input_file, args.output_format, args.output_path, args.delete))
+    print('\n'.join([f"Conversion complete: '{x}'" for x in converted_files if x]))
+
+
+if __name__ == "__main__":
+    main()

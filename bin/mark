@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if ! test "${2}"; then
+    echo "usage: $(basename "${0}") <score> <maximum> [<granted extra points>]"
+elif ! test "${3}"; then
+    mark ${1} ${2} 0
+else
+    python3 -c "print(f'{((${1}+${3})/float(${2}))*5.0+1}')"
+fi

@@ -1,0 +1,7 @@
+#!/bin/bash
+
+if test "${1}"; then
+    python3 -c "print(f'{float(${1})} miles = {round(float(${1}*1.609344), 2)} km')"
+else
+    echo "usage: $(basename "${0}") <miles>"
+fi

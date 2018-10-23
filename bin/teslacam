@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if test "${1}"; then
+    source "${VENV_PYTHON_3}/bin/activate"
+    tesla_dashcam --timestamp_format '%d.%m.%Y %H:%M:%S' --rear --output ${HOME}/Desktop/TeslaSentry ${1}
+    deactivate
+else
+    echo "usage: $(basename "${0}") <source>"
+fi

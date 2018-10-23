@@ -1,0 +1,57 @@
+{
+  "editor.fontFamily": "Hack Nerd Font, Menlo, Monaco, 'Courier New', monospace",
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 500,
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "typescript.suggest.paths": false,
+  "workbench.editorAssociations": {
+    "*.ipynb": "jupyter-notebook"
+  },
+  "aws.profile": "profile:mikafi",
+  "C_Cpp.updateChannel": "Insiders",
+  "notebook.cellToolbarLocation": {
+    "default": "right",
+    "jupyter-notebook": "left"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "vscode.typescript-language-features"
+  },
+  "editor.suggestSelection": "first",
+  "vsintellicode.modify.editor.suggestSelection": "automaticallyOverrodeDefaultValue",
+  "files.exclude": {
+    "**/.classpath": true,
+    "**/.factorypath": true,
+    "**/.project": true,
+    "**/.settings": true
+  },
+  "json.schemas": [],
+  "[html]": {
+    "editor.defaultFormatter": "vscode.html-language-features"
+  },
+  "workbench.startupEditor": "none",
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "editor.suggest.showMethods": true,
+  "editor.suggest.preview": true,
+  "editor.acceptSuggestionOnEnter": "on",
+  "editor.snippetSuggestions": "top",
+  "editor.multiCursorModifier": "ctrlCmd",
+  "files.maxMemoryForLargeFilesMB": 8192,
+  "redhat.telemetry.enabled": false,
+  "editor.tabSize": 2,
+  "git.autofetch": true,
+  "git.openRepositoryInParentFolders": "always",
+  "python.defaultInterpreterPath": "/Users/emanuelemazzotta/.venv/python-3-venv",
+  "explorer.confirmDelete": false,
+  "yaml.schemas": {
+    "/Users/emanuelemazzotta/.vscode/extensions/continue.continue-1.0.19-darwin-arm64/config-yaml-schema.json": [
+      ".continue/**/*.yaml"
+    ]
+  }
+}

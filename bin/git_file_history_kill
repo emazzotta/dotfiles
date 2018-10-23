@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if test "${1}"; then
+    git filter-branch --index-filter "git rm -rf --cached --ignore-unmatch ${@}" HEAD
+else
+    echo "usage: $(basename "${0}") <files to abolish from this git repo>"
+fi
+

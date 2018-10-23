@@ -1,0 +1,77 @@
+#!/bin/bash
+
+namespace="personal-homepage"
+deployment="deployment/personal-homepage-file-server-deployment"
+
+print_help() {
+    echo "Usage: $(basename "$0") <command> [options]"
+    echo "Commands:"
+    echo "  list                    List all files"
+    echo "  remove <file> [files]   Remove one or more files"
+    echo "  upload <file> [files]   Upload one or more files"
+    echo "  download <file> [files] Download one or more files"
+    echo ""
+    echo "Examples:"
+    echo "  $(basename "$0") list"
+    echo "  $(basename "$0") remove file1.txt file2.txt"
+    echo "  $(basename "$0") upload file1.txt file2.txt"
+    echo "  $(basename "$0") download file1.txt file2.txt"
+}
+
+list_files() {
+    kubectl -n $namespace exec -ti $deployment -- /bin/sh -c "cd /app && ls -al"
+}
+
+remove_files() {
+    if [ "$#" -lt 1 ]; then
+        echo "usage: $(basename "$0") remove <file> [files...]"
+        exit 1
+    fi
+    kubectl -n $namespace exec -ti $deployment -- /bin/sh -c "cd /app && rm -rf $@"
+}
+
+upload_files() {
+    if [ "$#" -lt 1 ]; then
+        echo "usage: $(basename "$0") upload <file> [files...]"
+        exit 1
+    fi
+    for file in "$@"; do
+        kubectl -n $namespace cp "$file" $(kubectl get pod -n $namespace | grep file-server | awk '{print $1}'):/app/
+    done
+}
+
+download_files() {
+    if [ "$#" -lt 1 ]; then
+        echo "usage: $(basename "$0") download <file> [files...]"
+        exit 1
+    fi
+    for file in "$@"; do
+        kubectl -n $namespace cp $(kubectl get pod -n $namespace | grep file-server | awk '{print $1}'):/app/"$file" .
+    done
+}
+
+case "$1" in
+    list)
+        list_files
+        ;;
+    remove)
+        shift
+        remove_files "$@"
+        ;;
+    upload)
+        shift
+        upload_files "$@"
+        ;;
+    download)
+        shift
+        download_files "$@"
+        ;;
+    -h|--help)
+        print_help
+        ;;
+    *)
+        echo "Invalid command: $1"
+        print_help
+        exit 1
+        ;;
+esac

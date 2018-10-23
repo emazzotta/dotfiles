@@ -1,0 +1,10 @@
+#!/bin/bash
+
+if test "${1}"; then
+	for i in $(seq 0 ${1} 7000); do
+		zip -r $i.zip $(ls -rt | tail -n+$i | head -n ${1})
+	done
+else
+    echo "usage: $(basename "${0}") <amount of files>"
+fi
+

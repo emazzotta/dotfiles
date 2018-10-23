@@ -1,0 +1,10 @@
+#!/bin/bash
+
+function fuzzy_find_path() {
+    result=$(find "${1}" -mindepth 2 -maxdepth 2 -type d | fzf -f "${2}" | head -n 1)
+    test "${result}" && echo "${result}" || echo "${1}"
+}
+
+test "${argv}" && \
+    cd $(fuzzy_find_path "${WDIR}" "${argv}") || \
+    echo $(fuzzy_find_path "${WDIR}" "${1}")

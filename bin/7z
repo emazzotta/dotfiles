@@ -1,0 +1,3 @@
+#!/bin/bash
+
+/Applications/Keka.app/Contents/MacOS/Keka --cli 7zz "${@}"

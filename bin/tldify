@@ -1,0 +1,8 @@
+#!/bin/bash
+
+echo "${1}.ch"
+echo "${1}.com"
+echo "${1}.io"
+echo "${1}.me"
+echo "${1}.net"
+echo "${1}.gmbh"

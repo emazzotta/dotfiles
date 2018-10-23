@@ -1,0 +1,4 @@
+#!/bin/bash
+
+source "$GLOBAL_ENV_FILE"
+gist -u "${RECOMMENDED_READINGS_GIST_ID}" "${RECOMMENDED_READINGS}" # gist --login

@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -e
+
+if test "${1}"; then
+    output_file="${1%.*}.pdf"
+    echo "Converting to ${output_file}"...
+    magick "${1}" "${output_file}"
+else
+    echo "usage: $(basename "${0}") <input_file>"
+fi

@@ -1,0 +1,26 @@
+#!/bin/bash
+
+source "$GLOBAL_ENV_FILE"
+
+rm -rf "${GITDUMMYDIR}/repos.json"
+REPOS=`echo -e $(for dir in $(find "${WDIR}" -maxdepth 2 -type d -o -type l);do if [ -e "${dir}/.git" ] && [[ "${dir}" != *"private-commits"* ]];then printf '"%s",' ${dir};fi;done)`
+REPOS=`echo $REPOS| sed '$s/,$//'`
+printf '
+[
+    {
+        "target_repo" : [%s],
+        "target_email" : [ %s ],
+        "dummy_repo" : "%s",
+        "dummy_repo_data" : "%s/data",
+        "dummy_email" : "%s",
+        "dummy_name" : "Emanuele Mazzotta",
+        "dummy_readme" : "A repo, to transcribe my commits to private GitHub and Gitlab repos",
+        "dummy_ext" : ".py",
+        "dummy_code" : "# coding: utf8",
+        "hide_commits" : true,
+        "random_file_name" : true,
+        "auto_push" : true,
+        "force" : true,
+        "remote" : "https://github.com/emazzotta/private-commits"
+    }
+]' "${REPOS}" "${ALL_EMAILS}" "${PRIVATECOMMITSDIR}" "${PRIVATECOMMITSDIR}" "${PRIMARY_EMAIL}" > "${GITDUMMYDIR}/repos.json"

@@ -1,0 +1,3 @@
+#!/bin/bash
+
+backup_restore_util 1

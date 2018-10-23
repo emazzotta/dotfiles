@@ -1,0 +1,36 @@
+#!/bin/bash
+
+if ! test "${TM_USER}"; then
+    echo "TM_USER is not set"
+    exit 1
+fi
+
+echo
+echo "Creating TeslaMate Database Backup"
+
+FILE_NAME="$(date +%Y-%m-%dT%H-%M-%S).sql"
+RSYNC_PARAMS="-avurP"
+BACKUP_DIR="${WDIR}/private/infrastructure/backup/teslamate"
+SERVER_BACKUP_DIR=/teslamate
+LOCAL_BACKUP_PATH="${BACKUP_DIR}/${FILE_NAME}"
+SERVER_BACKUP_PATH="${SERVER_BACKUP_DIR}/${FILE_NAME}"
+NAMESPACE=teslamate-mazzotta
+DEPLOYMENT=deployment/teslamate-mazzotta-db-deployment
+
+$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -i -- apt update -y > /dev/null 2>&1
+$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -i -- apt install rsync -y > /dev/null 2>&1
+$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -- mkdir -p ${SERVER_BACKUP_DIR}
+$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -- pg_dump -U ${TM_USER} -d ${TM_USER} -f ${SERVER_BACKUP_PATH}
+rsync ${RSYNC_PARAMS} --rsh="$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -i -- " --blocking-io --rsync-path="${SERVER_BACKUP_DIR}" rsync:${SERVER_BACKUP_PATH} ${BACKUP_DIR} > /dev/null 2>&1
+$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -- rm -r ${SERVER_BACKUP_DIR}
+
+if [[ $? == 0 ]]; then
+    echo "SET session_replication_role = 'replica';" | cat - "${LOCAL_BACKUP_PATH}" > temp && echo "SET session_replication_role = 'origin';" >> temp && mv -f temp "${LOCAL_BACKUP_PATH}"
+    tmbackupverify "${LOCAL_BACKUP_PATH}"
+    echo "Backup SUCCESS (${LOCAL_BACKUP_PATH})"
+    cd "${BACKUP_DIR}" && ls -1t | grep sql | tail -n +3 | xargs rm
+else
+    echo "Backup FAILED"
+fi
+echo
+

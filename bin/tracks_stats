@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -e
+
+function stats() {
+    echo -n "Tracks #: "
+    find "$1" -type f -name "*.mp3" -or -name "*.wav" -maxdepth 3 | wc -l | xargs
+    echo -n "Size:     "
+    du -sh $1 | awk '{print $1}'
+}
+
+stats "$DJ_TRACKS"

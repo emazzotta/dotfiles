@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -e
+
+if test "${1}"; then
+    parameters="${@}"
+    python -c "import urllib.parse;print(urllib.parse.unquote('${parameters}'))"
+else
+    echo "usage: $(basename "${0}") <string to decode>"
+fi
+

@@ -1,0 +1,28 @@
+#!/bin/bash
+
+if test "${1}"; then
+    PATTERN="${1}"
+    while read line; do
+        echo "${line}" | [[ "${line}" =~ ${PATTERN} ]] && echo -ne "FOUND\t\t" || echo -ne "NOT FOUND\t"
+        echo "${line}"
+done <<< "bla
+dsf.sdf
+adf.fds.fds
+1.bla.bla
+1.bla
+1.1.1.1
+1.1.x.x
+1.1.x.a
+1.1.a
+feature/bla
+bugfix/bla
+1.1.1
+1.1.x
+1.x
+2.1.x
+2.x
+22.22.x"
+else
+    echo "usage: $(basename "${0}") <pattern>"
+    echo "example: $(basename "${0}") \"^[0-9]+.([0-9]+|x)(.[0-9]+|.x)?$\""
+fi

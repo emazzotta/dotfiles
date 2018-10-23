@@ -1,0 +1,13 @@
+#!/bin/bash
+
+if [[ -e .git ]]; then
+    if test "${1}"; then
+        speed="${1}"
+    else
+        speed=.5
+    fi
+    project_name=$(basename "${PWD}")
+    gource -s ${speed} -1280x720 --auto-skip-seconds .1 --multi-sampling --stop-at-end --key --highlight-users --hide mouse,progress --file-idle-time 0 --max-files 0 --background-colour 000000 --font-size 22 --title "${project_name}" --output-ppm-stream - --output-framerate 30 | avconv -y -r 30 -f image2pipe -vcodec ppm -i - -b 65536K "${project_name}.mp4"
+else
+    echo "This is not a git directory"
+fi

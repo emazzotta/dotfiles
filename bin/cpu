@@ -1,0 +1,4 @@
+#!/bin/bash
+
+export CORES=$(sysctl -n hw.ncpu)
+ps -axro pcpu | awk '{sum+=$1} END {print "scale=2; " sum " / " ENVIRON["CORES"]}' | bc -l | xargs -I {} echo "{}%"

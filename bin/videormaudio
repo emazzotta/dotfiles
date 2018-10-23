@@ -1,0 +1,13 @@
+#!/bin/bash
+
+set -e
+
+if test "${1}"; then
+    input_file="${1}"
+    extension=${1#*.}
+    name="${1%%.*}"
+    output_file="${name}_no_audio.${extension}"
+    ffmpeg -i $input_file -vcodec copy -an $output_file
+else
+    echo "usage: $(basename "${0}") <input_file>"
+fi

@@ -1,0 +1,34 @@
+#!/bin/bash
+
+DIR=$(dirname "$0")
+VS_CODE_DIR="${HOME}/Library/Application Support/Code/User"
+
+mkdir -p "${VS_CODE_DIR}"
+
+backup_file() {
+    local file=$1
+    [[ -f "$file" ]] && mv "$file" "$file.bak"
+}
+
+backup_file ~/.bash_profile
+backup_file ~/.sdkman/etc/config
+backup_file ~/.zshrc
+
+stow -d "${DIR}" -t "${HOME}" bash
+stow -d "${DIR}" -t "${HOME}" emacs
+stow -d "${DIR}" -t "${HOME}" git
+stow -d "${DIR}" -t "${HOME}" gpg
+stow -d "${DIR}" -t "${HOME}" karabiner
+stow -d "${DIR}" -t "${HOME}" kerberos
+stow -d "${DIR}" -t "${HOME}" lftp
+stow -d "${DIR}" -t "${HOME}" maven
+stow -d "${DIR}" -t "${HOME}" powershell
+stow -d "${DIR}" -t "${HOME}" sdkman
+stow -d "${DIR}" -t "${HOME}" ssh
+stow -d "${DIR}" -t "${HOME}" sshrc
+stow -d "${DIR}" -t "${HOME}" subversion
+stow -d "${DIR}" -t "${HOME}" tmux
+stow -d "${DIR}" -t "${HOME}" vim
+stow -d "${DIR}" -t "${HOME}" zsh
+stow -d "${DIR}" -t "${HOME}/.zprezto/modules/prompt/functions/" zsh_theme
+stow -d "${DIR}" -t "${VS_CODE_DIR}" vscode

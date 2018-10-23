@@ -1,0 +1,13 @@
+#!/bin/bash
+
+if [[ $# -eq 0 ]]; then
+    echo "Usage: $(basename "$0") <port1> <port2> <port3> ..."
+    exit 1
+fi
+
+for port in "$@"; do
+    echo "Checking port $port:"
+    lsof -i tcp:"$port"
+    echo
+done
+

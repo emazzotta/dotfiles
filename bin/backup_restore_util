@@ -1,0 +1,102 @@
+#!/bin/bash
+
+display_disks() {
+    echo "Available disks:"
+    diskutil list
+}
+
+backup_disk() {
+    mode="Backup"
+
+    echo
+    echo "==> [${mode} Mode] selected."
+    echo
+
+    local disk="$1"
+    local img_path="$2"
+
+    if [ -z "$disk" ]; then
+        display_disks
+        echo "Enter the disk identifier to backup (e.g., disk2):"
+        read disk
+    fi
+
+    if [ -z "$img_path" ]; then
+        default_path="$HOME/Desktop/backup.img"
+        echo "Enter the path for the output img file or press Enter to use the default [$default_path]:"
+        read img_path
+        img_path=${img_path:-$default_path}
+    fi
+
+    echo "Starting backup..."
+    sudo dd if=/dev/r$disk of="$img_path" bs=4m status=progress && sync && echo "${mode} completed."
+}
+
+restore_disk() {
+    mode="Restore"
+
+    echo
+    echo "==> [${mode} Mode] selected."
+    echo
+
+    local disk="$1"
+    local img_path="$2"
+
+    if [ -z "$disk" ]; then
+        display_disks
+        echo "Enter the disk identifier to restore (e.g., disk2):"
+        read disk
+    fi
+
+    if [ -z "$img_path" ]; then
+        default_path="$HOME/Desktop/backup.img"
+        echo "Enter the path of the img file to restore from or press Enter to use the default [$default_path]:"
+        read img_path
+        img_path=${img_path:-$default_path}
+    fi
+
+    echo "Starting restore..."
+    sudo dd of=/dev/r$disk if="$img_path" bs=4m status=progress && sync && echo "${mode} completed."
+}
+
+print_help() {
+    echo "Usage: $(basename $0) [option] [disk identifier] [img path]"
+    echo "Options:"
+    echo "  1   Backup disk to IMG"
+    echo "  2   Restore disk from IMG"
+    echo "  3   Exit"
+    echo "  -h, --help   Display this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $(basename $0) 1 disk2 /path/to/backup.img   Backup disk2 to specified image file"
+    echo "  $(basename $0) 2 disk2 /path/to/backup.img   Restore disk2 from specified image file"
+    echo "  $(basename $0) --help   Display usage information"
+}
+
+if [ "$#" -eq 0 ]; then
+    print_help
+    echo
+    read -p "Enter option: " choice
+else
+    choice="$1"
+fi
+
+case $choice in
+    1)
+        backup_disk $2 $3
+        ;;
+    2)
+        restore_disk $2 $3
+        ;;
+    3)
+        exit 0
+        ;;
+    -h|--help)
+        print_help
+        ;;
+    *)
+        echo "Invalid option."
+        print_help
+        exit 0
+        ;;
+esac

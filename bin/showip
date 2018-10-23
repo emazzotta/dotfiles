@@ -1,0 +1,31 @@
+#!/bin/bash
+
+if [[ "$@" == "" ]]; then
+    ${0} -h
+fi
+for i in "$@"
+do
+case $i in
+    -i|--internal)
+        ifconfig | grep -Eo 'inet (Adresse:|address:|addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1'
+    ;;
+    -e|--external)
+        curl -fSsL --ipv4 ifconfig.co
+    ;;
+    -u|--update)
+        echo "Updating..."
+        bash < <(curl -fsSL https://raw.githubusercontent.com/emazzotta/showip/master/install.sh)
+    ;;
+    -h|--help)
+        echo "Usage: $(basename ${0}) [-e] [-i] [-u]"
+        echo "Help: Show external or internal IP address."
+        echo "Options:"
+        echo "  -i, --internal    Show internal IP address." 
+        echo "  -e, --external    Show external IP address."
+        echo "  -u, --update      Update this script."
+    ;;
+    *)
+        echo -e "Unrecognized parameter: ${i}\nTry '$(basename ${0}) --help'"
+    ;;
+esac
+done

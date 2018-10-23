@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -e
+
+if test "${1}"; then
+    input_file="${1}"
+    output_file="${input_file%.*}_spectrogram.png"
+   sox "${input_file}" -n spectrogram -o "${output_file}"
+    # ffmpeg -i "${input_file}" -lavfi showspectrumpic=s=800x400:scale=lin:legend=enabled:color=moreland:saturation=1:fscale=log -y "${output_file}"
+else
+    echo "usage: $(basename "${0}") <audio file>"
+fi

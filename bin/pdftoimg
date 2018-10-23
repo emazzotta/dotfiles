@@ -1,0 +1,22 @@
+#!/bin/bash
+
+set -e
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <PDF file>"
+    exit 1
+fi
+
+PDF_FILE="$1"
+
+if [ ! -f "$PDF_FILE" ]; then
+    echo "Error: File '$PDF_FILE' not found."
+    exit 1
+fi
+
+IMAGE_NAME="${PDF_FILE%.pdf}.png"
+
+convert -density 300 "$PDF_FILE" -quality 100 "$IMAGE_NAME"
+
+echo "Conversion complete: $IMAGE_NAME"
+

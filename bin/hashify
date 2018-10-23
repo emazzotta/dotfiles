@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+
+import argparse
+import hashlib
+import os
+import sys
+
+
+def hash_data(algorithm, data):
+    try:
+        hasher = hashlib.new(algorithm)
+        hasher.update(data)
+        return hasher.hexdigest()
+    except ValueError:
+        print(f"Error: Unsupported algorithm '{algorithm}'")
+        sys.exit(1)
+
+
+def print_output(algorithm, input_type, input_data, hash_result):
+    print(f"Algorithm: {algorithm}")
+    print(f"Input: '{input_data}' [{input_type}]")
+    print(f"Hash: {hash_result}")
+
+
+def main():
+    algorithms = ', '.join(sorted(hashlib.algorithms_available))
+    parser = argparse.ArgumentParser(
+        description=f"Hash text or file content using specified algorithm. Supported algorithms are: {algorithms}")
+    parser.add_argument('-f', '--file', action='store_true', help="Indicate the input should be treated as a file path")
+    parser.add_argument('input', type=str, help="The input text or file path")
+    parser.add_argument('algorithm', type=str, help="The hash algorithm to use")
+
+    args = parser.parse_args()
+
+    if args.file:
+        if not os.path.isfile(args.input):
+            print(f"Error: File not found: {args.input}")
+            sys.exit(1)
+        with open(args.input, 'rb+') as file:
+            input_data = file.read()
+        input_type = 'file'
+    else:
+        input_data = args.input
+        input_type = 'raw text'
+
+    hash_result = hash_data(args.algorithm, input_data)
+    print_output(args.algorithm, input_type, args.input, hash_result)
+
+
+if __name__ == "__main__":
+    main()

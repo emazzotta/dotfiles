@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -e
+
+export CODER_HOME="/home/coder"
+
+docker run -it --rm --name code-server -p 127.0.0.1:8080:8080 \
+  -v "$HOME/.config:$CODER_HOME/.config" \
+  -v "$WDIR:$CODER_HOME/project" \
+  -v "$HOME/.bashrc:$CODER_HOME/.bashrc" \
+  -u "$(id -u):$(id -g)" \
+  -e "DOCKER_USER=$USER" \
+  codercom/code-server:latest
+

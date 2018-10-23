@@ -1,0 +1,39 @@
+#!/bin/bash
+
+DEFAULT_COMPRESSION_LEVEL=${DEFAULT_COMPRESSION_LEVEL:-5}
+
+if ! test "${1}" || [[ "${1}" == "--help" ]] || [[ "${1}" == "-h" ]]; then
+    echo "usage: $(basename "${0}") <folder>.extension"
+    echo "usage: $(basename "${0}") <name>.extension <file/folder> [file/folder] ..."
+    echo "help : -h, --help"
+    exit 1
+fi
+
+name=${1}
+extension=${1#*.}
+if ! test "${2}"; then
+    compressee="${1%%.*}"
+else
+    shift
+    compressee="${@}"
+fi
+
+echo "Archive to create: ${name}"
+echo "Archive contents: ${compressee}"
+echo "Compression level (if applicable): ${DEFAULT_COMPRESSION_LEVEL}"
+echo
+echo "=============================================="
+echo
+case "${extension}" in
+    *tar.bz2) tar cvjf "${name}" ${compressee} ;;
+    *tar.gz) tar cvzf "${name}" ${compressee} ;;
+    *bz2) bzip2 "${name}" ${compressee} ;;
+    *rar) rar c "${name}" ${compressee} ;;
+    *gz) gzip "${name}" ${compressee} ;;
+    *tar) tar cvf "${name}" ${compressee} ;;
+    *tbz2) tar cvjf "${name}" ${compressee} ;;
+    *tgz) tar cvzf "${name}" ${compressee} ;;
+    *zip) zip -r "${name}" ${compressee} ;;
+    *7z) 7z a -mx=$DEFAULT_COMPRESSION_LEVEL "${name}" ${compressee} ;;
+    *) echo "don't know '${extension}'..." ;;
+esac

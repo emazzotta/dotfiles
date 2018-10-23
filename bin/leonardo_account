@@ -1,0 +1,42 @@
+#!/bin/bash
+
+export AD_ACCOUNT="emanuele.mazzotta" # Change this to your account!
+export AD_PASSWORD_NAME="LeonardoActiveDirectory:$AD_ACCOUNT"
+
+export VPN_SHARED_SECRET_NAME="LeonardoVPNSecret"
+
+export NETWORK_DRIVE_FOLDER="Daten"
+export NETWORK_DRIVE_SERVER_IP=192.168.5.155
+export NETWORK_DRIVE_FULL_URL="smb://$AD_ACCOUNT@$NETWORK_DRIVE_SERVER_IP/$NETWORK_DRIVE_FOLDER"
+export NETWORK_DRIVE_MOUNT_POINT="$HOME/$NETWORK_DRIVE_FOLDER"
+
+export VM_DRIVE_MOUNT_POINT="smb://admin@192.168.5.7:4445/Devserver-Windows-VM"
+
+get_keychain_password() {
+    local keychain_account=$1
+    local keychain_password_name=$2
+    PASSWORD=$(security find-generic-password -a "$keychain_account" -s "$keychain_password_name" -w 2>/dev/null)
+    if [ -z "$PASSWORD" ]; then
+        add_password_to_keychain "$keychain_account" "$keychain_password_name"
+        PASSWORD=$(get_keychain_password "$keychain_account" "$keychain_password_name")
+    fi
+    echo "$PASSWORD"
+}
+
+add_password_to_keychain() {
+    local keychain_account=$1
+    local keychain_password_name=$2
+    if ! security find-generic-password -a "$keychain_account" -s "$keychain_password_name" &>/dev/null; then
+        read -s -r -p "Enter password for $keychain_password_name: " PASSWORD
+        echo
+        security add-generic-password -a "$keychain_account" -s "$keychain_password_name" -w "$PASSWORD"
+    else
+        echo "Password already exists in the Keychain. No need to add it."
+    fi
+}
+
+AD_PASSWORD="$(get_keychain_password "$AD_ACCOUNT" "$AD_PASSWORD_NAME")"
+export AD_PASSWORD
+
+VPN_SHARED_SECRET="$(get_keychain_password "$VPN_SHARED_SECRET_NAME" "VPN:$VPN_SHARED_SECRET_NAME")"
+export VPN_SHARED_SECRET

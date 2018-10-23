@@ -1,0 +1,54 @@
+#!/bin/bash
+
+source leonardo_account
+
+VPN_NAME="LeonardoVPN"
+SERVER_ADDRESS="vpn.leonardo.ag"
+
+is_leonardo_vpn_configured() {
+    scutil --nc list | grep -q "$VPN_NAME"
+    return $?
+}
+
+is_leonardo_vpn_connected() {
+    if ! is_leonardo_vpn_configured; then
+        create_vpn_config
+    fi
+    is_leonardo_vpn_configured && scutil --nc status "$VPN_NAME" | grep -qw "Connected"
+    return $?
+}
+
+create_vpn_config() {
+    if ! command -v macosvpn >/dev/null 2>&1; then
+        echo "macosvpn is not installed. install via 'brew install macosvpn'"
+        exit 1
+    fi
+    echo "Creating VPN configuration with macosvpn..."
+    if sudo macosvpn create --l2tp "$VPN_NAME" --endpoint "$SERVER_ADDRESS" --username "$AD_ACCOUNT" --password "$AD_PASSWORD" --sharedsecret "$VPN_SHARED_SECRET"; then
+        echo "$VPN_NAME VPN configuration created successfully."
+    else
+        echo "Failed to create VPN configuration."
+        return 1
+    fi
+}
+
+connect_or_disconnect_vpn() {
+    if is_leonardo_vpn_connected && [ "$1" != "--enable" ]; then
+        read -r -p "$VPN_NAME is connected. Disconnect? (y/N): " user_input
+        case $user_input in
+            [Yy])
+                echo "Disconnecting $VPN_NAME..."
+                umount "$NETWORK_DRIVE_MOUNT_POINT" &> /dev/null
+                scutil --nc stop "$VPN_NAME"
+                ;;
+            *)
+                echo "No changes made. VPN remains connected."
+                ;;
+        esac
+    elif [ "$1" != "--disable" ]; then
+        echo "Connecting to $VPN_NAME..."
+        scutil --nc start --secret "$VPN_SHARED_SECRET" "$VPN_NAME"
+    fi
+}
+
+connect_or_disconnect_vpn "$1"

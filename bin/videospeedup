@@ -1,0 +1,48 @@
+#!/bin/bash
+
+set -e
+
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <input_video> <speed_up_factor>" >&2
+    exit 1
+fi
+
+input_video="$1"
+speed_up_factor="$2"
+
+if ! [[ "$speed_up_factor" =~ ^[0-9]+([.][0-9]+)?$ ]] || (( $(echo "$speed_up_factor <= 0" | bc -l) )); then
+    echo "Error: Speed up factor must be a positive number." >&2
+    exit 1
+fi
+
+output_video="sped_up_$input_video"
+has_audio=$(ffmpeg -i "$input_video" 2>&1 | grep -c "Audio:")
+
+if (( $(echo "$speed_up_factor > 2.0" | bc -l) )); then
+    atempo_count=$(echo "l($speed_up_factor)/l(2)" | bc -l)
+    atempo_count=${atempo_count%.*}
+else
+    atempo_count=1
+fi
+
+atempo_filter="atempo=2.0"
+for ((i=1; i<atempo_count; i++)); do
+    atempo_filter="$atempo_filter,atempo=2.0"
+done
+
+final_atempo=$(echo "$speed_up_factor / (2 ^ $atempo_count)" | bc -l)
+if (( $(echo "$final_atempo != 1.0" | bc -l) )); then
+    atempo_filter="$atempo_filter,atempo=$final_atempo"
+fi
+
+if [ "$has_audio" -gt 0 ]; then
+    ffmpeg_command="ffmpeg -i \"$input_video\" -filter_complex \"[0:v]setpts=PTS/${speed_up_factor}[v];[0:a]$atempo_filter[a]\" -map \"[v]\" -map \"[a]\" \"$output_video\""
+else
+    ffmpeg_command="ffmpeg -i \"$input_video\" -filter:v \"setpts=PTS/${speed_up_factor}\" -an \"$output_video\""
+fi
+
+eval $ffmpeg_command || { echo "ffmpeg command failed" >&2; exit 1; }
+
+echo "Video successfully sped up by factor of $speed_up_factor."
+echo "Output video: $output_video"
+

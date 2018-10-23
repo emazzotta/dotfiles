@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if [ -e "${CRONTAB_FILE}" ]; then
+    vi "${CRONTAB_FILE}"
+    sudo crontab -u ${USER} ${CRONTAB_FILE}
+else
+    crontab -e
+fi

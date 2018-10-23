@@ -1,0 +1,26 @@
+#!/bin/bash
+
+set -euo pipefail
+
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <plugin-name> <target-version>"
+    exit 1
+fi
+
+PLUGIN_NAME=$1
+TARGET_VERSION=$2
+ESCAPED_PLUGIN_NAME=$(echo "$PLUGIN_NAME" | sed 's/\//\\\//g')
+
+FILES=$(find "$(pwd)" -type f -path "*/.github/workflows/*" -name "*.yml" -maxdepth 5)
+
+for file in $FILES; do
+    # Check if the file contains the plugin name with a version different from TARGET_VERSION
+    if grep -q "${ESCAPED_PLUGIN_NAME}@[a-zA-Z0-9_.-]*" "$file" && ! grep -q "${ESCAPED_PLUGIN_NAME}@${TARGET_VERSION}" "$file"; then
+        # Perform the replacement
+        sed -i '' "s/${ESCAPED_PLUGIN_NAME}@[a-zA-Z0-9_.-]*/${ESCAPED_PLUGIN_NAME}@${TARGET_VERSION}/g" "$file"
+        echo "Updated $file"
+    fi
+done
+
+echo "Replacement process completed."
+

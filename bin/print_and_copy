@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if test "${1}"; then
+    echo -ne "${1}" | pbcopy
+    echo "${1}"
+    echo "(Copied to clipboard!)"
+else
+    echo "usage: $(basename "${0}") <string>"
+fi

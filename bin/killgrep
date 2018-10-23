@@ -1,0 +1,32 @@
+#!/bin/bash
+
+set -e
+
+if [ "$1" == "" ]; then
+    echo "Usage: $0 <substring>"
+    exit 1
+fi
+
+# Finding the processes
+processes=$(pgrep -fl "$1")
+
+if [ "$processes" == "" ]; then
+    echo "No processes found with substring '$1'"
+    exit 1
+fi
+
+echo "Found processes:"
+echo "$processes"
+
+# Confirming the action
+read -p "Are you sure you want to kill these processes? (y/n) " -n 1 -r
+echo    # (optional) move to a new line
+if [[ $REPLY =~ ^[Yy]$ ]]
+then
+    # Killing the processes
+    pkill -f "$1"
+    echo "Processes killed."
+else
+    echo "Operation cancelled."
+fi
+

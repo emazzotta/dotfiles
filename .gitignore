@@ -1,0 +1,17 @@
+!**/.gnupg/gpg-agent.conf
+!**/.gnupg/gpg.conf
+!**/.m2/settings.xml
+!**/.ssh/config
+**/.gnupg/**
+**/.m2/**
+**/.ssh/**
+*.dat
+*.db
+*.tar.gz
+.DS_Store
+.env
+.idea
+cache
+email
+keys
+node_modules

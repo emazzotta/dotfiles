@@ -1,0 +1,58 @@
+#!/bin/bash
+
+FILE_REGEX=""
+PATTERN=""
+FILE_GIVEN=false
+SEARCH_PATH="."
+
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        -r|--file-regex)
+            FILE_REGEX="$2"
+            FILE_GIVEN=true
+            shift
+            ;;
+        -p|--path)
+            SEARCH_PATH="$2"
+            shift
+            ;;
+        -h|--help)
+            PATTERN=""
+            shift
+            ;;
+        *)
+            if [ -z "$PATTERN" ]; then
+                PATTERN="$1"
+            else
+                PATTERN="$PATTERN $1"
+            fi
+            ;;
+    esac
+    shift
+done
+
+if [ -z "$PATTERN" ]; then
+    echo "usage: $(basename "${0}") [-r <filename regex>] [-p <path>] <pattern>"
+    exit 1
+fi
+
+echo "Searching for files and content matching pattern: '$PATTERN'"
+
+if [ "$FILE_GIVEN" = true ]; then
+    echo "Files matching the filename pattern:"
+    echo 
+    find "$SEARCH_PATH" -type f -iname "*$FILE_REGEX*" -print
+    echo
+    echo "Content matches within files matching the filename pattern:"
+    echo
+    find "$SEARCH_PATH" -type f -iname "*$FILE_REGEX*" -exec ag --hidden "$PATTERN" '{}' +
+else
+    echo "Files matching the filename pattern:"
+    echo
+    find "$SEARCH_PATH" -type f -iname "*$PATTERN*" -print
+    echo
+    echo "Content matches within all files:"
+    echo
+    ag --hidden "$PATTERN" "$SEARCH_PATH"
+fi
+

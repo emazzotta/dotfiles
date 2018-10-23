@@ -1,0 +1,22 @@
+#!/bin/bash
+
+set -e
+
+source "$GLOBAL_ENV_FILE"
+
+EXTRACTION_PATH="${DESKDIR}/data.txt"
+[[ ! -f "${EXTRACTION_PATH}" ]] && 7z x "${ZIPS_DIR}/data.txt.7z" -p"${PASSWORD_ZIPS}" -o"${DESKDIR}"
+
+URL=$(cat "${EXTRACTION_PATH}" | tail -n+1 | head -n 1)
+LOG=$(cat "${EXTRACTION_PATH}" | tail -n+2 | head -n 1)
+rm -f "${EXTRACTION_PATH}"
+
+echo ${URL} | pbcopy && echo "Copied URL!"
+read -p "Press enter to continue"
+
+echo ${LOG} | pbcopy && echo "Copied LOG!"
+
+read -p "Press enter to read GPG to decrypt from Clipboard"
+CONTENT=$(gpd "$(pbpaste)" | head -n 2 | tail -n 1)
+echo ${CONTENT} | pbcopy && echo "Copied \"${CONTENT}\"!"
+

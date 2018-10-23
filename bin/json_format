@@ -1,0 +1,13 @@
+#!/bin/bash
+
+set -e
+
+if test "${1}"; then
+    if [[ "${1}" == "-c" || "${1}" == "--clipboard" ]]; then
+        pbpaste | jq | pbcopy
+    else
+        echo "${1}" | jq | pbcopy
+    fi
+else
+    echo "usage: $(basename "${0}") [-c/--clipboard] <json>"
+fi

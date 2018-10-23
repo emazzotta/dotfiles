@@ -1,0 +1,6 @@
+#!/bin/bash
+
+git push --set-upstream origin "$(git symbolic-ref --short HEAD)"
+if git config remote.mirror.url > /dev/null; then
+    git push mirror
+fi

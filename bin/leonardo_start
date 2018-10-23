@@ -1,0 +1,30 @@
+#!/bin/bash
+
+HOST="devserver.leonardo.local"
+MAX_TRIES=2
+
+is_host_reachable() {
+    ping -c 1 $HOST > /dev/null 2>&1
+    return $?
+}
+
+leonardo_account
+
+if is_host_reachable; then
+  leonardo_vpn_toggle --disable
+else
+  leonardo_vpn_toggle --enable
+fi
+
+for (( i=0; i<MAX_TRIES; i++ )); do
+    if is_host_reachable; then
+        echo "Leonardo network is reachable."
+        leonardo_kerberos
+        leonardo_drive
+        exit 0
+    fi
+    sleep 1
+done
+
+echo "$HOST is not reachable after $MAX_TRIES attempts."
+exit 1

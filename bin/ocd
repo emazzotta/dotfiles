@@ -1,0 +1,16 @@
+#!/bin/bash
+
+source "${CUSTOM_BIN_DIR}/prettyprint"
+
+info "Performing obsessive compulsive disorder task..."
+
+substep_info "Pushing dotfiles..."
+cd "${DOTFILESPATH}" && gacp "Update $(git status -s | awk '{print $2}' | sed 's/\/.*$/,/g' | sort | uniq |  tr '\n' ' ' | sed 's/, $//g')" &> /dev/null && substep_success "Dotfiles pushed."
+[ $? -ne 0  ] && substep_error "Failed to push dotfiles!"
+
+substep_info "Transcribing commits..."
+create_repos_json
+cd "${GITDUMMYDIR}" && ./gitdummy.py &> /dev/null && substep_success "Commits transcribed."
+[ $? -ne 0  ] && substep_error "Failed to transcribe commits!"
+
+success "Done."

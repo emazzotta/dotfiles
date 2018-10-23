@@ -1,0 +1,19 @@
+#!/bin/bash
+
+
+if ! test "${1}"; then
+    echo "usage: $(basename "${0}") <text> [signature_user]"
+    exit 1
+fi
+
+TEMP_FILE=$(mktemp)
+echo "${1}" > "${TEMP_FILE}"
+if test "${2}"; then
+    gpg -u "${2}" --clearsign "${TEMP_FILE}"
+else
+    gpg --clearsign "${TEMP_FILE}"
+fi
+cat "${TEMP_FILE}.asc"
+rm "${TEMP_FILE}"	
+rm "${TEMP_FILE}.asc"
+

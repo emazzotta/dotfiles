@@ -1,0 +1,112 @@
+#!/usr/bin/env python
+
+import glob
+import os
+import subprocess
+import sys
+import time
+
+import requests
+
+TZ = os.getenv("TZ", "Europe/Zurich")
+NOTION_API = os.getenv('NOTION_API', 'https://www.notion.so/api/v3')
+HOME_DIRECTORY = os.getenv('HOME')
+DOWNLOAD_PATH = f"{HOME_DIRECTORY}/Desktop/"
+NOTION_SPACE_ID = os.getenv('NOTION_SPACE_ID')
+NOTION_TOKEN_V2 = os.getenv('NOTION_TOKEN_V2')
+NOTION_EXPORT_PATH = os.getenv('NOTION_EXPORT_PATH')
+
+
+def post_request(endpoint, params):
+    url = f"{NOTION_API}/{endpoint}"
+    headers = {
+        "content-type": "application/json",
+        "cookie": f"token_v2={NOTION_TOKEN_V2};",
+    }
+    response = requests.post(url, headers=headers, json=params)
+    response.raise_for_status()
+    return response.json()
+
+
+def create_export():
+    task_id = post_request("enqueueTask", ENQUEUE_TASK_PARAM).get("taskId")
+    print(f"Enqueued task {task_id}")
+
+    while True:
+        time.sleep(2)
+        tasks = post_request("getTasks", {"taskIds": [task_id]}).get("results")
+        task = next((t for t in tasks if t.get("id") == task_id), None)
+
+        if task and task.get("state") == "success":
+            break
+        print(f'\rPages exported: {task.get("status").get("pagesExported")}', end="")
+
+    # Was removed from API: task.get("status").get("exportURL")
+    if task.get("state") != "success":
+        print(f"\nExport creation failed!")
+        return
+
+    print(f"\nExport created! Download it!")
+
+
+def download_export(export_url, target_path):
+    print(f"Export URL: {export_url}")
+    print(f"Download path: {DOWNLOAD_PATH}")
+    subprocess.run(["open", "-a", "Arc", export_url])
+
+    exported_files = glob.glob(f"{DOWNLOAD_PATH}/*[Ee]xport*.zip")
+    while not exported_files:
+        time.sleep(1)
+        exported_files = glob.glob(f"{DOWNLOAD_PATH}/*[Ee]xport*.zip")
+        print("Waiting for download to complete...")
+
+    export_file = max(exported_files, key=os.path.getctime)
+    print(f"Moving {export_file} to {target_path}")
+    os.rename(export_file, target_path)
+    return target_path
+
+
+def wait_for_manual_download():
+    while True:
+        response = input("Did you download the export? (y/N): ").strip().lower()
+        if response in {"y", "yes"}:
+            print("Continuing...")
+            break
+        else:
+            print("Please download the export before continuing.")
+
+
+ENQUEUE_TASK_PARAM = {
+    "task": {
+        "eventName": "exportSpace",
+        "request": {
+            "spaceId": NOTION_SPACE_ID,
+            "exportOptions": {
+                "exportType": "html",
+                "timeZone": TZ,
+                "locale": "en"
+            }
+        }
+    }
+}
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Must pass expected filename")
+        sys.exit(1)
+
+    target_filename = sys.argv[1]
+    exported_files = glob.glob(f"{DOWNLOAD_PATH}/*[Ee]xport*.zip")
+
+    if not exported_files:
+        create_export()
+        wait_for_manual_download()
+        # downloaded_file = download_export(created_export_url, target_filename)
+    else:
+        downloaded_file = max(exported_files, key=os.path.getctime)
+        print(f"Found existing export file: {downloaded_file}")
+        if NOTION_EXPORT_PATH:
+            new_path = os.path.join(DOWNLOAD_PATH, NOTION_EXPORT_PATH)
+            os.rename(downloaded_file, new_path)
+            downloaded_file = new_path
+            print(f"Renamed to {downloaded_file}")

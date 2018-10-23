@@ -1,0 +1,41 @@
+#!/bin/bash
+
+source "${CUSTOM_BIN_DIR}/prettyprint"
+
+info "Checking for unfinished svn work."
+
+dir="${WDIR}"
+test "${1}" && dir="${1}"
+
+function has_remote_access() {
+    local remote_url="$1"
+    curl -k --silent --head --connect-timeout 5 "$remote_url" &> /dev/null || return 1
+}
+
+function has_svn_access() {
+    local svn_url=$(svn info "$1" --show-item repos-root-url 2>/dev/null) || return 1
+    has_remote_access "$svn_url" || return 1
+}
+
+find "${dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
+    if [ -d "${dir}/.svn" ]; then
+        echo -n "."
+        if [[ "$(svn status "${dir}")" != "" ]]; then
+            echo 
+            substep_info "${dir} [svn uncommitted changes]"
+            svn status "${dir}"
+        fi
+        if ! has_svn_access "${dir}"; then
+            substep_error "No access to remote for ${dir}"
+            continue
+        elif [[ "$(svn diff -r BASE:HEAD "${dir}")" != "" ]]; then
+            echo
+            substep_info "${dir} [svn local modifications]"
+            echo -e "$(svn diff -r BASE:HEAD "${dir}")"
+        fi
+    fi
+done
+
+echo
+success "Done."
+

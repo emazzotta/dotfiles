@@ -1,0 +1,9 @@
+#!/bin/bash
+
+test -f "${DOTFILESPATH}/.env" && source "${DOTFILESPATH}/.env"
+
+if test "${1}"; then
+    http --body "https://api.telegram.org/bot${1}/getUpdates"
+else
+    "${0}" "${TELEGRAM_FILE_BOT_KEY}"
+fi

@@ -1,0 +1,9 @@
+#!/bin/bash
+
+set -e
+
+if test "${1}"; then
+    ssh-keygen -y -f "${1}" > "${1}".pub
+else
+    echo "usage: $(basename "${0}") <key>"
+fi

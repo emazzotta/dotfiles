@@ -1,0 +1,6 @@
+#!/bin/bash
+
+git add --all
+parameters="${@:1:$#-1}"
+commit_message="${@: -1}"
+git commit ${parameters} -m "$(first_capitalize "${commit_message}")"

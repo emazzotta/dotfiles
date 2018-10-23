@@ -1,0 +1,53 @@
+#!/bin/bash
+
+set -e
+
+# Check if the required number of arguments are passed
+if [ "$#" -ne 3 ]; then
+    echo "Usage: $(basename $0) <branch_name> <older_commit_x> <recent_commit_y>"
+    echo "Squashes all commits from older_commit_x (inclusive) to recent_commit_y (inclusive)."
+    exit 1
+fi
+
+BRANCH_NAME=$1
+COMMIT_X=$2
+COMMIT_Y=$3
+
+# Check if temp_squash_branch exists and delete it if it does
+if git show-ref --verify --quiet refs/heads/temp_squash_branch; then
+  git branch -D temp_squash_branch
+fi
+
+# Checkout to the branch specified
+git checkout $BRANCH_NAME
+
+# Create a temporary branch from COMMIT_Y
+git checkout -b temp_squash_branch $COMMIT_Y
+
+# Get the commit before COMMIT_X to start squashing from COMMIT_X itself
+COMMIT_BEFORE_X=$(git rev-parse $COMMIT_X~1)
+
+# Get the number of commits between COMMIT_BEFORE_X and COMMIT_Y
+NUM_COMMITS=$(git rev-list --count $COMMIT_BEFORE_X..$COMMIT_Y)
+
+# Squash the commits using the method from your script
+# Start squashing from the second commit in the range
+GIT_SEQUENCE_EDITOR="sed -i -re '2,${NUM_COMMITS}s/^pick/squash/'" git rebase -i $COMMIT_BEFORE_X
+
+# Switch back to the original branch
+git checkout $BRANCH_NAME
+
+# Use git merge to combine the changes, retaining commits after COMMIT_Y up to HEAD
+git merge temp_squash_branch
+
+# Delete the temporary branch
+git branch -D temp_squash_branch
+
+# Ask the user if they want to push the changes
+read -p "Do you want to push the changes? (y/N): " response
+if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+    git push origin $BRANCH_NAME
+else
+    echo "Changes not pushed. You can push them manually whenever you're ready."
+fi
+

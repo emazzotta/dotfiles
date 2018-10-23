@@ -1,0 +1,7 @@
+#!/bin/bash
+
+if test "${1}"; then
+    curl https://keybase.io/${1}/key.asc | gpg --import
+else
+    echo "usage: $(basename "${0}") <keybase.io username>"
+fi

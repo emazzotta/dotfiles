@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if test "${1}"; then
+    input_file="${1}"
+    output_file="${input_file%.*}.mp3"
+    ffmpeg -i "${input_file}" -vn "${output_file}" # Explicitly drop video
+else
+    echo "usage: $(basename "${0}") <video_file>"
+fi
