@@ -1,0 +1,3 @@
+#!/bin/bash
+
+find . -name '*' -and -not -path '*/.git/*' -and -not -path '*/.svn/*' -and -not -path '*/.idea/*' -and -not -path '*/logs/*' -and -not -path '*/target/*' -and -not -path '*/node_modules/*' -and -not -path '*/.next/*' -and -not -path '*/bower_components*/*' -and -not -path '*/venv/*' -and -not -path '*/res/*' -and -not -name '*.jar' -type f -and -not -name '*.class' -type f -and -not -name '*.pyc' -type f -exec sloccount --personcost 120000 {} +

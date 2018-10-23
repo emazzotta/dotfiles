@@ -1,0 +1,7 @@
+#!/bin/bash
+
+if test "${1}"; then
+    python3 -c "print(f'{float(${1})}°C = {round(float(${1})*9/5+32, 2)}°F')"
+else
+    echo "usage: `basename ${0}` <celsius>"
+fi

@@ -1,0 +1,18 @@
+#!/bin/bash
+
+if test "${1}"; then
+    domain="${1}"
+    open "https://observatory.mozilla.org/analyze.html?host=${domain}"
+    open "https://securityheaders.io/?q=${domain}"
+    open "https://developers.google.com/speed/pagespeed/insights/?hl=de&url=${domain}"
+    open "https://search.google.com/search-console/mobile-friendly?url=${domain}"
+    open "https://www.webpagetest.org/?url=${domain}"
+    open "http://ipv6-test.com/validate.php?url=${domain}"
+    open "https://tools.keycdn.com/http2-test?url=${domain}"
+    open "https://jigsaw.w3.org/css-validator/validator?uri=${domain}"
+    open "https://validator.w3.org/nu/?doc=${domain}"
+    open "http://wave.webaim.org/report#/${domain}"
+    open "https://sonarwhal.com/scanner/"
+else
+    echo "usage: `basename ${0}` <domain>"
+fi

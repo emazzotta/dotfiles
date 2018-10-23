@@ -1,0 +1,12 @@
+Host *
+   AddKeysToAgent yes
+   IdentityFile ~/.ssh/id_rsa
+   ServerAliveInterval 60
+   ServerAliveCountMax 10
+
+Host 10.0.99.*
+    User emanuele.mazzotta
+    ProxyCommand ssh -W %h:%p jump.domain.com 2>/dev/null
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+

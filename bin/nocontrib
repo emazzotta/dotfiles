@@ -1,0 +1,9 @@
+#!/bin/bash
+
+for dir in $(find . -maxdepth 3 -mindepth 1); do
+    if [ -e "${dir}/.git" ]; then
+        if [ $(git -C ${dir} log | grep Emanuele | wc -l) -eq 0 ]; then
+            echo "No git contributions in: ${dir}"
+        fi
+    fi
+done

@@ -1,0 +1,178 @@
+#!/bin/bash
+
+curl https://sh.rustup.rs -sSf | sh
+curl -s "https://get.sdkman.io" | bash
+ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+brew tap buo/cask-upgrade
+brew tap cloudfoundry/tap
+brew cask install adobe-acrobat-reader
+brew cask install alfred
+brew cask install android-platform-tools
+brew cask install daisydisk
+brew cask install docker
+brew cask install expo-xde
+brew cask install filezilla
+brew cask install firefox
+brew cask install google-backup-and-sync
+brew cask install gpgtools
+brew cask install harvest
+brew cask install inkscape
+brew cask install intellij-idea
+brew cask install iterm2
+brew cask install java
+brew cask install java-jdk-javadoc
+brew cask install karabiner-elements
+brew cask install keka
+brew cask install libreoffice
+brew cask install microsoft-office
+brew cask install ngrok
+brew cask install notion
+brew cask install paw
+brew cask install postico
+brew cask install postman
+brew cask install rar
+brew cask install slack
+brew cask install spotify
+brew cask install teamviewer
+brew cask install tunnelblick
+brew cask install typora
+brew cask install virtualbox
+brew cask install vlc
+brew cask install wireshark
+brew cask install xquartz
+brew install adr-tools
+brew install aria2
+brew install asciinema
+brew install atool
+brew install awscli
+brew install awslogs
+brew install bash-completion
+brew install cf-cli
+brew install clang-format
+brew install clojure
+brew install cmake
+brew install ctags
+brew install curl --with-c-ares
+brew install diff-so-fancy
+brew install duti
+brew install emacs
+brew install emojify
+brew install ffmpeg
+brew install fzf
+brew install gcc
+brew install gist
+brew install git
+brew install git-crypt
+brew install gnu-sed --with-default-names
+brew install gnupg
+brew install golang
+brew install gource # Git Video
+brew install gpg-agent
+brew install graphviz
+brew install grep --with-default-names
+brew install gs
+brew install heroku
+brew install htop
+brew install httpie
+brew install icdiff
+brew install imagemagick # SVGify
+brew install jq
+brew install kubectl
+brew install libav # Git Video
+brew install macvim
+brew install maven
+brew install mono
+brew install mpv
+brew install mycli
+brew install ncdu
+brew install nmap
+brew install npm
+brew install openconnect
+brew install openvpn
+brew install p7zip
+brew install pdfgrep
+brew install potrace # SVGify
+brew install prettyping
+brew install progress
+brew install python3
+brew install reattach-to-user-namespace
+brew install sloccount
+brew install socat
+brew install sshrc
+brew install telnet
+brew install the_silver_searcher
+brew install tig
+brew install tldr
+brew install tmux
+brew install tree
+brew install vim --with-python@2 --with-override-system-vi
+brew install watch
+brew install watchman
+brew install zsh
+curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.33.8/install.sh | bash
+sudo defaults write -g InitialKeyRepeat -int 20
+sudo defaults write -g KeyRepeat -int 2
+sudo defaults write /Library/Preferences/com.apple.TimeMachine RequiresACPower -bool false
+sudo defaults write /Library/Preferences/com.apple.loginwindow LoginwindowText "If found please return to Emanuele Mazzotta - Call +41787055667"
+sudo defaults write com.apple.BluetoothAudioAgent "Apple Bitpool Min (editable)" -int 40
+sudo defaults write com.apple.Safari IncludeDevelopMenu -bool true
+sudo defaults write com.apple.Safari InstallExtensionUpdatesAutomatically -bool true
+sudo defaults write com.apple.Safari SendDoNotTrackHTTPHeader -bool true
+sudo defaults write com.apple.Safari WebKitDeveloperExtrasEnabledPreferenceKey -bool true
+sudo defaults write com.apple.Safari com.apple.Safari.ContentPageGroupIdentifier.WebKit2DeveloperExtrasEnabled -bool true
+sudo defaults write com.apple.SoftwareUpdate AutomaticCheckEnabled -bool true
+sudo defaults write com.apple.SoftwareUpdate AutomaticDownload -int 1
+sudo defaults write com.apple.SoftwareUpdate CriticalUpdateInstall -int 1
+sudo defaults write com.apple.SoftwareUpdate ScheduleFrequency -int 1
+sudo defaults write com.apple.commerce AutoUpdate -bool true
+gem install bundler
+gem install github-pages
+gem install rails
+gem install rake
+gem install travis
+gem pristine nokogiri
+git clone https://github.com/tarjoilija/zgen.git "${HOME}/.zgen"
+ln -sf /usr/local/bin/pip3 /usr/local/bin/pip
+ln -sf /usr/local/bin/python3 /usr/local/bin/python
+npm install -g --engine-strict @sonarwhal/sonar
+npm install -g cash-cli
+npm install -g eslint
+npm install -g exp
+npm install -g npx
+npm install -g react-native-cli
+npm install -g yarn
+pip install --upgrade pip
+pip install autopep8
+pip install awscli
+pip install bpython
+pip install virtualenv
+pip install x_x
+sudo crontab -u ${USER} ${CRONTAB_FILE}
+sudo dscl . -append /Groups/admin GroupMembership ${USER}
+sudo scutil --set HostName Emanuele-Machine
+sudo scutil --set LocalHostName Emanuele-Machine
+sudo scutil --set ComputerName Emanuele-Machine
+sudo xcode-select --install
+# sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+generate_git
+filedefaults
+git clone https://github.com/amix/vimrc.git ${HOME}/.vim_runtime
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/vim-airline/vim-airline
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/Valloric/YouCompleteMe.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/OmniSharp/omnisharp-vim.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/editorconfig/editorconfig-vim.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/mattn/emmet-vim.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/ap/vim-css-color.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/tpope/vim-dispatch.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/Glench/Vim-Jinja2-Syntax.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/junegunn/fzf.vim.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/benmills/vimux.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/tomlion/vim-solidity.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/jceb/vim-orgmode.git
+git -C "${HOME}/.vim_runtime/sources_non_forked/YouCompleteMe" submodule update --init --recursive
+git -C "${HOME}/.vim_runtime/sources_non_forked/omnisharp-vim" submodule update --init --recursive
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/OmniSharp/omnisharp-server.git
+git -C "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" submodule update --init --recursive
+cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" && xbuild || true
+cd "${HOME}/.vim_runtime/sources_non_forked/YouCompleteMe" \
+    && ./install.py --clang-completer --gocode-completer --tern-completer --omnisharp-completer || true

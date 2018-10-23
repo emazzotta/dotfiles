@@ -1,0 +1,10 @@
+#!/bin/bash
+
+DIRS_TO_CHECK=$(find "${WDIR}" -maxdepth 2 -type d)
+DIRS_TO_CHECK+=$(find "${WDIR}/3ap" -maxdepth 2 -type d)
+for dir in ${DIRS_TO_CHECK}; do
+    if [ -d "${dir}/.git" ]; then
+        gckdir "${dir}"
+    fi
+done
+echo "Check repositories done."

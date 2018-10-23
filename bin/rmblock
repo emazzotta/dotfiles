@@ -1,0 +1,4 @@
+#!/bin/bash
+
+sudo sed -ie "s/^127.0.0.1 ${*}$//g" /etc/hosts
+sudo sed -ie "/^$/d" /etc/hosts

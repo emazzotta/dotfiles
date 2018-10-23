@@ -1,0 +1,25 @@
+#!/bin/bash
+
+dir="${1}"
+if ! test "${1}"; then
+    dir="."
+fi
+echo "Checking git status of ${dir}"
+if [[ "$(git -C "${dir}" status -s)" != "" ]]; then
+    echo
+    echo ">> ${dir}"
+    echo "[NOK] git uncommitted changes"
+    git -C "${dir}" status -s
+fi
+if [[ "$(git -C "${dir}" log --branches --not --remotes)" != "" ]]; then
+    echo
+    echo ">> ${dir}"
+    echo "[NOK] git unpushed changes"
+    echo -e "$(git -C "${dir}" log --pretty=format:"%h - %an, %ar: %s%n" --branches --not --remotes)"
+fi
+if [ "$(git -C "${dir}" stash list)" != "" ]; then
+    echo
+    echo ">> ${dir}"
+    echo "[NOK] git stashed changes"
+    git -C "${dir}" stash list
+fi

@@ -1,0 +1,4 @@
+#!/bin/bash
+
+ag --filename-pattern "${*}" .
+ag -Q "${*}" .
