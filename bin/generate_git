@@ -1,0 +1,30 @@
+#!/bin/bash
+
+git config --global alias.graphlog "log --graph --full-history --all --color --pretty=format:'%x1b[33m%h%x09%C(blue)(%ar)%C(reset)%x09%x1b[32m%d%x1b[0m%x20%s%x20%C(dim white)-%x20%an%C(reset)'"
+git config --global alias.squash '!f(){ git reset --soft HEAD~${1} && git commit --edit -m"$(git log --format=%B --reverse HEAD..HEAD@{1})"; };f'
+git config --global branch.master.rebase true
+git config --global color.diff-highlight.newHighlight "green bold 22"
+git config --global color.diff-highlight.newNormal "green bold"
+git config --global color.diff-highlight.oldHighlight "red bold 52"
+git config --global color.diff-highlight.oldNormal "red bold"
+git config --global color.diff.commit "227 bold"
+git config --global color.diff.frag "magenta bold"
+git config --global color.diff.meta "227"
+git config --global color.diff.new "green bold"
+git config --global color.diff.old "red bold"
+git config --global color.diff.whitespace "red reverse"
+git config --global color.ui true
+git config --global commit.gpgsign true
+git config --global core.autocrlf input
+git config --global core.editor /usr/local/bin/vim
+git config --global core.excludesfile "${HOME}/.global_gitignore"
+git config --global core.filemode true
+git config --global core.pager "diff-so-fancy | less --tabs=4 -RFX"
+git config --global core.precomposeunicode true
+git config --global core.quotepath true
+git config --global pull.rebase true
+git config --global push.default simple
+git config --global user.name "Emanuele Mazzotta"
+git config --global remote.origin.prune true
+git config --global user.email mazzotta.emanuele@gmail.com
+git config --global user.signingkey 73EB5C8CAC4297A8

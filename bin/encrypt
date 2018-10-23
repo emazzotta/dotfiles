@@ -1,0 +1,7 @@
+#!/bin/bash
+
+if test "${2}"; then
+    python -c "import hashlib;print(hashlib.${1}('${2}'.encode('UTF-8')).hexdigest())"
+else
+    echo "usage: `basename ${0}` <encryption> <text>"
+fi

@@ -1,0 +1,18 @@
+#!/bin/bash
+
+if test "${1}"; then
+    FULL_PATH="${CUSTOM_BIN_DIR}/${1}"
+    if [ -e "${FULL_PATH}" ]; then
+        vi "${FULL_PATH}"
+    else
+    	echo -n "The file \"${1}\" doesn't exist. Do you want to create \"${1}\" (Y/n)? "
+    	read -r answer
+    	if echo "${answer}" | grep -viq "^n"; then
+        	printf "#!/bin/bash" > "${FULL_PATH}"
+        	chmod +x "${FULL_PATH}"
+        	vi "${FULL_PATH}"
+		fi
+    fi
+else
+    echo "usage: `basename ${0}` <custom binary to edit>"
+fi

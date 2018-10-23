@@ -1,0 +1,4 @@
+#!/bin/bash
+
+nc my.server.com 60000 < input.txt
+nc -l 60000 > outout.txt

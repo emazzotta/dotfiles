@@ -1,0 +1,76 @@
+set clipboard=unnamed
+set autoindent
+set autoread
+set cindent
+set expandtab
+set foldlevelstart=3
+set mouse=n
+set number
+set relativenumber
+set rtp+=/usr/local/bin/fzf
+set smartindent
+set smarttab
+set tabstop=4
+set shiftwidth=4
+autocmd FileType javascript setlocal shiftwidth=2 tabstop=2
+autocmd FileType json setlocal shiftwidth=2 tabstop=2
+autocmd FileType html setlocal shiftwidth=2 tabstop=2
+autocmd FileType yaml setlocal shiftwidth=2 tabstop=2
+set ttymouse=xterm2
+retab
+
+set statusline+=%#warningmsg#
+set statusline+=%{SyntasticStatuslineFlag()}
+set statusline+=%*
+let g:syntastic_always_populate_loc_list = 1
+let g:syntastic_auto_loc_list = 1
+let g:syntastic_check_on_open = 1
+let g:syntastic_check_on_wq = 0
+let g:AutoPairsShortcutToggle = 0
+"let g:syntastic_javascript_checkers = ['eslint']
+"let g:syntastic_javascript_eslint_exe = 'yarn lint --'
+
+nmap j gj
+nmap k gk
+nmap \w :setlocal wrap!<cr>:setlocal wrap?<cr>
+nmap <silent> <leader>r :so $MYVIMRC<cr>
+nmap <silent> <leader>q :q!<cr>
+nmap <silent> <leader>w :w!<cr>
+nmap <silent> <leader>i :set paste <bar> :startinsert<cr>
+
+map <leader>bn :bn<cr>
+map <leader>bp :bp<cr>
+map <leader>nn :NERDTreeToggle<cr>
+map <leader>n :NERDTreeFocus<cr>
+map <D-c> :w !pbcopy<cr>
+map <D-v> :r !pbpaste<cr>
+map <leader>vp :VimuxPromptCommand<cr>
+map <leader>vl :VimuxRunLastCommand<cr>
+map <leader>vc :VimuxCloseRunner<cr>
+nmap <silent> <leader>x :x<cr>
+
+nmap <silent> <leader>sfn :set guifont=Meslo\ LG\ M\ for\ Powerline:h14<cr> 
+nmap <silent> <leader>sfp :set guifont=Meslo\ LG\ M\ for\ Powerline:h32<cr> 
+nmap <silent> <leader>eh :e ~/.bash_history<cr>
+nmap <silent> <leader>zh :e ~/.zsh_history<cr>
+nmap <silent> <leader>ze :e ~/.zshrc<cr>
+nmap <silent> <leader>ep :e ~/.<cr>
+nmap <silent> <leader>ve :e ~/.vim_runtime/my_configs.vim<cr>
+nmap <silent> <leader>ggi :e ~/.global_gitignore<cr>
+nmap <silent> <leader>etm :e ~/.tmux.conf.local<cr>
+nmap <silent> <leader>zt :e ~/.oh-my-zsh/custom/themes/honukai.zsh-theme<cr>
+
+noremap <leader>s :SyntasticCheck<cr>
+noremap <leader>st :SyntasticToggleMode<cr>
+nnoremap <leader>as :let g:toggle_autosave = !get(g:, 'toggle_autosave', 0)<cr> <bar> :echo "Autosave:" g:toggle_autosave?"on":"off"<cr>
+nnoremap <leader>p :CtrlPTag<cr>
+
+autocmd FileType python map <buffer> <F7> :call Flake8()<cr>
+autocmd TextChanged,TextChangedI <buffer> if get(g:, 'toggle_autosave', 1)|silent! wall|endif
+
+let g:airline_powerline_fonts = 1
+let g:toggle_autosave = 0
+let g:NERDTreeWinPos = "left"
+let g:user_emmet_leader_key='<tab>'
+let g:ycm_server_python_interpreter = '/usr/local/bin/python3'
+

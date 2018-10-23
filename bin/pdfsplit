@@ -1,0 +1,10 @@
+#!/bin/bash
+
+pages=$(gs -q -dNODISPLAY -c "("${1}") (r) file runpdfbegin pdfpagecount = quit" 2>/dev/null)
+counter=1
+while [ ${counter} -le ${pages} ] ; do
+    name="$(echo "${1}" | sed -e s/.pdf//g)_${counter}.pdf"
+    echo "Creating page [${counter}] with name [${name}]"
+    yes | gs -dBATCH -sOutputFile="${name}" -dFirstPage="${counter}" -dLastPage="${counter}" -sDEVICE=pdfwrite "${1}" >& /dev/null
+    counter=$((counter+1))
+done

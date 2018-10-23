@@ -1,0 +1,18 @@
+#!/bin/bash
+
+if test "${2}"; then
+    rotation=0
+    if [[ "${1}" == "right" ]]; then
+        rotation=1
+        elif [[ "${1}" == "left" ]]; then
+        rotation=2
+    else
+        ${0}
+        exit 1
+    fi
+    extension=${2#*.}
+    name=${2%%.*}
+    ffmpeg -i "${2}" -filter:v transpose=${rotation} -c:v libx264 -preset veryfast -crf 22 -c:a copy -metadata:s:v rotate="" ${name}_rotate.${extension}
+else
+    echo "usage: `basename ${0}` <right/left> <vid_name>"
+fi

@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if test "${2}"; then
+    curl -i https://git.io -F "url=${1}" -F "code=${2}"
+else
+    echo "usage: `basename ${0}` <github_url> <short_code>"
+    echo "example: gitio https://github.com/emazzotta emazzotta"
+fi

@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if test "${1}"; then
+    echo "${1%.*}.img"
+    hdiutil convert -format UDRW -o "${1%.*}.img" "${1}"
+    mv "${1%.*}.img.dmg" "${1%.*}.img"
+else
+    echo "usage: `basename ${0}` <iso file to convert>"
+fi

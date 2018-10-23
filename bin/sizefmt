@@ -1,0 +1,14 @@
+#!/bin/bash
+
+if test "${1}"; then
+    printf "\n
+def sizeof_fmt(num, suffix='B'):
+    for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+        if abs(num) < 1024.0:
+            return '%%3.1f%%s%%s' %% (num, unit, suffix)
+        num /= 1024.0
+    return '%%.1f%%s%%s' %% (num, 'Yi', suffix)
+print(sizeof_fmt(%s))" "${1}" | python3
+else
+    echo "You have to pass a number which will be converted to a human-readable size"
+fi

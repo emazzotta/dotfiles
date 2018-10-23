@@ -1,0 +1,1 @@
+/Users/emanuelemazzotta/.bash_profile

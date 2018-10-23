@@ -1,0 +1,11 @@
+#!/bin/bash
+
+if test "${1}"; then
+    name="${1}"
+    shift
+    javac "${name}"
+    java "${name%.*}" ${@}
+    /bin/rm -rf "${name%.*}.class"
+else
+    echo "Missing java file argument"
+fi

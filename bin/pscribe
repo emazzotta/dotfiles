@@ -1,0 +1,4 @@
+#!/bin/bash
+
+create_repos_json
+(cd ${GITDUMMYDIR} && ./gitdummy.py)

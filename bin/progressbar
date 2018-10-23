@@ -1,0 +1,20 @@
+#!/bin/bash
+
+if test "${4}"; then
+    current_progress="${1}"
+    max_progress="${2}"
+    progressbar_length="${3}"
+    progress_character="${4}"
+    if test "${5}"; then
+        progress_remaining_character="${5}"
+    else
+        progress_remaining_character=" "
+    fi
+    percentage=$(bc <<< "scale=10; 100/${max_progress}*${current_progress}")
+    progress=`printf %.0f "$(bc <<< "scale=10; ${percentage}/100*${progressbar_length}")"`
+    pad_filled=$(printf -v spaces '%*s' ${progressbar_length} ''; printf '%s\n' ${spaces// /${progress_character}})
+    pad_remaining=$(printf -v spaces '%*s' ${progressbar_length} ''; printf '%s\n' ${spaces// /${progress_remaining_character}})
+    printf "%-${progressbar_length}s" "${pad_filled:0:${progress}}${pad_remaining:${progress}}"
+else
+    echo "usage: `basename ${0}` <current_progress> <max_progress> <progressbar_length> <progress_character> [progress_remaining_character]"
+fi

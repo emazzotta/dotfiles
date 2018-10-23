@@ -1,0 +1,7 @@
+#!/bin/bash
+
+if [[ $(uname) == "Darwin" ]]; then
+    print_and_copy $(uuidgen)
+else
+    cat /proc/sys/kernel/random/uuid
+fi

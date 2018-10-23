@@ -1,0 +1,14 @@
+#!/bin/bash
+
+test -f "${DOTFILESPATH}/.env" && source "${DOTFILESPATH}/.env"
+
+if test "${3}"; then
+    echo "Sending message to ${2}..."
+    http --body "https://api.telegram.org/bot${3}/sendMessage" chat_id=="${2}" text=="${1}"
+elif test "${2}"; then
+    "${0}" "${1}" "${2}" "${TELEGRAM_FILE_BOT_KEY}"
+elif test "${1}"; then
+    "${0}" "${1}" "75804618" "${TELEGRAM_FILE_BOT_KEY}"
+else
+    echo "usage: `basename ${0}` <message> [user]"
+fi

@@ -1,0 +1,7 @@
+email
+.env
+passwords/.credentials/sheets.googleapis.com-python-quickstart.json
+*.dat
+.idea
+node_modules
+.DS_Store

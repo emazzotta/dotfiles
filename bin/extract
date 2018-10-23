@@ -1,0 +1,25 @@
+#!/bin/bash
+
+if [ -f "${1}" ] ; then
+    echo "archive to decompress: ${name}"
+    case "${1}" in
+        *.tar.bz2) tar xvjf "${1}" ;;
+        *.tar.gz) tar xvzf "${1}" ;;
+        *.bz2) bunzip2 "${1}" ;;
+        *.rar) rar x "${1}" ;;
+        *.gz) gunzip "${1}" ;;
+        *.tar) tar xvf "${1}" ;;
+        *.tbz2) tar xvjf "${1}" ;;
+        *.tgz) tar xvzf "${1}" ;;
+        *.zip) unzip "${1}" ;;
+        *.Z) uncompress "${1}" ;;
+        *.7z) /Applications/Keka.app/Contents/Resources/keka7z x "${1}" ;;
+        *) echo "don't know '${1}'..." ;;
+    esac
+elif ! test "${1}" || [[ "${1}" == "--help" ]] || [[ "${1}" == "-h" ]]; then
+    echo "usage: `basename ${0}` <file>"
+    echo "help :  -h, --help"
+else
+    echo "'${1}' is not a valid file/option!"
+    echo "usage: `basename ${0}`"
+fi

@@ -1,0 +1,26 @@
+#!/bin/bash
+
+rm -rf "${GITDUMMYDIR}/repos.json"
+REPOS=`echo -e $(for dir in $(find "${WDIR}" -maxdepth 2 -type d -o -type l);do if [ -e "${dir}/.git" ] && [[ "${dir}" != *"private-commits"* ]];then printf '"%s",' ${dir};fi;done)`
+REPOS+=`echo -e $(for dir in $(find "${WDIR}/3ap/adcubum" -maxdepth 2 -type d -o -type l);do if [ -e "${dir}/.git" ];then printf '"%s",' ${dir};fi;done)`
+REPOS+=`echo -e $(for dir in $(find "${DOTFILESPATH}" -maxdepth 1 -type d -o -type l);do if [ -e "${dir}/.git" ];then printf '"%s",' ${dir};fi;done)`
+REPOS=`echo $REPOS| sed '$s/,$//'`
+printf '
+[
+    {
+        "target_repo" : [%s],
+        "target_email" : [ "hello@mazzotta.me", "mazzotta.emanuele@gmail.com", "mazzoema@students.zhaw.ch", "emanuele.mazzotta@siroop.ch", "emanuele.mazzotta.developer@gmail.com" ],
+        "dummy_repo" : "%s",
+        "dummy_repo_data" : "%s/data",
+        "dummy_email" : "mazzotta.emanuele@gmail.com",
+        "dummy_name" : "Emanuele Mazzotta",
+        "dummy_readme" : "A repo, to transcribe my commits to private GitHub and Gitlab repos",
+        "dummy_ext" : ".py",
+        "dummy_code" : "# coding: utf8",
+        "hide_commits" : true,
+        "random_file_name" : true,
+        "auto_push" : true,
+        "force" : true,
+        "remote" : "https://github.com/emazzotta/private-commits"
+    }
+]' ${REPOS} ${PRIVATECOMMITSDIR} ${PRIVATECOMMITSDIR} > "${GITDUMMYDIR}/repos.json"
