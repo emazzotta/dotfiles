@@ -25,7 +25,6 @@ brew cask install karabiner-elements
 brew cask install keka
 brew cask install libreoffice
 brew cask install microsoft-office
-brew cask install ngrok
 brew cask install notion
 brew cask install paw
 brew cask install postico
