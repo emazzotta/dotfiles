@@ -189,7 +189,7 @@ alias hp='cd ${WDIR}/private/homepage;av;l'
 alias hrp='cd ${WDIR}/hackathons;l'
 alias hz='cd ${WDIR}/hackathons/sustineri;l'
 alias inf='cd ${WDIR}/private/infrastructure;l'
-alias infu='inf && u && ./cloudflare.py && gacp ${INFRASTRUCTURECOMMITMSG}'
+alias infu='inf && ./update && ./cloudflare.py && gacp ${INFRASTRUCTURECOMMITMSG}'
 alias isotoutf='iconv -f iso-8859-1 -t utf-8'
 alias j10="export JAVA_HOME=`/usr/libexec/java_home -v 10`; java -version"
 alias j11="export JAVA_HOME=`/usr/libexec/java_home -v 11`; java -version"
