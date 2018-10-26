@@ -1,12 +1,9 @@
 #!/bin/bash
 
 echo "Restoring dotfiles..."
-DOTFILES_DIR="${HOME}/dotfiles"
-
 while read line
 do
     echo "Restore ${line}.bak to $(readlink ${line})"
 	/bin/cp -Rf ${line}.bak $(readlink ${line})
-done < <(find ${DOTFILES_DIR} -name "*" -and -not -path "*.git*" -type l)
-
+done < <(find . -name "*" -and -not -path "*.git*" -type l)
 echo "Done."
