@@ -1,0 +1,9 @@
+#!/bin/bash-x
+
+repo_base=${WDIR}
+repo_path=$(find "${repo_base}" -mindepth 2 -maxdepth 2 -type d -name "*$argv*" | head -n 1)
+if ! test "$argv" || ! test "$repo_path"; then
+    cd "$repo_base"
+else
+    cd "$repo_path"
+fi

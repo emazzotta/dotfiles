@@ -22,5 +22,17 @@ _ef()
   COMPREPLY=($(compgen -W "${_ef_commands}" -- ${cur}))
   return 0
 }
+_repo() {
+  _repo_commands=""
+  for dir in $(find "${WDIR}" -mindepth 2 -maxdepth 2 -type d); do
+    _repo_commands+="$(basename ${dir}) "
+  done
+  local cur prev
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=($(compgen -W "${_repo_commands}" -- ${cur}))
+  return 0
+}
 complete -o nospace -F _agrep agrep
 complete -o nospace -F _ef ef
+complete -o nospace -F _repo repo
