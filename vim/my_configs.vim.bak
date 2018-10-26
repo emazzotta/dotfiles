@@ -8,6 +8,7 @@ set mouse=n
 set number
 set relativenumber
 set rtp+=/usr/local/bin/fzf
+set autoread
 set smartindent
 set smarttab
 set tabstop=4
@@ -30,8 +31,10 @@ let g:AutoPairsShortcutToggle = 0
 "let g:syntastic_javascript_checkers = ['eslint']
 "let g:syntastic_javascript_eslint_exe = 'yarn lint --'
 
-nmap j gj
 nmap k gk
+nmap j gj
+nmap <Up> gk
+nmap <Down> gj
 nmap \w :setlocal wrap!<cr>:setlocal wrap?<cr>
 nmap <silent> <leader>r :so $MYVIMRC<cr>
 nmap <silent> <leader>q :q!<cr>
@@ -48,17 +51,6 @@ map <leader>vp :VimuxPromptCommand<cr>
 map <leader>vl :VimuxRunLastCommand<cr>
 map <leader>vc :VimuxCloseRunner<cr>
 nmap <silent> <leader>x :x<cr>
-
-nmap <silent> <leader>sfn :set guifont=Meslo\ LG\ M\ for\ Powerline:h14<cr> 
-nmap <silent> <leader>sfp :set guifont=Meslo\ LG\ M\ for\ Powerline:h32<cr> 
-nmap <silent> <leader>eh :e ~/.bash_history<cr>
-nmap <silent> <leader>zh :e ~/.zsh_history<cr>
-nmap <silent> <leader>ze :e ~/.zshrc<cr>
-nmap <silent> <leader>ep :e ~/.<cr>
-nmap <silent> <leader>ve :e ~/.vim_runtime/my_configs.vim<cr>
-nmap <silent> <leader>ggi :e ~/.global_gitignore<cr>
-nmap <silent> <leader>etm :e ~/.tmux.conf.local<cr>
-nmap <silent> <leader>zt :e ~/.oh-my-zsh/custom/themes/honukai.zsh-theme<cr>
 
 noremap <leader>s :SyntasticCheck<cr>
 noremap <leader>st :SyntasticToggleMode<cr>

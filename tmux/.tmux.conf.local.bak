@@ -285,6 +285,8 @@ set -g default-command "reattach-to-user-namespace -l ${SHELL}"
 setw -g mode-keys vi
 setw -g mouse on
 setw -g monitor-activity on
+# vim focus config
+set -g focus-events on
 
 # Easy tmux buffer search/copy/paste
 bind -n C-s copy-mode \; send-key ?
