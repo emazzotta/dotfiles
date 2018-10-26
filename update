@@ -5,5 +5,5 @@ while read line
 do
     echo "Writing ${line} to ${line}.bak"
     cat ${line} > ${line}.bak
-done < <(find . -name "*" -and -not -path "*.git*" -type l)
+done < <(find . -name "*" -type l)
 echo "Done."
