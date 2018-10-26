@@ -293,6 +293,7 @@ alias zhaw='cd ${ZHAWDIR}/Classes;l'
 alias zhawconnect='sudo openconnect ras.zhaw.ch <<< $(echo "mazzoema\n`security find-generic-password -wa '\''mazzoema'\''`")'
 alias zm='cd ${WDIR}/zhaw/zhaw-material;l'
 alias zrp='cd ${WDIR}/zhaw;l'
+alias z='. ${CUSTOM_BIN_DIR}/z'
 ### COMMANDS ###
 test -f "${DOTFILESPATH}/.env" && source "${DOTFILESPATH}/.env"
 test -f "${DOTFILESPATH}/bin/colors" && source "${DOTFILESPATH}/bin/colors"
