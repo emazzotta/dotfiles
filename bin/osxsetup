@@ -155,19 +155,20 @@ sudo xcode-select --install
 # sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
 generate_git
 filedefaults
-git clone https://github.com/amix/vimrc.git ${HOME}/.vim_runtime
-git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/vim-airline/vim-airline
-git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/Valloric/YouCompleteMe.git
-git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/OmniSharp/omnisharp-vim.git
-git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/editorconfig/editorconfig-vim.git
-git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/mattn/emmet-vim.git
-git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/ap/vim-css-color.git
-git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/tpope/vim-dispatch.git
-git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/Glench/Vim-Jinja2-Syntax.git
-git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/junegunn/fzf.vim.git
-git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/benmills/vimux.git
-git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/tomlion/vim-solidity.git
-git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/jceb/vim-orgmode.git
+git clone --depth=1 https://github.com/amix/vimrc.git "${HOME}/.vim_runtime"
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/Glench/Vim-Jinja2-Syntax.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/OmniSharp/omnisharp-vim.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/Valloric/YouCompleteMe.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/ap/vim-css-color.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/benmills/vimux.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/editorconfig/editorconfig-vim.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/jceb/vim-orgmode.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/junegunn/fzf.vim.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/mattn/emmet-vim.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/tomlion/vim-solidity.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/tpope/vim-dispatch.git
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/vim-airline/vim-airline
+git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:tmux-plugins/vim-tmux-focus-events.git
 git -C "${HOME}/.vim_runtime/sources_non_forked/YouCompleteMe" submodule update --init --recursive
 git -C "${HOME}/.vim_runtime/sources_non_forked/omnisharp-vim" submodule update --init --recursive
 git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/OmniSharp/omnisharp-server.git

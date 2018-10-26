@@ -69,7 +69,8 @@ alias .sshrc='vi ${HOME}/.sshrc'
 alias .v='cd ${HOME}/.venv'
 alias .z='cd ${HOME}/.zprezto'
 alias ablg='cd ${BELEGEDIR}/Amazon'
-alias aco='vi "${DOTFILESPATH}/autocomplete/custom_autocomplete.sh"'
+alias aco='vi "${DOTFILESPATH}/autocomplete/custom_autocomplete"'
+alias ac='cd ${DOTFILESPATH}/autocomplete'
 alias ad='cd ${WDIR}/adcubum;j9;l'
 alias ap='cd ${WDIR}/3ap;l'
 alias apps='cd ${APPDIR};l'
@@ -93,7 +94,7 @@ alias ctun='ssh -f -C -N -L  5601:es5-catalog-master-00:5601 -L 0.0.0.0:9100:es5
 alias dbp='cd ${WDIR}/private/databases;l'
 alias dbs='dbp && idea'
 alias dc='docker-compose'
-alias dfs='cd ${DOTFILESPATH};l'
+alias .f='cd ${DOTFILESPATH};l'
 alias dgc='docker run --rm -v /var/run/docker.sock:/var/run/docker.sock spotify/docker-gc;docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v /var/lib/docker:/var/lib/docker martin/docker-cleanup-volumes'
 alias dgcc='docker system prune'
 alias dgui='docker run -d -p 9000:9000 -v "/var/run/docker.sock:/var/run/docker.sock" -v "${DOCKERDATADIR}/data:/data" portainer/portainer;echo "Open: http://localhost:9000"'
@@ -246,7 +247,7 @@ alias shrug='print_and_copy "¯\_(ツ)_/¯"'
 alias sig='cd "${HOME}/Library/Mobile Documents/com~apple~mail/Data/V4/Signatures"'
 alias smref='print_and_copy "${SMIDE_REFERRAL}"' # Smide
 alias sounds='cd /System/Library/Sounds'
-alias spsh='(dfs;./update;gacp ${DOTFILESCOMMITMSG})'
+alias spsh='(cd ${DOTFILESPATH};./update;gacp ${DOTFILESCOMMITMSG})'
 alias spub='print_and_copy "$(cat ${HOME}/.ssh/id_*.pub)"'
 alias sq='cd ${WDIR}/squido/squidoapi;l'
 alias sqa='cd ${WDIR}/squido/squidoandroid;l'
@@ -295,32 +296,42 @@ alias zm='cd ${WDIR}/zhaw/zhaw-material;l'
 alias zrp='cd ${WDIR}/zhaw;l'
 alias z='. ${CUSTOM_BIN_DIR}/z'
 ### COMMANDS ###
-test -f "${DOTFILESPATH}/.env" && source "${DOTFILESPATH}/.env"
-test -f "${DOTFILESPATH}/bin/colors" && source "${DOTFILESPATH}/bin/colors"
-test -f "${DOTFILESPATH}/autocomplete/custom_autocomplete.sh" && source "${DOTFILESPATH}/autocomplete/custom_autocomplete.sh"
-test -f "${HOME}/.sdkman/bin/sdkman-init.sh" && source "${HOME}/.sdkman/bin/sdkman-init.sh"
-test ! -z "${BASH_VERSION}" && source "${HOME}/.sshrc"
+source load "${DOTFILESPATH}/.env"
+source load "${DOTFILESPATH}/bin/colors"
+source load "${DOTFILESPATH}/autocomplete/custom_autocomplete"
+source load "${HOME}/.sdkman/bin/sdkman-init.sh"
+test ! -z "${BASH_VERSION}" && source load "${HOME}/.sshrc"
 if test ! -z "${ZSH_VERSION}"; then
     source "${HOME}/.zgen/zgen.zsh"
-	if ! zgen saved; then
-    	zgen prezto editor key-bindings 'vi'
-    	zgen prezto prompt theme 'garrett'
-    	zgen prezto '*:*' case-sensitive 'no'
-    	zgen prezto '*:*' color 'yes'
-    	zgen prezto
-    	zgen prezto git
-    	zgen prezto history-substring-search
-    	zgen prezto syntax-highlighting
-    	zgen load djui/alias-tips
-    	zgen load junegunn/fzf shell
-    	zgen load zsh-users/zsh-syntax-highlighting
-    	zgen load tarruda/zsh-autosuggestions
-    	zgen save
-	fi
-    fpath=(${DOTFILESPATH}/autocomplete ${fpath})
+    if ! zgen saved; then
+        zgen prezto editor key-bindings 'vi'
+        zgen prezto prompt theme 'garrett'
+        zgen prezto '*:*' case-sensitive 'no'
+        zgen prezto '*:*' color 'yes'
+        zgen prezto 'git:alias' skip 'yes'
+    
+        zgen prezto
+        zgen prezto git
+        zgen prezto history-substring-search
+        zgen prezto syntax-highlighting
+    
+        zgen load djui/alias-tips
+        zgen load junegunn/fzf shell
+        zgen load zsh-users/zsh-syntax-highlighting
+        zgen load tarruda/zsh-autosuggestions
+        # zgen load ${DOTFILESPATH}/autocomplete/zsh 
+    
+        zgen save
+    fi
+    fpath=(${DOTFILESPATH}/autocomplete/zsh ${fpath})
 fi
 if test -f ${HOME}/.gnupg/.gpg-agent-info -a -n "$(pgrep gpg-agent)"; then
     source ${HOME}/.gnupg/.gpg-agent-info
 else
     eval $(gpg-agent --daemon --write-env-file ${HOME}/.gnupg/.gpg-agent-info)
 fi
+
+# TODO
+# Update /Users/emanuelemazzotta/.vim_runtime
+# Update zgen update
+# Update ~/.emacs.d
