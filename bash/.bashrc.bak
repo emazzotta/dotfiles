@@ -18,8 +18,6 @@ export DOWNLOADDIR="${HOME}/Downloads"
 export EDITOR=/usr/local/bin/vim
 export GITDUMMYDIR="${WDIR}/private/gitdummy"
 export GOPATH="${WDIR}/go-projects"
-export GPG_AGENT_INFO
-export GPG_TTY=$(tty)
 export HISTCONTROL="ignoreboth"
 export HISTTIMEFORMAT="%Y-%m-%d %T "
 export HOMEBREW_CASK_OPTS="--appdir=/Applications"
@@ -181,11 +179,11 @@ alias hz='cd ${WDIR}/hackathons/sustineri;l'
 alias inf='cd ${WDIR}/private/infrastructure;l'
 alias infu='inf && ./update && ./cloudflare.py && gacp ${INFRASTRUCTURECOMMITMSG}'
 alias isotoutf='iconv -f iso-8859-1 -t utf-8'
-alias j10="export JAVA_HOME=`/usr/libexec/java_home -v 10`; java -version"
-alias j11="export JAVA_HOME=`/usr/libexec/java_home -v 11`; java -version"
-alias j12="sdk use java 12.ea.15-open; java -version"
-alias j8="export JAVA_HOME=`/usr/libexec/java_home -v 1.8`; java -version"
-alias j9="export JAVA_HOME=`/usr/libexec/java_home -v 9`; java -version"
+alias j10="sdk use java 10.0.2-open"
+alias j11="sdk use java 11.0.0-open"
+alias j12="sdk use java 12.ea.15-open"
+alias j8="sdk use java 8.0.191-oracle"
+alias j9="sdk use java 9.0.4-open"
 alias k='kubectl'
 alias ke='vi ${HOME}/.config/karabiner/karabiner.json'
 alias killgpg='killall ssh-agent gpg-agent;gpgconf --kill all'
