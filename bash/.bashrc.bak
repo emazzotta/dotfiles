@@ -1,10 +1,10 @@
 #!/bin/bash
-export DOTFILESPATH="${HOME}/dotfiles"
+export WDIR="${HOME}/Projects"
+export DOTFILESPATH="${WDIR}/private/dotfiles"
 export CUSTOM_BIN_DIR="${DOTFILESPATH}/bin"
 export PATH=$(echo ":$PATH:" | sed -e "s#:/usr/local/bin:#:#g" -e "s/^://" -e "s/:$//")
 export PATH=$(echo ":$PATH:" | sed -e "s#:/usr/bin:#:#g" -e "s/^://" -e "s/:$//")
 export PATH="${CUSTOM_BIN_DIR}:${HOME}/.cargo/bin:/usr/local/opt/gpg-agent/bin:/usr/local/opt/curl/bin:/usr/local/bin:/usr/bin:/usr/local/opt/go/libexec/bin:/usr/local/Cellar:${PATH}"
-export WDIR="${HOME}/Projects"
 export GDRIVEDIR="${HOME}/Google Drive"
 export DOCUMENTDIR="${GDRIVEDIR}/Dokumente"
 export PAYDIR="${DOCUMENTDIR}/Work/pleXius GmbH/Buchhaltung/Buchungen/Erfassen"

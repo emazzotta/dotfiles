@@ -1,12 +1,9 @@
 #!/bin/bash
 
 echo "Writing data from symlink to file..."
-DOTFILES_DIR="${HOME}/dotfiles"
-
 while read line
 do
     echo "Writing ${line} to ${line}.bak"
     cat ${line} > ${line}.bak
-done < <(find ${DOTFILES_DIR} -name "*" -and -not -path "*.git*" -type l)
-
+done < <(find . -name "*" -and -not -path "*.git*" -type l)
 echo "Done."

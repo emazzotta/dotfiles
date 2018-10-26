@@ -2,7 +2,6 @@
 
 rm -rf "${GITDUMMYDIR}/repos.json"
 REPOS=`echo -e $(for dir in $(find "${WDIR}" -maxdepth 2 -type d -o -type l);do if [ -e "${dir}/.git" ] && [[ "${dir}" != *"private-commits"* ]];then printf '"%s",' ${dir};fi;done)`
-REPOS+=`echo -e $(for dir in $(find "${DOTFILESPATH}" -maxdepth 1 -type d -o -type l);do if [ -e "${dir}/.git" ];then printf '"%s",' ${dir};fi;done)`
 REPOS=`echo $REPOS| sed '$s/,$//'`
 printf '
 [
