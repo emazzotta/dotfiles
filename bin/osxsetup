@@ -153,8 +153,8 @@ sudo scutil --set LocalHostName Emanuele-Machine
 sudo scutil --set ComputerName Emanuele-Machine
 sudo xcode-select --install
 # sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
-generate_git
 filedefaults
+git clone --recursive https://github.com/sorin-ionescu/prezto.git ${ZDOTDIR:-$HOME}/.zprezto
 git clone --depth=1 https://github.com/amix/vimrc.git "${HOME}/.vim_runtime"
 git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/Glench/Vim-Jinja2-Syntax.git
 git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com/OmniSharp/omnisharp-vim.git

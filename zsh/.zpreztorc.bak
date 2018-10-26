@@ -15,8 +15,6 @@
 # Color output (auto set to 'no' on dumb terminals).
 zstyle ':prezto:*:*' color 'yes'
 
-zstyle ':prezto:module:git:alias' skip 'yes'
-
 # Add additional directories to load prezto modules from
 # zstyle ':prezto:load' pmodule-dirs $HOME/.zprezto-contrib
 
@@ -37,16 +35,14 @@ zstyle ':prezto:load' pmodule \
   'spectrum' \
   'utility' \
   'completion' \
-  'prompt' \
-  'history-substring-search' \
-  'git'
+  'prompt'
 
 #
 # Autosuggestions
 #
 
 # Set the query found color.
-zstyle ':prezto:module:autosuggestions:color' found 'yes'
+# zstyle ':prezto:module:autosuggestions:color' found ''
 
 #
 # Completions
@@ -61,7 +57,7 @@ zstyle ':prezto:module:autosuggestions:color' found 'yes'
 #
 
 # Set the key mapping style to 'emacs' or 'vi'.
-zstyle ':prezto:module:editor' key-bindings 'vi'
+zstyle ':prezto:module:editor' key-bindings 'emacs'
 
 # Auto convert .... to ../..
 # zstyle ':prezto:module:editor' dot-expansion 'yes'
@@ -117,7 +113,7 @@ zstyle ':prezto:module:editor' key-bindings 'vi'
 # Set the prompt theme to load.
 # Setting it to 'random' loads a random theme.
 # Auto set to 'off' on dumb terminals.
-zstyle ':prezto:module:prompt' theme 'garrett'
+zstyle ':prezto:module:prompt' theme 'sorin'
 
 # Set the working directory prompt display length.
 # By default, it is set to 'short'. Set it to 'long' (without '~' expansion)
