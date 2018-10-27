@@ -292,9 +292,9 @@ if test ! -z "${ZSH_VERSION}"; then
     if ! zgen saved; then
         zgen prezto editor key-bindings 'vi'
         zgen prezto prompt theme 'garrett'
+        zgen prezto 'git:alias' skip 'yes'
         zgen prezto '*:*' case-sensitive 'no'
         zgen prezto '*:*' color 'yes'
-        zgen prezto 'git:alias' skip 'yes'
     
         zgen prezto
         zgen prezto git
