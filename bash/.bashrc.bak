@@ -293,6 +293,7 @@ if test ! -z "${ZSH_VERSION}"; then
         zgen prezto editor key-bindings 'vi'
         zgen prezto prompt theme 'garrett'
         zgen prezto 'git:alias' skip 'yes'
+        zgen prezto prompt pwd-length 'long'
         zgen prezto '*:*' case-sensitive 'no'
         zgen prezto '*:*' color 'yes'
     
