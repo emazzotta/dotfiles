@@ -1,3 +1,4 @@
+#!/bin/bash
 if [ ! -z "${ZSH_VERSION}" ]; then
     autoload bashcompinit
     bashcompinit
