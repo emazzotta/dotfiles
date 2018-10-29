@@ -10,7 +10,8 @@ fi
 
 printer() {
     if [[ "${mode}" == "telegram-formatting" ]]; then
-        printf "%s\n%${progressbar_length}s %.2f%%\n" "${1} ${2}" "${3}" "${4}"
+        printf "%s\n" "${1} ${2}"
+        printf "%${progressbar_length}s %.2f%%\n" "${3}" "${4}"
     else
         printf "%-13s %9s [%${progressbar_length}s] %.2f%%\n" "${1}" "${2}" "${3}" "${4}" 
     fi
@@ -43,10 +44,12 @@ days_at_zhaw() {
     days_done=$((${days_total}-${days_left}))
     progressbar=$(progressbar ${days_done} ${days_total} ${progressbar_length} "◼" "◻")
     percentage=$(bc <<< "scale=10; 100/${days_total}*${days_done}")
-    printer "${3}" "${days_done}/${days_total}" "${progressbar}" "${percentage}"
+    ratio="${days_done}/${days_total}"
+    [[ "${mode}" == "telegram-formatting" ]] && ratio="${ratio} - ${days_left} Tage verbleibend"
+    printer "${3}" "${ratio}" "${progressbar}" "${percentage}"
 }
 
 days_at_zhaw "2015-09-21" "2019-07-12" "B.Sc. IT 15"
-if [[ "${mode}" == "telegram-formatting"  ]]; then
+[[ "${mode}" == "telegram-formatting"  ]] && \
     days_at_zhaw "2016-09-19" "2020-07-10" "B.Sc. IT 16"
-fi
+
