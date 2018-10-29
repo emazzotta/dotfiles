@@ -70,6 +70,7 @@ alias autostart='cd ${HOME}/Library/LaunchAgents'
 alias av='source "${HOME}/.venv/generic-3.7/bin/activate"'
 alias bb='cd ${WDIR}/baubox/;l'
 alias bbw='cd ${WDIR}/baubox/baubox-webapp;l'
+alias bf='vi ${DOTFILESPATH}/Brewfile'
 alias boi='cd ${BOILERPLATE_PATH};l'
 alias boz='cd ${WDIR}/private/bozzilli;av;l'
 alias brci='brew cask install'
@@ -184,7 +185,6 @@ alias j11="sdk use java 11.0.0-open"
 alias j12="sdk use java 12.ea.15-open"
 alias j8="sdk use java 8.0.191-oracle"
 alias j9="sdk use java 9.0.4-open"
-alias bf='vi ${DOTFILESPATH}/Brewfile'
 alias k='kubectl'
 alias ke='vi ${HOME}/.config/karabiner/karabiner.json'
 alias killgpg='killall ssh-agent gpg-agent;gpgconf --kill all'
@@ -213,6 +213,8 @@ alias pipinstall='curl https://bootstrap.pypa.io/get-pip.py | python'
 alias pipup='pip install --upgrade pip'
 alias postgresrun='docker run -p 0.0.0.0:5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres -e POSTGRES_DB=postgres -d postgres'
 alias prp='cd ${WDIR}/private;l'
+alias trp='cd ${WDIR}/tools;l'
+alias st='vi ${DOTFILESPATH}/setup.sh'
 alias pspp='cd ${WDIR}/zhaw/pspp'
 alias py='av;ptpython;dv'
 alias record='asciinema rec'
@@ -244,7 +246,7 @@ alias sqref='print_and_copy "${SWISSQUOTE_REFERRAL}"'
 alias sqw='cd ${WDIR}/squido/squidoweb;l'
 alias sref='print_and_copy "${SELMA_REFERRAL}"'
 alias ss='sshrc'
-alias superocd='(infu) && ocd && update && allgup && gck'
+alias superocd='(infu) && ocd && update && gupallin "${WDIR}" && gck'
 alias t='tig'
 alias tick='print_and_copy "✓"'
 alias timer='echo "Timer started. Stop with Ctrl-D." && date && time cat && date'
@@ -299,8 +301,6 @@ if test ! -z "${ZSH_VERSION}"; then
         zgen prezto '*:*' color 'yes'
     
         zgen prezto
-        zgen prezto utility
-		zgen prezto completion
         zgen prezto git
         zgen prezto history-substring-search
         zgen prezto syntax-highlighting
@@ -319,8 +319,3 @@ if test -f ${HOME}/.gnupg/.gpg-agent-info -a -n "$(pgrep gpg-agent)"; then
 else
     eval $(gpg-agent --daemon --write-env-file ${HOME}/.gnupg/.gpg-agent-info)
 fi
-
-# TODO
-# Update /Users/emanuelemazzotta/.vim_runtime
-# Update zgen update
-# Update ~/.emacs.d

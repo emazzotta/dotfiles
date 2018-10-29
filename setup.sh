@@ -1,8 +1,5 @@
 #!/bin/bash
 
-DIR=$(dirname "$0")
-cd "$DIR"
-
 if [ "$(uname)" == "Darwin" ]; then
     bundle install --gemfile=./Gemfile
     ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
@@ -62,7 +59,7 @@ if [ "$(uname)" == "Darwin" ]; then
     git -C "${HOME}/.vim_runtime/sources_non_forked/omnisharp-vim" submodule update --init --recursive
     git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/OmniSharp/omnisharp-server.git
     git -C "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" submodule update --init --recursive
-    cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" && xbuild || true
+    cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" && msbuild || true
     cd "${HOME}/.vim_runtime/sources_non_forked/YouCompleteMe" \
         && ./install.py --clang-completer --gocode-completer --tern-completer --omnisharp-completer || true
 else
@@ -89,7 +86,6 @@ else
         virtualbox-guest-utils \
         wget \
         zsh
-
     sudo adduser emanuele vboxsf
     sudo vi /etc/default/grub
     sudo vi /etc/init/tty1.conf > exec /sbin/rungetty --autologin emanuele tty1
@@ -100,7 +96,6 @@ else
         ln -s "$rcfile" "${ZDOTDIR:-$HOME}/.${rcfile:t}"
     done
     chsh -s /bin/zsh
-
     sudo curl -L https://github.com/docker/compose/releases/download/1.22.0/docker-compose-`uname -s`-`uname -m` > /usr/local/bin/docker-compose
     sudo mkdir -p /etc/systemd/system/docker.service.d
     sudo printf "[Service]nExecStart=nExecStart=/usr/bin/dockerd --storage-driver=overlay" > /etc/systemd/system/docker.service.d/
