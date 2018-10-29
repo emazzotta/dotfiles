@@ -291,24 +291,15 @@ test ! -z "${BASH_VERSION}" && source load "${HOME}/.sshrc"
 if test ! -z "${ZSH_VERSION}"; then
     source "${HOME}/.zgen/zgen.zsh"
     if ! zgen saved; then
-        zgen prezto editor key-bindings 'vi'
-        zgen prezto prompt theme 'garrett'
-        zgen prezto 'git:alias' skip 'yes'
-        zgen prezto prompt pwd-length 'long'
-        zgen prezto '*:*' case-sensitive 'no'
-        zgen prezto '*:*' color 'yes'
-    
         zgen prezto
         zgen prezto git
         zgen prezto history-substring-search
         zgen prezto syntax-highlighting
-    
         zgen load ${DOTFILESPATH}/autocomplete/zsh 
         zgen load djui/alias-tips
         zgen load junegunn/fzf shell
         zgen load zsh-users/zsh-syntax-highlighting
         zgen load tarruda/zsh-autosuggestions
-    
         zgen save
     fi
 fi
