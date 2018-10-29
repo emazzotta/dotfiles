@@ -1,0 +1,5 @@
+source "https://rubygems.org"
+gem "bundler"
+gem "github-pages"
+gem "rails"
+gem "rake"

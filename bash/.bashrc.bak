@@ -184,6 +184,7 @@ alias j11="sdk use java 11.0.0-open"
 alias j12="sdk use java 12.ea.15-open"
 alias j8="sdk use java 8.0.191-oracle"
 alias j9="sdk use java 9.0.4-open"
+alias bf='vi ${DOTFILESPATH}/Brewfile'
 alias k='kubectl'
 alias ke='vi ${HOME}/.config/karabiner/karabiner.json'
 alias killgpg='killall ssh-agent gpg-agent;gpgconf --kill all'
