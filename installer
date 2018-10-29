@@ -1,9 +1,0 @@
-#!/bin/bash
-
-echo "Restoring dotfiles..."
-while read line
-do
-    echo "Restore ${line}.bak to $(readlink ${line})"
-	/bin/cp -Rf ${line}.bak $(readlink ${line})
-done < <(find . -name "*" -type l)
-echo "Done."
