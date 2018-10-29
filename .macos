@@ -45,27 +45,4 @@ sudo defaults write NSGlobalDomain AppleShowAllExtensions -bool true
 # Disable the warning when changing a file extension
 sudo defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false
 
-while IFS=':' read -r bundle_id extension ; do
-    change_file_extension ${bundle_id} ${extension}
-done <<< cat <<EOF
-com.aone.keka:zip
-com.aone.keka:7z
-com.aone.keka:tar.gz
-org.vim.MacVim:py
-org.vim.MacVim:h
-org.vim.MacVim:mbox
-org.vim.MacVim:opml
-org.vim.MacVim:csv
-org.vim.MacVim:c
-org.vim.MacVim:cpp
-org.vim.MacVim:js
-org.vim.MacVim:txt
-org.vim.MacVim:sh
-com.apple.Preview:pdf
-org.mozilla.firefox:json
-com.google.Chrome:html
-com.jetbrains.intellij:iml
-abnerworks.Typora:md
-abnerworks.Typora:adoc
-EOF
-
+${DOTFILESPATH}/duti/setfiledefaults
