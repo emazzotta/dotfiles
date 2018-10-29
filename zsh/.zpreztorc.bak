@@ -1,0 +1,3 @@
+zstyle ':prezto:module:editor' key-bindings 'vi'
+zstyle ':prezto:module:prompt' theme 'garrett'
+zstyle ':prezto:load' pmodule 'utility' 'completion' 
