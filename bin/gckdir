@@ -4,7 +4,7 @@ dir="${1}"
 if ! test "${1}"; then
     dir="."
 fi
-echo "Checking git status of ${dir}"
+echo -n "."
 if [[ "$(git -C "${dir}" status -s)" != "" ]]; then
     echo
     echo ">> ${dir}"
