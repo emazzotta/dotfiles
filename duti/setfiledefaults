@@ -1,0 +1,16 @@
+#!/bin/bash
+
+DIR=$(dirname "$0")
+cd "$DIR"
+source ${CUSTOM_BIN_DIR}/prettyprint
+
+info "Setting default applications using duti..."
+
+find * -not -name "$(basename ${0})" -type f | while read app_name; do
+    while read ext; do
+        substep_info "Setting default application for extension $ext to $app_name..."
+        duti -s $app_name $ext all
+    done < $app_name
+done
+
+success "Successfully set all default applications."

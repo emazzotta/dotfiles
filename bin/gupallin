@@ -1,7 +1,10 @@
 #!/bin/bash
 
-DIRS_TO_CHECK=$(find "${WDIR}" -maxdepth 2 -type d)
-for dir in ${DIRS_TO_CHECK}; do
+root_dir="$(pwd)"
+test "${1}" && root_dir="${1}"
+
+echo "Checking ${root_dir} for git updates..."
+find "${root_dir}" -mindepth 1 -maxdepth 3 -type d -or -type l | while read dir; do
     if [ -d "${dir}/.git" ]; then
         echo "Updating ${dir}"
         git -C "${dir}" checkout master
