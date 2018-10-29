@@ -1,8 +1,6 @@
 #!/bin/bash
 
-DIRS_TO_CHECK=$(find "${WDIR}" -maxdepth 2 -type d)
-DIRS_TO_CHECK+=$(find "${WDIR}/3ap" -maxdepth 2 -type d)
-for dir in ${DIRS_TO_CHECK}; do
+find "${WDIR}" -mindepth 1 -maxdepth 3 -type d -or -type l | while read dir; do
     if [ -d "${dir}/.git" ]; then
         gckdir "${dir}"
     fi
