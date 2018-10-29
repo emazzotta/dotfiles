@@ -1,9 +1,10 @@
 #!/bin/bash
 
-if [ "$(uname)" == "Darwin" ]; then
-    bundle install --gemfile=./Gemfile
-    ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+DIR=$(dirname "$0")
+cd "$DIR"
 
+if [ "$(uname)" == "Darwin" ]; then
+    ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
     brew tap homebrew/bundle
     brew bundle --file="./Brewfile"
     brew install curl --with-c-ares
@@ -34,17 +35,26 @@ if [ "$(uname)" == "Darwin" ]; then
     cp ./zsh/prompt_garrett_setup ${HOME}/.zprezto/modules/prompt/functions/
     ./stowsetup
     ./macos
+    ./duti/setfiledefaults
 
     npm install -g cash-cli
     npm install -g eslint
     npm install -g yarn
+
     pip install --upgrade pip
     pip install autopep8
     pip install awscli
     pip install bpython
     pip install virtualenv
+
+    gem install bundler
+    gem install github-pages
+    gem install rails
+    gem install rake
+
     sudo xcode-select --install
     sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+
     git clone -C "${HOME}" https://github.com/tarjoilija/zgen.git
     git clone --recursive https://github.com/sorin-ionescu/prezto.git ${ZDOTDIR:-$HOME}/.zprezto
     git clone --depth=1 https://github.com/amix/vimrc.git "${HOME}/.vim_runtime"

@@ -45,4 +45,3 @@ sudo defaults write NSGlobalDomain AppleShowAllExtensions -bool true
 # Disable the warning when changing a file extension
 sudo defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false
 
-${DOTFILESPATH}/duti/setfiledefaults
