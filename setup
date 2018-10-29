@@ -31,6 +31,8 @@ if [ "$(uname)" == "Darwin" ]; then
     killall Dock
     IFS=$OLDIFS
 
+    cp ./zsh/prompt_garrett_setup ${HOME}/.zprezto/modules/prompt/functions/
+    ./stowsetup
     ./macos
 
     npm install -g cash-cli

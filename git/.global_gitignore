@@ -1,1 +1,16 @@
-/Users/emanuelemazzotta/.global_gitignore
+*.iml
+*.paw
+*.sqlite
+*~
+.DS_Store
+.Spotlight-V100
+.Trashes
+._*
+.env
+.idea
+Thumbs.db
+npm-debug.log
+sources_forked
+sources_non_forked
+venv
+prompt_garrett_setup
