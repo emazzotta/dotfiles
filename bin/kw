@@ -1,12 +1,8 @@
 #!/bin/bash
 
 progressbar_length=14
-if test "${1}"; then
-    progressbar_length="${1}"
-fi
-if test "${2}"; then
-    mode="${2}"
-fi
+test "${1}" && progressbar_length="${1}"
+test "${2}" && mode="${2}"
 
 printer() {
     if [[ "${mode}" == "telegram-formatting" ]]; then
