@@ -1,7 +1,0 @@
-#!/bin/bash
-
-stow -t ${HOME} bash
-stow -t ${HOME} gpg
-stow -t ${HOME} ssh
-stow -t ${HOME} python
-stow -t ${HOME} karabiner
