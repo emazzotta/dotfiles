@@ -5,12 +5,14 @@ test "${1}" && progressbar_length="${1}"
 test "${2}" && mode="${2}"
 
 printer() {
-    if [[ "${mode}" == "telegram-formatting" ]]; then
-        printf "${1} ${2}\n"
-        printf "%${progressbar_length}s %.2f%%\n" "${3}" "${4}"
-    else
-        printf "%-13s %9s [%${progressbar_length}s] %.2f%%\n" "${1}" "${2}" "${3}" "${4}" 
-    fi
+    title="${1}"
+    ratio="${2}"
+    progressbar="${3}"
+    percentage="${4}"
+    [[ "${mode}" == "telegram-formatting" ]] && \
+        printf "${title} ${ratio}\n%${progressbar_length}s %.2f%%\n" "${progressbar}" "${percentage}" && \
+        return
+    printf "%-13s %9s [%${progressbar_length}s] %.2f%%\n" "${title}" "${ratio}" "${progressbar}" "${percentage}" 
 }
 
 week=$(date +%V) 
