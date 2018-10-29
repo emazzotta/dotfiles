@@ -1,5 +1,6 @@
 zstyle ':prezto:module:editor' key-bindings 'vi'
 zstyle ':prezto:module:prompt' theme 'garrett'
+zstyle ':prezto:*:*' color 'yes'
 
 zstyle ':prezto:load' pmodule \
   'environment' \
