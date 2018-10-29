@@ -1,1 +1,1 @@
-/Users/emanuelemazzotta/.bash_profile
+source ~/.bashrc
