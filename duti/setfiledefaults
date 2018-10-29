@@ -2,6 +2,7 @@
 
 DIR=$(dirname "$0")
 cd "$DIR"
+
 source ${CUSTOM_BIN_DIR}/prettyprint
 
 info "Setting default applications using duti..."
