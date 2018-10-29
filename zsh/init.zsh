@@ -1,1 +1,0 @@
-/Users/emanuelemazzotta/.zprezto/init.zsh

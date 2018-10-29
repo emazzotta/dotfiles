@@ -276,7 +276,7 @@ alias ys='yarn start'
 alias yt='yarn test'
 alias z='. ${CUSTOM_BIN_DIR}/z'
 alias ze='vi ${HOME}/.zshrc'
-alias zep='vi ${HOME}/.zprezto/runcoms/zpreztorc'
+alias zep='vi ${HOME}/.zpreztorc'
 alias zh='vi ${HISTFILE}'
 alias zhaw='cd ${ZHAWDIR}/Classes;l'
 alias zhawconnect='sudo openconnect ras.zhaw.ch <<< $(echo "mazzoema\n`security find-generic-password -wa '\''mazzoema'\''`")'
@@ -299,6 +299,8 @@ if test ! -z "${ZSH_VERSION}"; then
         zgen prezto '*:*' color 'yes'
     
         zgen prezto
+        zgen prezto utility
+		zgen prezto completion
         zgen prezto git
         zgen prezto history-substring-search
         zgen prezto syntax-highlighting
