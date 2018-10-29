@@ -6,6 +6,10 @@ if [ "$(uname)" == "Darwin" ]; then
 
     brew tap homebrew/bundle
     brew bundle --file="./Brewfile"
+    brew install curl --with-c-ares
+    brew install gnu-sed --with-default-names
+    brew install grep --with-default-names
+    brew install vim --with-python@2 --with-override-system-vi
 
     curl -s "https://get.sdkman.io" | bash
 
@@ -59,9 +63,9 @@ if [ "$(uname)" == "Darwin" ]; then
     git -C "${HOME}/.vim_runtime/sources_non_forked/omnisharp-vim" submodule update --init --recursive
     git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/OmniSharp/omnisharp-server.git
     git -C "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" submodule update --init --recursive
-    cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" && msbuild || true
+    cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" && msbuild 
     cd "${HOME}/.vim_runtime/sources_non_forked/YouCompleteMe" \
-        && ./install.py --clang-completer --gocode-completer --tern-completer --omnisharp-completer || true
+        && ./install.py --clang-completer --gocode-completer --tern-completer --omnisharp-completer 
 else
     sudo apt-get update && sudo apt-get -y upgrade && sudo apt-get -y dist-upgrade
     sudo apt-get install -y \
