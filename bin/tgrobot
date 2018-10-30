@@ -1,0 +1,26 @@
+#!/bin/bash
+
+test -f "${CUSTOM_BIN_DIR}/colors" && source "${CUSTOM_BIN_DIR}/colors"
+
+TEMP_PATH="/tmp/telegram_audio"
+
+if test "${1}"; then
+    audio_content="${1}"
+    shift
+    say -v Zarvox "${audio_content}" 
+    echo -n "Send (y/N)? "
+    read -r answer
+    if echo "${answer}" | grep -iq "^y"; then
+        directory="$(mktemp -d)"
+        filename="voice"
+        cd "${directory}"
+        echo "Creating in ${directory}..."
+        say -v Zarvox "${audio_content}" -o ${filename}
+        lame -m m "${filename}.aiff" "${filename}.mp3"
+        tgv "${filename}.mp3" ${@}
+    else
+        echo -e "${COLOR_RED}Aborting...${COLOR_RESET}"
+    fi
+else
+    echo "usage: `basename ${0}` <text to send in robot voice> [user] [bot key]"
+fi

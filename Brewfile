@@ -39,6 +39,7 @@ brew 'icdiff'
 brew 'imagemagick' # SVGify
 brew 'jq'
 brew 'kubectl'
+brew 'lame'
 brew 'libav' # Git Video
 brew 'macvim'
 brew 'maven'
