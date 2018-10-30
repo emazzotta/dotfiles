@@ -2,7 +2,7 @@
 
 source "${CUSTOM_BIN_DIR}/prettyprint"
 
-info "Checking unfinished work in repositories."
+info "Checking for unfinished work."
 
 find "${WDIR}" -mindepth 1 -maxdepth 3 -type d -or -type l | while read dir; do
     if [ -d "${dir}/.git" ]; then
