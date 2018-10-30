@@ -1,6 +1,6 @@
 #!/bin/bash
 
-test -f "${DOTFILESPATH}/bin/colors" && source "${DOTFILESPATH}/bin/colors"
+test -f "${CUSTOM_BIN_DIR}/colors" && source "${CUSTOM_BIN_DIR}/colors"
 
 FILE=${HOME}/.bashrc;
 
