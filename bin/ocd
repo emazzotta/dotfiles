@@ -1,0 +1,16 @@
+#!/bin/bash
+
+source "${CUSTOM_BIN_DIR}/prettyprint"
+
+info "Performing obsessive compulsive disorder task..."
+
+subprocess_info "Pushing dotfiles..."
+cd ${DOTFILESPATH}
+# gacp ${DOTFILESCOMMITMSG} &> /dev/null && subprocess_sucess "Dotfiles pushed." 
+
+subprocess_info "o"
+create_repos_json
+cd ${GITDUMMYDIR}
+./gitdummy.py &> /dev/null && subprocess_sucess "Commits transcribed."
+
+success "Done."
