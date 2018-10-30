@@ -1,8 +1,14 @@
 #!/bin/bash
 
+source "${CUSTOM_BIN_DIR}/prettyprint"
+
+info "Checking unfinished work in repositories."
+
 find "${WDIR}" -mindepth 1 -maxdepth 3 -type d -or -type l | while read dir; do
     if [ -d "${dir}/.git" ]; then
         gckdir "${dir}"
     fi
 done
-echo "Check repositories done."
+
+echo
+success "Done."
