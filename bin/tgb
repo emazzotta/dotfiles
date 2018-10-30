@@ -2,8 +2,6 @@
 
 test -f "${CUSTOM_BIN_DIR}/colors" && source "${CUSTOM_BIN_DIR}/colors"
 
-TEMP_PATH="/tmp/telegram_audio"
-
 if test "${1}"; then
     audio_content="${1}"
     shift
