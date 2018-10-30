@@ -4,13 +4,11 @@ source "${CUSTOM_BIN_DIR}/prettyprint"
 
 info "Performing obsessive compulsive disorder task..."
 
-subprocess_info "Pushing dotfiles..."
-cd ${DOTFILESPATH}
-# gacp ${DOTFILESCOMMITMSG} &> /dev/null && subprocess_sucess "Dotfiles pushed." 
+substep_info "Pushing dotfiles..."
+cd ${DOTFILESPATH} && gacp "${DOTFILESCOMMITMSG}" &> /dev/null && substep_success "Dotfiles pushed." 
 
-subprocess_info "o"
+substep_info "Transcribing commits..."
 create_repos_json
-cd ${GITDUMMYDIR}
-./gitdummy.py &> /dev/null && subprocess_sucess "Commits transcribed."
+cd ${GITDUMMYDIR} && ./gitdummy.py &> /dev/null && substep_success "Commits transcribed."
 
 success "Done."
