@@ -5,7 +5,10 @@ test -f "${CUSTOM_BIN_DIR}/colors" && source "${CUSTOM_BIN_DIR}/colors"
 if test "${1}"; then
     audio_content="${1}"
     shift
-    say -v Zarvox "${audio_content}" 
+    echo -n "Voice (Zarvox)? "
+    read -r voice
+    [[ "${voice}" == "" ]] && voice="Zarvox"
+    say -v ${voice} "${audio_content}" 
     echo -n "Send (y/N)? "
     read -r answer
     if echo "${answer}" | grep -iq "^y"; then
