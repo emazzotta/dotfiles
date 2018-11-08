@@ -285,8 +285,8 @@ source load "${DOTFILESPATH}/.env"
 source load "${DOTFILESPATH}/bin/colors"
 source load "${DOTFILESPATH}/autocomplete/custom_autocomplete"
 source load "${HOME}/.sdkman/bin/sdkman-init.sh"
-test ! -z "${BASH_VERSION}" && source load "${HOME}/.sshrc"
-if test ! -z "${ZSH_VERSION}"; then
+test "${BASH_VERSION}" && source load "${HOME}/.sshrc"
+if test "${ZSH_VERSION}"; then
     source "${HOME}/.zgen/zgen.zsh"
     if ! zgen saved; then
         zgen prezto
@@ -300,6 +300,12 @@ if test ! -z "${ZSH_VERSION}"; then
         zgen load tarruda/zsh-autosuggestions
         zgen save
     fi
+fi
+if ! test "${TMUX}" && [ $(tmux ls | wc -l) -gt 0 ]; then
+    echo -n "Tmux session exists, would you like to attach?: (y/N) "
+    read answer
+    echo "${answer}" | grep -iq "^y" && tmux attach -t $(tmux ls -F "#{session_name}" | head -n 1)
+    echo "${answer}" | grep -viq "^n" && eval "${answer}"
 fi
 if test -f ${HOME}/.gnupg/.gpg-agent-info -a -n "$(pgrep gpg-agent)"; then
     source ${HOME}/.gnupg/.gpg-agent-info
