@@ -1,4 +1,12 @@
 #!/bin/bash
 
-ag --hidden --filename-pattern "${*}" .
-ag --hidden -Q "${*}" .
+if test "${2}"; then
+    ag --hidden -Q "${1}" -G "${2}" .
+elif test "${1}"; then
+    ag --hidden --filename-pattern "${1}" .
+    ag --hidden -Q "${1}" .
+else
+    echo "usage: `basename ${0}` <filename>"
+    echo "      <pattern>"
+    echo "      <pattern> <filename regex>"
+fi
