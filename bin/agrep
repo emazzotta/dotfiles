@@ -1,7 +1,5 @@
 #!/bin/bash
 
-test -f "${CUSTOM_BIN_DIR}/colors" && source "${CUSTOM_BIN_DIR}/colors"
-
 FILE=${HOME}/.bashrc;
 
 if test "${1}"; then
