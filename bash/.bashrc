@@ -301,7 +301,7 @@ if test "${ZSH_VERSION}"; then
         zgen save
     fi
 fi
-if ! test "${TMUX}" && [ $(tmux ls | wc -l) -gt 0 ]; then
+if ! test "${TMUX}" && test "${TTY}" && [ $(tmux ls | wc -l) -gt 0 ]; then
     echo -n "Tmux session exists, would you like to attach?: (y/N) "
     read answer
     echo "${answer}" | grep -iq "^y" && tmux attach -t $(tmux ls -F "#{session_name}" | head -n 1)

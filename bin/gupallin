@@ -3,13 +3,21 @@
 root_dir="$(pwd)"
 test "${1}" && root_dir="${1}"
 
-echo "Checking ${root_dir} for git updates..."
+test -f "${CUSTOM_BIN_DIR}/prettyprint" && source "${CUSTOM_BIN_DIR}/prettyprint"
+
+info "Checking ${root_dir} for git updates..."
 find "${root_dir}" -mindepth 1 -maxdepth 3 -type d -or -type l | while read dir; do
     if [ -d "${dir}/.git" ]; then
-        echo "Updating ${dir}"
-        git -C "${dir}" checkout master
-        git -C "${dir}" pull --rebase
-        git -C "${dir}" checkout -
-        git -C "${dir}" pull --rebase
+        substep_info "Updating ${dir}"
+        if git -C "${dir}" checkout master &> /dev/null; then
+            git -C "${dir}" pull --quiet --rebase
+            [ $? -eq 0 ] && substep_success "Pulled master" || substep_error "Pulling master failed"
+            git -C "${dir}" checkout --quiet -
+            git -C "${dir}" pull --quiet --rebase
+            [ $? -eq 0 ] && substep_success "Pulled current branch" || substep_error "Pulling current branch failed"
+        else
+            substep_error "Can't switch to master"
+        fi
     fi
 done
+success "Done pulling updates."
