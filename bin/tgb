@@ -1,7 +1,5 @@
 #!/bin/bash
 
-test -f "${CUSTOM_BIN_DIR}/colors" && source "${CUSTOM_BIN_DIR}/colors"
-
 if test "${1}"; then
     audio_content="${1}"
     shift
@@ -16,7 +14,7 @@ if test "${1}"; then
         filename="voice"
         cd "${directory}"
         echo "Creating in ${directory}..."
-        say -v Zarvox "${audio_content}" -o ${filename}
+        say -v "${voice}" "${audio_content}" -o ${filename}
         lame -m m "${filename}.aiff" "${filename}.mp3"
         tgv "${filename}.mp3" ${@}
     else
