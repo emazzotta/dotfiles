@@ -36,12 +36,12 @@ printer "KW" "${week}/52" "${progressbar}" "${percentage}"
 # Days left at ZHAW
 days_at_zhaw() {
     if date -j &> /dev/null; then
-    	start_date=$(date -jf "%Y-%m-%d" "+%s" "${1}")
-    	end_date=$(date -jf "%Y-%m-%d" "+%s" "${2}")
-	else
-    	start_date=$(date -d "${1}" "+%s")
-    	end_date=$(date -d "${2}" "+%s" )
-	fi
+        start_date=$(date -jf "%Y-%m-%d" "+%s" "${1}")
+        end_date=$(date -jf "%Y-%m-%d" "+%s" "${2}")
+    else
+        start_date=$(date -d "${1}" "+%s")
+        end_date=$(date -d "${2}" "+%s" )
+    fi
     days_total=$(((${end_date}-${start_date})/(3600*24)))
     days_left=$(((${end_date}-$(date "+%s"))/(3600*24)))
     days_done=$((${days_total}-${days_left}))
