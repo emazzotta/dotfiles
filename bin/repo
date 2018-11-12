@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Base directory with repository
+# Base directory with repositories
 repo_base=${WDIR}
 
 # Search for exact match
