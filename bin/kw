@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 progressbar_length=14
 test "${1}" && progressbar_length="${1}"
