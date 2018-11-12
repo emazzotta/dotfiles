@@ -1,12 +1,12 @@
 #!/bin/bash
 
 root_dir="$(pwd)"
-test "${1}" && root_dir="$(cd "$(dirname "${1}")" && pwd)"
+test "${1}" && root_dir="$(pwd)/${1}"
 
 test -f "${CUSTOM_BIN_DIR}/prettyprint" && source "${CUSTOM_BIN_DIR}/prettyprint"
 
 info "Checking ${root_dir} for git updates..."
-find "${root_dir}" -mindepth 1 -maxdepth 3 -type d -or -type l | while read dir; do
+find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
     if [ -d "${dir}/.git" ]; then
         substep_info "Updating ${dir}"
         if git -C "${dir}" checkout master &> /dev/null; then
