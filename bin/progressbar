@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 if test "${4}"; then
     current_progress="${1}"
