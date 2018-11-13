@@ -36,9 +36,6 @@ nmap j gj
 nmap <Up> gk
 nmap <Down> gj
 nmap \w :setlocal wrap!<cr>:setlocal wrap?<cr>
-nmap <silent> <leader>r :so $MYVIMRC<cr>
-nmap <silent> <leader>q :q!<cr>
-nmap <silent> <leader>w :w!<cr>
 nmap <silent> <leader>i :set paste <bar> :startinsert<cr>
 
 map <leader>bn :bn<cr>
@@ -50,7 +47,6 @@ map <D-v> :r !pbpaste<cr>
 map <leader>vp :VimuxPromptCommand<cr>
 map <leader>vl :VimuxRunLastCommand<cr>
 map <leader>vc :VimuxCloseRunner<cr>
-nmap <silent> <leader>x :x<cr>
 
 noremap <leader>s :SyntasticCheck<cr>
 noremap <leader>st :SyntasticToggleMode<cr>
