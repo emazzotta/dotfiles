@@ -9,7 +9,8 @@ if test "${3}"; then
     test "${4}" && progress_character="${4}"
     test "${5}" && progress_remaining_character="${5}"
     percentage=$(bc <<< "scale=10; 100/${max_progress}*${current_progress}")
-    progress=`printf %.0f "$(bc <<< "scale=10; ${percentage}/100*${progressbar_length}")"`
+    # Use floor to prevent filling more than is actually done 
+    progress=$(printf %.1f "$(bc <<< "scale=10; ${percentage}/100*${progressbar_length}")" | cut -f1 -d ".")
     pad_filled=$(printf -v spaces '%*s' ${progressbar_length} ''; printf '%s\n' ${spaces// /${progress_character}})
     pad_remaining=$(printf -v spaces '%*s' ${progressbar_length} ''; printf '%s\n' ${spaces// /${progress_remaining_character}})
     printf "%-${progressbar_length}s" "${pad_filled:0:${progress}}${pad_remaining:${progress}}"
