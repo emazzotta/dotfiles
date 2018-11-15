@@ -4,9 +4,27 @@ source "${CUSTOM_BIN_DIR}/prettyprint"
 
 info "Checking for unfinished work."
 
-find "${WDIR}" -mindepth 1 -maxdepth 3 -type d -or -type l | while read dir; do
+dir="${WDIR}"
+test "${1}" && dir="${1}"
+
+find "${dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
     if [ -d "${dir}/.git" ]; then
-        gckdir "${dir}"
+        echo -n "."
+        if [[ "$(git -C "${dir}" status -s)" != "" ]]; then
+            echo 
+            substep_info "${dir} [git uncommitted changes]"
+            git -C "${dir}" status -s
+        fi
+        if [[ "$(git -C "${dir}" log --branches --not --remotes)" != "" ]]; then
+            echo
+            substep_info "${dir} [git unpushed changes]"
+            echo -e "$(git -C "${dir}" log --pretty=format:"%h - %an, %ar: %s%n" --branches --not --remotes)"
+        fi
+        if [ "$(git -C "${dir}" stash list)" != "" ]; then
+            echo
+            substep_info "${dir} [git stashed changes]"
+            git -C "${dir}" stash list
+        fi
     fi
 done
 
