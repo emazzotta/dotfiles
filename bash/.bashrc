@@ -257,6 +257,7 @@ alias uref='print_and_copy "${UBER_REFERRAL}"' # Uber
 alias urlencode='python -c "import sys, urllib; print urllib.quote_plus(sys.argv[1]);"'
 alias urr='gist -u ${RECOMMENDED_READINGS_GIST_ID} ${RECOMMENDED_READINGS}'
 alias vdc='vi docker-compose.yml'
+alias vdf='vi Dockerfile'
 alias ve='vi ${HOME}/.vim_runtime/my_configs.vim'
 alias vh='sudo vi /etc/hosts'
 alias vi='vim'
