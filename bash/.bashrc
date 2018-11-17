@@ -223,6 +223,7 @@ alias rmpy="find . -type f -name '*.pyc' -o -name '.cache' -o -name 'target' -o 
 alias rmu='git clean -f' # Remove untracked files
 alias rmwin="find . -type f -name 'Thumbs.db' -or -name 'desktop.ini' -or -name '$RECYCLE.BIN' -delete"
 alias rmzero='find . -size 0 | xargs rm'
+alias ro='repo'
 alias rp='source ${HOME}/.bashrc'
 alias rr='rm -rf'
 alias rref='print_and_copy "${REFIND_REFERRAL}"'
