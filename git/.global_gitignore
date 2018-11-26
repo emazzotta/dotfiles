@@ -6,7 +6,7 @@
 .Spotlight-V100
 .Trashes
 ._*
-.env*
+.env
 .idea
 Thumbs.db
 npm-debug.log
