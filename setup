@@ -39,6 +39,7 @@ if [ "$(uname)" == "Darwin" ]; then
 
     npm install -g cash-cli
     npm install -g eslint
+    npm install -g gatsby-cli
     npm install -g yarn
 
     pip install --upgrade pip
