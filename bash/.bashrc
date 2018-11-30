@@ -134,7 +134,6 @@ alias genpubpem='openssl rsa -in ${HOME}/.ssh/id_rsa -pubout > ${HOME}/.ssh/id_r
 alias genvenv2='virtualenv -p python2.7'
 alias genvenv3='virtualenv -p python3.7'
 alias ggi='vi ${HOME}/.global_gitignore'
-alias ghackcontrib='find ${WDIR}/hackathons -type d -mindepth 1 -maxdepth 1 | xargs -I {} bash -c "if [ -e {}/.git ];then git -C {} shortlog -sn --all;fi" | awk '\''{a[$2" "$3]+=$1} END {for(x in a) print a[x], x}'\'' | sort -Vr'
 alias gign='vi .gitignore'
 alias ginit='git init && git commit -m "Initial commit" --allow-empty'
 alias gitnope='git update-index --assume-unchanged'

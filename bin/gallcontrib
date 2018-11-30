@@ -1,0 +1,7 @@
+#!/bin/bash
+
+if test "${1}"; then
+    find "${1}" -type d -mindepth 1 -maxdepth 1 | xargs -I {} bash -c "if [ -e {}/.git ];then git -C {} shortlog -sn --all;fi" | awk '{a[$2" "$3]+=$1} END {for(x in a) print a[x], x}' | sort -Vr
+else
+    echo "usage: `basename ${0}` <directory>"
+fi
