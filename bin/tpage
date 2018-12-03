@@ -2,10 +2,10 @@
 
 if test "${1}"; then
     domain="${1}"
-    open "https://observatory.mozilla.org/analyze.html?host=${domain}"
+    domain_no_protocol=$(awk -F/ '{print $3}' <<< ${domain})
+    open "https://observatory.mozilla.org/analyze.html?host=${domain_no_protocol}"
     open "https://securityheaders.io/?q=${domain}"
     open "https://developers.google.com/speed/pagespeed/insights/?hl=de&url=${domain}"
-    open "https://search.google.com/search-console/mobile-friendly?url=${domain}"
     open "https://www.webpagetest.org/?url=${domain}"
     open "http://ipv6-test.com/validate.php?url=${domain}"
     open "https://tools.keycdn.com/http2-test?url=${domain}"
