@@ -3,10 +3,8 @@
 # Base directory with repositories
 repo_base=${WDIR}
 
-# Search for exact match
-repo_path=$(find "${repo_base}" -mindepth 2 -maxdepth 2 -type d -name "${argv}" | head -n 1)
 # Search for fuzzy match
-test "${repo_path}" || repo_path=$(find "${repo_base}" -mindepth 2 -maxdepth 2 -type d -name "*${argv}*" | head -n 1)
+repo_path=$(find "${repo_base}" -mindepth 2 -maxdepth 2 -type d | fzf -f "${argv}" | head -n 1)
 
 # Change directory based on match
 (! test "${argv}" || ! test "${repo_path}") && cd "${repo_base}" || cd "${repo_path}"
