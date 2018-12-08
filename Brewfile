@@ -1,6 +1,7 @@
 tap 'buo/cask-upgrade'
-tap 'cloudfoundry/tap'
 tap 'caskroom/versions'
+tap 'cloudfoundry/tap'
+tap 'wagoodman/dive'
 
 # Binaries
 brew 'adr-tools'
@@ -17,6 +18,7 @@ brew 'clojure'
 brew 'cmake'
 brew 'ctags'
 brew 'diff-so-fancy'
+brew 'dive'
 brew 'dockutil'
 brew 'duti'
 brew 'emacs'
