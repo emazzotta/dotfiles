@@ -8,7 +8,6 @@ set mouse=n
 set number
 set relativenumber
 set rtp+=/usr/local/bin/fzf
-set autoread
 set smartindent
 set smarttab
 set tabstop=4
