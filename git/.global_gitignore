@@ -1,5 +1,4 @@
 *.iml
-*.paw
 *.sqlite
 *~
 .DS_Store
