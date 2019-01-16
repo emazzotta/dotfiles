@@ -2,7 +2,7 @@
 export WDIR="${HOME}/Projects"
 export DOTFILESPATH="${WDIR}/private/dotfiles"
 export CUSTOM_BIN_DIR="${DOTFILESPATH}/bin"
-export PATH="${CUSTOM_BIN_DIR}:${HOME}/.yarn/bin:/usr/local/bin:/usr/local/Cellar:/usr/local/opt/inetutils/libexec/gnubin:${PATH}"
+export PATH="${CUSTOM_BIN_DIR}:${HOME}/.yarn/bin:/usr/local/bin:/usr/local/Cellar:${PATH}"
 export GDRIVEDIR="${HOME}/Google Drive"
 export DOCUMENTDIR="${GDRIVEDIR}/Dokumente"
 export BELEGEDIR="${DOCUMENTDIR}/Belege"

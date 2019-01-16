@@ -41,7 +41,6 @@ brew 'htop'
 brew 'httpie'
 brew 'icdiff'
 brew 'imagemagick' # SVGify
-brew 'inetutils'
 brew 'jq'
 brew 'kubectl'
 brew 'lame'
