@@ -1,7 +1,13 @@
 #!/bin/bash
 
 rmblock instagram.com
+rmblock www.instagram.com
 rmblock twitter.com
+rmblock mobile.twitter.com
 rmblock linkedin.com
+rmblock www.linkedin.com
 rmblock reddit.com
+rmblock www.reddit.com
 rmblock youtube.com
+rmblock www.youtube.com
+
