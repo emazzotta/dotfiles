@@ -1,7 +1,13 @@
 #!/bin/bash
 
 addblock instagram.com
+addblock www.instagram.com
 addblock twitter.com
+addblock mobile.twitter.com
 addblock linkedin.com
+addblock www.linkedin.com
 addblock reddit.com
+addblock www.reddit.com
 addblock youtube.com
+addblock www.youtube.com
+
