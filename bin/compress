@@ -8,12 +8,11 @@ if ! test "${1}" || [[ "${1}" == "--help" ]] || [[ "${1}" == "-h" ]]; then
 fi
 name=${1}
 extension=${1#*.}
-compressee=()
 if ! test "${2}"; then
-    compressee+=(${1%%.*})
+    compressee="${1%%.*}"
 else
     shift
-    compressee+=(${@})
+    compressee="${@}"
 fi
 echo "archive to create: ${name}"
 echo "archive contents: ${compressee}"
