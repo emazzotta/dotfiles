@@ -30,6 +30,8 @@ let g:AutoPairsShortcutToggle = 0
 "let g:syntastic_javascript_checkers = ['eslint']
 "let g:syntastic_javascript_eslint_exe = 'yarn lint --'
 
+" When Tmux 'focus-events' option is on, Tmux will send <Esc>[O when the
+" window loses focus and <Esc>[I when it gains focus.
 exec "set <F24>=\<Esc>[O"
 exec "set <F25>=\<Esc>[I"
 
