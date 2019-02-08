@@ -30,6 +30,9 @@ let g:AutoPairsShortcutToggle = 0
 "let g:syntastic_javascript_checkers = ['eslint']
 "let g:syntastic_javascript_eslint_exe = 'yarn lint --'
 
+exec "set <F24>=\<Esc>[O"
+exec "set <F25>=\<Esc>[I"
+
 nmap k gk
 nmap j gj
 nmap <Up> gk
