@@ -54,7 +54,7 @@ days_at_zhaw() {
     printer "${title}" "${ratio}" "${progressbar}" "${percentage}"
 }
 
-days_at_zhaw "2015-09-21" "2019-07-12" "B.Sc. IT 15"
+days_at_zhaw "2015-09-21" "2019-07-12" "B.Sc. IT 15t"
 [[ "${mode}" == "telegram-formatting"  ]] && \
-    days_at_zhaw "2016-09-19" "2020-07-10" "B.Sc. IT 16"
+    days_at_zhaw "2016-09-19" "2020-07-10" "B.Sc. IT 16t"
 
