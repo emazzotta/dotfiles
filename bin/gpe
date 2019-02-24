@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if test "${2}"; then
+    echo "${2}" | gpg --encrypt --armor --recipient-file "${1}"
+else
+    echo "usage: `basename ${0}` <public key file> <text to ecrypt>"
+fi
+
