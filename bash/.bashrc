@@ -142,7 +142,6 @@ alias gityep='git update-index --no-assume-unchanged'
 alias glist='git stash list'
 alias glog='git log'
 alias glogp='git log --pretty=format:'\''%h by %an:%n"%s"'\'' --graph'
-alias gpgd='gpg --decrypt'
 alias gpgpub='print_and_copy "$(gpg --armor --export mazzotta.emanuele@gmail.com)"'
 alias gpgsearch='gpg --keyserver pool.sks-keyservers.net --search-keys'
 alias gpgsend='gpg --keyserver hkp://ipv4.pool.sks-keyservers.net:80 --send-keys 8A7772B5326021E6845D291F73EB5C8CAC4297A8'
@@ -309,3 +308,12 @@ if test -f ${HOME}/.gnupg/.gpg-agent-info -a -n "$(pgrep gpg-agent)"; then
 else
     eval $(gpg-agent --daemon --write-env-file ${HOME}/.gnupg/.gpg-agent-info)
 fi
+function zshaddhistory() {
+  emulate -L zsh
+  if ! [[ "$1" =~ "(^gp|--password)" ]] ; then
+      print -sr -- "${1%%$'\n'}"
+      fc -p
+  else
+      return 1
+  fi
+}
