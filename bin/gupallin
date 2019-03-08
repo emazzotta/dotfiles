@@ -5,15 +5,23 @@ test "${1}" && root_dir="${1}"
 
 test -f "${CUSTOM_BIN_DIR}/prettyprint" && source "${CUSTOM_BIN_DIR}/prettyprint"
 
+function pull_branch() {
+    test "${2}" || return 1
+    if git -C "${2}" checkout "${1}" &> /dev/null; then
+        git -C "${2}" pull --quiet --rebase
+        [ $? -eq 0 ] && substep_success "Pulled ${1}" || substep_error "Pulling ${1} failed"
+        git -C "${2}" checkout --quiet -
+    fi
+}
+
 info "Checking ${root_dir} for git updates..."
 find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
     if [ -d "${dir}/.git" ]; then
         substep_info "Updating ${dir}"
-        if git -C "${dir}" checkout master &> /dev/null; then
-            git -C "${dir}" pull --quiet --rebase
-            [ $? -eq 0 ] && substep_success "Pulled master" || substep_error "Pulling master failed"
-            git -C "${dir}" checkout --quiet -
-        fi
+		pull_branch "master" "${dir}"
+		pull_branch "2.0.x" "${dir}"
+		pull_branch "2.1.x" "${dir}"
+		pull_branch "2.2.x" "${dir}"
         branch_name=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
         if [ "${branch_name}" != "master" ]; then
             git -C "${dir}" pull --quiet --rebase
@@ -22,3 +30,4 @@ find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir;
     fi
 done
 success "Done pulling updates."
+
