@@ -19,6 +19,9 @@ find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir;
     if [ -d "${dir}/.git" ]; then
         substep_info "Updating ${dir}"
 		pull_branch "master" "${dir}"
+		pull_branch "test" "${dir}"
+		pull_branch "dev" "${dir}"
+		pull_branch "develop" "${dir}"
 		pull_branch "2.0.x" "${dir}"
 		pull_branch "2.1.x" "${dir}"
 		pull_branch "2.2.x" "${dir}"
