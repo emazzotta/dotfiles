@@ -44,6 +44,7 @@ brew 'imagemagick' # SVGify
 brew 'jq'
 brew 'kubectl'
 brew 'lame'
+brew 'lftp'
 brew 'libav' # Git Video
 brew 'macvim'
 brew 'maven'
