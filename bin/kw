@@ -34,7 +34,7 @@ progressbar=$(progressbar ${week} ${max} ${progressbar_length} "◼" "◻")
 printer "KW" "${week}/52" "${progressbar}" "${percentage}"
 
 # Days left at ZHAW
-days_at_zhaw() {
+count_down() {
     if date -j &> /dev/null; then
         start_date=$(date -jf "%Y-%m-%d" "+%s" "${1}")
         end_date=$(date -jf "%Y-%m-%d" "+%s" "${2}")
@@ -54,7 +54,8 @@ days_at_zhaw() {
     printer "${title}" "${ratio}" "${progressbar}" "${percentage}"
 }
 
-days_at_zhaw "2015-09-21" "2019-07-12" "B.Sc. IT 15t"
+count_down "2015-09-21" "2019-07-12" "B.Sc. IT 15t"
 [[ "${mode}" == "telegram-formatting"  ]] && \
-    days_at_zhaw "2016-09-19" "2020-07-10" "B.Sc. IT 16t"
+    count_down "2019-02-11" "2019-06-07" "Bachelorarbeit" && \
+    count_down "2016-09-19" "2020-07-10" "B.Sc. IT 16t"
 
