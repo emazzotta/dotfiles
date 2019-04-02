@@ -181,6 +181,7 @@ alias isotoutf='iconv -f iso-8859-1 -t utf-8'
 alias j10="sdk use java 10.0.2-open"
 alias j11="sdk use java 11.0.2-open"
 alias j12="sdk use java 12.ea.15-open"
+alias j13="sdk use java 13.ea.14-open"
 alias j8="sdk use java 8.0.191-oracle"
 alias j9="sdk use java 9.0.4-open"
 alias k='kubectl'
