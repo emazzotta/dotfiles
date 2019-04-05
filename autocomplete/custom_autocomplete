@@ -1,7 +1,8 @@
 #!/bin/bash
-if [ ! -z "${ZSH_VERSION}" ]; then
+if test "${ZSH_VERSION}"; then
     autoload bashcompinit
     bashcompinit
+    compdef sshrc=ssh
 fi
 _agrep()
 {
