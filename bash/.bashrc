@@ -34,7 +34,6 @@ export MARKDOWNDIR=${DOCUMENTDIR}/Markdown
 export NODE_REPL_HISTORY="~/.node_history"
 export NODE_REPL_HISTORY_SIZE='32768'
 export NODE_REPL_MODE='sloppy'
-export NO_COLOR='\033[0m'
 export PRIVATECOMMITSDIR="${WDIR}/private/private-commits"
 export PROMPT_DIRTRIM=2
 export PYTHONIOENCODING='UTF-8'
