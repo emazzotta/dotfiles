@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [[ $(uname) == "Darwin" ]]; then
-    print_and_copy $(uuidgen)
+    print_and_copy $(uuidgen | tr '[:upper:]' '[:lower:]')
 else
-    cat /proc/sys/kernel/random/uuid
+    cat /proc/sys/kernel/random/uuid | tr '[:upper:]' '[:lower:]'
 fi
