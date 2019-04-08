@@ -7,7 +7,7 @@ test -f "${CUSTOM_BIN_DIR}/prettyprint" && source "${CUSTOM_BIN_DIR}/prettyprint
 
 function pull_branch() {
     test "${2}" || return 1
-    if git -C "${2}" checkout "${1}" &> /dev/null; then
+    if git -C "${2}" rev-parse --verify "origin/${1}" &> /dev/null && git -C "${2}" checkout "${1}" &> /dev/null; then
         git -C "${2}" pull --quiet --rebase
         [ $? -eq 0 ] && substep_success "Pulled ${1}" || substep_error "Pulling ${1} failed"
         git -C "${2}" checkout --quiet -
