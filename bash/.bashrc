@@ -95,7 +95,6 @@ alias dok='cd ${DOCUMENTDIR}'
 alias dps='docker ps'
 alias dref='print_and_copy "${DIGITAL_OCEAN_REFERRAL}"'
 alias dt='cd ${DESKDIR}'
-alias du="ncdu --color dark -rr -x --exclude .git --exclude node_modules"
 alias dv='deactivate'
 alias e='exit'
 alias eak='vi ${HOME}/.ssh/authorized_keys'
@@ -287,8 +286,8 @@ alias zm='cd ${WDIR}/zhaw/zhaw-material'
 alias zrp='cd ${WDIR}/zhaw'
 ### COMMANDS ###
 source load "${DOTFILESPATH}/.env"
-source load "${DOTFILESPATH}/bin/colors"
 source load "${DOTFILESPATH}/autocomplete/custom_autocomplete"
+source load "${DOTFILESPATH}/bin/colors"
 source load "${HOME}/.sdkman/bin/sdkman-init.sh"
 test "${BASH_VERSION}" && source load "${HOME}/.sshrc"
 if test "${ZSH_VERSION}"; then
