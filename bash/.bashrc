@@ -284,7 +284,7 @@ alias ze='vi ${HOME}/.zshrc'
 alias zep='vi ${HOME}/.zpreztorc'
 alias zh='vi ${HISTFILE}'
 alias zhaw='cd ${ZHAWDIR}/Classes'
-alias zhawconnect='sudo openconnect ras.zhaw.ch <<< $(echo "mazzoema\n`security find-generic-password -wa mazzoema`")'
+alias zhawconnect='sudo openconnect ras.zhaw.ch <<< $(echo "ZHAW-Edu\nmazzoema\n`security find-generic-password -wa mazzoema`")'
 alias zm='cd ${WDIR}/zhaw/zhaw-material'
 alias zrp='cd ${WDIR}/zhaw'
 ### COMMANDS ###
