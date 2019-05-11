@@ -12,7 +12,7 @@ printer() {
     [[ "${mode}" == "telegram-formatting" ]] && \
         printf "${title} ${ratio}\n%${progressbar_length}s %.2f%%\n" "${progressbar}" "${percentage}" && \
         return
-    printf "%-13s %9s [%${progressbar_length}s] %.2f%%\n" "${title}" "${ratio}" "${progressbar}" "${percentage}" 
+    printf "%-14s %9s [%${progressbar_length}s] %.2f%%\n" "${title}" "${ratio}" "${progressbar}" "${percentage}" 
 }
 
 week=$(date +%V | sed 's/^0*//') 
@@ -55,7 +55,6 @@ count_down() {
 }
 
 count_down "2015-09-21" "2019-07-12" "B.Sc. IT 15t"
-[[ "${mode}" == "telegram-formatting"  ]] && \
-    count_down "2019-02-11" "2019-06-07" "Bachelorarbeit" && \
-    count_down "2016-09-19" "2020-07-10" "B.Sc. IT 16t"
+count_down "2019-02-11" "2019-06-07" "Bachelorarbeit"
+[[ "${mode}" == "telegram-formatting"  ]] && count_down "2016-09-19" "2020-07-10" "B.Sc. IT 16t"
 
