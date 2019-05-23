@@ -1,6 +1,7 @@
 tap 'buo/cask-upgrade'
 tap 'caskroom/versions'
 tap 'cloudfoundry/tap' # cf-cli
+tap 'homebrew/cask-fonts'
 tap 'wagoodman/dive' # dive
 
 # Binaries
@@ -46,6 +47,7 @@ brew 'kubectl'
 brew 'lame'
 brew 'lftp' # Advanced FTP
 brew 'libav' # Git Video
+brew 'lsd'
 brew 'maven'
 brew 'mono'
 brew 'mpv'
@@ -80,6 +82,7 @@ cask 'daisydisk'
 cask 'docker'
 cask 'filezilla'
 cask 'firefox'
+cask 'font-hack-nerd-font'
 cask 'google-backup-and-sync'
 cask 'gpg-suite'
 cask 'harvest'
