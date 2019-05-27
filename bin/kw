@@ -33,11 +33,10 @@ percentage=$(bc <<< "scale=10; 100/${max}*${week}")
 progressbar=$(progressbar ${week} ${max} ${progressbar_length} "◼" "◻")
 printer "KW" "${week}/52" "${progressbar}" "${percentage}"
 
-# Days left at ZHAW
 count_down() {
     if date -j &> /dev/null; then
-        start_date=$(date -jf "%Y-%m-%d" "+%s" "${1}")
-        end_date=$(date -jf "%Y-%m-%d" "+%s" "${2}")
+        start_date=$(date -jf "%Y-%m-%d %H:%M:%S" "+%s" "${1}")
+        end_date=$(date -jf "%Y-%m-%d %H:%M:%S" "+%s" "${2}")
     else
         start_date=$(date -d "${1}" "+%s")
         end_date=$(date -d "${2}" "+%s" )
@@ -54,7 +53,7 @@ count_down() {
     printer "${title}" "${ratio}" "${progressbar}" "${percentage}"
 }
 
-count_down "2015-09-21" "2019-07-12" "B.Sc. IT 15t"
-count_down "2019-02-11" "2019-06-07" "Bachelorarbeit"
-[[ "${mode}" == "telegram-formatting"  ]] && count_down "2016-09-19" "2020-07-10" "B.Sc. IT 16t"
+count_down "2015-09-21 00:00:00" "2019-07-12 00:00:00" "B.Sc. IT 15t"
+count_down "2019-02-11 00:00:00" "2019-06-07 15:30:00" "Bachelorarbeit"
+[[ "${mode}" == "telegram-formatting"  ]] && count_down "2016-09-19 00:00:00" "2020-07-10 00:00:00" "B.Sc. IT 16t"
 
