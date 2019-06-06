@@ -2,14 +2,15 @@
 
 DIR=$(dirname "$0")
 
+stow -d ${DIR} -t ${HOME} --ignore=prompt_garrett_setup zsh
 stow -d ${DIR} -t ${HOME} bash
 stow -d ${DIR} -t ${HOME} emacs
 stow -d ${DIR} -t ${HOME} git
 stow -d ${DIR} -t ${HOME} gpg
 stow -d ${DIR} -t ${HOME} karabiner
+stow -d ${DIR} -t ${HOME} lftp
 stow -d ${DIR} -t ${HOME} python
 stow -d ${DIR} -t ${HOME} ssh
 stow -d ${DIR} -t ${HOME} sshrc
 stow -d ${DIR} -t ${HOME} tmux
 stow -d ${DIR} -t ${HOME} vim
-stow -d ${DIR} -t ${HOME} --ignore=prompt_garrett_setup zsh
