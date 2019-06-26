@@ -51,6 +51,7 @@ if [ "$(uname)" == "Darwin" ]; then
 
     gem install bundler
     gem install github-pages
+    gem install iStats
     gem install rails
     gem install rake
 
