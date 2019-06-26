@@ -54,7 +54,7 @@ count_down() {
     [ 1 -eq "$(echo "${percentage} <= ${maximum}" | bc)"  ] && printer "${title}" "${ratio}" "${progressbar}" "${percentage}"
 }
 
-count_down "2015-09-21 00:00:00" "2019-07-12 00:00:00" "B.Sc. IT 15t"
+count_down "2015-09-21 00:00:00" "2019-07-02 00:00:00" "B.Sc. IT 15t"
 count_down "2019-02-11 00:00:00" "2019-06-07 15:30:00" "Bachelorarbeit"
 [[ "${mode}" == "telegram-formatting"  ]] && count_down "2016-09-19 00:00:00" "2020-07-10 00:00:00" "B.Sc. IT 16t"
 
