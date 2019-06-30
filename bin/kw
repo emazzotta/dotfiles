@@ -48,7 +48,9 @@ count_down() {
     percentage=$(bc <<< "scale=10; 100/${days_total}*${days_done}")
     title="${3}"
     ratio="${days_done}/${days_total}"
-    [[ "${mode}" == "telegram-formatting" ]] && ratio="${ratio}\n${days_left} Tage übrig"
+    days_left_caption="${days_left} Tage übrig"
+    [[ "${days_left}" == 1 ]] && days_left_caption="${days_left} Tag übrig"
+    [[ "${mode}" == "telegram-formatting" ]] && ratio="${ratio}\n${days_left_caption}"
     [[ "${mode}" == "telegram-formatting" ]] && title="\n${title}"
     maximum=100.0
     [ 1 -eq "$(echo "${percentage} <= ${maximum}" | bc)"  ] && printer "${title}" "${ratio}" "${progressbar}" "${percentage}"
