@@ -115,7 +115,7 @@ else
         ln -s "$rcfile" "${ZDOTDIR:-$HOME}/.${rcfile:t}"
     done
     chsh -s /bin/zsh
-    sudo curl -L https://github.com/docker/compose/releases/download/1.22.0/docker-compose-`uname -s`-`uname -m` > /usr/local/bin/docker-compose
+    sudo curl -L https://github.com/docker/compose/releases/download/1.24.1/docker-compose-`uname -s`-`uname -m` > /usr/local/bin/docker-compose
     sudo mkdir -p /etc/systemd/system/docker.service.d
     sudo printf "[Service]nExecStart=nExecStart=/usr/bin/dockerd --storage-driver=overlay" > /etc/systemd/system/docker.service.d/
     sudo service docker start
