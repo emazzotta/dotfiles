@@ -230,6 +230,7 @@ alias rmzero='find . -size 0 | xargs rm'
 alias rp='source ${HOME}/.bashrc'
 alias rr='rm -rf'
 alias rref='print_and_copy "${REFIND_REFERRAL}"'
+alias revref='print_and_copy "${REVOLUT_REFERRAL}"'
 alias sconf='vi ${HOME}/.ssh/config'
 alias see="fzf --preview 'less {}'"
 alias shrug='print_and_copy "¯\_(ツ)_/¯"'
