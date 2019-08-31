@@ -4,6 +4,11 @@ DIR=$(dirname "$0")
 cd "$DIR"
 
 if [ "$(uname)" == "Darwin" ]; then
+
+    curl -s "https://get.sdkman.io" | bash
+    source "${HOME}/.sdkman/bin/sdkman-init.sh"
+    sdk install java
+    
     ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
     brew tap homebrew/bundle
     brew bundle --file="./Brewfile"
@@ -11,8 +16,6 @@ if [ "$(uname)" == "Darwin" ]; then
     brew install gnu-sed --with-default-names
     brew install grep --with-default-names
     brew install vim --with-python@2 --with-override-system-vi
-
-    curl -s "https://get.sdkman.io" | bash
 
     # Set Dock items
     OLDIFS=$IFS
@@ -34,7 +37,7 @@ if [ "$(uname)" == "Darwin" ]; then
 
     cp ./zsh/prompt_garrett_setup ${HOME}/.zprezto/modules/prompt/functions/
     ./stowsetup
-    ./macos
+    ./.macos
     ./duti/setfiledefaults
 
     npm install -g cash-cli
