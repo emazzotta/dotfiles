@@ -10,6 +10,12 @@ if [ "$(uname)" == "Darwin" ]; then
     sdk install java
     
     ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+    # Install the most improtant ones first
+    brew cask install iterm2
+    brew cask install google-chrome
+    brew cask install karabiner-elements
+    brew cask install alfred
+    # Install the rest
     brew tap homebrew/bundle
     brew bundle --file="./Brewfile"
 
