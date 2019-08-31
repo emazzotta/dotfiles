@@ -12,10 +12,6 @@ if [ "$(uname)" == "Darwin" ]; then
     ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
     brew tap homebrew/bundle
     brew bundle --file="./Brewfile"
-    brew install curl --with-c-ares
-    brew install gnu-sed --with-default-names
-    brew install grep --with-default-names
-    brew install vim --with-python@2 --with-override-system-vi
 
     # Set Dock items
     OLDIFS=$IFS
