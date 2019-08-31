@@ -5,6 +5,10 @@ tap 'homebrew/cask-fonts'
 tap 'wagoodman/dive' # dive
 
 # Binaries
+brew 'curl'
+brew 'gnu-sed'
+brew 'grep'
+brew 'vim'
 brew 'adr-tools'
 brew 'aria2'
 brew 'asciinema'
