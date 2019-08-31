@@ -17,6 +17,7 @@ if [ "$(uname)" == "Darwin" ]; then
     brew cask install google-chrome
     brew cask install karabiner-elements
     brew cask install alfred
+
     # Install the rest
     brew tap homebrew/bundle
     brew bundle --file="./Brewfile"
@@ -42,50 +43,47 @@ if [ "$(uname)" == "Darwin" ]; then
     ./.macos
     ./duti/setfiledefaults
 
-    npm install -g cash-cli
     npm install -g eslint
     npm install -g gatsby-cli
     npm install -g vue
     npm install -g yarn
 
+    ln -sf $(which pip3) /usr/local/bin/pip
     pip install --upgrade pip
     pip install autopep8
     pip install awscli
     pip install bpython
     pip install virtualenv
 
-    gem install bundler
-    gem install github-pages
-    gem install iStats
-    gem install rails
-    gem install rake
+    sudo gem install bundler
+    sudo gem install github-pages
+    sudo gem install iStats
+    sudo gem install rails
+    sudo gem install rake
 
-    sudo xcode-select --install
-    sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
-
-    git clone -C "${HOME}" https://github.com/tarjoilija/zgen.git
+    git clone https://github.com/tarjoilija/zgen.git "${HOME}/.zgen"
     git clone --recursive https://github.com/sorin-ionescu/prezto.git ${ZDOTDIR:-$HOME}/.zprezto
     git clone --depth=1 https://github.com/amix/vimrc.git "${HOME}/.vim_runtime"
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:Glench/Vim-Jinja2-Syntax.git
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:OmniSharp/omnisharp-vim.git
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:Valloric/YouCompleteMe.git
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:ap/vim-css-color.git
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:benmills/vimux.git
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:editorconfig/editorconfig-vim.git
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:jceb/vim-orgmode.git
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:junegunn/fzf.vim.git
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:mattn/emmet-vim.git
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:tomlion/vim-solidity.git
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:tpope/vim-dispatch.git
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:vim-airline/vim-airline
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone git@github.com:tmux-plugins/vim-tmux-focus-events.git
-    git -C "${HOME}/.vim_runtime/sources_non_forked/YouCompleteMe" submodule update --init --recursive
-    git -C "${HOME}/.vim_runtime/sources_non_forked/omnisharp-vim" submodule update --init --recursive
-    git -C "${HOME}/.vim_runtime/sources_non_forked" clone https://github.com/OmniSharp/omnisharp-server.git
-    git -C "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" submodule update --init --recursive
+    cd "${HOME}/.vim_runtime/sources_non_forked"
+    git clone git@github.com:Glench/Vim-Jinja2-Syntax.git
+    git clone git@github.com:OmniSharp/omnisharp-vim.git
+    git clone git@github.com:Valloric/YouCompleteMe.git
+    git clone git@github.com:ap/vim-css-color.git
+    git clone git@github.com:benmills/vimux.git
+    git clone git@github.com:editorconfig/editorconfig-vim.git
+    git clone git@github.com:jceb/vim-orgmode.git
+    git clone git@github.com:junegunn/fzf.vim.git
+    git clone git@github.com:mattn/emmet-vim.git
+    git clone git@github.com:tomlion/vim-solidity.git
+    git clone git@github.com:tpope/vim-dispatch.git
+    git clone git@github.com:vim-airline/vim-airline.git
+    git clone git@github.com:tmux-plugins/vim-tmux-focus-events.git
+    git clone https://github.com/OmniSharp/omnisharp-server.git
+    cd "${HOME}/.vim_runtime/sources_non_forked/YouCompleteMe" && git submodule update --init --recursive
+    cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-vim" && git submodule update --init --recursive
+    cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" && git submodule update --init --recursive
     cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" && msbuild 
-    cd "${HOME}/.vim_runtime/sources_non_forked/YouCompleteMe" \
-        && ./install.py --clang-completer --gocode-completer --tern-completer --omnisharp-completer 
+    cd "${HOME}/.vim_runtime/sources_non_forked/YouCompleteMe" && ./install.py --clang-completer --gocode-completer --tern-completer --omnisharp-completer 
 else
     sudo apt-get update && sudo apt-get -y upgrade && sudo apt-get -y dist-upgrade
     sudo apt-get install -y \
