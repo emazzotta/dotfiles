@@ -39,7 +39,6 @@ if [ "$(uname)" == "Darwin" ]; then
     killall Dock
     IFS=$OLDIFS
 
-    cp ./zsh/prompt_garrett_setup ${HOME}/.zprezto/modules/prompt/functions/
     ./.macos
     ./duti/setfiledefaults
 
@@ -61,8 +60,15 @@ if [ "$(uname)" == "Darwin" ]; then
     sudo gem install rails
     sudo gem install rake
 
-    git clone https://github.com/tarjoilija/zgen.git "${HOME}/.zgen"
+    cd "${HOME}"
+    git clone https://github.com/gpakosz/.tmux.git
+    ln -s -f .tmux/.tmux.conf
+
     git clone --recursive https://github.com/sorin-ionescu/prezto.git ${ZDOTDIR:-$HOME}/.zprezto
+    cp ./zsh/prompt_garrett_setup ${HOME}/.zprezto/modules/prompt/functions/
+    git clone https://github.com/tarjoilija/zgen.git "${HOME}/.zgen"
+    chsh -s /bin/zsh
+
     git clone --depth=1 https://github.com/amix/vimrc.git "${HOME}/.vim_runtime"
     cd "${HOME}/.vim_runtime/sources_non_forked"
     git clone git@github.com:Glench/Vim-Jinja2-Syntax.git
