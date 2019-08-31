@@ -21,7 +21,6 @@ if [ "$(uname)" == "Darwin" ]; then
         'Google Chrome'
         'IntelliJ IDEA'
         Slack
-        Spotify
     )
     dockutil --no-restart --remove all ${HOME}
     for app in "${apps[@]}"; do
