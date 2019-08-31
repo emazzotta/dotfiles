@@ -11,6 +11,8 @@ if [ "$(uname)" == "Darwin" ]; then
     
     ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
     # Install the most improtant ones first
+    brew install stow
+    ./stowsetup
     brew cask install iterm2
     brew cask install google-chrome
     brew cask install karabiner-elements
@@ -37,7 +39,6 @@ if [ "$(uname)" == "Darwin" ]; then
     IFS=$OLDIFS
 
     cp ./zsh/prompt_garrett_setup ${HOME}/.zprezto/modules/prompt/functions/
-    ./stowsetup
     ./.macos
     ./duti/setfiledefaults
 
