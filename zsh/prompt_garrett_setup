@@ -396,18 +396,16 @@ function prompt_garrett_setup {
   #
 
   # Base style.
-  # zstyle ':prezto:module:editor:info:keymap:primary' format "${red}❱%(?.${prompt_garrett_color_prompt}.${red})❱❱ "
-  zstyle ':prezto:module:editor:info:keymap:primary' format "%(?.${prompt_garrett_color_prompt}.${red})❱ "
+  zstyle ':prezto:module:editor:info:keymap:primary' format "${red}❱%(?.${prompt_garrett_color_prompt}.${red})❱❱ "
 
   # Vim insert mode.
-  # zstyle ':prezto:module:editor:info:keymap:primary:insert' format "${red}I "
+  zstyle ':prezto:module:editor:info:keymap:primary:insert' format "${red}I "
 
   # Vim overwrite mode.
   zstyle ':prezto:module:editor:info:keymap:primary:overwrite' format "${red}♺ "
 
   # Vim normal (command) mode.
-  # zstyle ':prezto:module:editor:info:keymap:alternate' format "${red}❰%(?.${prompt_garrett_color_prompt}.${red})❰❰ "
-  zstyle ':prezto:module:editor:info:keymap:alternate' format "%(?.${prompt_garrett_color_prompt}.${red})❰ "
+  zstyle ':prezto:module:editor:info:keymap:alternate' format "${red}❰%(?.${prompt_garrett_color_prompt}.${red})❰❰ "
 
   # Tab completion mode.
   zstyle ':prezto:module:editor:info:completing' format "${red}..."
@@ -430,7 +428,7 @@ function prompt_garrett_setup {
   prompt_garrett_upper_left_corner=${prompt_garrett_altchar_enter}${altchar[l]:--}${altchar[q]:--}${prompt_garrett_altchar_leave}
 
   # Lower left corner: └
-  prompt_garrett_lower_left_corner=${prompt_garrett_altchar_enter}${altchar[m]:--}${altchar[q]:--}${prompt_garrett_altchar_leave}
+  prompt_garrett_lower_left_corner="${prompt_garrett_altchar_enter}${altchar[m]:--}${altchar[q]:--}${prompt_garrett_altchar_leave}❱ "
 
   # Upper right corner: ┐
   prompt_garrett_upper_right_corner=${prompt_garrett_altchar_enter}${altchar[q]:--}${altchar[k]:--}${prompt_garrett_altchar_leave}
