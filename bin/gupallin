@@ -18,14 +18,15 @@ info "Checking ${root_dir} for git updates..."
 find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
     if [ -d "${dir}/.git" ]; then
         substep_info "Updating ${dir}"
-		pull_branch "master" "${dir}"
-		pull_branch "test" "${dir}"
-		pull_branch "dev" "${dir}"
-		pull_branch "play" "${dir}"
-		pull_branch "develop" "${dir}"
-		pull_branch "2.2.x" "${dir}"
-		pull_branch "2.3.x" "${dir}"
-		pull_branch "2.4.x" "${dir}"
+        pull_branch "master" "${dir}"
+        pull_branch "test" "${dir}"
+        pull_branch "dev" "${dir}"
+        pull_branch "play" "${dir}"
+        pull_branch "develop" "${dir}"
+        pull_branch "2.2.x" "${dir}"
+        pull_branch "2.3.x" "${dir}"
+        pull_branch "2.4.x" "${dir}"
+        pull_branch "2.5.x" "${dir}"
         branch_name=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
         if [ "${branch_name}" != "master" ]; then
             git -C "${dir}" pull --quiet --rebase
