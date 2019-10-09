@@ -72,6 +72,7 @@ if [ "$(uname)" == "Darwin" ]; then
     git clone --depth=1 https://github.com/amix/vimrc.git "${HOME}/.vim_runtime"
     cd "${HOME}/.vim_runtime/sources_non_forked"
     git clone git@github.com:Glench/Vim-Jinja2-Syntax.git
+    git clone git@github.com:OmniSharp/omnisharp-server.git
     git clone git@github.com:OmniSharp/omnisharp-vim.git
     git clone git@github.com:Valloric/YouCompleteMe.git
     git clone git@github.com:ap/vim-css-color.git
@@ -80,11 +81,11 @@ if [ "$(uname)" == "Darwin" ]; then
     git clone git@github.com:jceb/vim-orgmode.git
     git clone git@github.com:junegunn/fzf.vim.git
     git clone git@github.com:mattn/emmet-vim.git
+    git clone git@github.com:scrooloose/nerdcommenter.git
+    git clone git@github.com:tmux-plugins/vim-tmux-focus-events.git
     git clone git@github.com:tomlion/vim-solidity.git
     git clone git@github.com:tpope/vim-dispatch.git
     git clone git@github.com:vim-airline/vim-airline.git
-    git clone git@github.com:tmux-plugins/vim-tmux-focus-events.git
-    git clone https://github.com/OmniSharp/omnisharp-server.git
     cd "${HOME}/.vim_runtime/sources_non_forked/YouCompleteMe" && git submodule update --init --recursive
     cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-vim" && git submodule update --init --recursive
     cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" && git submodule update --init --recursive
