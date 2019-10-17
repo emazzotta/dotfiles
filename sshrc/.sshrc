@@ -1,3 +1,5 @@
+#!/bin/bash
+
 alias .1='cd ..'
 alias .2='.1;.1'
 alias .3='.2;.1'
@@ -19,3 +21,10 @@ alias vi='vim'
 export EDITOR='vim'
 export PS1="\[\033[38;5;10m\]\u\[$(tput sgr0)\]\[\033[38;5;15m\] \[$(tput sgr0)\]\[\033[38;5;14m\]\w\[$(tput sgr0)\]\[\033[38;5;15m\] \[$(tput sgr0)\]\[\033[38;5;11m\]\\$\[$(tput sgr0)\]\[\033[38;5;15m\] \[$(tput sgr0)\]"
 
+if test ${SWC_ENV}; then
+    export DOCKER_COMPOSE_DIR="/opt/adcubum/gesus"
+    alias c='cd ${DOCKER_COMPOSE_DIR}'
+    alias senv='echo "Current environment is '\''${SWC_ENV}'\''"'
+    alias dc='sudo docker-compose'
+    alias gdc='function _gdc() {(cd ${DOCKER_COMPOSE_DIR} && sudo docker-compose "${@}")};_gdc'
+fi
