@@ -2,4 +2,4 @@ BASH_ENV=/Users/emanuelemazzotta/.bashrc
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 SHELL=/bin/bash
 
-0 20 * * * bash -lci "[ ${PAYABLES} -gt 0  ] && osascript -e 'display notification \"You have '${PAYABLES}' unpaid $([ ${PAYABLES} -gt 1   ] && echo "payables" || echo "payable")\" with title \"Payables\"'"
+0 20 * * * bash -lci "[ ${PAYABLES} -gt 0 ] && osascript -e 'display notification \"You have '${PAYABLES}' unpaid $([ ${PAYABLES} -gt 1 ] && echo "payables" || echo "payable")\" with title \"Payables\"'"
