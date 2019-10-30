@@ -18,7 +18,7 @@ function pull_branch() {
 
 function pull_branches_by_regex() {
     test "${2}" || return 1
-    git branch -r | sed 's/origin\///g' | sed 's/ //g' | grep -E "${1}" | while read branch; do
+    git -C "${2}" branch -r | sed 's/origin\///g' | sed 's/ //g' | grep -E "${1}" | while read branch; do
         pull_branch "${branch}" "${2}"
     done
 }
