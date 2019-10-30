@@ -5,6 +5,8 @@ test "${1}" && root_dir="${1}"
 
 test -f "${CUSTOM_BIN_DIR}/prettyprint" && source "${CUSTOM_BIN_DIR}/prettyprint"
 
+CUSTOM_RELEASE_PATTERN="^[0-9]+.([0-9]+|x)(.[0-9]+|.x)?$" # Matches patterns like 1.x, 1.1.x, 23.x, 23.212.x, etc.
+
 function pull_branch() {
     test "${2}" || return 1
     if git -C "${2}" rev-parse --verify "origin/${1}" &> /dev/null && git -C "${2}" checkout "${1}" &> /dev/null; then
@@ -12,6 +14,13 @@ function pull_branch() {
         [ $? -eq 0 ] && substep_success "Pulled ${1}" || substep_error "Pulling ${1} failed"
         git -C "${2}" checkout --quiet -
     fi
+}
+
+function pull_branches_by_regex() {
+    test "${2}" || return 1
+    git branch -r | sed 's/origin\///g' | sed 's/ //g' | grep -E "${1}" | while read branch; do
+        pull_branch "${branch}" "${2}"
+    done
 }
 
 info "Checking ${root_dir} for git updates..."
@@ -23,10 +32,7 @@ find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir;
         pull_branch "dev" "${dir}"
         pull_branch "play" "${dir}"
         pull_branch "develop" "${dir}"
-        pull_branch "2.2.x" "${dir}"
-        pull_branch "2.3.x" "${dir}"
-        pull_branch "2.4.x" "${dir}"
-        pull_branch "2.5.x" "${dir}"
+        pull_branches_by_regex "${CUSTOM_RELEASE_PATTERN}" "${dir}"
         branch_name=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
         if [ "${branch_name}" != "master" ]; then
             git -C "${dir}" pull --quiet --rebase
