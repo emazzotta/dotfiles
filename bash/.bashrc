@@ -326,3 +326,4 @@ function zshaddhistory() {
       return 1
   fi
 }
+
