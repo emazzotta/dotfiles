@@ -1,3 +1,3 @@
 #!/bin/bash
 
-(cd ${WDIR}/adcubum/docker-composition && docker-compose ${@})
+(cd ${WDIR}/adcubum/avectris && docker-compose ${@})
