@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if test "${2}"; then
+    echo "${2}" | gpg --no-default-keyring --keyring "${KEYFILEDIR}/${1}" --verify
+else
+    echo "usage: `basename ${0}` <public key file in gpg format> <text to verify>"
+fi
+
