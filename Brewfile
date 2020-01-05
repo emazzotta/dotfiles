@@ -77,7 +77,6 @@ brew 'zsh'
 
 # Apps
 cask 'adobe-acrobat-reader'
-cask 'adoptopenjdk'
 cask 'android-platform-tools'
 cask 'daisydisk'
 cask 'docker'
