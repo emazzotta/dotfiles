@@ -1,4 +1,5 @@
 #!/bin/bash
+### MAIN EXPORTS ###
 export WDIR="${HOME}/Projects"
 export DOTFILESPATH="${WDIR}/private/dotfiles"
 export CUSTOM_BIN_DIR="${DOTFILESPATH}/bin"
@@ -203,7 +204,8 @@ alias me='vi Makefile'
 alias ml='make lint'
 alias ms='make start'
 alias mt='make test'
-alias mysqlrun='docker run -p 0.0.0.0:3306:3306 -e MYSQL_USER=mysql -e MYSQL_PASSWORD=mysql -e MYSQL_DATABASE=mysql -e MYSQL_ROOT_PASSWORD=mysql -d mysql'
+alias mysqlimport='docker exec -i mysql-temp mysql -umysql -pmysql tempdb < backup.sql'
+alias mysqlrun='docker run -p 0.0.0.0:3300:3306 --name mysql-temp --rm -v ${HOME}/Desktop/mysql:/var/lib/mysql -e MYSQL_USER=mysql -e MYSQL_PASSWORD=mysql -e MYSQL_DATABASE=tempdb -e MYSQL_ROOT_PASSWORD=mysql -d mariadb:10.4.8'
 alias now='print_and_copy $(date "+%Y-%m-%d-%H-%M-%S")'
 alias nref='print_and_copy "${NURA_REFERRAL}"' # Nuraphones
 alias oref='print_and_copy "${OURA_REFERRAL}"' # Oura Ring
@@ -217,6 +219,7 @@ alias prp='cd ${WDIR}/private'
 alias py='av;ptpython3;dv'
 alias record='asciinema rec'
 alias repo='source ${CUSTOM_BIN_DIR}/repo'
+alias revref='print_and_copy "${REVOLUT_REFERRAL}"'
 alias rma='rmds;rmwin;rmpy;rmlog'
 alias rmds="find . -type f -name '.DS_Store*' -delete"
 alias rmlog="find . -type f -name '*.log' -delete"
@@ -228,7 +231,6 @@ alias rmzero='find . -size 0 | xargs rm'
 alias rp='source ${HOME}/.bashrc'
 alias rr='rm -rf'
 alias rref='print_and_copy "${REFIND_REFERRAL}"'
-alias revref='print_and_copy "${REVOLUT_REFERRAL}"'
 alias sconf='vi ${HOME}/.ssh/config'
 alias see="fzf --preview 'less {}'"
 alias shrug='print_and_copy "¯\_(ツ)_/¯"'
