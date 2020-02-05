@@ -41,7 +41,6 @@ export PYTHONIOENCODING='UTF-8'
 export RECOMMENDED_READINGS="${MARKDOWNDIR}/recommended_readings.md"
 export SDKMAN_DIR="${HOME}/.sdkman"
 export TERM="xterm-256color"
-export UTIL_HOST=util.mazzotta.me
 export VISUAL="${EDITOR}"
 export WORKDIR="${DOCUMENTDIR}/Work"
 export XTERM="xterm-256color"

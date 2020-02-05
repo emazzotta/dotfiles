@@ -1,0 +1,3 @@
+#!/bin/bash
+
+ssh ${UTIL_HOST} -t "docker exec -i tm-db psql -U ${TM_USER} -W -d ${TM_USER} -c 'SELECT * FROM tokens;' <<< '${TM_PASS}'"
