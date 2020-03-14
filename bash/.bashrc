@@ -186,6 +186,7 @@ alias jc='find . -name "build" -or -name "out" -or -name "generated" | xargs -I 
 alias jcc='./gradlew clean cJ spA'
 alias jcct='./gradlew clean cJ spA check'
 alias k='kubectl'
+alias kall='kubectl get all --all-namespaces'
 alias ke='vi ${HOME}/.config/karabiner/karabiner.json'
 alias killgpg='killall ssh-agent gpg-agent;gpgconf --kill all'
 alias ks='killall ssh'
