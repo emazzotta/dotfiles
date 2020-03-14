@@ -50,6 +50,7 @@ brew 'lftp' # Advanced FTP
 brew 'libav' # Git Video
 brew 'lsd'
 brew 'maven'
+brew 'minikube'
 brew 'mono'
 brew 'mpv'
 brew 'mycli'
