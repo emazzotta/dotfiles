@@ -23,6 +23,7 @@ export HISTTIMEFORMAT="%Y-%m-%d %T "
 export HOMEBREW_CASK_OPTS="--appdir=/Applications"
 export KATADIR=${WDIR}/private/katas
 export KEYTIMEOUT=1
+export KUBE_DIR="${HOME}/.kube"
 export LANGUAGE=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 export LC_CTYPE=en_US.UTF-8
@@ -185,11 +186,11 @@ alias j9='sdk use java 9.0.4-open'
 alias jc='find . -name "build" -or -name "out" -or -name "generated" | xargs -I {} rm -rf {}'
 alias jcc='./gradlew clean cJ spA'
 alias jcct='./gradlew clean cJ spA check'
-alias k='kubectl'
-alias kall='kubectl get all --all-namespaces'
+alias k='kubectl --kubeconfig="${KUBE_DIR}/${KUBE_CONFIG}"'
+alias kall='k get all --all-namespaces'
 alias ke='vi ${HOME}/.config/karabiner/karabiner.json'
 alias killgpg='killall ssh-agent gpg-agent;gpgconf --kill all'
-alias klogs='kubectl logs -l'
+alias klogs='k logs -l'
 alias ks='killall ssh'
 alias kt='cd ${KATADIR}'
 alias l='clear'
