@@ -1,0 +1,10 @@
+#!/bin/bash
+
+echo "Creating backup of tm database"
+
+ssh ${UTIL_HOST} -t "docker exec -i tm-db pg_dump -U ${TM_USER} -W -d ${TM_USER} <<< '${TM_PASS}'" > "${WDIR}/private/infrastructure/pending/teslamate/backup/$(date +%Y-%m-%dT%H-%M-%S).sql"
+
+echo 
+echo "Contents of ${WDIR}/private/infrastructure/pending/teslamate/backup:"
+bash -lci "ls -l ${WDIR}/private/infrastructure/pending/teslamate/backup"
+
