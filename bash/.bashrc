@@ -46,6 +46,8 @@ export VISUAL="${EDITOR}"
 export WORKDIR="${DOCUMENTDIR}/Work"
 export XTERM="xterm-256color"
 export ZHAWDIR="${DOCUMENTDIR}/School/ZHAW"
+export VENV_PATH="${HOME}/.venv"
+export VENV_PYTHON_3="${VENV_PATH}/generic-3.7"
 ### ALIASES ###
 alias .1='cd ..'
 alias .2='.1;.1'
@@ -56,7 +58,7 @@ alias .f='cd ${DOTFILESPATH}'
 alias .k='cd ${HOME}/.kube'
 alias .s='cd ${HOME}/.ssh'
 alias .sshrc='vi ${HOME}/.sshrc'
-alias .v='cd ${HOME}/.venv'
+alias .v='cd ${VENV_PATH}'
 alias .vd='cd ${HOME}/.vim_runtime'
 alias .z='cd ${HOME}/.zprezto'
 alias ac='cd ${DOTFILESPATH}/autocomplete'
@@ -68,7 +70,7 @@ alias asciitoutf='iconv -f US-ASCII -t utf-8'
 alias autoc='find . \( -iname \*.h -o -iname \*.c -o -iname \*.cpp \) | xargs clang-format -style=file -i'
 alias autopep='find . -name "*py" | xargs -I {} autopep8 -i {}'
 alias autostart='cd ${HOME}/Library/LaunchAgents'
-alias av='source "${HOME}/.venv/generic-3.7/bin/activate"'
+alias av='source "${VENV_PYTHON_3}/bin/activate"'
 alias bf='vi ${DOTFILESPATH}/Brewfile'
 alias boi='cd ${BOILERPLATE_PATH}'
 alias bom='echo -ne "\xEF\xBB\xBF"'
@@ -220,6 +222,7 @@ alias postgresrun='docker run -p 0.0.0.0:5432:5432 -e POSTGRES_PASSWORD=postgres
 alias prp='cd ${WDIR}/private'
 alias py='av;ptpython3;dv'
 alias record='asciinema rec'
+alias recreate_py='rm -rf "${VENV_PYTHON_3}" && genvenv3 "${VENV_PYTHON_3}" && av && pip install ptpython'
 alias repo='source ${CUSTOM_BIN_DIR}/repo'
 alias revref='print_and_copy "${REVOLUT_REFERRAL}"'
 alias rma='rmds;rmwin;rmpy;rmlog'

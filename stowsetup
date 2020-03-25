@@ -14,3 +14,4 @@ stow -d ${DIR} -t ${HOME} ssh
 stow -d ${DIR} -t ${HOME} sshrc
 stow -d ${DIR} -t ${HOME} tmux
 stow -d ${DIR} -t ${HOME} vim
+

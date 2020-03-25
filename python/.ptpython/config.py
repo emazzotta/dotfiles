@@ -1,8 +1,3 @@
-"""
-Configuration example for ``ptpython``.
-Copy this file to ~/.ptpython/config.py
-"""
-
 __all__ = (
     'configure',
 )
