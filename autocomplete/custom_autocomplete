@@ -15,13 +15,13 @@ _agrep()
   COMPREPLY=($(compgen -W "${_agrep_commands}" -- ${cur}))
   return 0
 }
-_kubectx()
+_kubeconf()
 {
-  _kubectx_options=$(ls ${KUBE_DIR} | grep kubeconfig.yaml | sed 's/-kubeconfig.yaml//g')
+  _kubeconf_options=$(ls ${KUBE_DIR} | grep kubeconfig.yaml | sed 's/-kubeconfig.yaml//g')
   local cur prev
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=($(compgen -W "${_kubectx_options}" -- ${cur}))
+  COMPREPLY=($(compgen -W "${_kubeconf_options}" -- ${cur}))
   return 0
 }
 _ef()
@@ -45,6 +45,6 @@ _repo() {
   return 0
 }
 complete -o nospace -F _agrep agrep
-complete -o nospace -F _kubectx kubectx
+complete -o nospace -F _kubeconf kubeconf
 complete -o nospace -F _ef ef
 complete -o nospace -F _repo repo
