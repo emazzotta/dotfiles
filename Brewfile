@@ -45,6 +45,7 @@ brew 'icdiff'
 brew 'imagemagick' # SVGify
 brew 'jq'
 brew 'kubectl'
+brew 'kubectx'
 brew 'lame'
 brew 'lftp' # Advanced FTP
 brew 'libav' # Git Video
