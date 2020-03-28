@@ -21,6 +21,7 @@ export GOPATH="${WDIR}/go-projects"
 export HISTCONTROL="ignoreboth"
 export HISTTIMEFORMAT="%Y-%m-%d %T "
 export HOMEBREW_CASK_OPTS="--appdir=/Applications"
+export JAVA_HOME="${HOME}/.sdkman/candidates/java/current"
 export KATADIR=${WDIR}/private/katas
 export KEYTIMEOUT=1
 export KUBE_DIR="${HOME}/.kube"
