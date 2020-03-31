@@ -315,6 +315,7 @@ if test "${ZSH_VERSION}"; then
         zgen load junegunn/fzf shell
         zgen load zsh-users/zsh-syntax-highlighting
         zgen load tarruda/zsh-autosuggestions
+        zgen load iam4x/zsh-iterm-touchbar
         zgen save
     fi
 fi
