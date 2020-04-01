@@ -163,7 +163,7 @@ alias gsinit='git submodule init'
 alias gsreset='git submodule update --init'
 alias gst='git status'
 alias gstash='git stash'
-alias gstashp='git stash -p'
+alias gstashp='git stash push'
 alias gsup='git submodule init;git submodule update --rebase --remote'
 alias gtag='git tag'
 alias gunarchive='tar xvzf .git.tar.gz && rm -rf .git.tar.gz'
@@ -305,6 +305,7 @@ source load "${HOME}/.sdkman/bin/sdkman-init.sh"
 test "${BASH_VERSION}" && source load "${HOME}/.sshrc"
 if test "${ZSH_VERSION}"; then
     source "${HOME}/.zgen/zgen.zsh"
+    # If a new one is added, just zgen reset
     if ! zgen saved; then
         zgen prezto
         zgen prezto git
@@ -315,7 +316,6 @@ if test "${ZSH_VERSION}"; then
         zgen load junegunn/fzf shell
         zgen load zsh-users/zsh-syntax-highlighting
         zgen load tarruda/zsh-autosuggestions
-        zgen load iam4x/zsh-iterm-touchbar
         zgen save
     fi
 fi
