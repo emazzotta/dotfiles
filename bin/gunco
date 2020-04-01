@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if ! test "${1}" || grep '^[-0-9]*$' <<< ${1}; then
+	git reset --soft HEAD~${1}
+else
+    echo "usage: `basename ${0}` [the last n commits] (default: 1)"
+fi
+
