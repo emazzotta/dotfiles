@@ -55,6 +55,7 @@ alias .2='.1;.1'
 alias .3='.2;.1'
 alias .4='.3;.1'
 alias .5='.4;.1'
+alias .a='cd ${DOTFILESPATH}/autocomplete'
 alias .f='cd ${DOTFILESPATH}'
 alias .k='cd ${KUBE_DIR}'
 alias .s='cd ${HOME}/.ssh'
@@ -62,7 +63,6 @@ alias .sshrc='vi ${HOME}/.sshrc'
 alias .v='cd ${VENV_PATH}'
 alias .vd='cd ${HOME}/.vim_runtime'
 alias .z='cd ${HOME}/.zprezto'
-alias ac='cd ${DOTFILESPATH}/autocomplete'
 alias aco='vi "${DOTFILESPATH}/autocomplete/custom_autocomplete"'
 alias ad='cd ${WDIR}/adcubum'
 alias ap='cd ${WDIR}/3ap'
@@ -316,6 +316,7 @@ if test "${ZSH_VERSION}"; then
         zgen load zsh-users/zsh-syntax-highlighting
         zgen load tarruda/zsh-autosuggestions
         zgen save
+        compinit
     fi
 fi
 if test -f ${HOME}/.gnupg/.gpg-agent-info -a -n "$(pgrep gpg-agent)"; then
