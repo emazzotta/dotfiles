@@ -1,3 +1,4 @@
 #!/bin/bash
 
-rsync --list-only root@${UTIL_HOST}:/root/data/fileserver/files/ 
+kubectl -n personal-homepage exec -ti deployment.apps/personal-homepage-file-server-deployment -- /bin/sh -c "cd /app && ls -al"
+
