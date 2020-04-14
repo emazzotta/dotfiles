@@ -87,7 +87,6 @@ cask 'firefox'
 cask 'font-hack-nerd-font'
 cask 'google-backup-and-sync'
 cask 'gpg-suite'
-cask 'harvest'
 cask 'intellij-idea'
 cask 'keka'
 cask 'libreoffice'
@@ -104,5 +103,6 @@ cask 'wireshark'
 cask 'xquartz'
 
 # Mac App Store
-mas 'Affinity Photo', id: 824183456
-mas 'WireGuard', id: 1451685025 
+mas install 1117941080 # Affinity Photo
+mas install 1441195209 # WireGuard
+mas install 506189836 # Harvest
