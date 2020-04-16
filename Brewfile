@@ -38,7 +38,6 @@ brew 'gource' # Git Video
 brew 'graphviz'
 brew 'grep'
 brew 'gs' # Ghostscript
-brew 'heroku-toolbelt'
 brew 'htop'
 brew 'httpie'
 brew 'icdiff'
