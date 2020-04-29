@@ -29,3 +29,11 @@ if test ${SWC_ENV}; then
     alias dc='sudo docker-compose'
     alias gdc='function _gdc() {(cd ${DOCKER_COMPOSE_DIR} && sudo docker-compose "${@}")};_gdc'
 fi
+
+if test ${RMS_ENV}; then
+    export DOCKER_COMPOSE_DIR="/opt/onstructive/rms/dev/rms"
+    alias c='cd ${DOCKER_COMPOSE_DIR}'
+    alias renv='echo "Current environment is '\''${RMS_ENV}'\''"'
+    alias dc='sudo docker-compose'
+    alias gdc='function _gdc() {(cd ${DOCKER_COMPOSE_DIR} && sudo docker-compose "${@}")};_gdc'
+fi
