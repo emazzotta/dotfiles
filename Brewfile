@@ -74,6 +74,7 @@ brew 'tmux'
 brew 'tree'
 brew 'vim'
 brew 'watch'
+brew 'xsv'
 brew 'zsh'
 
 # Apps
