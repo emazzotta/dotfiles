@@ -50,3 +50,63 @@ if [[ "${HOSTNAME}" == "sa1190002.internal.loc" ]]; then
     export CURRENT_ENV="gesus-prod"
 fi
 
+if [[ "${HOSTNAME}" == "sa1190015.swica.dmz" ]]; then
+	echo
+	echo "Default env is play, but dev is also available"
+	echo "Switch: play/dev"
+	echo
+
+	function play() {
+		switch_env "play"
+	}
+
+	function dev() {
+		switch_env "dev"
+	}
+
+	function switch_env() {
+    	export DOCKER_COMPOSE_DIR="/opt/onstructive/consulta/${1}/consulta"
+    	export CURRENT_ENV="consulta-${1}"
+	}
+
+	play
+fi
+
+if [[ "${HOSTNAME}" == "sa1190016.swica.dmz" ]]; then
+    export DOCKER_COMPOSE_DIR="/opt/onstructive/consulta"
+    export CURRENT_ENV="consulta-test"
+fi
+
+if [[ "${HOSTNAME}" == "sa1190017.swica.dmz" ]]; then
+    export DOCKER_COMPOSE_DIR="/opt/onstructive/consulta"
+    export CURRENT_ENV="consulta-prod"
+fi
+
+if [[ "${HOSTNAME}" == "sa1190018.swica.dmz" ]]; then
+	echo
+	echo "Default env is dev, but test is also available"
+	echo "Switch: dev/test"
+	echo
+
+	function dev() {
+		switch_env "dev"
+	}
+
+	function test() {
+		switch_env "test"
+	}
+
+	function switch_env() {
+    	export DOCKER_COMPOSE_DIR="/opt/onstructive/rms/${1}/rms"
+    	export CURRENT_ENV="rms-${1}"
+	}
+
+	dev
+fi
+
+
+if [[ "${HOSTNAME}" == "sa1190019.swica.dmz" ]]; then
+    export DOCKER_COMPOSE_DIR="/opt/onstructive/rms"
+    export CURRENT_ENV="rms-prod"
+fi
+
