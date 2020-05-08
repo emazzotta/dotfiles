@@ -24,27 +24,29 @@ alias rp='clear;source ${HOME}/.bashrc'
 alias vdc='vi docker-compose.yml'
 alias vi='vim'
 
-if test ${SWC_ENV}; then
+if [[ "${HOSTNAME}" =~ ^(sa1).* ]]; then
+    alias c='cd ${DOCKER_COMPOSE_DIR}'
+    alias dc='sudo docker-compose'
+    alias gdc='function _gdc() {(cd ${DOCKER_COMPOSE_DIR} && sudo docker-compose "${@}")};_gdc'
+fi
+
+if [[ "${HOSTNAME}" == "sa1190012.swica.dmz" ]]; then
     export DOCKER_COMPOSE_DIR="/opt/adcubum/gesus"
-    alias c='cd ${DOCKER_COMPOSE_DIR}'
-    alias senv='echo "Current environment is '\''${SWC_ENV}'\''"'
-    alias dc='sudo docker-compose'
-    alias gdc='function _gdc() {(cd ${DOCKER_COMPOSE_DIR} && sudo docker-compose "${@}")};_gdc'
+    export CURRENT_ENV="gesus-play"
 fi
 
-if test ${RMS_ENV}; then
-    export DOCKER_COMPOSE_DIR="/opt/onstructive/rms/dev/rms"
-    alias c='cd ${DOCKER_COMPOSE_DIR}'
-    alias renv='echo "Current environment is '\''${RMS_ENV}'\''"'
-    alias dc='sudo docker-compose'
-    alias gdc='function _gdc() {(cd ${DOCKER_COMPOSE_DIR} && sudo docker-compose "${@}")};_gdc'
+if [[ "${HOSTNAME}" == "sa1190004.internal.loc" ]]; then
+    export DOCKER_COMPOSE_DIR="/opt/adcubum/gesus"
+    export CURRENT_ENV="gesus-dev"
 fi
 
-if test ${CONSULTA_ENV}; then
-    export DOCKER_COMPOSE_DIR="/opt/onstructive/consulta/dev/consulta"
-    alias c='cd ${DOCKER_COMPOSE_DIR}'
-    alias renv='echo "Current environment is '\''${CONSULTA_ENV}'\''"'
-    alias dc='sudo docker-compose'
-    alias gdc='function _gdc() {(cd ${DOCKER_COMPOSE_DIR} && sudo docker-compose "${@}")};_gdc'
+if [[ "${HOSTNAME}" == "sa1190003.internal.loc" ]]; then
+    export DOCKER_COMPOSE_DIR="/opt/adcubum/gesus"
+    export CURRENT_ENV="gesus-test"
+fi
+
+if [[ "${HOSTNAME}" == "sa1190002.internal.loc" ]]; then
+    export DOCKER_COMPOSE_DIR="/opt/adcubum/gesus"
+    export CURRENT_ENV="gesus-prod"
 fi
 
