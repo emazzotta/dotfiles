@@ -27,6 +27,7 @@ alias vi='vim'
 if [[ "${HOSTNAME}" =~ ^(sa1).* ]]; then
     alias c='cd ${DOCKER_COMPOSE_DIR}'
     alias dc='sudo docker-compose'
+    alias dps='sudo docker ps'
     alias gdc='function _gdc() {(cd ${DOCKER_COMPOSE_DIR} && sudo docker-compose "${@}")};_gdc'
 fi
 
