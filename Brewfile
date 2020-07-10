@@ -80,6 +80,7 @@ brew 'zsh'
 # Apps
 cask 'adobe-acrobat-reader'
 cask 'android-platform-tools'
+cask 'android-sdk'
 cask 'balenaetcher'
 cask 'daisydisk'
 cask 'docker'
