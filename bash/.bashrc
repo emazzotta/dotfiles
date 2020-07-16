@@ -235,7 +235,7 @@ alias postgresrun='docker run -p 0.0.0.0:5432:5432 -e POSTGRES_PASSWORD=postgres
 alias prp='cd ${WDIR}/private'
 alias py='av;ptpython;dv'
 alias record='asciinema rec'
-alias recreate_py='rm -rf "${VENV_PYTHON_3}" && genvenv3 "${VENV_PYTHON_3}" && reinstall_py'
+alias recreate_py='rm -rf "${VENV_PYTHON_3}" ; pip3 install virtualenv && genvenv3 "${VENV_PYTHON_3}" && reinstall_py'
 alias reinstall_py='av && pip install ptpython'
 alias repo='source ${CUSTOM_BIN_DIR}/repo'
 alias revref='print_and_copy "${REVOLUT_REFERRAL}"'
