@@ -1,3 +1,7 @@
 #!/bin/bash
 
-echo "${USER} Emanuele-Machine = NOPASSWD: ${*}" | sudo tee -a /etc/sudoers
+if test "${1}"; then
+    echo "${USER} Emanuele-Machine = NOPASSWD: ${*}" | sudo tee -a /etc/sudoers
+else
+    echo "Pass the name"
+fi

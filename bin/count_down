@@ -1,0 +1,20 @@
+#!/bin/bash
+
+if test "${2}"; then
+    if date -j &> /dev/null; then
+        start_date=$(date -jf "%Y-%m-%d %H:%M:%S" "+%s" "${1}")
+        end_date=$(date -jf "%Y-%m-%d %H:%M:%S" "+%s" "${2}")
+    else
+        start_date=$(date -d "${1}" "+%s")
+        end_date=$(date -d "${2}" "+%s")
+    fi
+    days_total=$(((${end_date}-${start_date})/(3600*24)))
+    days_left=$(((${end_date}-$(date "+%s"))/(3600*24)))
+    days_done=$((${days_total}-${days_left}))
+    echo "${days_done} ${days_left} ${days_total}"
+else
+    echo "usage: `basename ${0}` <start_date> <end_date>"
+    echo
+	echo "example: `basename ${0}` \"2020-01-01 00:00:00\" \"2020-12-31 00:00:00\""
+    echo "output: <days_done> <days_left> <days_total>"
+fi
