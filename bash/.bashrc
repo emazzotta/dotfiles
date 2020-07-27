@@ -336,11 +336,6 @@ if test "${ZSH_VERSION}"; then
         compinit
     fi
 fi
-if test -f ${HOME}/.gnupg/.gpg-agent-info -a -n "$(pgrep gpg-agent)"; then
-    source ${HOME}/.gnupg/.gpg-agent-info
-else
-    eval $(gpg-agent --daemon --write-env-file ${HOME}/.gnupg/.gpg-agent-info)
-fi
 function zshaddhistory() {
   emulate -L zsh
   if ! [[ "$1" =~ "(^gp|--password|^ )" ]] ; then
