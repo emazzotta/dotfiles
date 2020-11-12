@@ -349,3 +349,8 @@ function zshaddhistory() {
   fi
 }
 
+
+#THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
+export SDKMAN_DIR="/Users/emanuelemazzotta/.sdkman"
+[[ -s "/Users/emanuelemazzotta/.sdkman/bin/sdkman-init.sh" ]] && source "/Users/emanuelemazzotta/.sdkman/bin/sdkman-init.sh"
+
