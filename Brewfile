@@ -1,6 +1,5 @@
 tap 'buo/cask-upgrade'
 tap 'caskroom/versions'
-tap 'cloudfoundry/tap' # cf-cli
 tap 'homebrew/cask-fonts'
 tap 'wagoodman/dive' # dive
 
@@ -12,7 +11,6 @@ brew 'atool'
 brew 'awscli'
 brew 'awslogs'
 brew 'bash-completion'
-brew 'cf-cli' # CloudFoundry
 brew 'clang-format'
 brew 'cmake'
 brew 'ctags'
@@ -111,4 +109,3 @@ cask 'xquartz'
 mas install 1116599239 # NordVPN
 mas install 1117941080 # Affinity Photo
 mas install 1441195209 # WireGuard
-mas install 506189836 # Harvest
