@@ -1,7 +1,31 @@
 #!/bin/bash
 
 if test "${1}"; then
-    ffmpeg -i "${1}" -vcodec libx265 -tag:v hvc1 -crf 28 "${1%.*}_compressed.mp4"
+    input_file="${1}"
+    output_file="${input_file%.*}_compressed.mp4"
+    codec="${2}"
+    [[ "${codec}" == "" ]] && codec=h264
+
+    echo
+	echo "Converting '${input_file}' to '${output_file}' with codec '${codec}'"
+    echo
+
+    case "${codec}" in 
+        h264)
+    		ffmpeg -i "${input_file}" -vcodec libx264 -crf 28 "${output_file}"
+        ;;
+        h265)
+    		ffmpeg -i "${input_file}" -vcodec libx265 -tag:v hvc1 -crf 28 "${output_file}"
+        ;;
+        av1)
+    		ffmpeg -i "${input_file}" -c:v libaom-av1 -crf 28 -b:v 0 -strict experimental "${output_file}"
+        ;;
+        *)
+			echo "invalid codec '${codec}'"
+        ;;
+ 
+    esac
+
 else
-    echo "usage: `basename ${0}` <video_file>"
+    echo "usage: `basename ${0}` <video_file> [h264|h265|av1]"
 fi
