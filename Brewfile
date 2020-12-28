@@ -54,6 +54,7 @@ brew 'mpv'
 brew 'mycli'
 brew 'nmap'
 brew 'npm'
+brew 'nvm'
 brew 'openconnect'
 brew 'openvpn'
 brew 'p7zip' # 7zip
