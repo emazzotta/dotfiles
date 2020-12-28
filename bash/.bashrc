@@ -351,10 +351,9 @@ function zshaddhistory() {
 
 
 # SDKMAN
-export SDKMAN_DIR="/Users/emanuelemazzotta/.sdkman"
+export SDKMAN_DIR="${HOME}/.sdkman"
 [[ -s "/Users/emanuelemazzotta/.sdkman/bin/sdkman-init.sh" ]] && source "/Users/emanuelemazzotta/.sdkman/bin/sdkman-init.sh"
 
 # NVM
-export NVM_DIR="$HOME/.nvm"
+export NVM_DIR="${HOME}/.nvm"
 [ -s "/usr/local/opt/nvm/nvm.sh" ] && . "/usr/local/opt/nvm/nvm.sh"  # This loads nvm
-[ -s "/usr/local/opt/nvm/etc/bash_completion.d/nvm" ] && . "/usr/local/opt/nvm/etc/bash_completion.d/nvm"  # This loads nvm bash_completion
