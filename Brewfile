@@ -97,7 +97,6 @@ cask 'sidequest'
 cask 'signal'
 cask 'slack'
 cask 'teamviewer'
-cask 'tor-browser'
 cask 'tunnelblick'
 cask 'typora'
 cask 'virtualbox'
@@ -106,6 +105,5 @@ cask 'wireshark'
 cask 'xquartz'
 
 # Mac App Store
-mas install 1116599239 # NordVPN
 mas install 1117941080 # Affinity Photo
 mas install 1441195209 # WireGuard
