@@ -33,11 +33,13 @@ sudo defaults write com.apple.SoftwareUpdate AutomaticCheckEnabled -bool true
 sudo defaults write com.apple.SoftwareUpdate AutomaticDownload -int 1
 sudo defaults write com.apple.SoftwareUpdate CriticalUpdateInstall -int 1
 sudo defaults write com.apple.SoftwareUpdate ScheduleFrequency -int 1
-sudo defaults write com.apple.screensaver askForPassword -int 1
 # Ask for password immediately after going into screensaver mode
-sudo defaults write com.apple.screensaver askForPasswordDelay -int 0
+defaults write com.apple.screensaver askForPassword -int 1
+defaults write com.apple.screensaver askForPasswordDelay -int 0
 sudo defaults write com.apple.commerce AutoUpdate -bool true
 sudo defaults write com.apple.menuextra.battery ShowPercent -string "YES"
+# Save screenshots to the desktop
+defaults write com.apple.screencapture location "${HOME}/Desktop/"
 # Prevent Time Machine from prompting to use new hard drives as backup volume
 sudo defaults write com.apple.TimeMachine DoNotOfferNewDisksForBackup -bool true
 # When performing a search, search the current folder by default
