@@ -1,0 +1,11 @@
+#!/bin/bash
+
+if ! test "${1}"; then
+    echo "usage: `basename ${0}` <public key>"
+    exit 1
+fi
+
+TEMP_FILE=$(mktemp)
+echo "${1}" > "${TEMP_FILE}"
+gpg --show-keys "${TEMP_FILE}"
+
