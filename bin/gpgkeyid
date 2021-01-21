@@ -8,4 +8,5 @@ fi
 TEMP_FILE=$(mktemp)
 echo "${1}" > "${TEMP_FILE}"
 gpg --show-keys "${TEMP_FILE}"
+rm "${TEMP_FILE}"
 
