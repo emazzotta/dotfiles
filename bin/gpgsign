@@ -14,4 +14,6 @@ else
     gpg --clearsign "${TEMP_FILE}"
 fi
 cat "${TEMP_FILE}.asc"
+rm "${TEMP_FILE}"	
+rm "${TEMP_FILE}.asc"
 
