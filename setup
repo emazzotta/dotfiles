@@ -13,10 +13,10 @@ if [ "$(uname)" == "Darwin" ]; then
     # Install the most improtant ones first
     brew install stow
     ./stowsetup
-    brew cask install iterm2
-    brew cask install google-chrome
-    brew cask install karabiner-elements
-    brew cask install alfred
+    brew install --cask iterm2
+    brew install --cask brave-browser
+    brew install --cask karabiner-elements
+    brew install --cask alfred
 
     # Install the rest
     brew tap homebrew/bundle
@@ -27,8 +27,8 @@ if [ "$(uname)" == "Darwin" ]; then
     IFS=''
     apps=(
         iTerm
-        'Google Chrome'
-        'IntelliJ IDEA'
+        'Brave Browser'
+        'Visual Studio Code'
         Slack
     )
     dockutil --no-restart --remove all ${HOME}
