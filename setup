@@ -4,22 +4,20 @@ DIR=$(dirname "$0")
 cd "$DIR"
 
 if [ "$(uname)" == "Darwin" ]; then
-
     curl -s "https://get.sdkman.io" | bash
     source "${HOME}/.sdkman/bin/sdkman-init.sh"
     sdk install java
-    
     ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+
     # Install the most improtant ones first
     brew install stow
     ./stowsetup
+    brew install --cask alfred
     brew install --cask iterm2
     brew install --cask brave-browser
     brew install --cask karabiner-elements
-    brew install --cask alfred
 
     # Install the rest
-    brew tap homebrew/bundle
     brew bundle --file="./Brewfile"
 
     # Set Dock items
@@ -28,8 +26,6 @@ if [ "$(uname)" == "Darwin" ]; then
     apps=(
         iTerm
         'Brave Browser'
-        'Visual Studio Code'
-        Slack
     )
     dockutil --no-restart --remove all ${HOME}
     for app in "${apps[@]}"; do
@@ -93,45 +89,4 @@ if [ "$(uname)" == "Darwin" ]; then
     cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" && git submodule update --init --recursive
     cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" && msbuild 
     cd "${HOME}/.vim_runtime/sources_non_forked/YouCompleteMe" && ./install.py --clang-completer --gocode-completer --tern-completer --omnisharp-completer 
-else
-    sudo apt-get update && sudo apt-get -y upgrade && sudo apt-get -y dist-upgrade
-    sudo apt-get install -y \
-        bc \
-        bridge-utils \
-        build-essential \
-        curl \
-        docker \
-        git \
-        htop \
-        mailutils \
-        postgresql \
-        python \
-        python-pip \
-        rungetty \
-        sudo \
-        sysstat \
-        tee \
-        tmux \
-        unzip \
-        vim \
-        virtualbox-guest-utils \
-        wget \
-        zsh
-    sudo adduser emanuele vboxsf
-    sudo vi /etc/default/grub
-    sudo vi /etc/init/tty1.conf > exec /sbin/rungetty --autologin emanuele tty1
-    git clone --recursive https://github.com/sorin-ionescu/prezto.git "${ZDOTDIR:-$HOME}/.zprezto"
-    zsh
-    setopt EXTENDED_GLOB
-    for rcfile in "${ZDOTDIR:-$HOME}"/.zprezto/runcoms/^README.md; do
-        ln -s "$rcfile" "${ZDOTDIR:-$HOME}/.${rcfile:t}"
-    done
-    chsh -s /bin/zsh
-    sudo curl -L https://github.com/docker/compose/releases/download/1.24.1/docker-compose-`uname -s`-`uname -m` > /usr/local/bin/docker-compose
-    sudo mkdir -p /etc/systemd/system/docker.service.d
-    sudo printf "[Service]nExecStart=nExecStart=/usr/bin/dockerd --storage-driver=overlay" > /etc/systemd/system/docker.service.d/
-    sudo service docker start
-    sudo chmod +x /usr/bin/docker-compose
-    sudo timedatectl set-timezone Etc/UTC
-    sudo echo 0 | sudo tee /proc/sys/net/ipv4/conf/all/accept_redirects
 fi

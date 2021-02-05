@@ -1,6 +1,7 @@
+tap 'homebrew/bundle'
+tap 'homebrew/cask-fonts'
 tap 'buo/cask-upgrade'
 tap 'caskroom/versions'
-tap 'homebrew/cask-fonts'
 tap 'wagoodman/dive' # dive
 
 # Binaries

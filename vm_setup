@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# Virtual Machine
+sudo apt-get update && sudo apt-get -y upgrade && sudo apt-get -y dist-upgrade
+sudo apt-get install -y \
+    bc \
+    bridge-utils \
+    build-essential \
+    curl \
+    docker \
+    git \
+    htop \
+    mailutils \
+    postgresql \
+    python \
+    python-pip \
+    rungetty \
+    sudo \
+    sysstat \
+    tee \
+    tmux \
+    unzip \
+    vim \
+    virtualbox-guest-utils \
+    wget \
+    zsh
+sudo adduser emanuele vboxsf
+sudo vi /etc/default/grub
+sudo vi /etc/init/tty1.conf > exec /sbin/rungetty --autologin emanuele tty1
+git clone --recursive https://github.com/sorin-ionescu/prezto.git "${ZDOTDIR:-$HOME}/.zprezto"
+zsh
+setopt EXTENDED_GLOB
+for rcfile in "${ZDOTDIR:-$HOME}"/.zprezto/runcoms/^README.md; do
+    ln -s "$rcfile" "${ZDOTDIR:-$HOME}/.${rcfile:t}"
+done
+chsh -s /bin/zsh
+sudo curl -L https://github.com/docker/compose/releases/download/1.28.2/docker-compose-`uname -s`-`uname -m` > /usr/local/bin/docker-compose
+sudo mkdir -p /etc/systemd/system/docker.service.d
+sudo printf "[Service]nExecStart=nExecStart=/usr/bin/dockerd --storage-driver=overlay" > /etc/systemd/system/docker.service.d/
+sudo service docker start
+sudo chmod +x /usr/bin/docker-compose
+sudo timedatectl set-timezone Etc/UTC
+sudo echo 0 | sudo tee /proc/sys/net/ipv4/conf/all/accept_redirects
+
