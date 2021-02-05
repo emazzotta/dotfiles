@@ -112,6 +112,7 @@ alias eh='vi ${HOME}/.bash_history'
 alias ekh='vi ${HOME}/.ssh/known_hosts'
 alias ema='cd ${WDIR}/private/emanuele-page;av'
 alias emptytrash='sudo rm -rfv /Volumes/*/.Trashes; sudo rm -rfv ~/.Trash; sudo rm -rfv /private/var/log/asl/*.asl; sqlite3 ~/Library/Preferences/com.apple.LaunchServices.QuarantineEventsV* "delete from LSQuarantineEvent"'
+alias envify='source "${DOTFILESPATH}/.env"'
 alias ep='vi ${HOME}/.bashrc;rp'
 alias er='vi README.md'
 alias err='vi ${RECOMMENDED_READINGS}'
@@ -319,7 +320,6 @@ alias zhawconnect='sudo openconnect ras.zhaw.ch <<< $(echo "ZHAW-Edu\nmazzoema\n
 alias zm='cd ${WDIR}/zhaw/zhaw-material'
 alias zrp='cd ${WDIR}/zhaw'
 ### COMMANDS ###
-source load "${DOTFILESPATH}/.env"
 source load "${DOTFILESPATH}/autocomplete/custom_autocomplete"
 source load "${DOTFILESPATH}/bin/colors"
 source load "${HOME}/.sdkman/bin/sdkman-init.sh"
