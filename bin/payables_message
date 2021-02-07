@@ -1,0 +1,13 @@
+#!/bin/bash
+
+if ! test "${PAYABLES}"; then
+    echo "PAYABLES variable is not set"
+    exit 1
+fi
+
+TERM=$([ ${PAYABLES} -gt 1 ] && echo "payables" || echo "payable")
+
+if [ ${PAYABLES} -gt 0  ]; then
+    osascript -e 'display notification "You have '${PAYABLES}' unpaid '${TERM}'" with title "Payables"'
+fi
+
