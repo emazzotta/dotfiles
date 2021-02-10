@@ -1,5 +1,10 @@
 #!/bin/bash
 
+if ! test "${TM_USER}"; then
+    echo "TM_USER is not set"
+    exit 1
+fi
+
 BACKUP_PATH="${WDIR}/private/infrastructure/backup/teslamate/backup"
 
 echo "Creating backup of tm database"
