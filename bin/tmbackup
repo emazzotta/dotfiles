@@ -6,12 +6,5 @@ if ! test "${TM_USER}"; then
 fi
 
 BACKUP_PATH="${WDIR}/private/infrastructure/backup/teslamate/backup"
-
-echo "Creating backup of tm database"
-
 kubectl exec -i deployment.apps/teslamate-mazzotta-db-deployment -n teslamate-mazzotta -- /bin/sh -c "pg_dump -U ${TM_USER} -d ${TM_USER}" > "${BACKUP_PATH}/$(date +%Y-%m-%dT%H-%M-%S).sql"
-
-echo 
-echo "Contents of ${BACKUP_PATH}:"
-bash -lci "ls -l ${BACKUP_PATH}"
 
