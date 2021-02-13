@@ -3,4 +3,4 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 SHELL=/bin/bash
 
 0 20 * * * bash -lci "source ${GLOBAL_ENV_FILE} && ${DOTFILESPATH}/bin/payables_message" 
-0 20 * * * bash -lci "source ${GLOBAL_ENV_FILE} && ${DOTFILESPATH}/bin/tmbackup > /dev/null"
+0 20 * * * bash -lci "source ${GLOBAL_ENV_FILE} && ${DOTFILESPATH}/bin/tmbackup" > /dev/null
