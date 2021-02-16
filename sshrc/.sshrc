@@ -23,6 +23,7 @@ alias mc='make clean'
 alias rp='clear;source ${HOME}/.bashrc'
 alias vdc='vi docker-compose.yml'
 alias vi='vim'
+alias rr='rm -rf'
 
 if [[ "${HOSTNAME}" =~ ^(sa1).* ]]; then
     alias c='cd ${DOCKER_COMPOSE_DIR}'
