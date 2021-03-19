@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if test "${1}"; then
-    sdk_line=$(bash -cl "sdk list java | grep \"${1}\" | grep open | head -n 1")
+    sdk_line=$(bash -cl "sdk list java | grep \"${1}\" | grep adpt | grep installed | head -n 1")
     echo "${sdk_line}" | awk -F "|" '{print $6}' | sed 's/ //g'
 else
     echo "finds the latest java sdkman version name for the passed java version"

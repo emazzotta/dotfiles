@@ -84,7 +84,6 @@ brew 'zsh'
 # Apps
 cask 'adobe-acrobat-reader'
 cask 'android-platform-tools'
-cask 'android-sdk'
 cask 'android-studio'
 cask 'caffeine'
 cask 'daisydisk'

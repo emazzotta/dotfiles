@@ -59,4 +59,5 @@ sudo defaults write com.apple.mail NSUserKeyEquivalents -dict-add "Send" -string
 sudo defaults write NSGlobalDomain AppleShowAllExtensions -bool true
 # Disable the warning when changing a file extension
 sudo defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false
-
+# Fix buggy Android Studio
+defaults write com.google.android.studio AppleWindowTabbingMode manual
