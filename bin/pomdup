@@ -1,3 +1,0 @@
-#!/bin/bash
-
-find . -type f -name 'pom.xml' | xargs -I {} sh -c 'echo "===> {}" && cat {} | grep "artifactId"|sort|uniq -d|grep -Eo ">(.*?)<"|sed -e "s/>/[x] /" -e "s/.$//"'

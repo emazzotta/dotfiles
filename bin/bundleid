@@ -1,7 +1,0 @@
-#!/bin/bash
-
-if test "${1}"; then
-    mdls -name kMDItemCFBundleIdentifier -r "/Applications/${1}.app"
-else
-    echo "usage: `basename ${0}` <application>"
-fi

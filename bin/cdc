@@ -1,3 +1,0 @@
-#!/bin/bash
-
-(cd ${WDIR}/adcubum/docker-compose-local && export AVECTRIS_DOCKER_COMPOSE_FILE="${WDIR}/adcubum/avectris-consulta/docker-compose.yml" && ./docker-compose.sh ${@})
