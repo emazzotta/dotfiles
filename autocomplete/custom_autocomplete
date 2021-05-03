@@ -13,7 +13,6 @@ _agrep()
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=($(compgen -W "${_agrep_commands}" -- ${cur}))
-  return 0
 }
 _kubeconf()
 {
@@ -22,7 +21,12 @@ _kubeconf()
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=($(compgen -W "${_kubeconf_options}" -- ${cur}))
-  return 0
+}
+_bundleid()
+{
+  while IFS= read -r line; do
+    COMPREPLY+=("$line")
+  done < <(find /Applications -mindepth 1 -maxdepth 1 -type d -print | sed 's/\/Applications\///g' | sed 's/ /\\ /g')
 }
 _ef()
 {
@@ -31,7 +35,6 @@ _ef()
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=($(compgen -W "${_ef_commands}" -- ${cur}))
-  return 0
 }
 _repo() {
   _repo_commands=""
@@ -42,9 +45,9 @@ _repo() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=($(compgen -W "${_repo_commands}" -- ${cur}))
-  return 0
 }
 complete -o nospace -F _agrep agrep
 complete -o nospace -F _kubeconf kubeconf
+complete -o nospace -F _bundleid bundleid
 complete -o nospace -F _ef ef
 complete -o nospace -F _repo repo
