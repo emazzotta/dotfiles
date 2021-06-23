@@ -6,7 +6,7 @@ export CUSTOM_BIN_DIR="${DOTFILESPATH}/bin"
 export ANDROID_AVD_HOME=${HOME}/.android/avd
 export ANDROID_HOME=${HOME}/Library/Android/sdk
 export ANDROID_SDK_ROOT=${HOME}/Library/Android/sdk
-export PATH="${CUSTOM_BIN_DIR}:${HOME}/.yarn/bin:/usr/local/opt/openssl/bin:/usr/local/opt/curl/bin:/usr/local/bin:/usr/local/Cellar:${PATH}"
+export PATH="${CUSTOM_BIN_DIR}:${HOME}/.yarn/bin:${HOME}/.config/yarn/global/node_modules/.bin:/usr/local/opt/openssl/bin:/usr/local/opt/curl/bin:/usr/local/bin:/usr/local/Cellar:${PATH}"
 export PATH=$PATH:$ANDROID_HOME/emulator
 export PATH=$PATH:$ANDROID_HOME/platform-tools
 export PATH=$PATH:$ANDROID_HOME/tools
@@ -45,10 +45,12 @@ export MARKDOWNDIR=${DOCUMENTDIR}/Markdown
 export NODE_REPL_HISTORY="~/.node_history"
 export NODE_REPL_HISTORY_SIZE='32768'
 export NODE_REPL_MODE='sloppy'
+export NVM_DIR="${HOME}/.nvm"
 export PRIVATECOMMITSDIR="${WDIR}/private/private-commits"
 export PROMPT_DIRTRIM=2
 export PYTHONIOENCODING='UTF-8'
 export RECOMMENDED_READINGS="${MARKDOWNDIR}/recommended_readings.md"
+export SDKMAN_DIR="${HOME}/.sdkman"
 export SDKMAN_DIR="${HOME}/.sdkman"
 export TERM="xterm-256color"
 export VENV_PATH="${HOME}/.venv"
@@ -355,12 +357,7 @@ function zshaddhistory() {
   fi
 }
 
-
-# SDKMAN
-export SDKMAN_DIR="${HOME}/.sdkman"
-[[ -s "/Users/emanuelemazzotta/.sdkman/bin/sdkman-init.sh" ]] && source "/Users/emanuelemazzotta/.sdkman/bin/sdkman-init.sh"
-
-# NVM
-export NVM_DIR="${HOME}/.nvm"
-[ -s "/usr/local/opt/nvm/nvm.sh" ] && . "/usr/local/opt/nvm/nvm.sh"  # This loads nvm
+# Slow!
+# [[ -s "/Users/emanuelemazzotta/.sdkman/bin/sdkman-init.sh" ]] && source "/Users/emanuelemazzotta/.sdkman/bin/sdkman-init.sh"
+# [ -s "/usr/local/opt/nvm/nvm.sh" ] && . "/usr/local/opt/nvm/nvm.sh"  # This loads nvm
 
