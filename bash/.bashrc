@@ -349,7 +349,7 @@ if test "${ZSH_VERSION}"; then
 fi
 function zshaddhistory() {
   emulate -L zsh
-  if ! [[ "$1" =~ "(^gp|--password|^ )" ]] ; then
+  if ! [[ "$1" =~ "(^gp|--password|secret|^ )" ]] ; then
       print -sr -- "${1%%$'\n'}"
       fc -p
   else
