@@ -96,7 +96,6 @@ brew "xz"
 brew "zsh"
 
 # Apps
-cask "alfred"
 cask "android-file-transfer"
 cask "android-platform-tools"
 cask "android-studio"
