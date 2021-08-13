@@ -5,6 +5,7 @@ export DOTFILESPATH="${WDIR}/private/dotfiles"
 export CUSTOM_BIN_DIR="${DOTFILESPATH}/bin"
 export ANDROID_AVD_HOME=${HOME}/.android/avd
 export ANDROID_HOME=${HOME}/Library/Android/sdk
+export ANDROID_SDK=${HOME}/Library/Android/sdk
 export ANDROID_SDK_ROOT=${HOME}/Library/Android/sdk
 export PATH="${CUSTOM_BIN_DIR}:${HOME}/.yarn/bin:${HOME}/.config/yarn/global/node_modules/.bin:/usr/local/opt/openssl/bin:/usr/local/opt/curl/bin:/usr/local/bin:/usr/local/Cellar:${PATH}"
 export PATH=$PATH:$ANDROID_HOME/emulator

@@ -56,6 +56,7 @@ brew "lame"
 brew "lftp" # Advanced FTP
 brew "libav" # Git Video
 brew "lsd"
+brew "lzip"
 brew "mas"
 brew "maven"
 brew "minikube"
