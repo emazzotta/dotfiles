@@ -32,7 +32,7 @@ if test "${1}"; then
         ;;
     esac
 
-    [[ "${3}" == "rm" ]] && rm "${input_file}" && echo "Removed input file '${input_file}'"
+    [[ "${3}" == "rm" ]] && test -f "${output_file}" && rm "${input_file}" && echo "Removed input file '${input_file}'"
 else
     echo "usage: `basename ${0}` <video_file> [h264|h265|av1] [rm]"
 fi
