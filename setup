@@ -50,6 +50,7 @@ if [ "$(uname)" == "Darwin" ]; then
     pip install autopep8
     pip install awscli
     pip install bpython
+    pip install tesla_dashcam
     pip install virtualenv
 
     sudo gem install bundler
