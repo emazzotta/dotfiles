@@ -73,6 +73,7 @@ brew "openvpn"
 brew "p7zip" # 7zip
 brew "pdfgrep"
 brew "perl"
+brew "pidcat"
 brew "potrace" # SVGify
 brew "prettyping"
 brew "progress"
