@@ -2,7 +2,7 @@
 
 set -e
 
-if ! test "${${PRIVATE_PHONE_NUMBER}}"; then
+if ! test "${PRIVATE_PHONE_NUMBER}"; then
     echo "Please execute 'envify'"
     exit 1
 fi
