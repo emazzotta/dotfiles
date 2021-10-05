@@ -38,3 +38,5 @@
 	old = red bold
 	new = green bold
 	whitespace = red reverse
+[lfs]
+	repositoryformatversion = 0
