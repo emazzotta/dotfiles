@@ -21,7 +21,6 @@ export BOILERPLATE_PATH="${WDIR}/private/katas/boilerplate"
 export CLICOLOR=1
 export CRONTAB_FILE="${DOTFILESPATH}/cron/crontab"
 export DESKDIR="${HOME}/Desktop"
-export DOCKERDATADIR="${HOME}/Library/Containers/com.docker.docker/Data/com.docker.driver.amd64-linux"
 export DOWNLOADDIR="${HOME}/Downloads"
 export EDITOR=/usr/local/bin/vim
 export GITDUMMYDIR="${WDIR}/private/gitdummy"
@@ -102,7 +101,7 @@ alias ctun='ssh -f -C -N -L  5601:es5-catalog-master-00:5601 -L 0.0.0.0:9100:es5
 alias dc='docker-compose'
 alias degref='print_and_copy "${DEGIRO_REFERRAL}"'
 alias dgc='docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v /etc:/etc -e REMOVE_VOLUMES=1 spotify/docker-gc'
-alias dgui='docker run -d -p 9000:9000 -v /var/run/docker.sock:/var/run/docker.sock -v "${DOCKERDATADIR}/data:/data" portainer/portainer;echo "Open: http://localhost:9000"'
+alias dgui='docker run -d -p 9000:9000 -v /var/run/docker.sock:/var/run/docker.sock portainer/portainer;echo "Open: http://localhost:9000"'
 alias diff='icdiff'
 alias dign='vi .dockerignore'
 alias dl='cd ${DOWNLOADDIR}'
