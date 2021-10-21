@@ -36,7 +36,6 @@ if [ "$(uname)" == "Darwin" ]; then
     IFS=$OLDIFS
 
     ./.macos
-    ./rclone
     ./duti/setfiledefaults
 
     npm install -g eslint
