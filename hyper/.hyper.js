@@ -4,6 +4,17 @@
 // See https://hyper.is#cfg for all currently supported options.
 module.exports = {
     config: {
+        hyperline: {
+            plugins: [
+                "hostname",
+                "ip",
+                "memory",
+                "battery",
+                "cpu",
+                "network"
+            ]
+        },
+
         // choose either `'stable'` for receiving highly polished,
         // or `'canary'` for less polished but more frequent updates
         updateChannel: 'stable',
@@ -127,13 +138,9 @@ module.exports = {
         disableAutoUpdates: false,
         // for advanced config flags please refer to https://hyper.is/#cfg
     },
-    // a list of plugins to fetch and install from npm
-    // format: [@org/]project[#version]
-    // examples:
-    //   `hyperpower`
-    //   `@company/project`
-    //   `project#1.0.1`
-    plugins: [],
+    plugins: [
+        "hyperline",
+    ],
     // in development, you can create a directory under
     // `~/.hyper_plugins/local/` and include it here
     // to load it and avoid it being `npm install`ed
