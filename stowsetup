@@ -2,6 +2,9 @@
 
 DIR=$(dirname "$0")
 
+VS_CODE_DIR="${HOME}/Library/Application Support/Code/User"
+mkdir -p ${VS_CODE_DIR}
+
 stow -d "${DIR}" -t "${HOME}" --ignore=prompt_garrett_setup zsh
 stow -d "${DIR}" -t "${HOME}" bash
 stow -d "${DIR}" -t "${HOME}" emacs
@@ -13,4 +16,4 @@ stow -d "${DIR}" -t "${HOME}" ssh
 stow -d "${DIR}" -t "${HOME}" sshrc
 stow -d "${DIR}" -t "${HOME}" tmux
 stow -d "${DIR}" -t "${HOME}" vim
-
+stow -d "${DIR}" -t "${VS_CODE_DIR}" vscode
