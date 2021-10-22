@@ -138,9 +138,7 @@ module.exports = {
         disableAutoUpdates: false,
         // for advanced config flags please refer to https://hyper.is/#cfg
     },
-    plugins: [
-        "hyperline",
-    ],
+    plugins: ["hyperline", "hyperlinks", "hyper-quit", "git-falcon9"],
     // in development, you can create a directory under
     // `~/.hyper_plugins/local/` and include it here
     // to load it and avoid it being `npm install`ed
