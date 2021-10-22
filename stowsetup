@@ -16,4 +16,5 @@ stow -d "${DIR}" -t "${HOME}" ssh
 stow -d "${DIR}" -t "${HOME}" sshrc
 stow -d "${DIR}" -t "${HOME}" tmux
 stow -d "${DIR}" -t "${HOME}" vim
+stow -d "${DIR}" -t "${HOME}" hyper
 stow -d "${DIR}" -t "${VS_CODE_DIR}" vscode
