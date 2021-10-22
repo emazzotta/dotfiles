@@ -8,13 +8,18 @@ module.exports = {
             plugins: [
                 "hostname",
                 "ip",
-                "memory",
+                // "memory",
                 "battery",
                 "cpu",
                 "network"
             ]
         },
-
+        hyperWindowSize: {
+            width: 1280,
+            height: 820,
+            startX: 25,
+            startY: 50
+        },
         // choose either `'stable'` for receiving highly polished,
         // or `'canary'` for less polished but more frequent updates
         updateChannel: 'stable',
@@ -138,7 +143,15 @@ module.exports = {
         disableAutoUpdates: false,
         // for advanced config flags please refer to https://hyper.is/#cfg
     },
-    plugins: ["hyperline", "hyperlinks", "hyper-quit", "git-falcon9"],
+    plugins: [
+        "hyperline",
+        "hyperlinks",
+        "hyper-quit",
+        "hyper-hide-scroll",
+        "hyper-snazzy",
+        "hyper-transparent-dynamic",
+        "hyper-window-size",
+    ],
     // in development, you can create a directory under
     // `~/.hyper_plugins/local/` and include it here
     // to load it and avoid it being `npm install`ed
