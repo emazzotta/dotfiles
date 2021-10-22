@@ -16,16 +16,6 @@ printer() {
 }
 
 week=$(date +%V | sed 's/^0*//') 
-test ${week} -ge 38 && test ${week} -le 51 && semweek="$((${week}-37))" 
-test ${week} -ge 8 && test ${week} -le 21 && semweek="$((${week}-7))" 
-
-# Semester week
-if test ${semweek}; then
-    max=14
-    percentage=$(bc <<< "scale=10; 100/${max}*${semweek}")
-    progressbar=$(progressbar ${semweek} ${max} ${progressbar_length} "◼" "◻")
-    printer "Semesterwoche" "${semweek}/14" "${progressbar}" "${percentage}"
-fi
 
 # Year week
 max=52
