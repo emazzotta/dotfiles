@@ -4,21 +4,21 @@
 // See https://hyper.is#cfg for all currently supported options.
 module.exports = {
   config: {
-    hyperline: {
-      plugins: [
-        "hostname",
-        "ip",
-        // "memory",
-        "battery",
-        "cpu",
-        "network",
-      ],
-    },
+    // hyperline: {
+    //   plugins: [
+    //     "hostname",
+    //     "ip",
+    //     // "memory",
+    //     "battery",
+    //     "cpu",
+    //     "network",
+    //   ],
+    // },
     hyperWindowSize: {
-      width: 1280,
-      height: 820,
-      startX: 25,
-      startY: 50,
+      width: 1320,
+      height: 855,
+      startX: 10,
+      startY: 35,
     },
     hyperTransparentDynamic: {
       alpha: 0.8,
@@ -152,7 +152,7 @@ module.exports = {
     // for advanced config flags please refer to https://hyper.is/#cfg
   },
   plugins: [
-    "hyperline",
+    // "hyperline",
     "hyperlinks",
     "hyper-quit",
     "hyper-hide-scroll",
