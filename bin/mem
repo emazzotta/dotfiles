@@ -2,11 +2,12 @@
 
 FREE_BLOCKS=$(vm_stat | grep free | awk '{ print $3 }' | sed 's/\.//')   
 SPECULATIVE_BLOCKS=$(vm_stat | grep speculative | awk '{ print $3 }' | sed 's/\.//')
+WIRED_BLOCKS=$(vm_stat | grep wired | awk '{ print $4 }' | sed 's/\.//')
 
-FREE=$((($FREE_BLOCKS+SPECULATIVE_BLOCKS)*4096/1048576))
+FREE=$(echo "scale=0; ($FREE_BLOCKS+$SPECULATIVE_BLOCKS)*4096/1048576" | bc -l)
+
 TOTAL=$(($(sysctl hw.memsize | awk '{print $2}')/1024/1024))
 
-FREE_GB=$(echo "scale=1; $FREE/1024" | bc -l)
 TOTAL_GB=$(echo "scale=1; $TOTAL/1024" | bc -l)
 USED_GB=$(echo "scale=1; ($TOTAL-$FREE)/1024" | bc -l)
 
