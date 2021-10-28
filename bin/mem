@@ -10,6 +10,6 @@ TOTAL_GB=$(echo "scale=1; $TOTAL/1024" | bc -l)
 USED=$(echo "scale=0; ($ANONYMOUS_BLOCKS+$COMPRESSED_BLOCKS+$WIRED_BLOCKS)*4096/1024/1024" | bc -l)
 USED_GB=$(echo "scale=1; $USED/1024" | bc -l)
 
-echo "${USED_GB}/${TOTAL_GB} GB"
+echo "${USED_GB}G/${TOTAL_GB}G"
 
 # vm_stat | grep pages | awk '{print $NF}' | xargs -I {} echo {} | sed 's/\.//' | xargs -I {} echo "scale=2; {}*4096/1024/1024/1024" | bc -l | xargs -I {} echo {} GB
