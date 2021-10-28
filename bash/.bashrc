@@ -285,6 +285,7 @@ alias upsidedown='print_and_copy 🙃'
 alias uref='print_and_copy "${UBER_REFERRAL}"'
 alias urlencode='python -c "import sys, urllib; print urllib.quote_plus(sys.argv[1]);"'
 alias urr='[ ! -z ${RECOMMENDED_READINGS_GIST_ID} ] && (gist -u ${RECOMMENDED_READINGS_GIST_ID} ${RECOMMENDED_READINGS}) || echo "Run envify"' # gist --login
+alias vboxreload='sudo kextload -b org.virtualbox.kext.VBoxDrv'
 alias vdc='vi docker-compose.yml'
 alias vdf='vi Dockerfile'
 alias ve='vi ${HOME}/.vim_runtime/my_configs.vim'
