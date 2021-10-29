@@ -1,7 +1,9 @@
 #!/bin/bash
 
+VM_STAT_DATA=$(vm_stat)
+
 function extract_value_by_key() {
-    bc -l <<< "scale=2; $(vm_stat | grep -i "${1}" | awk '{ print $NF  }' | sed 's/\.//')*4096/1024/1024"
+    bc -l <<< "scale=2; $(echo "$VM_STAT_DATA" | grep -i "${1}" | awk '{ print $NF  }' | sed 's/\.//')*4096/1024/1024"
 }
 
 ANONYMOUS_BLOCKS=$(extract_value_by_key "anonymous")

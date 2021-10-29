@@ -69,7 +69,7 @@ if [ "$(uname)" == "Darwin" ]; then
     chsh -s /bin/zsh
 
     git clone --depth=1 https://github.com/amix/vimrc.git "${HOME}/.vim_runtime"
-    cd "${HOME}/.vim_runtime/sources_non_forked"
+    cd "${HOME}/.vim_runtime/my_plugins"
     git clone git@github.com:Glench/Vim-Jinja2-Syntax.git
     git clone git@github.com:OmniSharp/omnisharp-server.git
     git clone git@github.com:OmniSharp/omnisharp-vim.git
@@ -85,9 +85,9 @@ if [ "$(uname)" == "Darwin" ]; then
     git clone git@github.com:tomlion/vim-solidity.git
     git clone git@github.com:tpope/vim-dispatch.git
     git clone git@github.com:vim-airline/vim-airline.git
-    cd "${HOME}/.vim_runtime/sources_non_forked/YouCompleteMe" && git submodule update --init --recursive
-    cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-vim" && git submodule update --init --recursive
-    cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" && git submodule update --init --recursive
-    cd "${HOME}/.vim_runtime/sources_non_forked/omnisharp-server" && msbuild 
-    cd "${HOME}/.vim_runtime/sources_non_forked/YouCompleteMe" && ./install.py --clang-completer --gocode-completer --tern-completer --omnisharp-completer 
+    cd "${HOME}/.vim_runtime/my_plugins/YouCompleteMe" && git submodule update --init --recursive
+    cd "${HOME}/.vim_runtime/my_plugins/omnisharp-vim" && git submodule update --init --recursive
+    cd "${HOME}/.vim_runtime/my_plugins/omnisharp-server" && git submodule update --init --recursive
+    cd "${HOME}/.vim_runtime/my_plugins/omnisharp-server" && msbuild 
+    cd "${HOME}/.vim_runtime/my_plugins/YouCompleteMe" && ./install.py --clang-completer --gocode-completer --tern-completer --omnisharp-completer 
 fi
