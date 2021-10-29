@@ -1,14 +1,19 @@
 #!/bin/bash
 
-ANONYMOUS_BLOCKS=$(vm_stat | grep Anonymous | awk '{ print $3 }' | sed 's/\.//')
-COMPRESSED_BLOCKS=$(vm_stat | grep occupied | awk '{ print $5 }' | sed 's/\.//')
-WIRED_BLOCKS=$(vm_stat | grep wired | awk '{ print $4 }' | sed 's/\.//')
+function extract_value_by_key() {
+    bc -l <<< "scale=2; $(vm_stat | grep -i "${1}" | awk '{ print $NF  }' | sed 's/\.//')*4096/1024/1024"
+}
+
+ANONYMOUS_BLOCKS=$(extract_value_by_key "anonymous")
+PURGEABLE_BLOCKS=$(extract_value_by_key "purgeable")
+COMPRESSED_BLOCKS=$(extract_value_by_key "occupied by compressor")
+WIRED_BLOCKS=$(extract_value_by_key "wired")
 
 TOTAL=$(($(sysctl hw.memsize | awk '{print $2}')/1024/1024))
-TOTAL_GB=$(echo "scale=1; $TOTAL/1024" | bc -l)
+TOTAL_GB=$(echo "scale=2; $TOTAL/1024" | bc -l)
 
-USED=$(echo "scale=0; ($ANONYMOUS_BLOCKS+$COMPRESSED_BLOCKS+$WIRED_BLOCKS)*4096/1024/1024" | bc -l)
-USED_GB=$(echo "scale=1; $USED/1024" | bc -l)
+USED=$(echo "scale=2; $ANONYMOUS_BLOCKS-$PURGEABLE_BLOCKS+$COMPRESSED_BLOCKS+$WIRED_BLOCKS" | bc -l)
+USED_GB=$(echo "scale=2; $USED/1024" | bc -l)
 
 echo "${USED_GB}G/${TOTAL_GB}G"
 
