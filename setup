@@ -61,7 +61,6 @@ if [ "$(uname)" == "Darwin" ]; then
     cd "${HOME}"
     git clone https://github.com/gpakosz/.tmux.git
     ln -s -f .tmux/.tmux.conf
-    git clone https://github.com/tmux-plugins/tpm "${HOME}/.tmux/plugins/tpm"
 
     git clone --recursive https://github.com/sorin-ionescu/prezto.git ${ZDOTDIR:-$HOME}/.zprezto
     cp ./zsh/prompt_garrett_setup ${HOME}/.zprezto/modules/prompt/functions/
