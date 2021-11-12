@@ -101,7 +101,6 @@ alias ctop='docker run -ti -v /var/run/docker.sock:/var/run/docker.sock quay.io/
 alias ctun='ssh -f -C -N -L  5601:es5-catalog-master-00:5601 -L 0.0.0.0:9100:es5-catalog-data-00:9200 jump.dev.siroop.work'
 alias dc='docker-compose'
 alias degref='print_and_copy "${DEGIRO_REFERRAL}"'
-alias dgc='docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v /etc:/etc -e REMOVE_VOLUMES=1 spotify/docker-gc'
 alias dgui='docker run -d -p 9000:9000 -v /var/run/docker.sock:/var/run/docker.sock portainer/portainer;echo "Open: http://localhost:9000"'
 alias diff='icdiff'
 alias dign='vi .dockerignore'
