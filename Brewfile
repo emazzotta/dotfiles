@@ -42,7 +42,6 @@ brew "gnu-sed"
 brew "gnupg"
 brew "go"
 brew "golang"
-brew "google-cloud-sdk"
 brew "gource" # Git Video
 brew "graphviz"
 brew "grep"
