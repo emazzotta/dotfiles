@@ -316,6 +316,7 @@ alias zm='cd ${WDIR}/zhaw/zhaw-material'
 alias zrp='cd ${WDIR}/zhaw'
 ### COMMANDS ###
 source load "${DOTFILESPATH}/autocomplete/custom_autocomplete"
+source load "${DOTFILESPATH}/autocomplete/zsh/_kubectl"
 source load "${DOTFILESPATH}/bin/colors"
 source load "${HOME}/.sdkman/bin/sdkman-init.sh"
 test "${BASH_VERSION}" && source load "${HOME}/.sshrc"
