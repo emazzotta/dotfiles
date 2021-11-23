@@ -6,7 +6,6 @@ tap "buo/cask-upgrade"
 tap "caskroom/versions"
 tap "homebrew/bundle"
 tap "homebrew/cask-fonts"
-tap "wagoodman/dive" # dive
 
 # Binaries
 brew "adr-tools"
