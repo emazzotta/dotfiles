@@ -15,3 +15,5 @@ yml
 toml
 conf
 log
+md
+adoc

@@ -26,5 +26,8 @@
         "**/.settings": true,
         "**/.factorypath": true
     },
-    "json.schemas": []
+    "json.schemas": [],
+    "[html]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    }
 }
