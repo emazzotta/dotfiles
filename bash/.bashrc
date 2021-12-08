@@ -328,7 +328,6 @@ if test "${ZSH_VERSION}"; then
         zgen prezto history-substring-search
         zgen prezto syntax-highlighting
         zgen load ${DOTFILESPATH}/autocomplete/zsh 
-        zgen load djui/alias-tips
         zgen load junegunn/fzf shell
         zgen load zsh-users/zsh-syntax-highlighting
         zgen load tarruda/zsh-autosuggestions
