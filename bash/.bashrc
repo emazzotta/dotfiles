@@ -12,7 +12,7 @@ export PATH=$PATH:$ANDROID_HOME/emulator
 export PATH=$PATH:$ANDROID_HOME/platform-tools
 export PATH=$PATH:$ANDROID_HOME/tools
 export PATH=$PATH:$ANDROID_HOME/tools/bin
-export GDRIVEDIR="${HOME}/Google Drive"
+export GDRIVEDIR="${HOME}/Google_Drive"
 export DOCUMENTDIR="${GDRIVEDIR}/Dokumente"
 export BELEGEDIR="${DOCUMENTDIR}/Belege"
 ### EXPORTS ###
