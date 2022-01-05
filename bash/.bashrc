@@ -232,7 +232,6 @@ alias mysqlimport='docker exec -i mysql-temp mysql -umysql -pmysql tempdb < back
 alias mysqlrun='docker run -p 0.0.0.0:3300:3306 --name mysql-temp --rm -v ${HOME}/Desktop/mysql:/var/lib/mysql -e MYSQL_USER=mysql -e MYSQL_PASSWORD=mysql -e MYSQL_DATABASE=tempdb -e MYSQL_ROOT_PASSWORD=mysql -d mariadb:10.4.8'
 alias now='print_and_copy $(date "+%Y-%m-%d-%H-%M-%S")'
 alias nref='print_and_copy "${NURA_REFERRAL}"'
-alias oldbrew='/usr/local/bin/brew'
 alias oref='print_and_copy "${OURA_REFERRAL}"'
 alias path='echo -e ${PATH//:/\\n}'
 alias ph='cd ${WDIR}/private/plexius-homepage'
