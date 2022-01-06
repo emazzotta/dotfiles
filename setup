@@ -53,11 +53,11 @@ if [ "$(uname)" == "Darwin" ]; then
     pip install tesla_dashcam
     pip install virtualenv
 
-    sudo gem install bundler
-    sudo gem install github-pages
-    sudo gem install iStats
-    sudo gem install rails
-    sudo gem install rake
+    gem install --user-install bundler
+    gem install --user-install github-pages
+    gem install --user-install iStats
+    gem install --user-install rails
+    gem install --user-install rake
 
     cd "${HOME}"
     git clone https://github.com/gpakosz/.tmux.git
