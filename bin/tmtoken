@@ -5,4 +5,4 @@ if ! test "${TM_USER}"; then
     exit 1
 fi
 
-kubectl -n teslamate-mazzotta exec -ti deployment.apps/teslamate-mazzotta-db-deployment -- /bin/sh -c "psql -U ${TM_USER} -d ${TM_USER} -c 'SELECT * FROM tokens;'"
+kubectl -n teslamate-mazzotta exec -ti deployment/teslamate-mazzotta-db-deployment -- /bin/sh -c "psql -U ${TM_USER} -d ${TM_USER} -c 'SELECT * FROM tokens;'"
