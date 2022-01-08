@@ -16,7 +16,6 @@
     cp = cherry-pick
 [core]
 	filemode = true
-	editor = /usr/local/bin/vim
 	excludesfile = /Users/emanuelemazzotta/.global_gitignore
 	autocrlf = input
 	pager = diff-so-fancy | less --tabs=4 -RFX
@@ -38,5 +37,22 @@
 	old = red bold
 	new = green bold
 	whitespace = red reverse
-[lfs]
-	repositoryformatversion = 0
+
+[filesystem "AdoptOpenJDK|11.0.7|/dev/disk1s1"]
+	timestampResolution = 9000 nanoseconds
+	minRacyThreshold = 0 nanoseconds
+[filesystem "Oracle Corporation|12.0.2|/dev/disk1s5"]
+	timestampResolution = 7000 nanoseconds
+	minRacyThreshold = 0 nanoseconds
+[filesystem "Oracle Corporation|13.0.2|/dev/disk1s1"]
+	timestampResolution = 8000 nanoseconds
+	minRacyThreshold = 0 nanoseconds
+[filesystem "AdoptOpenJDK|11.0.8|/dev/disk1s1"]
+	timestampResolution = 6000 nanoseconds
+	minRacyThreshold = 0 nanoseconds
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+
