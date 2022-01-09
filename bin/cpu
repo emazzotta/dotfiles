@@ -1,3 +1,4 @@
 #!/bin/bash
 
-top -F -R -l 1 | grep -E "^CPU" | tail -1 | awk '{ print $3 + $5"%" }'
+export CORES=$(sysctl -n hw.ncpu)
+ps -axro pcpu | awk '{sum+=$1} END {print "scale=2; " sum " / " ENVIRON["CORES"]}' | bc -l | xargs -I {} echo "{}%"
