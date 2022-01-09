@@ -1,21 +1,24 @@
 #!/bin/bash
 
-VM_STAT_DATA=$(vm_stat)
+get_mem_usage_osx(){
+  local page_size=$(sysctl -nq "vm.pagesize")
+  vm_stat | awk -v page_size=$page_size -F ':' '
+    BEGIN { used=0 }
 
-function extract_value_by_key() {
-    bc -l <<< "scale=2; $(echo "$VM_STAT_DATA" | grep -i "${1}" | awk '{ print $NF  }' | sed 's/\.//')*4096/1024/1024"
+    /Pages active/ ||
+    /Pages inactive/ {
+      gsub(/^[ \t]+|[ \t]+$/, "", $2); used+=$2;
+    }
+
+    END { print (used * page_size)/(1024*1024*1024) }
+  '
 }
 
-ANONYMOUS_BLOCKS=$(extract_value_by_key "anonymous")
-PURGEABLE_BLOCKS=$(extract_value_by_key "purgeable")
-COMPRESSED_BLOCKS=$(extract_value_by_key "occupied by compressor")
-WIRED_BLOCKS=$(extract_value_by_key "wired")
+echo "scale=2; $(get_mem_usage_osx) / 1" | bc -l
 
 TOTAL=$(($(sysctl hw.memsize | awk '{print $2}')/1024/1024))
 TOTAL_GB=$(echo "scale=2; $TOTAL/1024" | bc -l)
-
-USED=$(echo "scale=2; $ANONYMOUS_BLOCKS-$PURGEABLE_BLOCKS+$COMPRESSED_BLOCKS+$WIRED_BLOCKS" | bc -l)
-USED_GB=$(echo "scale=2; $USED/1024" | bc -l)
+USED_GB=$(echo "scale=2; $(get_mem_usage_osx) / 1" | bc -l)
 
 echo "${USED_GB}G/${TOTAL_GB}G"
 
