@@ -157,7 +157,6 @@ alias gesus-ftp='lftp sftp://${SWICA_FTP_USER}:$(security find-internet-password
 alias ggi='vi ${HOME}/.global_gitignore'
 alias gign='vi .gitignore'
 alias ginit='git init && git commit -m "Initial commit" --allow-empty'
-alias git-crypt='docker run --rm -v $(pwd):/src -v ${HOME}/.gnupg:/root/.gnupg -w /src emazzotta/docker-git-crypt:latest'
 alias gitnope='git update-index --assume-unchanged'
 alias gityep='git update-index --no-assume-unchanged'
 alias glist='git stash list'
@@ -346,8 +345,3 @@ function zshaddhistory() {
       return 1
   fi
 }
-
-# Slow!
-# [[ -s "/Users/emanuelemazzotta/.sdkman/bin/sdkman-init.sh" ]] && source "/Users/emanuelemazzotta/.sdkman/bin/sdkman-init.sh"
-# [ -s "/usr/local/opt/nvm/nvm.sh" ] && . "/usr/local/opt/nvm/nvm.sh"  # This loads nvm
-
