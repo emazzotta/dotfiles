@@ -66,5 +66,5 @@ let g:NERDTreeWinPos = "left"
 let g:airline_powerline_fonts = 1
 let g:toggle_autosave = 0
 let g:user_emmet_leader_key='<tab>'
-let g:ycm_server_python_interpreter = '/usr/local/bin/python3'
+let g:ycm_server_python_interpreter = '/opt/homebrew/bin/python3'
 

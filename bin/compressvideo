@@ -1,38 +1,86 @@
 #!/bin/bash
 
-if test "${1}"; then
-    input_file="${1}"
-    output_file="${input_file%.*}_compressed.mp4"
+quality=28
+codec=h264
+remove=no
+just_preview_compatible=no
 
-    if test -f "${output_file}"; then
-        echo "File ${input_file} has already been compressed"
-        exit 1
-    fi
+function print_help() {
+    echo "usage: `basename ${0}` [-c=|--codec=h264|h265|av1] [-q=|--quality=28] [--just-preview-compatible] [--rm-original] <video_file>"
+}
 
-    codec="${2}"
-    [[ "${codec}" == "" ]] && codec=h264
-    
-    echo
-    echo "Converting '${input_file}' to '${output_file}' with codec '${codec}'"
-    echo
-    
+for i in "$@"; do
+  case $i in
+    -q=*|--quality=*)
+      quality="${i#*=}"
+      shift
+      ;;
+    -c=*|--codec=*)
+      codec="${i#*=}"
+      shift
+      ;;
+    --rm-original)
+      remove=yes
+      shift
+      ;;
+    --just-preview-compatible)
+      just_preview_compatible=yes
+      shift
+      ;;
+    -*|--*)
+      echo "Unknown option $i"
+      print_help
+      exit 1
+      ;;
+    *)
+      ;;
+  esac
+done
+
+if [[ ! -n "${1}" ]]; then
+    print_help
+    exit 1
+fi
+
+echo
+echo "options:"
+echo
+echo "qualiy [${quality}]"
+echo "codec [${codec}]"
+echo "remove original: [${remove}]"
+echo "just preview compatible: [${just_preview_compatible}] (ignoring quality and codec)"
+
+input_file="${1}"
+output_file="${input_file%.*}_compressed.mp4"
+
+if test -f "${output_file}"; then
+    echo "File ${input_file} has already been compressed"
+    exit 1
+fi
+
+echo
+echo "converting '${input_file}' to '${output_file}'"
+echo
+
+if [[ "${just_preview_compatible}" == "yes" ]]; then
+    ffmpeg -i "${input_file}" -vcodec libx264 "${output_file}" 
+else
     case "${codec}" in
         h264)
-            ffmpeg -i "${input_file}" -vcodec libx264 -crf 28 "${output_file}"
+            ffmpeg -i "${input_file}" -vcodec libx264 -crf "${quality}" "${output_file}"
         ;;
         h265)
-            ffmpeg -i "${input_file}" -vcodec libx265 -tag:v hvc1 -crf 28 "${output_file}"
+            ffmpeg -i "${input_file}" -vcodec libx265 -tag:v hvc1 -crf "${quality}" "${output_file}"
         ;;
         av1)
-            ffmpeg -i "${input_file}" -c:v libaom-av1 -crf 28 -b:v 0 -strict experimental "${output_file}"
+            ffmpeg -i "${input_file}" -c:v libaom-av1 -crf "${quality}" -b:v 0 -strict experimental "${output_file}"
         ;;
         *)
             echo "invalid codec '${codec}'"
             exit 1
         ;;
     esac
-
-    [[ "${3}" == "rm" ]] && test -f "${output_file}" && rm "${input_file}" && echo "Removed input file '${input_file}'"
-else
-    echo "usage: `basename ${0}` <video_file> [h264|h265|av1] [rm]"
 fi
+
+
+[[ "${remove}" == "yes" ]] && test -f "${output_file}" && rm "${input_file}" && echo "removed input file '${input_file}'"
