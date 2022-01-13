@@ -11,13 +11,7 @@ BACKUP_PATH="${BACKUP_DIR}/$(date +%Y-%m-%dT%H-%M-%S).sql"
 kubectl exec -i deployment/teslamate-mazzotta-db-deployment -n teslamate-mazzotta -- /bin/sh -c "pg_dump -U ${TM_USER} -d ${TM_USER}" > "${BACKUP_PATH}"
 
 if [[ $? == 0 ]]; then
-    BACKUP_TABLE_COUNT=$(cat ${BACKUP_PATH} | grep 'COPY public.' | wc -l | sed 's/ //g')
-    if [[ "${BACKUP_TABLE_COUNT}" == "13" ]]; then
-        exit 0
-    else
-        echo "Warning! Looks like some tables haven't been backed up! Backed up tables: ${BACKUP_TABLE_COUNT}"
-        exit 1
-    fi
+    tmbackupverify "${BACKUP_PATH}"
 else
     echo "Backup FAILED"
 fi

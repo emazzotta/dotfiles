@@ -1,0 +1,15 @@
+#!/bin/bash
+
+if test "${1}"; then
+	BACKUP_PATH="${1}"
+    BACKUP_TABLE_COUNT=$(cat ${BACKUP_PATH} | grep 'COPY public.' | wc -l | sed 's/ //g')
+    if [[ "${BACKUP_TABLE_COUNT}" == "13" ]]; then
+        exit 0
+    else
+        echo "Warning! Looks like some tables haven't been backed up! Backed up tables: ${BACKUP_TABLE_COUNT}"
+        echo "File: ${BACKUP_PATH}"
+        exit 1
+    fi
+else
+    echo "usage: `basename ${0}` <backup_file_path>"
+fi
