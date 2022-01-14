@@ -28,6 +28,13 @@ _bundleid()
     COMPREPLY+=("$line")
   done < <(find /Applications -mindepth 1 -maxdepth 1 -type d -print | sed 's/\/Applications\///g' | sed 's/ /\\ /g')
 }
+_compressvideo()
+{
+  while IFS= read -r line; do
+    COMPREPLY+=("$line")
+  done < <(find . -mindepth 1 -maxdepth 1 -type f -not -name ".*" -print | sed 's|./||' | sed 's/ /\\ /g')
+  COMPREPLY+=($(compressvideo -h | grep '\-\-' | sed 's/^.*--/--/g' | sed 's/ .*//g'))
+}
 _ef()
 {
   _ef_commands=$(ls ${CUSTOM_BIN_DIR})
@@ -49,5 +56,6 @@ _repo() {
 complete -o nospace -F _agrep agrep
 complete -o nospace -F _kubeconf kubeconf
 complete -o nospace -F _bundleid bundleid
+complete -o nospace -F _compressvideo compressvideo
 complete -o nospace -F _ef ef
 complete -o nospace -F _repo repo

@@ -6,17 +6,29 @@ remove=no
 just_preview_compatible=no
 
 function print_help() {
-    echo "usage: `basename ${0}` [-c=|--codec=h264|h265|av1] [-q=|--quality=28] [--just-preview-compatible] [--rm-original] <video_file>"
+    echo "usage: `basename ${0}` <video_file>"
+    echo
+    echo "options:"
+    echo "  -c, --codec                 Codec can be one ofh264, h265 or av1, default: ${codec}"
+    echo "  -q, --quality               Quality, the lower, the better the quality, default: ${quality}"
+    echo "  --just-preview-compatible   Just convert with ffmpeg so that macOS preview can use this file"
+    echo "  --rm-original               Remove the original file once the conversion is done"
 }
 
 for i in "$@"; do
   case $i in
-    -q=*|--quality=*)
-      quality="${i#*=}"
+    -h|--help)
+      print_help
+      exit 0
+      ;;
+    -q|--quality)
+      shift
+      quality="${1}"
       shift
       ;;
-    -c=*|--codec=*)
-      codec="${i#*=}"
+    -c|--codec)
+      shift
+      codec="${1}"
       shift
       ;;
     --rm-original)
@@ -45,7 +57,7 @@ fi
 echo
 echo "options:"
 echo
-echo "qualiy [${quality}]"
+echo "quality [${quality}]"
 echo "codec [${codec}]"
 echo "remove original: [${remove}]"
 echo "just preview compatible: [${just_preview_compatible}] (ignoring quality and codec)"
