@@ -1,0 +1,23 @@
+#!/bin/bash
+
+BROWSER_PATH="/Applications/Safari.app"
+URL_REGEX="(https?|ftp|file)://[-A-Za-z0-9\+&@#/%?=~_|.;]*[-A-Za-z0-9\+&@#/%=~_|]"
+CONTENT=$(echo -ne "$(pbpaste)\n")
+
+while IFS= read -r line; do
+  if ! [[ "${line}" =~ ${URL_REGEX} ]]; then
+    echo "Invalid URL [${line}], exiting..."
+    exit 1
+  fi
+done < <(printf '%s\n' "${CONTENT}")
+
+# Open browser first to prevent bug
+# where if it's not the default browser,
+# the default browser will open the links too
+open -a "${BROWSER_PATH}"
+sleep 0.5
+while IFS= read -r line; do
+  /usr/bin/open -a "${BROWSER_PATH}" "${line}"
+done < <(printf '%s\n' "${CONTENT}")
+
+echo $(uuidgen) | pbcopy
