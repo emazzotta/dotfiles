@@ -5,13 +5,25 @@ if ! test "${TM_USER}"; then
     exit 1
 fi
 
-BACKUP_DIR="${WDIR}/private/infrastructure/backup/teslamate"
-BACKUP_PATH="${BACKUP_DIR}/$(date +%Y-%m-%dT%H-%M-%S).sql"
+[[ "${1}" =~ ^(-v|--verbose)$ ]] && RSYNC_PARAMS="-avurP" || RSYNC_PARAMS="-aqur"
 
-kubectl exec -i deployment/teslamate-mazzotta-db-deployment -n teslamate-mazzotta -- /bin/sh -c "pg_dump -U ${TM_USER} -d ${TM_USER}" > "${BACKUP_PATH}"
+BACKUP_DIR="${WDIR}/private/infrastructure/backup/teslamate"
+SERVER_BACKUP_DIR=/teslamate
+FILE_NAME="$(date +%Y-%m-%dT%H-%M-%S).sql"
+LOCAL_BACKUP_PATH="${BACKUP_DIR}/${FILE_NAME}"
+SERVER_BACKUP_PATH="${SERVER_BACKUP_DIR}/${FILE_NAME}"
+NAMESPACE=teslamate-mazzotta
+DEPLOYMENT=deployment/teslamate-mazzotta-db-deployment
+
+$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -i -- apt update -y > /dev/null 2>&1
+$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -i -- apt install rsync -y > /dev/null 2>&1
+$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -- mkdir -p ${SERVER_BACKUP_DIR}
+$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -- pg_dump -U ${TM_USER} -d ${TM_USER} -f ${SERVER_BACKUP_PATH}
+rsync ${RSYNC_PARAMS} --rsh="$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -i -- " --blocking-io --rsync-path="${SERVER_BACKUP_DIR}" rsync:${SERVER_BACKUP_PATH} ${BACKUP_DIR}
+$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -- rm -r ${SERVER_BACKUP_DIR}
 
 if [[ $? == 0 ]]; then
-    tmbackupverify "${BACKUP_PATH}"
+    tmbackupverify "${LOCAL_BACKUP_PATH}"
 else
     echo "Backup FAILED"
 fi
