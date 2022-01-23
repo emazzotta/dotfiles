@@ -5,11 +5,10 @@ if ! test "${TM_USER}"; then
     exit 1
 fi
 
-[[ "${1}" =~ ^(-v|--verbose)$ ]] && RSYNC_PARAMS="-avurP" || RSYNC_PARAMS="-aqur"
-
+FILE_NAME="$(date +%Y-%m-%dT%H-%M-%S).sql"
+RSYNC_PARAMS="-avurP –timeout=5"
 BACKUP_DIR="${WDIR}/private/infrastructure/backup/teslamate"
 SERVER_BACKUP_DIR=/teslamate
-FILE_NAME="$(date +%Y-%m-%dT%H-%M-%S).sql"
 LOCAL_BACKUP_PATH="${BACKUP_DIR}/${FILE_NAME}"
 SERVER_BACKUP_PATH="${SERVER_BACKUP_DIR}/${FILE_NAME}"
 NAMESPACE=teslamate-mazzotta
