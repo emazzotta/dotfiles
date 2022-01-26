@@ -6,7 +6,7 @@ if ! test "${TM_USER}"; then
 fi
 
 FILE_NAME="$(date +%Y-%m-%dT%H-%M-%S).sql"
-RSYNC_PARAMS="-avurP –timeout=5"
+RSYNC_PARAMS="-avurP"
 BACKUP_DIR="${WDIR}/private/infrastructure/backup/teslamate"
 SERVER_BACKUP_DIR=/teslamate
 LOCAL_BACKUP_PATH="${BACKUP_DIR}/${FILE_NAME}"
