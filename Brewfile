@@ -141,3 +141,4 @@ cask "xquartz"
 # Mac App Store
 mas "Affinity Photo", id: 824183456
 mas "WireGuard", id: 1451685025
+mas "Yubico Authenticator", id: 1497506650
