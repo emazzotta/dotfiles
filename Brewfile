@@ -45,6 +45,7 @@ brew "golang"
 brew "gource" # Git Video
 brew "graphviz"
 brew "grep"
+brew "hashicorp/tap/packer"
 brew "helm"
 brew "htop"
 brew "httpie"
