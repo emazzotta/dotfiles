@@ -78,6 +78,7 @@ brew "pidcat"
 brew "potrace" # SVGify
 brew "prettyping"
 brew "progress"
+brew "pv"
 brew "python3"
 brew "reattach-to-user-namespace"
 brew "rename"
