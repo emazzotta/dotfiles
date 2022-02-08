@@ -18,7 +18,7 @@ $(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -i -- apt update -y > /dev/n
 $(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -i -- apt install rsync -y > /dev/null 2>&1
 $(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -- mkdir -p ${SERVER_BACKUP_DIR}
 $(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -- pg_dump -U ${TM_USER} -d ${TM_USER} -f ${SERVER_BACKUP_PATH}
-rsync ${RSYNC_PARAMS} --rsh="$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -i -- " --blocking-io --rsync-path="${SERVER_BACKUP_DIR}" rsync:${SERVER_BACKUP_PATH} ${BACKUP_DIR}
+rsync ${RSYNC_PARAMS} --rsh="$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -i -- " --blocking-io --rsync-path="${SERVER_BACKUP_DIR}" rsync:${SERVER_BACKUP_PATH} ${BACKUP_DIR} > /dev/null 2>&1
 $(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -- rm -r ${SERVER_BACKUP_DIR}
 
 if [[ $? == 0 ]]; then
