@@ -45,11 +45,11 @@ if [ "$(uname)" == "Darwin" ]; then
 
     ln -sf $(which pip3) /usr/local/bin/pip
     pip install --upgrade pip
-    pip install autopep8
-    pip install awscli
-    pip install bpython
-    pip install tesla_dashcam
-    pip install virtualenv
+    pipx install autopep8
+    pipx install awscli
+    pipx install bpython
+    pipx install tesla_dashcam
+    pipx install virtualenv
 
     gem install --user-install bundler
     gem install --user-install github-pages
