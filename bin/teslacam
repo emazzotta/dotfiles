@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [[ "$(which tesla_dashcam)" == "" ]]; then
-    python3 -m pip install tesla_dashcam
+    pipx install tesla_dashcam
 fi
 
 if test "${1}"; then
