@@ -1,0 +1,4 @@
+#!/bin/bash
+
+gpg -K --keyid-format long --with-colons --with-fingerprint
+gpg --allow-secret-key-import --import *.asc
