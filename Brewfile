@@ -101,6 +101,7 @@ brew "xz"
 brew "zsh"
 
 # Apps
+cask "aldente"
 cask "android-file-transfer"
 cask "android-platform-tools"
 cask "android-studio"
