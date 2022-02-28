@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Base directory with repositories
-repo_base=${WDIR}
+function fuzzy_find_path() {
+    result=$(find "${1}" -mindepth 2 -maxdepth 2 -type d | fzf -f "${2}" | head -n 1)
+    test "${result}" && echo "${result}" || echo "${1}"
+}
 
-# Search for fuzzy match
-repo_path=$(find "${repo_base}" -mindepth 2 -maxdepth 2 -type d | fzf -f "${argv}" | head -n 1)
-
-# Change directory based on match
-(! test "${argv}" || ! test "${repo_path}") && cd "${repo_base}" || cd "${repo_path}"
+test "${argv}" && \
+    cd $(fuzzy_find_path "${WDIR}" "${argv}") || \
+    echo $(fuzzy_find_path "${WDIR}" "${1}")
