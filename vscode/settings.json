@@ -9,7 +9,7 @@
     "workbench.editorAssociations": {
         "*.ipynb": "jupyter-notebook"
     },
-    "aws.profile": "profile:terraform-infrastructure-staging",
+    "aws.profile": "profile:mikafi",
     "C_Cpp.updateChannel": "Insiders",
     "notebook.cellToolbarLocation": {
         "default": "right",
@@ -30,5 +30,8 @@
     "[html]": {
         "editor.defaultFormatter": "esbenp.prettier-vscode"
     },
-    "workbench.startupEditor": "none"
+    "workbench.startupEditor": "none",
+    "[typescript]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    }
 }
