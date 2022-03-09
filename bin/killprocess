@@ -1,0 +1,21 @@
+#!/bin/bash
+
+if test "${1}"; then
+    process_list=$(ps -ef | grep "${1}" | grep -v "grep" | grep -v "${0}")
+    if [[ "${process_list}" == "" ]]; then
+        echo "No such process found."
+        exit 1
+    fi
+    echo -ne "${process_list}"
+    echo
+    echo
+	echo -n "Are you sure you want to kill those processes (y/N)? "
+    read -r answer
+    if echo "${answer}" | grep -iq "^y"; then
+    	echo -ne "${process_list}" | awk '{print $2}' | xargs kill -9
+        echo
+		echo "Processes killed."
+	fi
+else
+    echo "usage: `basename ${0}` <param>"
+fi
