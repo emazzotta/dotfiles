@@ -252,6 +252,7 @@ alias rref='print_and_copy "${REFIND_REFERRAL}"'
 alias sconf='vi ${HOME}/.ssh/config'
 alias sdkmanupdate='yes | sdk update; yes | sdk upgrade'
 alias see="fzf --preview 'less {}'"
+alias serials='envify && cd "${SERIALSDIR}"'
 alias shrug='print_and_copy "¯\_(ツ)_/¯"'
 alias sig='cd ${HOME}/Library/Mail/V7/MailData/Signatures'
 alias smref='print_and_copy "${SMIDE_REFERRAL}"'
