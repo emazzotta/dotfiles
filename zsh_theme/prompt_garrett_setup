@@ -15,7 +15,6 @@
 #   - Report the terminal line number
 #   - Report git status, git remote status, git prompt info and git SHA information
 #   - Indicate vi-mode
-#   - Notifications for commands taking longer than n time
 
 
 # Handle clearing the screen with ^L.
@@ -35,11 +34,6 @@ function prompt_garrett_precmd {
 
   # Format PWD.
   prompt_garrett_pwd="${prompt_garrett_color_pwd}$(prompt-pwd)"
-
-  # Get Ruby info.
-  if (( $+functions[ruby-info] )); then
-    ruby-info
-  fi
 
   # Get Git repository info.
   if (( $+functions[git-info] )); then
