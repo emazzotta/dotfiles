@@ -9,14 +9,9 @@
 .idea
 .project
 .vscode
-
 Thumbs.db
 npm-debug.log
-
 taget
 out
-ignoreme
 generated
-
 sources_non_forked
-
