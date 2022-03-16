@@ -58,4 +58,4 @@ complete -o nospace -F _kubeconf kubeconf
 complete -o nospace -F _bundleid bundleid
 complete -o nospace -F _compressvideo compressvideo
 complete -o nospace -F _ef ef
-complete -o nospace -F _repo repo
+complete -o nospace -F _repo repo c
