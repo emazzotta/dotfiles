@@ -17,39 +17,12 @@
 #   - Indicate vi-mode
 #   - Notifications for commands taking longer than n time
 
-pmodload 'helper'
 
 # Handle clearing the screen with ^L.
 function prompt_garrett_clear_screen() {
-
-  # Enable output to terminal.
   zle -I
-
   clear
   prompt_garrett_preprompt_render
-}
-
-# A function executed whenever the directory is changed.
-function prompt_garrett_chpwd {
-
-  # List the contents of the new directory.
-  if is-callable 'dircolors'; then
-
-    # GNU flavor ls.
-    if zstyle -t ':prezto:module:utility:ls' color; then
-      ls --group-directories-first --color=auto
-    else
-      ls -F
-    fi
-  else
-
-    # BSD flavor ls.
-    if zstyle -t ':prezto:module:utility:ls' color; then
-      ls -G
-    else
-      ls -F
-    fi
-  fi
 }
 
 # Functions called before each prompt is displayed.
@@ -78,27 +51,7 @@ function prompt_garrett_precmd {
 
 # Add a line to prompt for visibility.
 function prompt_garrett_preprompt_render() {
-
-  # Determine the width.
-  local prompt_garrett_width_terminal
-  (( prompt_garrett_width_terminal= ${COLUMNS} - 1 ))
-
-  # Determine the length needed for prompt_garrett_space.
-  # NOTE: Be sure not to include the ${(e)prompt_garrett_space} portion or it won't work.
-  local prompt_line1="( ${prompt_garrett_pwd}${git_info[remote_status]}${git_info[prompt_info]}${git_info[local_status]}${git_info[sha]} )( ${ruby_info[version]}${prompt_garrett_location} )"
-  local zero='%([BSUbfksu]|([FB]|){*})'
-  local prompt_garrett_width_line1=${#${(S%%)prompt_line1//$~zero/}}
-
-  # Calculate the padding.
-  local prompt_garrett_space_padding
-  (( prompt_garrett_space_padding= ${prompt_garrett_width_terminal} - ${prompt_garrett_width_line1} ))
-
-  # Add the correct number of characters.
-  local prompt_space_character="${prompt_garrett_altchar_padding}"
-  eval prompt_garrett_space="${prompt_garrett_color_prompt}\${(l.${prompt_garrett_space_padding}..${prompt_space_character}.)}"
-
-  # Newline + Prompt line 1 (set above PROMPT, below).
-  print -P '\n${prompt_garrett_altchar_enable}${prompt_garrett_color_prompt}( ${prompt_garrett_pwd}${git_info[remote_status]}${git_info[prompt_info]}${git_info[local_status]}${git_info[sha]} ${prompt_garrett_color_prompt})${prompt_garrett_altchar_enter}${(e)prompt_garrett_space}${prompt_garrett_altchar_leave}( ${ruby_info[version]}${prompt_garrett_location}${prompt_garrett_color_prompt} )'
+  print -P '\n${prompt_garrett_altchar_enable}${prompt_garrett_color_prompt}[${prompt_garrett_pwd}${prompt_garrett_color_prompt}] ${git_info[remote_status]}${git_info[prompt_info]}${git_info[local_status]}${git_info[sha]} ${prompt_garrett_color_prompt}'
 }
 
 # Configure the prompt.
@@ -143,50 +96,7 @@ function prompt_garrett_setup {
     zle -N clear-screen prompt_garrett_clear_screen
   fi
 
-  #
-  # Determine prompt, user and host colors.
-  #
-
-  # Root user.
-  if [[ "$EUID" = "0" ]] || [[ "$USER" = 'root' ]]; then
-
-    # Set colors.
-    eval prompt_garrett_color_user=${3:-'${red}'}
-    eval prompt_garrett_color_host=${3:-'${red}'}
-    eval prompt_garrett_color_prompt=${3:-'${red}'}
-
-    # Set style.
-    eval prompt_garrett_user='%S${prompt_garrett_color_user}%n%s'
-    eval prompt_garrett_host='${prompt_garrett_color_host}%m' # hostname up to first . (dot) (use %M for full hostname)
-    eval prompt_garrett_location='${prompt_garrett_user}${cyan}@${prompt_garrett_host}' # user@host.name
-
-  # On SSH.
-  elif [[ -n "$SSH_CLIENT" || -n "$SSH2_CLIENT" ]]; then
-
-    # Set colors.
-    eval prompt_garrett_color_user=${3:-'${green}'}
-    eval prompt_garrett_color_host=${3:-'${yellow}'}
-    eval prompt_garrett_color_prompt=${3:-'${yellow}'}
-
-    # Set style.
-    eval prompt_garrett_user='%S${prompt_garrett_color_user}%n%s'
-    eval prompt_garrett_host='${prompt_garrett_color_host}%m' # hostname up to first . (dot) (use %M for full hostname)
-    eval prompt_garrett_location='${prompt_garrett_user}${cyan}@${prompt_garrett_host}' # user@host.name
-
-  # Normal user.
-  else
-
-    # Set colors.
-    eval prompt_garrett_color_user=${1:-'${green}'}
-    eval prompt_garrett_color_host=${1:-'${green}'}
-    eval prompt_garrett_color_prompt=${1:-'${grey}'}
-
-    # Set style.
-    eval prompt_garrett_user=''
-    eval prompt_garrett_host='${prompt_garrett_color_host}%m' # hostname up to first . (dot) (use %M for full hostname)
-    eval prompt_garrett_location='${prompt_garrett_user}${cyan}@${prompt_garrett_host}' # user@host.name
-  fi
-
+  eval prompt_garrett_color_prompt=${1:-'${grey}'}
   eval prompt_garrett_return_code='%(?..${red}%? ⏎  ) '
   eval prompt_garrett_current_time='${green}%*'    # 24 hour time format, second precise
   eval prompt_garrett_line_number='${green}+${magenta}%!'
