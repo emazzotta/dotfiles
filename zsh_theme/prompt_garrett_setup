@@ -1,41 +1,15 @@
 #!/usr/bin/env zsh
-#
+
 # Garrett Zsh Theme for Prezto
 # Created with modified code by Chauncey Garrett - @chauncey_io
-# http://chauncey.io/projects/zsh-prompt-garrett/
-#
-# This prompt has the following features:
-#   - Change prompt color when UID is root
-#   - Change host color when on ssh
-#   - Display full or truncated hostname on ssh
-#   - Determine the number of background jobs
-#   - Report the truncated present working directory
-#   - Report return codes other than 0
-#   - Report local time
-#   - Report the terminal line number
-#   - Report git status, git remote status, git prompt info and git SHA information
-#   - Indicate vi-mode
-
-
-# Handle clearing the screen with ^L.
-function prompt_garrett_clear_screen() {
-  zle -I
-  clear
-  prompt_garrett_preprompt_render
-}
 
 # Functions called before each prompt is displayed.
 function prompt_garrett_precmd {
   setopt LOCAL_OPTIONS
   unsetopt XTRACE KSH_ARRAYS
 
-  # Show number of background jobs.
   prompt_garrett_number_jobs="%(1j.${prompt_garrett_color_prompt}J:${cyan}%j .)"
-
-  # Format PWD.
   prompt_garrett_pwd="${prompt_garrett_color_pwd}$(prompt-pwd)"
-
-  # Get Git repository info.
   if (( $+functions[git-info] )); then
     git-info
   fi
@@ -43,7 +17,6 @@ function prompt_garrett_precmd {
   prompt_garrett_preprompt_render
 }
 
-# Add a line to prompt for visibility.
 function prompt_garrett_preprompt_render() {
   print -P '\n${prompt_garrett_altchar_enable}${prompt_garrett_color_prompt}[${prompt_garrett_pwd}${prompt_garrett_color_prompt}] ${git_info[remote_status]}${git_info[prompt_info]}${git_info[local_status]}${git_info[sha]} ${prompt_garrett_color_prompt}'
 }
@@ -59,10 +32,6 @@ function prompt_garrett_setup {
   # Add hooks for calling precmd 
   autoload -Uz add-zsh-hook
   add-zsh-hook precmd prompt_garrett_precmd
-
-  #
-  # Colors
-  #
 
   # Alias the colors.
   [[ -z $(functions colors) ]] && autoload -U colors && colors
