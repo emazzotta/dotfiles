@@ -62,7 +62,6 @@ if [ "$(uname)" == "Darwin" ]; then
     ln -s -f .tmux/.tmux.conf
 
     git clone --recursive https://github.com/sorin-ionescu/prezto.git ${ZDOTDIR:-$HOME}/.zprezto
-    cp ./zsh/prompt_garrett_setup ${HOME}/.zprezto/modules/prompt/functions/
     git clone https://github.com/tarjoilija/zgen.git "${HOME}/.zgen"
     chsh -s /bin/zsh
 
