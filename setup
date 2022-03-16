@@ -57,34 +57,33 @@ if [ "$(uname)" == "Darwin" ]; then
     gem install --user-install rails
     gem install --user-install rake
 
-    cd "${HOME}"
-    git clone https://github.com/gpakosz/.tmux.git
-    ln -s -f .tmux/.tmux.conf
+    git -C "${HOME}" clone https://github.com/gpakosz/.tmux.git
+    ln -sf "${HOME}/.tmux/.tmux.conf" "${HOME}"
 
     git clone --recursive https://github.com/sorin-ionescu/prezto.git ${ZDOTDIR:-$HOME}/.zprezto
     git clone https://github.com/tarjoilija/zgen.git "${HOME}/.zgen"
     chsh -s /bin/zsh
 
-    git clone --depth=1 https://github.com/amix/vimrc.git "${HOME}/.vim_runtime"
-    cd "${HOME}/.vim_runtime/my_plugins"
-    git clone git@github.com:Glench/Vim-Jinja2-Syntax.git
-    git clone git@github.com:OmniSharp/omnisharp-server.git
-    git clone git@github.com:OmniSharp/omnisharp-vim.git
-    git clone git@github.com:Valloric/YouCompleteMe.git
-    git clone git@github.com:ap/vim-css-color.git
-    git clone git@github.com:benmills/vimux.git
-    git clone git@github.com:editorconfig/editorconfig-vim.git
-    git clone git@github.com:jceb/vim-orgmode.git
-    git clone git@github.com:junegunn/fzf.vim.git
-    git clone git@github.com:mattn/emmet-vim.git
-    git clone git@github.com:scrooloose/nerdcommenter.git
-    git clone git@github.com:tmux-plugins/vim-tmux-focus-events.git
-    git clone git@github.com:tomlion/vim-solidity.git
-    git clone git@github.com:tpope/vim-dispatch.git
-    git clone git@github.com:vim-airline/vim-airline.git
-    cd "${HOME}/.vim_runtime/my_plugins/YouCompleteMe" && git submodule update --init --recursive
-    cd "${HOME}/.vim_runtime/my_plugins/omnisharp-vim" && git submodule update --init --recursive
-    cd "${HOME}/.vim_runtime/my_plugins/omnisharp-server" && git submodule update --init --recursive
-    cd "${HOME}/.vim_runtime/my_plugins/omnisharp-server" && msbuild 
-    cd "${HOME}/.vim_runtime/my_plugins/YouCompleteMe" && ./install.py --clang-completer --gocode-completer --tern-completer --omnisharp-completer 
+    VIM_RUNTIME_PATH="${HOME}/.vim_runtime"
+    git clone --depth=1 https://github.com/amix/vimrc.git "${VIM_RUNTIME_PATH}"
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:Glench/Vim-Jinja2-Syntax.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:OmniSharp/omnisharp-server.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:OmniSharp/omnisharp-vim.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:Valloric/YouCompleteMe.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:ap/vim-css-color.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:benmills/vimux.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:editorconfig/editorconfig-vim.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:jceb/vim-orgmode.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:junegunn/fzf.vim.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:mattn/emmet-vim.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:scrooloose/nerdcommenter.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:tmux-plugins/vim-tmux-focus-events.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:tomlion/vim-solidity.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:tpope/vim-dispatch.git
+    git -C "${VIM_RUNTIME_PATH}/my_plugins" clone git@github.com:vim-airline/vim-airline.git
+    cd "${VIM_RUNTIME_PATH}/my_plugins/YouCompleteMe" && git submodule update --init --recursive
+    cd "${VIM_RUNTIME_PATH}/my_plugins/omnisharp-vim" && git submodule update --init --recursive
+    cd "${VIM_RUNTIME_PATH}/my_plugins/omnisharp-server" && git submodule update --init --recursive
+    cd "${VIM_RUNTIME_PATH}/my_plugins/omnisharp-server" && msbuild 
+    cd "${VIM_RUNTIME_PATH}/my_plugins/YouCompleteMe" && ./install.py --clang-completer --gocode-completer --tern-completer --omnisharp-completer 
 fi
