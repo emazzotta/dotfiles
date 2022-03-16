@@ -25,7 +25,6 @@ export DOWNLOADDIR="${HOME}/Downloads"
 export EDITOR=/opt/homebrew/bin/vim
 export GITDUMMYDIR="${WDIR}/private/gitdummy"
 export GLOBAL_ENV_FILE="${DOTFILESPATH}/.env"
-export GOPATH="${WDIR}/go-projects"
 export HISTCONTROL="ignoreboth"
 export HISTTIMEFORMAT="%Y-%m-%d %T "
 export HOMEBREW_CASK_OPTS="--appdir=/Applications"
