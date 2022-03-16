@@ -2,10 +2,7 @@
 #
 # Garrett Zsh Theme for Prezto
 # Created with modified code by Chauncey Garrett - @chauncey_io
-#
 # http://chauncey.io/projects/zsh-prompt-garrett/
-#
-# A prompt with the information you need the moment you need it.
 #
 # This prompt has the following features:
 #   - Change prompt color when UID is root
@@ -19,56 +16,8 @@
 #   - Report git status, git remote status, git prompt info and git SHA information
 #   - Indicate vi-mode
 #   - Notifications for commands taking longer than n time
-#
-# Features may be disabled and rearranged as desired by using the corresponding tokens.
-#
 
-# Load dependencies.
 pmodload 'helper'
-
-# Prompt configuration help.
-# TODO not even remotely finished...
-# function prompt_garrett_help() {
-# cat <<'EOF'
-
-# This prompt is configurable via styles:
-
-  # Context: :prompt:garrett
-
-  # Colors (red green yellow blue magenta cyan white grey):
-    # prompt_garrett_color_user     The color for user@host. Defaults to 'green'
-    # root_color                    The color for the hostname for root. Defaults to 'red'
-    # prompt_garrett_color_prompt   The color for everything else. Defaults to ''
-
-  # Path (path type - possible values):
-    # ratio    Use COLUMNS/ratio to clip the path. Default.
-    # fixed    Use a fixed maximum length.
-    # subdir   Clip by number of subdirectories.
-    # full     Show the full path
-
-  # Path length styles:
-    # ratio    The ratio for the 'ratio' path style, funnily enough. Defaults to 6.
-    # length   The maximum length for the 'fixed' path style. Defaults to 20.
-    # subdir   The number of subdirectories to show for the 'subdir' path style. Defaults to 3.
-
-  # You can set styles in the current terminal to test things out, values will be updated.
-
-# EOF
-# }
-
-# Display a preview of the prompt.
-# TODO not ready.
-# function prompt_garrett_preview {
-
-  # Display the passed in parameters.
-  # if (( $> 0 )); then
-    # prompt_preview_theme 'garrett' "$@"
-
-  # Display the default settings.
-  # else
-    # prompt_preview_theme 'garrett' red green blue
-  # fi
-# }
 
 # Notify of command completion after n seconds has passed.
 function prompt_garrett_precmd_notification {
@@ -305,50 +254,10 @@ function prompt_garrett_setup {
     eval prompt_garrett_location='${prompt_garrett_user}${cyan}@${prompt_garrett_host}' # user@host.name
   fi
 
-  #
-  # Report return code.
-  #
-
   eval prompt_garrett_return_code='%(?..${red}%? ⏎  ) '
-
-  #
-  # Report local time.
-  #
-
-  eval prompt_garrett_current_time='${green}%T'    # 24 hour time format
-  # eval prompt_garrett_current_time='${green}%*'    # 24 hour time format, second precise
-  # eval prompt_garrett_current_time='${green}%t'    # AM/PM time format
-
-  # Keep the time updated.
-  # TODO: Figure out a better way to do this.
-  # function schedprompt() {
-    # emulate -L zsh
-    # zmodload -i zsh/sched
-
-    # # Remove existing event, so that multiple calls to "schedprompt" work OK (you could put one in precmd to push the timer 30 seconds into the future, for example).
-    # integer i=${"${(@)zsh_scheduled_events#*:*:}"[(i)schedprompt]}
-    # (( i )) && sched -$i
-
-    # # Test that zle is running before calling the widget (recommended to avoid error messages). Otherwise it updates on entry to zle, so there's no loss.
-    # zle && zle reset-prompt
-
-    # # This ensures we're not too far off the start of the minute.
-    # sched +1 schedprompt
-  # }
-  # schedprompt
-
-  #
-  # Report terminal line number.
-  #
-
+  eval prompt_garrett_current_time='${green}%*'    # 24 hour time format, second precise
   eval prompt_garrett_line_number='${green}+${magenta}%!'
 
-  #
-  # Report git info.
-  # NOTE: Listed in order in which the information will appear in the prompt.
-  #
-
-  # Git verbose data (commit counts, etc.)
   zstyle ':prezto:module:git:info' verbose 'yes'
 
   # Git prompt info.
@@ -363,18 +272,12 @@ function prompt_garrett_setup {
   # Git remote status.
   zstyle ':prezto:module:git:info:behind'    format "${yellow} ⬇ "
   zstyle ':prezto:module:git:info:ahead'     format "${yellow} ⬆ "
-  # zstyle ':prezto:module:git:info:diverged'  format "${magenta} ⥮"
+  zstyle ':prezto:module:git:info:diverged'  format "${magenta} ⥮"
   zstyle ':prezto:module:git:info:stashed'   format "${cyan} ✭"
 
   # Git local status.
   zstyle ':prezto:module:git:info:clean'     format "${green} ✔"
   zstyle ':prezto:module:git:info:dirty'     format "${red} ✗"
-  # zstyle ':prezto:module:git:info:added'     format "${green} ✚"
-  # zstyle ':prezto:module:git:info:deleted'   format "${red} ✗"
-  # zstyle ':prezto:module:git:info:modified'  format "${blue} ✱"
-  # zstyle ':prezto:module:git:info:renamed'   format "${magenta} ➜"
-  # zstyle ':prezto:module:git:info:unmerged'  format "${yellow} ═"
-  # zstyle ':prezto:module:git:info:untracked' format "${white} ◼"
 
   # Git prompt styles.
   zstyle ':prezto:module:git:info:keys' format \
@@ -383,11 +286,6 @@ function prompt_garrett_setup {
     'local_status'   "%C%D%a%d%m%r%U%u" \
     'remote_status'  "%B%A%S" \
     'sha'            "%c" \
-
-  #
-  # Report Ruby version.
-  #   %v | ruby version
-  #
 
   zstyle ':prezto:module:ruby:info:version' format "${yellow}ruby:%v "
 
@@ -445,10 +343,6 @@ function prompt_garrett_setup {
   # Autocorrection prompt.
   export SPROMPT='
 ${prompt_garrett_color_prompt}Correct ${red}%R${prompt_garrett_color_prompt} to ${green}%r${prompt_garrett_color_prompt} ? [nyae] '
-
-  # Backup root prompt for Bash.
-  export SUDO_PS1="\[\e[31;1;46m\][\u] \w \$\[\e[0m\] "
 }
 
 prompt_garrett_setup "$@"
-
