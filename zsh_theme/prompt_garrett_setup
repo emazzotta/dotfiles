@@ -19,57 +19,6 @@
 
 pmodload 'helper'
 
-# Notify of command completion after n seconds has passed.
-function prompt_garrett_precmd_notification {
-
-  # Trigger a notification after n seconds have elapsed.
-  prompt_garrett_delay_after_notification=1
-
-  # Determine time elapsed.
-  prompt_garrett_precmd_time_elapsed_start=${prompt_garrett_preexec_time:-$(date +'%s')}
-  prompt_garrett_precmd_time_elapsed_stop=$(date +'%s')
-  let prompt_garrett_precmd_time_elapsed=$prompt_garrett_precmd_time_elapsed_stop-$prompt_garrett_precmd_time_elapsed_start
-
-  # n seconds have passed, so notify!
-  if [ $prompt_garrett_precmd_time_elapsed -gt $prompt_garrett_delay_after_notification ]; then
-
-    # Notify via tput while on ssh.
-    if [[ -n "$SSH_CLIENT" || -n "$SSH2_CLIENT" ]]; then
-      tput bel
-
-    # Use local notifications.
-    else
-
-      # On OS X, notify with terminal-notifier.
-      if [[ "$OSTYPE" == darwin* ]] && (( $+commands[terminal-notifier] )); then
-
-        # Wrap with reattach-to-usernamespace to allow to work in TMUX.
-        if (( $+commands[reattach-to-user-namespace] )); then
-          reattach-to-user-namespace -l terminal-notifier \
-            -title "${prompt_garrett_preexec_cmd:-Unknown command}" \
-            -message "Required $prompt_garrett_precmd_time_elapsed s" \
-            -sound Tink
-        else
-          terminal-notifier \
-            -title "${prompt_garrett_preexec_cmd:-Unknown command}" \
-            -message "Required $prompt_garrett_precmd_time_elapsed s" \
-            -sound Tink
-        fi
-
-      # On linux, notify with notify-send.
-      elif [[ "$OSTYPE" == linux-gnu ]] && (( $+commands[notify-send] )); then
-        notify-send \
-          "${prompt_garrett_preexec_cmd:-Unknown command}" \
-          "Required $prompt_garrett_precmd_time_elapsed s"
-
-      # Notify via tput.
-      else
-        tput bel
-      fi
-    fi
-  fi
-}
-
 # Handle clearing the screen with ^L.
 function prompt_garrett_clear_screen() {
 
@@ -124,9 +73,6 @@ function prompt_garrett_precmd {
 
   # Format PWD.
   prompt_garrett_pwd="${prompt_garrett_color_pwd}$(prompt-pwd)"
-
-  # Trigger a notification after x time has elapsed.
-  eval prompt_garrett_precmd_notification
 
   # Get Ruby info.
   if (( $+functions[ruby-info] )); then
