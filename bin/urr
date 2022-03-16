@@ -1,0 +1,3 @@
+#!/bin/bash
+
+[ ! -z "${RECOMMENDED_READINGS_GIST_ID}" ] && (gist -u "${RECOMMENDED_READINGS_GIST_ID}" "${RECOMMENDED_READINGS}") || echo "Run envify"' # gist --login
