@@ -27,6 +27,6 @@ case "${extension}" in
     *tbz2) tar cvjf "${name}" ${compressee} ;;
     *tgz) tar cvzf "${name}" ${compressee} ;;
     *zip) zip -r "${name}" ${compressee} ;;
-    *7z) /Applications/Keka.app/Contents/Resources/keka7z a "${name}" ${compressee} ;;
+    *7z) 7z a "${name}" ${compressee} ;;
     *) echo "don't know '${extension}'..." ;;
 esac

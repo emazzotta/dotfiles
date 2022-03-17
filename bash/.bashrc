@@ -1,6 +1,4 @@
 #!/bin/bash
-### COMMANDS ###
-source load "${HOME}/.sdkman/bin/sdkman-init.sh"
 ### MAIN EXPORTS ###
 export WDIR="${HOME}/Projects"
 export DOTFILESPATH="${WDIR}/private/dotfiles"
@@ -29,7 +27,7 @@ export GLOBAL_ENV_FILE="${DOTFILESPATH}/.env"
 export HISTCONTROL="ignoreboth"
 export HISTTIMEFORMAT="%Y-%m-%d %T "
 export HOMEBREW_CASK_OPTS="--appdir=/Applications"
-export JAVA_HOME="/opt/homebrew/opt/openjdk"
+export JAVA_HOME="${HOME}/.sdkman/candidates/java/current"
 export KATADIR=${WDIR}/private/katas
 export KEYTIMEOUT=1
 export KUBE_DIR="${HOME}/.kube"
@@ -50,7 +48,6 @@ export PROMPT_DIRTRIM=2
 export PYTHONIOENCODING='UTF-8'
 export RECOMMENDED_READINGS="${MARKDOWNDIR}/recommended_readings.md"
 export SDKMAN_DIR="${HOME}/.sdkman"
-export SDKMAN_JAVA_HOME="${HOME}/.sdkman/candidates/java/current"
 export TERM="xterm-256color"
 export VENV_PATH="${HOME}/.venv"
 export VENV_PYTHON_3="${VENV_PATH}/generic-3.9"
@@ -208,7 +205,7 @@ alias me='vi Makefile'
 alias mk='minikube'
 alias mkf='cd ${WDIR}/mikafi'
 alias ml='make lint'
-alias mpc='envify && yes "${PASSWORD_ZIPS}" | /Applications/Keka.app/Contents/MacOS/Keka --cli 7zz x "${DOCUMENTDIR}/Password_Zips/MPC.7z" -o"${DESKDIR}"'
+alias mpc='envify && yes "${PASSWORD_ZIPS}" | 7z x "${DOCUMENTDIR}/Password_Zips/MPC.7z" -o"${DESKDIR}"'
 alias ms='make start'
 alias mt='make test'
 alias mysqlimport='docker exec -i mysql-temp mysql -umysql -pmysql tempdb < backup.sql'
@@ -299,6 +296,7 @@ alias zep='vi ${HOME}/.zpreztorc'
 alias zh='vi ${HISTFILE}'
 alias zrp='cd ${WDIR}/zhaw'
 ### COMMANDS ###
+source load "${HOME}/.sdkman/bin/sdkman-init.sh"
 source load "${DOTFILESPATH}/autocomplete/custom_autocomplete"
 source load "${DOTFILESPATH}/bin/colors"
 test "${BASH_VERSION}" && source load "${HOME}/.sshrc"

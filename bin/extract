@@ -13,7 +13,7 @@ if [ -f "${1}" ] ; then
         *.tgz) tar xvzf "${1}" ;;
         *.zip) unzip "${1}" ;;
         *.Z) uncompress "${1}" ;;
-        *.7z) /Applications/Keka.app/Contents/Resources/keka7z x "${1}" ;;
+        *.7z) 7z x "${1}" ;;
         *) echo "don't know '${1}'..." ;;
     esac
 elif ! test "${1}" || [[ "${1}" == "--help" ]] || [[ "${1}" == "-h" ]]; then
