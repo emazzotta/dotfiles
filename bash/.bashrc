@@ -1,4 +1,6 @@
 #!/bin/bash
+### COMMANDS ###
+source load "${HOME}/.sdkman/bin/sdkman-init.sh"
 ### MAIN EXPORTS ###
 export WDIR="${HOME}/Projects"
 export DOTFILESPATH="${WDIR}/private/dotfiles"
@@ -27,7 +29,7 @@ export GLOBAL_ENV_FILE="${DOTFILESPATH}/.env"
 export HISTCONTROL="ignoreboth"
 export HISTTIMEFORMAT="%Y-%m-%d %T "
 export HOMEBREW_CASK_OPTS="--appdir=/Applications"
-export JAVA_HOME="${HOME}/.sdkman/candidates/java/current"
+export JAVA_HOME="/opt/homebrew/opt/openjdk"
 export KATADIR=${WDIR}/private/katas
 export KEYTIMEOUT=1
 export KUBE_DIR="${HOME}/.kube"
@@ -48,6 +50,7 @@ export PROMPT_DIRTRIM=2
 export PYTHONIOENCODING='UTF-8'
 export RECOMMENDED_READINGS="${MARKDOWNDIR}/recommended_readings.md"
 export SDKMAN_DIR="${HOME}/.sdkman"
+export SDKMAN_JAVA_HOME="${HOME}/.sdkman/candidates/java/current"
 export TERM="xterm-256color"
 export VENV_PATH="${HOME}/.venv"
 export VENV_PYTHON_3="${VENV_PATH}/generic-3.9"
@@ -298,7 +301,6 @@ alias zrp='cd ${WDIR}/zhaw'
 ### COMMANDS ###
 source load "${DOTFILESPATH}/autocomplete/custom_autocomplete"
 source load "${DOTFILESPATH}/bin/colors"
-source load "${HOME}/.sdkman/bin/sdkman-init.sh"
 test "${BASH_VERSION}" && source load "${HOME}/.sshrc"
 if test "${ZSH_VERSION}"; then
     source "${HOME}/.zgen/zgen.zsh"
