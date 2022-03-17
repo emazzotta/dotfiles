@@ -12,11 +12,11 @@ stow -d "${DIR}" -t "${HOME}" gpg
 stow -d "${DIR}" -t "${HOME}" hyper
 stow -d "${DIR}" -t "${HOME}" karabiner
 stow -d "${DIR}" -t "${HOME}" lftp
+stow -d "${DIR}" -t "${HOME}" sdkman
 stow -d "${DIR}" -t "${HOME}" ssh
 stow -d "${DIR}" -t "${HOME}" sshrc
 stow -d "${DIR}" -t "${HOME}" tmux
 stow -d "${DIR}" -t "${HOME}" vim
 stow -d "${DIR}" -t "${HOME}" zsh
-stow -d "${DIR}" -t "${HOME}" sdkman
 stow -d "${DIR}" -t "${HOME}/.zprezto/modules/prompt/functions/" zsh_theme
 stow -d "${DIR}" -t "${VS_CODE_DIR}" vscode
