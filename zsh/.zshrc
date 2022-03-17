@@ -10,5 +10,3 @@ fi
 
 # Customize to your needs...
 source "${HOME}/.bashrc"
-
-export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$PATH"
