@@ -7,13 +7,18 @@ export ANDROID_AVD_HOME=${HOME}/.android/avd
 export ANDROID_HOME=${HOME}/Library/Android/sdk
 export ANDROID_SDK=${HOME}/Library/Android/sdk
 export ANDROID_SDK_ROOT=${HOME}/Library/Android/sdk
-export PATH="${CUSTOM_BIN_DIR}:${HOME}/.yarn/bin:${HOME}/.config/yarn/global/node_modules/.bin:/opt/homebrew/bin:${HOME}/.local/bin:${PATH}:"
-export PATH=${PATH}:${ANDROID_HOME}/emulator
-export PATH=${PATH}:${ANDROID_HOME}/platform-tools
-export PATH=${PATH}:${ANDROID_HOME}/tools
-export PATH=${PATH}:${ANDROID_HOME}/tools/bin
 export GDRIVEDIR="${HOME}/Google_Drive"
 export DOCUMENTDIR="${GDRIVEDIR}/Dokumente"
+### PATH EXPORTS ###
+export PATH="${CUSTOM_BIN_DIR}:${PATH}"
+export PATH="${PATH}:${HOME}/.yarn/bin"
+export PATH="${PATH}:${HOME}/.config/yarn/global/node_modules/.bin"
+export PATH="${PATH}:/opt/homebrew/bin"
+export PATH="${PATH}:${HOME}/.local/bin"
+export PATH="${PATH}:${ANDROID_HOME}/emulator"
+export PATH="${PATH}:${ANDROID_HOME}/platform-tools"
+export PATH="${PATH}:${ANDROID_HOME}/tools"
+export PATH="${PATH}:${ANDROID_HOME}/tools/bin"
 ### EXPORTS ###
 export APPDIR="${ROOT}/Applications"
 export BOILERPLATE_PATH="${WDIR}/private/katas/boilerplate"
@@ -288,9 +293,12 @@ alias zrp='cd ${WDIR}/zhaw'
 source load "${HOME}/.sdkman/bin/sdkman-init.sh"
 source load "${DOTFILESPATH}/autocomplete/custom_autocomplete"
 source load "${DOTFILESPATH}/bin/colors"
-test "${BASH_VERSION}" && source load "${HOME}/.sshrc"
+if test "${BASH_VERSION}"; then
+    source load "${HOME}/.sshrc"
+fi
 if test "${ZSH_VERSION}"; then
     source "${HOME}/.zgen/zgen.zsh"
+    source load "${DOTFILESPATH}/bin/zshaddhistory"
     source load "${DOTFILESPATH}/autocomplete/zsh/_kubectl"
     # If a new one is added, just zgen reset
     if ! zgen saved; then
@@ -306,12 +314,3 @@ if test "${ZSH_VERSION}"; then
         compinit
     fi
 fi
-function zshaddhistory() {
-  emulate -L zsh
-  if ! [[ "$1" =~ "(^gp|--password|secret|^ )" ]]; then
-      print -sr -- "${1%%$'\n'}"
-      fc -p
-  else
-      return 1
-  fi
-}
