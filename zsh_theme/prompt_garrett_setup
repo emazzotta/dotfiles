@@ -21,6 +21,12 @@ function prompt_garrett_preprompt_render() {
   print -P '\n${prompt_garrett_altchar_enable}${prompt_garrett_color_prompt}[${prompt_garrett_pwd}${prompt_garrett_color_prompt}] ${git_info[remote_status]}${git_info[prompt_info]}${git_info[local_status]}${git_info[sha]} ${prompt_garrett_color_prompt}'
 }
 
+function prompt_garrett_clear_screen() {
+  zle -I
+  clear
+  prompt_garrett_preprompt_render
+}
+
 # Configure the prompt.
 function prompt_garrett_setup {
 
