@@ -1,0 +1,11 @@
+#!/bin/bash
+
+if test "${VIM_RUNTIME_DIR}"; then
+    cd "${VIM_RUNTIME_DIR}/my_plugins/YouCompleteMe" && git submodule update --init --recursive
+    cd "${VIM_RUNTIME_DIR}/my_plugins/omnisharp-vim" && git submodule update --init --recursive
+    cd "${VIM_RUNTIME_DIR}/my_plugins/omnisharp-server" && git submodule update --init --recursive
+    cd "${VIM_RUNTIME_DIR}/my_plugins/omnisharp-server" && msbuild 
+    cd "${VIM_RUNTIME_DIR}/my_plugins/YouCompleteMe" && ./install.py --clang-completer --gocode-completer --tern-completer --omnisharp-completer 
+else
+    echo "Please set 'VIM_RUNTIME_DIR' env var"
+fi
