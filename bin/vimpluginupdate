@@ -1,0 +1,10 @@
+#!/bin/bash
+
+if test "${VIM_RUNTIME_DIR}"; then
+    cd "${VIM_RUNTIME_DIR}" && \
+    python3 update_plugins.py && \
+    for file in $(git status -s | awk '{print $2}'); do git update-index --assume-unchanged $file; done
+else
+    echo "Please set 'VIM_RUNTIME_DIR' env var"
+fi
+
