@@ -1,41 +1,41 @@
 #!/bin/bash
 ### MAIN EXPORTS ###
-export WDIR="${HOME}/Projects"
-export DOTFILESPATH="${WDIR}/private/dotfiles"
-export CUSTOM_BIN_DIR="${DOTFILESPATH}/bin"
-export ANDROID_AVD_HOME=${HOME}/.android/avd
-export ANDROID_HOME=${HOME}/Library/Android/sdk
-export ANDROID_SDK=${HOME}/Library/Android/sdk
-export ANDROID_SDK_ROOT=${HOME}/Library/Android/sdk
-export GDRIVEDIR="${HOME}/Google_Drive"
-export DOCUMENTDIR="${GDRIVEDIR}/Dokumente"
+export WDIR="$HOME/Projects"
+export DOTFILESPATH="$WDIR/private/dotfiles"
+export CUSTOM_BIN_DIR="$DOTFILESPATH/bin"
+export ANDROID_AVD_HOME=$HOME/.android/avd
+export ANDROID_HOME=$HOME/Library/Android/sdk
+export ANDROID_SDK=$HOME/Library/Android/sdk
+export ANDROID_SDK_ROOT=$HOME/Library/Android/sdk
+export GDRIVEDIR="$HOME/Google_Drive"
+export DOCUMENTDIR="$GDRIVEDIR/Dokumente"
 ### PATH EXPORTS ###
-export PATH="${CUSTOM_BIN_DIR}:${PATH}"
-export PATH="/opt/homebrew/bin:${PATH}"
-export PATH="${HOME}/.local/bin:${PATH}"
-export PATH="${PATH}:${HOME}/.yarn/bin"
-export PATH="${PATH}:${HOME}/.config/yarn/global/node_modules/.bin"
-export PATH="${PATH}:${ANDROID_HOME}/emulator"
-export PATH="${PATH}:${ANDROID_HOME}/platform-tools"
-export PATH="${PATH}:${ANDROID_HOME}/tools"
-export PATH="${PATH}:${ANDROID_HOME}/tools/bin"
+export PATH="$CUSTOM_BIN_DIR:$PATH"
+export PATH="/opt/homebrew/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
+export PATH="$PATH:$HOME/.yarn/bin"
+export PATH="$PATH:$HOME/.config/yarn/global/node_modules/.bin"
+export PATH="$PATH:$ANDROID_HOME/emulator"
+export PATH="$PATH:$ANDROID_HOME/platform-tools"
+export PATH="$PATH:$ANDROID_HOME/tools"
+export PATH="$PATH:$ANDROID_HOME/tools/bin"
 ### EXPORTS ###
-export APPDIR="${ROOT}/Applications"
-export BOILERPLATE_PATH="${WDIR}/private/katas/boilerplate"
+export APPDIR="$ROOT/Applications"
+export BOILERPLATE_PATH="$WDIR/private/katas/boilerplate"
 export CLICOLOR=1
-export CRONTAB_FILE="${DOTFILESPATH}/cron/crontab"
-export DESKDIR="${HOME}/Desktop"
-export DOWNLOADDIR="${HOME}/Downloads"
+export CRONTAB_FILE="$DOTFILESPATH/cron/crontab"
+export DESKDIR="$HOME/Desktop"
+export DOWNLOADDIR="$HOME/Downloads"
 export EDITOR=/opt/homebrew/bin/vim
-export GITDUMMYDIR="${WDIR}/private/gitdummy"
-export GLOBAL_ENV_FILE="${DOTFILESPATH}/.env"
+export GITDUMMYDIR="$WDIR/private/gitdummy"
+export GLOBAL_ENV_FILE="$DOTFILESPATH/.env"
 export HISTCONTROL="ignoreboth"
 export HISTTIMEFORMAT="%Y-%m-%d %T "
 export HOMEBREW_CASK_OPTS="--appdir=/Applications"
-export JAVA_HOME="${HOME}/.sdkman/candidates/java/current"
-export KATADIR="${WDIR}/private/katas"
+export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
+export KATADIR="$WDIR/private/katas"
 export KEYTIMEOUT=1
-export KUBE_DIR="${HOME}/.kube"
+export KUBE_DIR="$HOME/.kube"
 export LANGUAGE=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 export LC_CTYPE=en_US.UTF-8
@@ -44,57 +44,57 @@ export LESS='-R'
 export LSCOLORS="GxFxBxDxCxegedabagacad"
 export LS_COLORS="di=1;36;40:ln=1;35;40:so=1;31;40:pi=1;33;40:ex=1;32;40:bd=34;46:cd=34;43:su=0;41:sg=0;46:tw=0;42:ow=0;43:"
 export MANPAGER="less -X"
-export MARKDOWNDIR=${DOCUMENTDIR}/Markdown
+export MARKDOWNDIR=$DOCUMENTDIR/Markdown
 export NODE_REPL_HISTORY="~/.node_history"
 export NODE_REPL_HISTORY_SIZE='32768'
 export NODE_REPL_MODE='sloppy'
-export PRIVATECOMMITSDIR="${WDIR}/private/private-commits"
+export PRIVATECOMMITSDIR="$WDIR/private/private-commits"
 export PROMPT_DIRTRIM=2
 export PYTHONIOENCODING='UTF-8'
-export RECOMMENDED_READINGS="${MARKDOWNDIR}/recommended_readings.md"
-export SDKMAN_DIR="${HOME}/.sdkman"
+export RECOMMENDED_READINGS="$MARKDOWNDIR/recommended_readings.md"
+export SDKMAN_DIR="$HOME/.sdkman"
 export TERM="xterm-256color"
-export VENV_PATH="${HOME}/.venv"
-export VENV_PYTHON_3="${VENV_PATH}/generic-3.9"
-export VIM_RUNTIME_DIR="${HOME}/.vim_runtime"
-export VISUAL="${EDITOR}"
+export VENV_PATH="$HOME/.venv"
+export VENV_PYTHON_3="$VENV_PATH/generic-3.9"
+export VIM_RUNTIME_DIR="$HOME/.vim_runtime"
+export VISUAL="$EDITOR"
 export XTERM="xterm-256color"
-export ZHAWDIR="${DOCUMENTDIR}/School/ZHAW"
+export ZHAWDIR="$DOCUMENTDIR/School/ZHAW"
 ### ALIASES ###
 alias .1='cd ..'
 alias .2='.1;.1'
 alias .3='.2;.1'
 alias .4='.3;.1'
 alias .5='.4;.1'
-alias .a='cd ${DOTFILESPATH}/autocomplete'
+alias .a='cd $DOTFILESPATH/autocomplete'
 alias .du='du -hsx * | sort -rh | head -10'
-alias .f='cd ${DOTFILESPATH}'
-alias .k='cd ${KUBE_DIR}'
-alias .s='cd ${HOME}/.ssh'
-alias .sshrc='vi ${HOME}/.sshrc'
-alias .sshrcd='cd ${HOME}/.sshrc.d'
-alias .v='cd ${VENV_PATH}'
-alias .vd='cd ${VIM_RUNTIME_DIR}'
-alias .z='cd ${HOME}/.zprezto'
-alias aco='vi "${DOTFILESPATH}/autocomplete/custom_autocomplete"'
-alias ap='cd ${WDIR}/3ap'
-alias apps='cd ${APPDIR}'
+alias .f='cd $DOTFILESPATH'
+alias .k='cd $KUBE_DIR'
+alias .s='cd $HOME/.ssh'
+alias .sshrc='vi $HOME/.sshrc'
+alias .sshrcd='cd $HOME/.sshrc.d'
+alias .v='cd $VENV_PATH'
+alias .vd='cd $VIM_RUNTIME_DIR'
+alias .z='cd $HOME/.zprezto'
+alias aco='vi "$DOTFILESPATH/autocomplete/custom_autocomplete"'
+alias ap='cd $WDIR/3ap'
+alias apps='cd $APPDIR'
 alias asciitoutf='iconv -f US-ASCII -t utf-8'
 alias autoc='find . -iname *.h -o -iname *.c -o -iname *.cpp | xargs clang-format -style=file -i'
 alias autopep='find . -name "*py" | xargs -I {} autopep8 -i {}'
-alias autostart='cd ${HOME}/Library/LaunchAgents'
-alias av='source "${VENV_PYTHON_3}/bin/activate"'
-alias bf='vi ${DOTFILESPATH}/Brewfile'
+alias autostart='cd $HOME/Library/LaunchAgents'
+alias av='source "$VENV_PYTHON_3/bin/activate"'
+alias bf='vi $DOTFILESPATH/Brewfile'
 alias bfdump='brew bundle dump'
-alias boi='cd ${BOILERPLATE_PATH}'
+alias boi='cd $BOILERPLATE_PATH'
 alias bom='echo -ne "\xEF\xBB\xBF"'
 alias brci='brew install --cask'
 alias brcu='brew uninstall --cask'
 alias brew='arch -arm64 brew'
 alias bri='brew install'
 alias bup='echo "Updating Brew";git -C "$(brew --repo)" fetch --tags;brew update;brew upgrade;brew upgrade --cask --greedy;brew cleanup;brew cu -afy --cleanup;brew cleanup;rmpkg'
-alias car='(cd ${WDIR}/private/carstatus && dc run --rm carstatus)'
-alias cb='cd ${CUSTOM_BIN_DIR}'
+alias car='(cd $WDIR/private/carstatus && dc run --rm carstatus)'
+alias cb='cd $CUSTOM_BIN_DIR'
 alias cl='crontab -l'
 alias cpwd='print_and_copy $(pwd)'
 alias ctop='docker run -ti -v /var/run/docker.sock:/var/run/docker.sock quay.io/vektorlab/ctop'
@@ -103,24 +103,24 @@ alias dc='docker-compose'
 alias dgui='docker run --rm -d -p 9000:9000 -v /var/run/docker.sock:/var/run/docker.sock portainer/portainer;echo "Open: http://localhost:9000"'
 alias diff='icdiff'
 alias dign='vi .dockerignore'
-alias dl='cd ${DOWNLOADDIR}'
+alias dl='cd $DOWNLOADDIR'
 alias dload='aria2c'
 alias dnscheck='dig @1.1.1.1 ns +short'
-alias dok='cd ${DOCUMENTDIR}'
+alias dok='cd $DOCUMENTDIR'
 alias dps='docker ps'
-alias dr='cd ${GDRIVEDIR}'
-alias dt='cd ${DESKDIR}'
+alias dr='cd $GDRIVEDIR'
+alias dt='cd $DESKDIR'
 alias dv='deactivate'
 alias e='exit'
-alias eak='vi ${HOME}/.ssh/authorized_keys'
-alias eh='vi ${HOME}/.bash_history'
-alias ekh='vi ${HOME}/.ssh/known_hosts'
-alias ema='cd ${WDIR}/private/emanuele-page;av'
-alias envify='source "${GLOBAL_ENV_FILE}"'
-alias ep='vi ${HOME}/.bashrc;rp'
+alias eak='vi $HOME/.ssh/authorized_keys'
+alias eh='vi $HOME/.bash_history'
+alias ekh='vi $HOME/.ssh/known_hosts'
+alias ema='cd $WDIR/private/emanuele-page;av'
+alias envify='source "$GLOBAL_ENV_FILE"'
+alias ep='vi $HOME/.bashrc;rp'
 alias er='vi README.md'
-alias err='vi ${RECOMMENDED_READINGS}'
-alias etm='vi ${HOME}/.tmux.conf.local'
+alias err='vi $RECOMMENDED_READINGS'
+alias etm='vi $HOME/.tmux.conf.local'
 alias ev='vi .env'
 alias eyes='print_and_copy "( ͡° ͜ʖ ͡°) ( ͡⊙ ͜ʖ ͡⊙) ( ͡◉ ͜ʖ ͡◉)"'
 alias fixcamera='sudo killall VDCAssistant'
@@ -134,14 +134,14 @@ alias gbrrmremote='git push origin --delete'
 alias gce='git commit --allow-empty && git push'
 alias gcl='git clone'
 alias gco='git checkout'
-alias gconf='vi ${HOME}/.gitconfig'
+alias gconf='vi $HOME/.gitconfig'
 alias gcontrib='git shortlog -sn --all --no-merges'
 alias gd='git diff'
 alias gdrop='git stash drop'
-alias genpubpem='openssl rsa -in ${HOME}/.ssh/id_rsa -pubout > ${HOME}/.ssh/id_rsa.pub.pem'
+alias genpubpem='openssl rsa -in $HOME/.ssh/id_rsa -pubout > $HOME/.ssh/id_rsa.pub.pem'
 alias genvenv3='virtualenv -p python3.9'
-alias gesus-ftp='lftp sftp://${SWICA_FTP_USER}:$(security find-internet-password -wj swica)@${SWICA_FTP_URL} -e "cd ${SWICA_FTP_PATH};cls -al"'
-alias ggi='vi ${HOME}/.global_gitignore'
+alias gesus-ftp='lftp sftp://$SWICA_FTP_USER:$(security find-internet-password -wj swica)@$SWICA_FTP_URL -e "cd $SWICA_FTP_PATH;cls -al"'
+alias ggi='vi $HOME/.global_gitignore'
 alias gign='vi .gitignore'
 alias ginit='git init && git commit -m "Initial commit" --allow-empty'
 alias gitnope='git update-index --assume-unchanged'
@@ -167,10 +167,10 @@ alias gsubmodule='git submodule init;git submodule update --rebase --remote'
 alias gtag='git tag'
 alias gunarchive='tar xvzf .git.tar.gz && rm -rf .git.tar.gz'
 alias gup='git pull --rebase --autostash'
-alias hp='cd ${WDIR}/private/homepage;av'
-alias hrp='cd ${WDIR}/hackathons'
-alias inf='cd ${WDIR}/private/infrastructure'
-alias irp='cd ${WDIR}/interviews'
+alias hp='cd $WDIR/private/homepage;av'
+alias hrp='cd $WDIR/hackathons'
+alias inf='cd $WDIR/private/infrastructure'
+alias irp='cd $WDIR/interviews'
 alias isotoutf='iconv -f iso-8859-1 -t utf-8'
 alias j11='sdk use java $(find_java_sdk 11)'
 alias j17='sdk use java $(find_java_sdk 17)'
@@ -178,15 +178,15 @@ alias j8='sdk use java $(find_java_sdk 8)'
 alias jc='find . -name "build" -or -name "out" -or -name "generated" | xargs -I {} rm -rf {}'
 alias k='kubectl'
 alias kc='kubeconf'
-alias ke='vi ${HOME}/.config/karabiner/karabiner.json'
+alias ke='vi $HOME/.config/karabiner/karabiner.json'
 alias killgpg='killall ssh-agent gpg-agent;gpgconf --kill all'
 alias kn='kubens'
-alias kt='cd ${KATADIR}'
+alias kt='cd $KATADIR'
 alias l='clear'
-alias lb='cd ${WDIR}/private/lighthouse-badges'
+alias lb='cd $WDIR/private/lighthouse-badges'
 alias ll='ls -lah'
 alias localdbs='mysql -h 127.0.0.1 -u root <<< "SHOW DATABASES;"'
-alias lrr='print_and_copy ${BOOKLIST_LINK}'
+alias lrr='print_and_copy $BOOKLIST_LINK'
 alias ls='lsd'
 alias m='make'
 alias macsoftwareupdate='softwareupdate -i -a'
@@ -194,50 +194,47 @@ alias mailplugins='cd /Library/Mail/Bundles/'
 alias mc='make clean'
 alias me='vi Makefile'
 alias mk='minikube'
-alias mkf='cd ${WDIR}/mikafi'
+alias mkf='cd $WDIR/mikafi'
 alias ml='make lint'
-alias mpc='envify && yes "${PASSWORD_ZIPS}" | 7z x "${DOCUMENTDIR}/Password_Zips/MPC.7z" -o"${DESKDIR}"'
+alias mpc='envify && yes "$PASSWORD_ZIPS" | 7z x "$DOCUMENTDIR/Password_Zips/MPC.7z" -o"$DESKDIR"'
 alias ms='make start'
 alias mt='make test'
-alias mysqlimport='docker exec -i mysql-temp mysql -umysql -pmysql tempdb < backup.sql'
-alias mysqlrun='docker run -p 0.0.0.0:3300:3306 --name mysql-temp --rm -v ${HOME}/Desktop/mysql:/var/lib/mysql -e MYSQL_USER=mysql -e MYSQL_PASSWORD=mysql -e MYSQL_DATABASE=tempdb -e MYSQL_ROOT_PASSWORD=mysql -d mariadb:10.4.8'
 alias now='print_and_copy $(date "+%Y-%m-%d-%H-%M-%S")'
-alias path='echo -e ${PATH//:/\\n}'
 alias pbp='pwd | pbcopy'
-alias ph='cd ${WDIR}/private/plexius-homepage'
+alias ph='cd $WDIR/private/plexius-homepage'
 alias ping='prettyping --nolegend'
 alias postgresrun='docker run -p 0.0.0.0:5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres -e POSTGRES_DB=postgres -d postgres'
-alias prp='cd ${WDIR}/private'
-alias pwz='envify && echo -ne "${PASSWORD_ZIPS}" | pbcopy'
+alias prp='cd $WDIR/private'
+alias pwz='envify && echo -ne "$PASSWORD_ZIPS" | pbcopy'
 alias py='av;ptpython;dv'
 alias record='asciinema rec'
-alias recreate_py='rm -rf "${VENV_PYTHON_3}";pip3 install virtualenv && genvenv3 "${VENV_PYTHON_3}" && reinstall_py'
+alias recreate_py='rm -rf "$VENV_PYTHON_3";pip3 install virtualenv && genvenv3 "$VENV_PYTHON_3" && reinstall_py'
 alias reinstall_py='av && pip install ptpython'
-alias rm_yarn_changes='(cd ~ && rm -rf node_modules .yarn yarn.lock);(cd "${DOTFILESPATH}" && git checkout zsh/.zshrc)'
+alias rm_yarn_changes='(cd ~ && rm -rf node_modules .yarn yarn.lock);(cd "$DOTFILESPATH" && git checkout zsh/.zshrc)'
 alias rma='rmds;rmwin;rmpy;rmlog'
 alias rmds="find . -type f -name '.DS_Store*' -delete"
-alias rmjsdk='rm -rf "${HOME}/.sdkman/archives/";mkdir -p "${HOME}/.sdkman/archives/"'
+alias rmjsdk='rm -rf "$HOME/.sdkman/archives/";mkdir -p "$HOME/.sdkman/archives/"'
 alias rmlog="find . -type f -name '*.log' -delete"
 alias rmnogit='git clean -dfx'
 alias rmpkg='find "/opt/homebrew/Caskroom" -type f -name "*.pkg" -delete'
 alias rmpy="find . -type f -name '*.pyc' -o -name '.cache' -o -name 'target' -o -name '.coverage' -o -name '__pycache__' -delete"
 alias rmwin="find . -type f -name 'Thumbs.db' -or -name 'desktop.ini' -or -name '$RECYCLE.BIN' -delete"
 alias rmzero='find . -size 0 | xargs rm'
-alias rp='source ${HOME}/.bashrc'
+alias rp='source $HOME/.bashrc'
 alias rr='rm -rf'
-alias sconf='vi ${HOME}/.ssh/config'
+alias sconf='vi $HOME/.ssh/config'
 alias sdkmanupdate='yes | sdk update;rmjsdk'
 alias see="fzf --preview 'less {}'"
-alias serials='envify && cd "${SERIALSDIR}"'
+alias serials='envify && cd "$SERIALSDIR"'
 alias shrug='print_and_copy "¯\_(ツ)_/¯"'
-alias sig='cd ${HOME}/Library/Mail/V7/MailData/Signatures'
+alias sig='cd $HOME/Library/Mail/V7/MailData/Signatures'
 alias sounds='cd /System/Library/Sounds'
-alias spacey='envify && yes "${PASSWORD_ZIPS}" | 7z x "${DOCUMENTDIR}/Password_Zips/Spacey.7z" -o"${DESKDIR}"'
-alias spub='find ${HOME}/.ssh -name "id_*.pub" | while read file;do echo "${file}:" && cat ${file};done'
-alias srp='cd ${WDIR}/archive/siroop'
+alias spacey='envify && yes "$PASSWORD_ZIPS" | 7z x "$DOCUMENTDIR/Password_Zips/Spacey.7z" -o"$DESKDIR"'
+alias spub='find $HOME/.ssh -name "id_*.pub" | while read file;do echo "$file:" && cat $file;done'
+alias srp='cd $WDIR/archive/siroop'
 alias ss='sshrc'
-alias st='vi ${DOTFILESPATH}/setup'
-alias superocd='ocd && update && gupallin "${HOME}" && zgen update <<< "n" &> /dev/null && gck "${HOME}"'
+alias st='vi $DOTFILESPATH/setup'
+alias superocd='ocd && update && gupallin "$HOME" && zgen update <<< "n" &> /dev/null && gck "$HOME"'
 alias t='tig'
 alias thinking='print_and_copy 🤔'
 alias tick='print_and_copy "✓"'
@@ -247,47 +244,45 @@ alias tm='tmux'
 alias tma='tmux attach -t'
 alias tmk='tmux kill-session -t'
 alias tml='tmux ls'
-alias trp='cd ${WDIR}/tools'
+alias trp='cd $WDIR/tools'
 alias tz='date "+%z %Z"'
 alias unow='print_and_copy $(date +%s)'
 alias update='macsoftwareupdate;bup;yarnupdate;npm install -g npm;sdkmanupdate;vimpluginupdate'
 alias upsidedown='print_and_copy 🙃'
 alias urlencode='python -c "import sys, urllib;print urllib.quote_plus(sys.argv[1]);"'
-alias utmdir='cd ${HOME}/Library/Containers/com.utmapp.UTM/Data/Documents'
+alias utmdir='cd $HOME/Library/Containers/com.utmapp.UTM/Data/Documents'
 alias vdc='vi docker-compose.yml'
 alias vdf='vi Dockerfile'
-alias ve='vi ${VIM_RUNTIME_DIR}/my_configs.vim'
+alias ve='vi $VIM_RUNTIME_DIR/my_configs.vim'
 alias vh='sudo vi /etc/hosts'
 alias vi='vim'
-alias vimpluginupdate='(cd "${VIM_RUNTIME_DIR}" && python3 update_plugins.py && for file in $(git status -s | awk "{print \$2}"); do git update-index --assume-unchanged $file; done)'
+alias vimpluginupdate='(cd "$VIM_RUNTIME_DIR" && python3 update_plugins.py && for file in $(git status -s | awk "{print \$2}"); do git update-index --assume-unchanged $file; done)'
 alias vskill='yes | killprocess "vsls-agent";yes | killprocess "Code Helper (Renderer)"'
-alias w='cd ${WDIR}'
+alias w='cd $WDIR'
 alias wscat='npx wscat'
 alias xcodeinstall='sudo xcode-select --install'
 alias y='yarn'
 alias yarnupdate='curl --compressed -o- -L https://yarnpkg.com/install.sh | bash;rm_yarn_changes'
-alias ze='vi ${HOME}/.zshrc'
-alias zep='vi ${HOME}/.zpreztorc'
-alias zh='vi ${HISTFILE}'
-alias zrp='cd ${WDIR}/zhaw'
+alias ze='vi $HOME/.zshrc'
+alias zep='vi $HOME/.zpreztorc'
+alias zh='vi $HISTFILE'
+alias zrp='cd $WDIR/zhaw'
 ### COMMANDS ###
-source load "${HOME}/.sdkman/bin/sdkman-init.sh"
-source load "${DOTFILESPATH}/autocomplete/custom_autocomplete"
-source load "${DOTFILESPATH}/bin/colors"
-if test "${BASH_VERSION}"; then
-    source load "${HOME}/.sshrc"
-fi
-if test "${ZSH_VERSION}"; then
-    source "${HOME}/.zgen/zgen.zsh"
-    source load "${DOTFILESPATH}/bin/zshaddhistory"
-    source load "${DOTFILESPATH}/autocomplete/zsh/_kubectl"
+source load "$HOME/.sdkman/bin/sdkman-init.sh"
+source load "$DOTFILESPATH/autocomplete/custom_autocomplete"
+source load "$DOTFILESPATH/bin/colors"
+test "$BASH_VERSION" && source load "$HOME/.sshrc"
+if test "$ZSH_VERSION"; then
+    source "$HOME/.zgen/zgen.zsh"
+    source load "$DOTFILESPATH/bin/zshaddhistory"
+    source load "$DOTFILESPATH/autocomplete/zsh/_kubectl"
     # If a new one is added, just zgen reset
     if ! zgen saved; then
         zgen prezto
         zgen prezto git
         zgen prezto history-substring-search
         zgen prezto syntax-highlighting
-        zgen load ${DOTFILESPATH}/autocomplete/zsh 
+        zgen load $DOTFILESPATH/autocomplete/zsh 
         zgen load junegunn/fzf shell
         zgen load zsh-users/zsh-syntax-highlighting
         zgen load tarruda/zsh-autosuggestions
