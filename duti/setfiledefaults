@@ -14,4 +14,6 @@ find * -not -name "$(basename ${0})" -type f | while read app_name; do
     done < $app_name
 done
 
+ps -ef | grep /System/Library/CoreServices/Finder.app/Contents/MacOS/Finder | grep -v grep | awk '{print $2}' | xargs kill -9
+
 success "Successfully set all default applications."
