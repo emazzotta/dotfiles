@@ -72,7 +72,7 @@ brew "openssl@1.1"
 brew "openvpn"
 brew "pdfgrep"
 brew "perl"
-brew "pidcat"
+brew "pidcat" --HEAD
 brew "pipx"
 brew "potrace" # SVGify
 brew "prettyping"
