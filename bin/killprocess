@@ -1,4 +1,5 @@
 #!/bin/bash
+set -uo pipefail
 
 if test "${1}"; then
     process_list=$(ps -ef | grep "${1}" | grep -v "grep" | grep -v "${0}")
@@ -12,7 +13,7 @@ if test "${1}"; then
 	echo -n "Are you sure you want to kill those processes (y/N)? "
     read -r answer
     if echo "${answer}" | grep -iq "^y"; then
-    	echo -ne "${process_list}" | awk '{print $2}' | xargs kill -9
+    	echo -ne "${process_list}" | awk '{print $2}' | xargs kill
         echo
 		echo "Processes killed."
 	fi
