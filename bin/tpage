@@ -12,7 +12,6 @@ if test "${1}"; then
     open "https://jigsaw.w3.org/css-validator/validator?uri=${domain}"
     open "https://validator.w3.org/nu/?doc=${domain}"
     open "http://wave.webaim.org/report#/${domain}"
-    open "https://sonarwhal.com/scanner/"
 else
     echo "usage: `basename ${0}` <domain>"
 fi
