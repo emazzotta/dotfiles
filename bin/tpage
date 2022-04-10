@@ -1,17 +1,17 @@
 #!/bin/bash
 
 if test "${1}"; then
-    domain="${1}"
-    domain_no_protocol=$(awk -F/ '{print $3}' <<< ${domain})
-    open "https://observatory.mozilla.org/analyze.html?host=${domain_no_protocol}"
-    open "https://securityheaders.io/?q=${domain}"
-    open "https://developers.google.com/speed/pagespeed/insights/?hl=de&url=${domain}"
-    open "https://www.webpagetest.org/?url=${domain}"
-    open "http://ipv6-test.com/validate.php?url=${domain}"
-    open "https://tools.keycdn.com/http2-test?url=${domain}"
-    open "https://jigsaw.w3.org/css-validator/validator?uri=${domain}"
-    open "https://validator.w3.org/nu/?doc=${domain}"
-    open "http://wave.webaim.org/report#/${domain}"
+    url="${1}"
+    url_no_protocol=$(awk -F/ '{print $3}' <<< ${url})
+    open "https://observatory.mozilla.org/analyze/${url_no_protocol}"
+    open "https://securityheaders.io/?q=${url}"
+    open "https://pagespeed.web.dev/report?url=${url}"
+    open "https://www.webpagetest.org/?url=${url}"
+    open "http://ipv6-test.com/validate.php?url=${url}"
+    open "https://tools.keycdn.com/http2-test?url=${url}"
+    open "https://jigsaw.w3.org/css-validator/validator?uri=${url}"
+    open "https://validator.w3.org/nu/?doc=${url}"
+    open "http://wave.webaim.org/report#/${url}"
 else
-    echo "usage: `basename ${0}` <domain>"
+    echo "usage: `basename ${0}` <url>"
 fi
