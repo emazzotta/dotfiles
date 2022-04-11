@@ -51,6 +51,7 @@ brew "htop"
 brew "httpie"
 brew "icdiff"
 brew "imagemagick" # SVGify
+brew "jesseduffield/lazygit/lazygit"
 brew "jq"
 brew "kubectx"
 brew "kubernetes-cli"

@@ -62,6 +62,7 @@ export ZHAWDIR="$DOCUMENTDIR/School/ZHAW"
 export ZIPS_DIR="$DOCUMENTDIR/Zipped_PW"
 ### ALIASES ###
 alias .1='cd ..'
+alias lit='lazygit'
 alias .2='.1;.1'
 alias .3='.2;.1'
 alias .4='.3;.1'
