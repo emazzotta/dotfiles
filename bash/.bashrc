@@ -62,7 +62,6 @@ export ZHAWDIR="$DOCUMENTDIR/School/ZHAW"
 export ZIPS_DIR="$DOCUMENTDIR/Zipped_PW"
 ### ALIASES ###
 alias .1='cd ..'
-alias lit='lazygit'
 alias .2='.1;.1'
 alias .3='.2;.1'
 alias .4='.3;.1'
@@ -178,6 +177,7 @@ alias killgpg='killall ssh-agent gpg-agent;gpgconf --kill all'
 alias kn='kubens'
 alias l='clear'
 alias lb='cd $WDIR/private/lighthouse-badges'
+alias lig='lazygit'
 alias ll='ls -lah'
 alias localdbs='mysql -h 127.0.0.1 -u root <<< "SHOW DATABASES;"'
 alias lrr='print_and_copy $BOOKLIST_LINK'
