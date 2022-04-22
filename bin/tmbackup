@@ -5,6 +5,8 @@ if ! test "${TM_USER}"; then
     exit 1
 fi
 
+echo "Creating TeslaMate Database Backup"
+
 FILE_NAME="$(date +%Y-%m-%dT%H-%M-%S).sql"
 RSYNC_PARAMS="-avurP"
 BACKUP_DIR="${WDIR}/private/infrastructure/backup/teslamate"
@@ -23,6 +25,7 @@ $(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -- rm -r ${SERVER_BACKUP_DIR
 
 if [[ $? == 0 ]]; then
     tmbackupverify "${LOCAL_BACKUP_PATH}"
+    echo "Backup SUCCESS (${LOCAL_BACKUP_PATH})"
 else
     echo "Backup FAILED"
 fi
