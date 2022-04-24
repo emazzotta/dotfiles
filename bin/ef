@@ -8,7 +8,7 @@ if test "${1}"; then
         echo -n "The file \"${1}\" doesn't exist. Do you want to create \"${1}\" (Y/n)? "
         read -r answer
         if echo "${answer}" | grep -viq "^n"; then
-            printf "#!/bin/bash\n" > "${FULL_PATH}"
+            printf "#!/bin/bash\n\n" > "${FULL_PATH}"
             printf "set -euo pipefail\n\n" >> "${FULL_PATH}"
             printf "if test \"\${1}\"; then\n" >> "${FULL_PATH}"
 			printf "    echo test\n" >> "${FULL_PATH}"
