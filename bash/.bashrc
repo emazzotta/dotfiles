@@ -22,6 +22,7 @@ export PATH="$PATH:$ANDROID_HOME/tools/bin"
 ### EXPORTS ###
 export APPDIR="$ROOT/Applications"
 export BOILERPLATE_PATH="$WDIR/private/katas/boilerplate"
+export BOOKMARKDIR=$DOCUMENTDIR/Bookmarks
 export CLICOLOR=1
 export CRONTAB_FILE="$DOTFILESPATH/cron/crontab"
 export DESKDIR="$HOME/Desktop"
@@ -223,7 +224,7 @@ alias spub='find $HOME/.ssh -name "id_*.pub" | while read file;do echo "$file:" 
 alias srp='cd $WDIR/archive/siroop'
 alias ss='sshrc'
 alias st='vi $DOTFILESPATH/setup'
-alias superocd='ocd && update && rmraycastclipboard && gupallin "$HOME" && zgen update <<< "n" &> /dev/null && gck "$HOME" && envify && tmbackup'
+alias superocd='ocd && update && rmraycastclipboard && gupallin "$HOME" && zgen update <<< "n" &> /dev/null && gck "$HOME" && envify && tmbackup && bmbackup'
 alias t='tig'
 alias thinking='print_and_copy 🤔'
 alias tick='print_and_copy "✓"'

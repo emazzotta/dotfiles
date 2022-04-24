@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+BACKUP_PATH="${BOOKMARKDIR}/Bookmark-$(date '+%Y-%m-%d-%H-%M-%S')"
+echo "Creating Bookmark Backup"
+
+cp "${HOME}/Library/Application Support/BraveSoftware/Brave-Browser/Default/Bookmarks" "${BACKUP_PATH}"
+
+if [[ "$?" == "0" ]]; then
+  echo "Backup SUCCESS, ${BACKUP_PATH}"
+else
+  echo "Backup FAILED!"
+fi
