@@ -5,6 +5,7 @@ if ! test "${TM_USER}"; then
     exit 1
 fi
 
+echo
 echo "Creating TeslaMate Database Backup"
 
 FILE_NAME="$(date +%Y-%m-%dT%H-%M-%S).sql"
@@ -29,4 +30,5 @@ if [[ $? == 0 ]]; then
 else
     echo "Backup FAILED"
 fi
+echo
 

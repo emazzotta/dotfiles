@@ -2,9 +2,14 @@
 
 set -euo pipefail
 
+echo
 echo "Creating Backup ${NOTION_EXPORT_FILENAME}"
 
-notion_backup_downloader
-yes "${PASSWORD_ZIPS}" | 7z a -p -mhe=on ${ZIPS_DIR}/Notion_Backup.7z ${NOTION_EXPORT_FILENAME}
-rm -f ${NOTION_EXPORT_FILENAME}
+notion_backup_downloader > /dev/null
+BACKUP_PATH="${ZIPS_DIR}/Notion_Backup.7z"
+
+yes | rm "${BACKUP_PATH}"
+yes "${PASSWORD_ZIPS}" | 7z a -p -mhe=on "${BACKUP_PATH}" "${NOTION_EXPORT_FILENAME}"
+yes | rm "${NOTION_EXPORT_FILENAME}"
+echo
 
