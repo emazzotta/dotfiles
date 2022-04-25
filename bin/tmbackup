@@ -27,6 +27,7 @@ $(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -- rm -r ${SERVER_BACKUP_DIR
 if [[ $? == 0 ]]; then
     tmbackupverify "${LOCAL_BACKUP_PATH}"
     echo "Backup SUCCESS (${LOCAL_BACKUP_PATH})"
+    cd "${BACKUP_DIR}" && ls -1t | grep sql | tail -n +3 | xargs rm
 else
     echo "Backup FAILED"
 fi

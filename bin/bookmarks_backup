@@ -9,6 +9,7 @@ cp "${HOME}/Library/Application Support/BraveSoftware/Brave-Browser/Default/Book
 
 if [[ "$?" == "0" ]]; then
   echo "Backup SUCCESS, ${BACKUP_PATH}"
+  cd "${BOOKMARKDIR}" && ls -1t | grep Bookmark | tail -n +3 | xargs rm
 else
   echo "Backup FAILED!"
 fi
