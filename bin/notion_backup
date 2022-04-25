@@ -3,7 +3,7 @@
 set -u
 
 echo
-echo "Creating Backup ${NOTION_EXPORT_FILENAME}"
+echo "Creating Notion Backup ${NOTION_EXPORT_FILENAME}"
 
 notion_backup_downloader > /dev/null
 BACKUP_PATH="${ZIPS_DIR}/Notion_Backup.7z"
