@@ -7,7 +7,7 @@ tap "homebrew/bundle"
 tap "homebrew/cask-fonts"
 
 # Binaries
-brew "act" # Run GitHub Actions
+brew "act" --HEAD # Run GitHub Actions
 brew "adr-tools"
 brew "aria2"
 brew "asciinema"
