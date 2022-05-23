@@ -1,0 +1,13 @@
+#!/bin/bash
+
+set -e
+
+if test "${1}"; then
+    INPUT_FILES=$(echo "${@}" | sed "s/ /\n/g" | xargs -I {} echo "file '$(pwd -P)/'{}'")
+    TEMP_FILE="$(mktemp)"
+    echo "${INPUT_FILES}" > ${TEMP_FILE}
+    ffmpeg -f concat -safe 0 -i ${TEMP_FILE} -c copy merged.mp4
+    rm -f "${TEMP_FILE}"
+else
+    echo "usage: `basename ${0}` <videos...>"
+fi

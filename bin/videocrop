@@ -1,0 +1,9 @@
+#!/bin/bash
+
+set -e
+
+if test "${5}"; then
+    ffmpeg -i "${1}" -filter:v "crop=${2}:${3}:${4}:${5}" cropped.mp4
+else
+    echo "usage: `basename ${0}` <video to crop> <output_width> <output_height> <x start> <y start>"
+fi
