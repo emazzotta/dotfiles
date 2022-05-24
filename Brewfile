@@ -75,6 +75,7 @@ brew "pdfgrep"
 brew "perl"
 brew "pidcat" --HEAD
 brew "pipx"
+brew "poetry"
 brew "potrace" # SVGify
 brew "prettyping"
 brew "progress"
