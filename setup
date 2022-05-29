@@ -47,7 +47,6 @@ if [ "$(uname)" == "Darwin" ]; then
     ln -sf $(which python3) /usr/local/bin/python
     ln -sf $(which pip3) /usr/local/bin/pip
     pip install --upgrade pip
-    pip install -r ./python/requirements.txt
 
     gem install --user-install bundler
     gem install --user-install github-pages
