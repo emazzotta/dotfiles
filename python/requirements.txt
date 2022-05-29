@@ -1,0 +1,9 @@
+autopep8
+awscli
+boto3
+bpython
+poetry
+ptpython
+tesla_dashcam
+virtualenv
+
