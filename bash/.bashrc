@@ -55,7 +55,7 @@ export RECOMMENDED_READINGS="$MARKDOWNDIR/recommended_readings.md"
 export SDKMAN_DIR="$HOME/.sdkman"
 export TERM="xterm-256color"
 export VENV_PATH="$HOME/.venv"
-export VENV_PYTHON_3="$VENV_PATH/generic-3.9"
+export VENV_PYTHON_3="$VENV_PATH/python-3-venv"
 export VIM_RUNTIME_DIR="$HOME/.vim_runtime"
 export VISUAL="$EDITOR"
 export XTERM="xterm-256color"
@@ -81,7 +81,7 @@ alias ap='cd $WDIR/3ap'
 alias apps='cd $APPDIR'
 alias asciitoutf='iconv -f US-ASCII -t utf-8'
 alias autoc='find . -iname *.h -o -iname *.c -o -iname *.cpp | xargs clang-format -style=file -i'
-alias autopep='find . -name "*py" | xargs -I {} autopep8 -i {}'
+alias autopep='av;find . -name "*py" | xargs -I {} autopep8 -i {};dv'
 alias autostart='cd $HOME/Library/LaunchAgents'
 alias av='source "$VENV_PYTHON_3/bin/activate"'
 alias bf='vi $DOTFILESPATH/Brewfile'
