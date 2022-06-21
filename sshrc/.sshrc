@@ -24,7 +24,6 @@ alias gdc='function _gdc() {(cd ${DOCKER_COMPOSE_DIR} && docker-compose "${@}")}
 alias l='clear'
 alias ll='ls -lta'
 alias m='make'
-alias m='make'
 alias mc='make clean'
 alias rp='clear;source ${HOME}/.bashrc'
 alias rr='rm -rf'
