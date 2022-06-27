@@ -38,6 +38,8 @@ if [ "$(uname)" == "Darwin" ]; then
     ./.macos
     ./duti/setfiledefaults
 
+    cargo install dutree
+
     npm install -g eslint
     npm install -g gatsby-cli
     npm install -g svgexport
