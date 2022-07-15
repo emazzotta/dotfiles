@@ -19,6 +19,7 @@ export PATH="$PATH:$ANDROID_HOME/tools"
 export PATH="$PATH:$ANDROID_HOME/tools/bin"
 export PATH="$PATH:$HOME/.config/yarn/global/node_modules/.bin"
 export PATH="$PATH:$HOME/.yarn/bin"
+export PATH="$PATH:$HOME/.bun/bin"
 export PATH="/opt/homebrew/bin:$PATH"
 ### EXPORTS ###
 export APPDIR="$ROOT/Applications"
@@ -268,6 +269,7 @@ if test "$ZSH_VERSION"; then
     source "$HOME/.zgen/zgen.zsh"
     source load "$DOTFILESPATH/bin/zshaddhistory"
     source load "$DOTFILESPATH/autocomplete/zsh/_kubectl"
+    source load "$DOTFILESPATH/autocomplete/zsh/_bun"
     # If a new one is added, just zgen reset
     if ! zgen saved; then
         zgen prezto

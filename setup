@@ -5,10 +5,13 @@ cd "$DIR"
 
 if [ "$(uname)" == "Darwin" ]; then
     sudo xcode-select --install
+    
     curl -s "https://get.sdkman.io" | bash
+    curl -s "https://bun.sh/install" | bash
+    ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+
     source "${HOME}/.sdkman/bin/sdkman-init.sh"
     sdk install java
-    ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
     brew analytics off
 
     # Install the most improtant ones first
