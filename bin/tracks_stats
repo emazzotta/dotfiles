@@ -1,0 +1,15 @@
+#!/bin/bash
+
+set -e
+
+function stats() {
+    find "$1" -type f -name "*.mp3" -or -name "*.wav" -maxdepth 3 | wc -l | xargs
+    du -sh $1 | awk '{print $1}'
+}
+
+echo "Original:"
+stats "$DJ_ORIGINAL_TRACKS"
+echo
+echo "Platinum Notes:"
+stats "$DJ_PLATINUM_NOTES_TRACKS"
+
