@@ -40,5 +40,6 @@
     "editor.suggest.showMethods": true,
     "editor.suggest.preview": true,
     "editor.acceptSuggestionOnEnter": "on",
-    "editor.snippetSuggestions": "top"
+    "editor.snippetSuggestions": "top",
+    "editor.multiCursorModifier": "ctrlCmd"
 }
