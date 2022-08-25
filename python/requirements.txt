@@ -1,5 +1,7 @@
 autopep8
 boto3
 bpython
+music_tag
 ptpython
+requests
 tesla_dashcam
