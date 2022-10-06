@@ -17,3 +17,4 @@ out
 generated
 sources_non_forked
 modules/prompt/functions/
+tf.json
