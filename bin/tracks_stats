@@ -3,13 +3,14 @@
 set -e
 
 function stats() {
+    echo -n "Tracks #: "
     find "$1" -type f -name "*.mp3" -or -name "*.wav" -maxdepth 3 | wc -l | xargs
+    echo -n "Size:     "
     du -sh $1 | awk '{print $1}'
 }
 
-echo "Original:"
 stats "$DJ_ORIGINAL_TRACKS"
 echo
-echo "Platinum Notes:"
-stats "$DJ_PLATINUM_NOTES_TRACKS"
+#echo "Platinum Notes"
+#stats "$DJ_PLATINUM_NOTES_TRACKS"
 
