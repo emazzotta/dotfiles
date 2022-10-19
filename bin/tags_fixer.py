@@ -63,12 +63,12 @@ def main():
 
         if not platinum_notes_track_path.exists():
             logger.warning(f'Could not find platinum notes track: {platinum_notes_track_path}')
-
-        platinum_notes_track_metadata = music_tag.load_file(platinum_notes_track_path)
-        copy_metadata(platinum_notes_track_metadata, original_track_metadata)
-        platinum_notes_track_metadata.save()
-        platinum_notes_track_path.rename(
-            Path(platinum_notes_track_path.parent, f'{new_track_name}_PN{platinum_notes_track_path.suffix}'))
+        else:
+            platinum_notes_track_metadata = music_tag.load_file(platinum_notes_track_path)
+            copy_metadata(platinum_notes_track_metadata, original_track_metadata)
+            platinum_notes_track_metadata.save()
+            platinum_notes_track_path.rename(
+                Path(platinum_notes_track_path.parent, f'{new_track_name}_PN{platinum_notes_track_path.suffix}'))
 
 
 def compose_filename(metadata):
