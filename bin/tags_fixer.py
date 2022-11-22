@@ -29,6 +29,17 @@ ORIGINAL_TRACKS_PATH = os.environ.get('DJ_ORIGINAL_TRACKS')
 PLATINUM_NOTES_TRACKS_PATH = os.environ.get('DJ_PLATINUM_NOTES_TRACKS')
 ORIGINAL_TRACKS = chain(Path(ORIGINAL_TRACKS_PATH).glob('**/*.mp3'), Path(ORIGINAL_TRACKS_PATH).glob('**/*.wav'))
 
+
+'''
+Hint regarding Mixed In Key:
+1. Import in Mixed in Key
+2. Import Playlist in RekordBox
+3. Export rekordbox.xml
+4. Export Mixed In Key Cue Points
+5. Reload rekordbox.xml Playlists and import new "Mixed in Key" items
+6. Reload tags of tracks if necessary
+'''
+
 TAGS = [
     'album',
     'albumartist',
@@ -62,7 +73,8 @@ def main():
         original_track_path.rename(Path(original_track_path.parent, f'{new_track_name}{original_track_path.suffix}'))
 
         if not platinum_notes_track_path.exists():
-            logger.warning(f'Could not find platinum notes track: {platinum_notes_track_path}')
+            # logger.warning(f'Could not find platinum notes track: {platinum_notes_track_path}')
+            pass
         else:
             platinum_notes_track_metadata = music_tag.load_file(platinum_notes_track_path)
             copy_metadata(platinum_notes_track_metadata, original_track_metadata)
