@@ -20,6 +20,7 @@ New track procedure:
 '''
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.WARNING)
 
 '''
 Assumption:
@@ -62,6 +63,7 @@ TAGS = [
 
 def main():
     for original_track_path in ORIGINAL_TRACKS:
+        logger.info(f"Processing {original_track_path}")
         original_track_metadata = music_tag.load_file(original_track_path)
         trim_tags(original_track_metadata)
         original_track_metadata.save()
@@ -72,10 +74,7 @@ def main():
             f'{original_track_path.stem}_PN.wav')
         original_track_path.rename(Path(original_track_path.parent, f'{new_track_name}{original_track_path.suffix}'))
 
-        if not platinum_notes_track_path.exists():
-            # logger.warning(f'Could not find platinum notes track: {platinum_notes_track_path}')
-            pass
-        else:
+        if platinum_notes_track_path.exists():
             platinum_notes_track_metadata = music_tag.load_file(platinum_notes_track_path)
             copy_metadata(platinum_notes_track_metadata, original_track_metadata)
             platinum_notes_track_metadata.save()
