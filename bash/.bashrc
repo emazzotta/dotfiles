@@ -210,6 +210,7 @@ alias rekordboxxml='vi $GDRIVEDIR/Music/DJing/Rekordbox/rekordbox.xml'
 alias rm_act_cache='rm -rf $HOME/.cache/act'
 alias rm_brew_pkg='find "/opt/homebrew/Caskroom" -type f -name "*.pkg" -delete && rm -rf "$HOME/Library/Caches/Homebrew/downloads" && mkdir -p "$HOME/Library/Caches/Homebrew/downloads"'
 alias rm_microsoft_autoupdater='sudo rm -rf "/Library/Application Support/Microsoft/MAU2.0"'
+alias rm_node_modules='find "$(pwd)" -type d -name "node_modules" -exec rm -rf {} \;'
 alias rm_yarn_changes='(cd ~ && rm -rf node_modules .yarn yarn.lock);(cd "$DOTFILESPATH" && git checkout zsh/.zshrc)'
 alias rmds="find . -type f -name '.DS_Store*' -delete"
 alias rmjsdk='rm -rf "$HOME/.sdkman/archives/";mkdir -p "$HOME/.sdkman/archives/"'
