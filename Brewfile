@@ -107,6 +107,7 @@ brew "xz"
 brew "zsh"
 
 # Apps
+cask "aerial"
 cask "android-file-transfer"
 cask "android-platform-tools"
 cask "android-studio"
