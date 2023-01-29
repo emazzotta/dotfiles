@@ -14,9 +14,10 @@ iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocola
 
 
 # Software
-choco install ruby.portable -y
+choco install brave -y
+choco install ccleaner -y
 choco install git.commandline -y
 choco install notepadplusplus.commandline -y
-choco install brave
-choco install ccleaner
+choco install ruby.portable -y
+choco install steam -y
 

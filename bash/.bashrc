@@ -234,6 +234,7 @@ alias spacey='envify && yes "$PASSWORD_ZIPS" | 7z x "$ZIPS_DIR/Spacey.7z" -o"$DE
 alias spub='find $HOME/.ssh -name "id_*.pub" | while read file;do echo "$file:" && cat $file;done'
 alias srp='cd $WDIR/archive/siroop'
 alias ss='sshrc'
+alias sshpasswd='ssh-keygen -p -f'
 alias st='vi $DOTFILESPATH/setup'
 alias superocd='ocd && update && rmraycastclipboard && rm_act_cache && gupallin "$HOME" && zgen update <<< "n" &> /dev/null && gck "$HOME" && create_backups'
 alias t='tig'
