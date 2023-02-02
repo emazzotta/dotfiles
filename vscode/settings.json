@@ -41,5 +41,6 @@
     "editor.suggest.preview": true,
     "editor.acceptSuggestionOnEnter": "on",
     "editor.snippetSuggestions": "top",
-    "editor.multiCursorModifier": "ctrlCmd"
+    "editor.multiCursorModifier": "ctrlCmd",
+    "files.maxMemoryForLargeFilesMB": 8192
 }
