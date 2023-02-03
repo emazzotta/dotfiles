@@ -19,7 +19,7 @@ def main(source):
     source_path.rename(
         Path(source_path.parent, f'{filename}{source_path.suffix}')
     )
-    print(f"Renamed via metadata from {source} to {filename}")
+    print(f"Renamed via metadata from [{source}] to [{filename}]")
 
 
 def compose_filename(metadata):
