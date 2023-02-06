@@ -5,7 +5,9 @@ URL_REGEX="(https?|ftp|file)://[-A-Za-z0-9\+&@#/%?=~_|.;]*[-A-Za-z0-9\+&@#/%=~_|
 CONTENT=$(echo -ne "$(pbpaste)\n")
 
 while IFS= read -r line; do
-  if ! [[ "${line}" =~ ${URL_REGEX} ]]; then
+  if [[ "${line}" == "" ]]; then
+    echo "Skipping empty line..."
+  elif ! [[ "${line}" =~ ${URL_REGEX} ]]; then
     echo "Invalid URL [${line}], exiting..."
     exit 1
   fi
