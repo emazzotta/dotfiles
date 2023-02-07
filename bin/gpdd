@@ -17,13 +17,7 @@ read -p "Press enter to continue"
 
 echo ${LOG} | pbcopy && echo "Copied LOG!"
 
-echo "Enter GPG to decrypt:"
-IFS= read -d '' -n 1 text
-while IFS= read -d '' -n 1 -t 1 c # automatically stop reading after t=1 second
-do
-    text+=$c
-done
-
-CONTENT=$(gpd "${text}" | head -n 1)
+read -p "Press enter to read GPG to decrypt from Clipboard"
+CONTENT=$(gpd "$(pbpaste)" | head -n 1)
 echo ${CONTENT} | pbcopy && echo "Copied \"${CONTENT}\"!"
 
