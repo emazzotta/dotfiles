@@ -9,8 +9,4 @@ function stats() {
     du -sh $1 | awk '{print $1}'
 }
 
-stats "$DJ_ORIGINAL_TRACKS"
-echo
-#echo "Platinum Notes"
-#stats "$DJ_PLATINUM_NOTES_TRACKS"
-
+stats "$DJ_TRACKS"

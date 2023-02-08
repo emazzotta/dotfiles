@@ -26,7 +26,7 @@ logging.basicConfig(level=logging.WARNING)
 Assumption:
 Path for original files contains "Original" and platinum notes path contains "Platinum_Notes"
 '''
-ORIGINAL_TRACKS_PATH = os.environ.get('DJ_ORIGINAL_TRACKS')
+ORIGINAL_TRACKS_PATH = os.environ.get('DJ_TRACKS')
 PLATINUM_NOTES_TRACKS_PATH = os.environ.get('DJ_PLATINUM_NOTES_TRACKS')
 ORIGINAL_TRACKS = chain(Path(ORIGINAL_TRACKS_PATH).glob('**/*.mp3'), Path(ORIGINAL_TRACKS_PATH).glob('**/*.wav'))
 
