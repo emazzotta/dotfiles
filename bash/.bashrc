@@ -63,7 +63,6 @@ export VIM_RUNTIME_DIR="$HOME/.vim_runtime"
 export VISUAL="$EDITOR"
 export XTERM="xterm-256color"
 export ZHAWDIR="$DOCUMENTDIR/School/ZHAW"
-export ZIPS_DIR="$DOCUMENTDIR/Zipped_PW"
 ### ALIASES ###
 alias .1='cd ..'
 alias .2='.1;.1'
