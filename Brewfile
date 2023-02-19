@@ -55,6 +55,8 @@ brew "imagemagick" # SVGify
 brew "ioping"
 brew "jesseduffield/lazygit/lazygit"
 brew "jq"
+brew "k3d"
+brew "ksync"
 brew "kubectx"
 brew "kubernetes-cli"
 brew "lame"
@@ -78,6 +80,7 @@ brew "pdfgrep"
 brew "perl"
 brew "pidcat" --HEAD
 brew "pipx"
+brew "podman"
 brew "poetry"
 brew "potrace" # SVGify
 brew "prettyping"
