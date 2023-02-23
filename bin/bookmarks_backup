@@ -1,17 +1,25 @@
 #!/bin/bash
 set -euo pipefail
 
+SOURCE="${HOME}/Library/Application Support/BraveSoftware/Brave-Browser/Default/Bookmarks"
 BACKUP_PATH="${BOOKMARKDIR}/Bookmark-$(date '+%Y-%m-%d-%H-%M-%S')"
+ADDITIONAL_TARGET_PATHS=("${HOME}/Library/Application Support/Microsoft Edge/Profile 1/Bookmarks")
+
 echo
 echo "Creating Bookmark Backup"
 
-cp "${HOME}/Library/Application Support/BraveSoftware/Brave-Browser/Default/Bookmarks" "${BACKUP_PATH}"
-
+cp "${SOURCE}" "${BACKUP_PATH}"
 if [[ "$?" == "0" ]]; then
-  echo "Backup SUCCESS, ${BACKUP_PATH}"
+  echo "[SUCCESS] Backup [${BACKUP_PATH}]"
   cd "${BOOKMARKDIR}" && ls -1t | grep Bookmark | tail -n +3 | xargs rm
 else
-  echo "Backup FAILED!"
+  echo "[FAIL] Backup [${BACKUP_PATH}]"
 fi
+
+for target in "${ADDITIONAL_TARGET_PATHS[@]}"
+do
+    cp "${SOURCE}" "${target}" && echo "[SUCCESS] Additional target [${target}]" || echo "[FAIL] Additional target [${target}]"
+done
+
 echo
 
