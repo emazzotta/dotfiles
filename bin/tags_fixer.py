@@ -2,13 +2,12 @@
 
 
 import logging
+import music_tag
 import os
 import re
 import unicodedata
 from itertools import chain
 from pathlib import Path
-
-import music_tag
 
 '''
 New track procedure:
@@ -29,7 +28,6 @@ Path for original files contains "Original" and platinum notes path contains "Pl
 ORIGINAL_TRACKS_PATH = os.environ.get('DJ_TRACKS')
 PLATINUM_NOTES_TRACKS_PATH = os.environ.get('DJ_PLATINUM_NOTES_TRACKS')
 ORIGINAL_TRACKS = chain(Path(ORIGINAL_TRACKS_PATH).glob('**/*.mp3'), Path(ORIGINAL_TRACKS_PATH).glob('**/*.wav'))
-
 
 '''
 Hint regarding Mixed In Key:

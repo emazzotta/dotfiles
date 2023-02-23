@@ -2,9 +2,8 @@
 
 
 import logging
-import sys
-
 import music_tag
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +26,7 @@ TAGS = [
     'artwork'
 ]
 
+
 def main(source, destination):
     source_track_metadata = music_tag.load_file(source)
     destination_track_metadata = music_tag.load_file(destination)
@@ -41,6 +41,7 @@ def copy_metadata(source, destination):
             destination[tag] = source[tag]
         except ValueError:
             pass
+
 
 if __name__ == '__main__':
     logger.setLevel("DEBUG")

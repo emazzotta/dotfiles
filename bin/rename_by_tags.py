@@ -2,14 +2,12 @@
 
 
 import logging
+import music_tag
 import sys
 import unicodedata
 from pathlib import Path
 
-import music_tag
-
 logger = logging.getLogger(__name__)
-
 
 
 def main(source):
@@ -33,6 +31,7 @@ def normalize_special_characters(new_track_name):
     if new_track_name != normalized:
         logger.warning(f'Normalized track name: {new_track_name} => {normalized}')
     return normalized
+
 
 if __name__ == '__main__':
     logger.setLevel("DEBUG")
