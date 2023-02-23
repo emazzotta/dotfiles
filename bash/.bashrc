@@ -126,6 +126,7 @@ alias err='vi $RECOMMENDED_READINGS'
 alias etm='vi $HOME/.tmux.conf.local'
 alias etmg='vi $HOME/.tmux.conf'
 alias ev='vi .env'
+alias evscode="vi ${DOTFILESPATH}/vscode/settings.json"
 alias eyes='print_and_copy "( ͡° ͜ʖ ͡°) ( ͡⊙ ͜ʖ ͡⊙) ( ͡◉ ͜ʖ ͡◉)"'
 alias find_duplicate='find . -type f -maxdepth 4 -exec basename {} \; | sort -rn |  uniq -d'
 alias g='source repo'

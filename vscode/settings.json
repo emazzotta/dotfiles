@@ -43,5 +43,6 @@
   "editor.snippetSuggestions": "top",
   "editor.multiCursorModifier": "ctrlCmd",
   "files.maxMemoryForLargeFilesMB": 8192,
-  "redhat.telemetry.enabled": true
+  "redhat.telemetry.enabled": false,
+  "editor.tabSize": 2
 }
