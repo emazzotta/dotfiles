@@ -154,6 +154,7 @@ cask "virtualbox"
 cask "visual-studio-code"
 cask "vlc"
 cask "vnc-viewer"
+cask "warp"
 cask "xquartz"
 
 # Mac App Store
