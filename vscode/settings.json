@@ -44,5 +44,6 @@
   "editor.multiCursorModifier": "ctrlCmd",
   "files.maxMemoryForLargeFilesMB": 8192,
   "redhat.telemetry.enabled": false,
-  "editor.tabSize": 2
+  "editor.tabSize": 2,
+  "git.autofetch": true
 }
