@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -e
+
+if test "${1}"; then
+    input_file="${1}"
+    output_file="${input_file%.*}.pdf"
+    echo "Converting ${input_file} to ${output_file}..."
+    pandoc "${input_file}" -s -o "${output_file}"
+else
+    echo "usage: `basename ${0}` <filename>"
+fi
