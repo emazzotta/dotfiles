@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PORTS=(8000 8001 8080 3000 3001)
+PORTS=(8000 8001 8080 8088 3000 3001)
 
 for port in "${PORTS[@]}"; do
   pids=$(lsof -t -i:$port)
