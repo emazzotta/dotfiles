@@ -1,0 +1,15 @@
+#!/bin/bash
+
+PORTS=(8000 8001 8080 3000 3001)
+
+for port in "${PORTS[@]}"; do
+  pids=$(lsof -t -i:$port)
+
+  if [ -n "$pids" ]; then
+    echo "Killing processes listening on port $port"
+    echo "$pids" | xargs kill -9
+  else
+    echo "No processes listening on port $port"
+  fi
+done
+

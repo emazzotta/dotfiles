@@ -1,0 +1,13 @@
+#!/bin/bash
+
+echo "Deleting node modules"
+node_modules_delete
+
+echo "Killing port listeners"
+killportlisteners
+
+echo "Restarting database"
+docker-compose down && docker-compose up -d database
+
+echo "Installing and starting portal"
+yarn && yarn clean && npx @turbo/codemod update && yarn generate && yarn dev
