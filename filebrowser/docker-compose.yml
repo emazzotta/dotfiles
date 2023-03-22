@@ -8,7 +8,7 @@ services:
       - "-d=/data/database.db"
       - "-p=80"
     volumes:
-      - "$HOME/Projects/private/dotfiles/filebrowser:/data"
+      - "$DOTFILESPATH/filebrowser:/data"
       - "/:/srv"
     ports:
       - "8080:80"
