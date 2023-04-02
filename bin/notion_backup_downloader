@@ -9,8 +9,9 @@ import urllib.request
 TZ = os.getenv("TZ", "Europe/Zurich")
 NOTION_API = os.getenv('NOTION_API', 'https://www.notion.so/api/v3')
 NOTION_EXPORT_FILENAME = os.getenv('NOTION_EXPORT_FILENAME', 'export.zip')
-NOTION_TOKEN_V2 = os.getenv('NOTION_TOKEN_V2')
+NOTION_API_KEY = os.getenv('NOTION_API_KEY')
 NOTION_SPACE_ID = os.getenv('NOTION_SPACE_ID')
+NOTION_TOKEN_V2 = os.getenv('NOTION_TOKEN_V2')
 
 ENQUEUE_TASK_PARAM = {
     "task": {
@@ -27,6 +28,7 @@ def request(endpoint: str, params: object):
         f'{NOTION_API}/{endpoint}',
         data=json.dumps(params).encode('utf8'),
         headers={
+            "Authorization": f"Bearer {NOTION_API_KEY}",
             'content-type': 'application/json',
             'cookie': f'token_v2={NOTION_TOKEN_V2}; '
         },
