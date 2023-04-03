@@ -5,7 +5,8 @@ set -u
 echo
 echo "Creating Notion Backup ${NOTION_EXPORT_FILENAME}"
 
-notion_backup_downloader > /dev/null
+source "${VENV_PYTHON_3}/bin/activate"
+notion_backup_downloader ${NOTION_EXPORT_FILENAME}
 BACKUP_PATH="${ZIPS_DIR}/Notion_Backup.7z"
 
 rm -f "${BACKUP_PATH}"
@@ -14,3 +15,4 @@ echo "Created Backup (${BACKUP_PATH})"
 rm -f "${NOTION_EXPORT_FILENAME}"
 echo
 
+deactivate

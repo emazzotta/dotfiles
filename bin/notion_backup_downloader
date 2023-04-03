@@ -1,15 +1,17 @@
 #!/usr/bin/env python
 
-import json
 import os
+import re
+import subprocess
+import sys
 import time
-import urllib
-import urllib.request
+from urllib.parse import unquote
+
+import requests
 
 TZ = os.getenv("TZ", "Europe/Zurich")
 NOTION_API = os.getenv('NOTION_API', 'https://www.notion.so/api/v3')
 NOTION_EXPORT_FILENAME = os.getenv('NOTION_EXPORT_FILENAME', 'export.zip')
-NOTION_API_KEY = os.getenv('NOTION_API_KEY')
 NOTION_SPACE_ID = os.getenv('NOTION_SPACE_ID')
 NOTION_TOKEN_V2 = os.getenv('NOTION_TOKEN_V2')
 
@@ -17,45 +19,68 @@ ENQUEUE_TASK_PARAM = {
     "task": {
         "eventName": "exportSpace", "request": {
             "spaceId": NOTION_SPACE_ID,
-            "exportOptions": {"exportType": "html", "timeZone": TZ, "locale": "en"}
+            "exportOptions": {
+                "exportType": "html",
+                "timeZone": TZ,
+                "locale": "en"
+            }
         }
     }
 }
 
 
 def request(endpoint: str, params: object):
-    req = urllib.request.Request(
-        f'{NOTION_API}/{endpoint}',
-        data=json.dumps(params).encode('utf8'),
-        headers={
-            "Authorization": f"Bearer {NOTION_API_KEY}",
-            'content-type': 'application/json',
-            'cookie': f'token_v2={NOTION_TOKEN_V2}; '
-        },
-    )
-    response = urllib.request.urlopen(req)
-    return json.loads(response.read().decode('utf8'))
+    url = f"{NOTION_API}/{endpoint}"
+    headers = {
+        "content-type": "application/json",
+        "cookie": f"token_v2={NOTION_TOKEN_V2};",
+    }
+    response = requests.post(url, headers=headers, json=params)
+    response.raise_for_status()
+    return response.json()
 
 
-def export():
-    task_id = request('enqueueTask', ENQUEUE_TASK_PARAM).get('taskId')
-    print(f'Enqueued task {task_id}')
+def create_export_download():
+    task_id = request("enqueueTask", ENQUEUE_TASK_PARAM).get("taskId")
+    print(f"Enqueued task {task_id}")
 
     while True:
         time.sleep(2)
-        tasks = request("getTasks", {"taskIds": [task_id]}).get('results')
-        task = next(t for t in tasks if t.get('id') == task_id)
-        print(f'\rPages exported: {task.get("status").get("pagesExported")}', end="")
+        tasks = request("getTasks", {"taskIds": [task_id]}).get("results")
+        task = next(t for t in tasks if t.get("id") == task_id)
+        print(
+            f'\rPages exported: {task.get("status").get("pagesExported")}',
+            end=""
+        )
 
-        if task.get('state') == 'success':
+        if task.get("state") == "success":
             break
 
-    export_url = task.get('status').get('exportURL')
-    print(f'\nExport created, downloading: {export_url}')
-    urllib.request.urlretrieve(export_url, NOTION_EXPORT_FILENAME,
-                               reporthook=lambda c, bs, ts: print(f"\r{int(c * bs * 100 / ts)}%", end=""))
-    print(f'\nDownload complete: {NOTION_EXPORT_FILENAME}')
+    export_url = task.get("status").get("exportURL")
+    print(f"\nExport created: {export_url}")
+    return export_url
+
+
+def download_export(export_url, target_path):
+    filename = re.search(r"downloadName=(.*)", export_url).group(1)
+    download_path = f"{os.getenv('HOME')}/Desktop/{filename.replace('%2F', '_')}"
+
+    print(f"Export URL: {export_url}")
+    print(f"Download path: {download_path}")
+    subprocess.run(["open", "-a", "Arc", export_url])
+
+    while not os.path.exists(download_path):
+        time.sleep(1)
+        print("Waiting for download to complete...")
+
+    print(f"Moving {download_path} to {target_path}")
+    os.rename(download_path, target_path)
 
 
 if __name__ == "__main__":
-    export()
+    expected_filename = sys.argv[1]
+    if not expected_filename:
+        print("Must pass expected filename")
+        exit(1)
+    created_export_url = create_export_download()
+    download_export(created_export_url, expected_filename)
