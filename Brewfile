@@ -81,6 +81,7 @@ brew "pdfgrep"
 brew "perl"
 brew "pidcat" --HEAD
 brew "pipx"
+brew "pkg-config"
 brew "podman"
 brew "poetry"
 brew "potrace" # SVGify
@@ -109,6 +110,7 @@ brew "websocat"
 brew "wget"
 brew "xsv"
 brew "xz"
+brew "yasm"
 brew "zsh"
 
 # Apps
