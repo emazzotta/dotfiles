@@ -233,6 +233,7 @@ alias see="fzf --preview 'less {}'"
 alias serials='envify && cd "$SERIALSDIR"'
 alias shrug='print_and_copy "¯\_(ツ)_/¯"'
 alias spacey='envify && yes "$PASSWORD_ZIPS" | 7z x "$ZIPS_DIR/Spacey.7z" -o"$DESKDIR"'
+alias spotify_clean='rm -rf /Users/$USERNAME/Library/Caches/com.spotify.client/Data'
 alias spub='find $HOME/.ssh -name "id_*.pub" | while read file;do echo "$file:" && cat $file;done'
 alias srp='cd $WDIR/archive/siroop'
 alias ss='sshrc'
