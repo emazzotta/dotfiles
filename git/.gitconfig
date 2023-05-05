@@ -24,6 +24,8 @@
 	pager = diff-so-fancy | less --tabs=4 -RFX
 	precomposeunicode = true
 	quotepath = true
+    sshCommand = ssh -i /Users/emanuelemazzotta/.ssh/id_rsa -o IdentitiesOnly=yes -F /dev/null
+    ;sshCommand = ssh -i /Users/emanuelemazzotta/.ssh/id_ed25519_nerds -o IdentitiesOnly=yes -F /dev/null
 [color]
 	ui = true
 [commit]
