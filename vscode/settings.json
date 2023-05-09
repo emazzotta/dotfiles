@@ -45,5 +45,6 @@
   "files.maxMemoryForLargeFilesMB": 8192,
   "redhat.telemetry.enabled": false,
   "editor.tabSize": 2,
-  "git.autofetch": true
+  "git.autofetch": true,
+  "git.openRepositoryInParentFolders": "always"
 }
