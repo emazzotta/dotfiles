@@ -32,6 +32,7 @@ brew "git"
 brew "git-crypt"
 brew "git-lfs"
 brew "gnupg"
+brew "go"
 brew "gource" # Git Video
 brew "hashicorp/tap/packer"
 brew "helm"
