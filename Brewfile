@@ -6,7 +6,6 @@ tap "homebrew/cask-versions"
 tap "homebrew/core"
 tap "homebrew/services"
 
-# Binaries
 brew "adr-tools"
 brew "aria2"
 brew "awscli"
@@ -85,7 +84,6 @@ brew "xsv"
 brew "xz" # Required by many tools
 brew "zsh"
 
-# Apps
 cask "aerial"
 cask "android-file-transfer"
 cask "android-platform-tools"
@@ -100,6 +98,7 @@ cask "docker"
 cask "electrum"
 cask "fission"
 cask "font-hack-nerd-font"
+cask "google-chrome"
 cask "google-drive"
 cask "gpg-suite"
 cask "intellij-idea"
