@@ -1,0 +1,23 @@
+#!/bin/bash
+
+set -e
+
+output=""
+for file in *; do 
+    if [ -f "$file" ]; then 
+        output+="\`\`\`\n"
+        output+="# $file\n"
+        output+=$(cat "$file") 
+        output+="\n\`\`\`\n\n"
+    fi
+done
+echo -e "$output"
+
+read -p "Do you want to copy this to the clipboard? (Y/n) " answer
+if ! [[ $answer = n || $answer = N ]]; then
+    echo -e "$output" | pbcopy
+    echo "Content copied to clipboard."
+else
+    echo "Content not copied."
+fi
+

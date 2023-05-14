@@ -1,0 +1,15 @@
+#!/bin/bash
+
+set -e
+
+if test "${1}"; then
+    n=$1
+    if ! [[ "$n" =~ ^[0-9]+$ ]]
+    then
+        echo "Error: Please provide a positive integer as argument"
+    else
+        GIT_SEQUENCE_EDITOR="sed -i -re '2,${n}s/^pick/squash/'" git rebase -i HEAD~$n
+    fi
+else
+    echo "usage: `basename ${0}` <n commits to squash>"
+fi
