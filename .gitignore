@@ -1,11 +1,10 @@
-*.asc
 *.dat
 *.db
-*.gpg
 *.tar.gz
 .DS_Store
 .env
 .idea
 cache
 email
+keys
 node_modules

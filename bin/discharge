@@ -1,0 +1,26 @@
+#! /bin/sh
+
+function cancel()
+{
+  printf "\n"
+  sudo smc -k CH0I -w 00
+  exit 0
+}
+
+trap cancel INT
+
+bold=$(tput bold)
+red=$(tput setaf 1)
+normal=$(tput sgr0)
+
+target=20
+
+sudo smc -k CH0I -w 01
+
+printf "$bold$red%s$normal\n" "Discharging battery to $target% (press ctrl+c to cancel)"
+
+while [ $(pmset -g batt | grep --extended-regexp --only-matching "\d+%" | cut -d% -f1) -gt $target ]; do
+  sleep 60
+done
+
+cancel

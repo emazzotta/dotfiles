@@ -85,6 +85,7 @@ brew "xz" # Required by many tools
 brew "zsh"
 
 cask "aerial"
+cask "aldente"
 cask "android-file-transfer"
 cask "android-platform-tools"
 cask "android-studio"
