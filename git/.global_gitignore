@@ -12,6 +12,7 @@
 .run
 .vscode
 Thumbs.db
+apps/api/src/i18n
 generated
 modules/prompt/functions/
 npm-debug.log

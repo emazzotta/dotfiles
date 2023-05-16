@@ -3,14 +3,14 @@
 set -e
 
 output=""
-for file in *; do 
+while IFS= read -r -d '' file; do 
     if [ -f "$file" ]; then 
         output+="\`\`\`\n"
         output+="# $file\n"
         output+=$(cat "$file") 
         output+="\n\`\`\`\n\n"
     fi
-done
+done < <(find . -type f -print0)
 echo -e "$output"
 
 read -p "Do you want to copy this to the clipboard? (Y/n) " answer
