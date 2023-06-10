@@ -25,8 +25,14 @@ New track procedure:
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
-ORIGINAL_TRACKS_PATH = os.environ.get('DJ_TRACKS', f'${os.environ.get("HOME")}/Google_Drive/Music/DJing/Tracks')
-ORIGINAL_TRACKS = chain(Path(ORIGINAL_TRACKS_PATH).glob('**/*.mp3'), Path(ORIGINAL_TRACKS_PATH).glob('**/*.wav'))
+SPOTIFY_CLIENT_ID = os.environ.get('SPOTIFY_CLIENT_ID')
+SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET')
+TRACKS_PATH = os.environ.get('DJ_TRACKS', f'{os.environ.get("HOME")}/Google_Drive/Music/DJing/Tracks')
+TRACKS = chain(
+    Path(TRACKS_PATH).glob('**/*.mp3'),
+    Path(TRACKS_PATH).glob('**/*.flac'),
+    Path(TRACKS_PATH).glob('**/*.wav')
+)
 
 '''
 Hint regarding Mixed In Key:
@@ -98,13 +104,12 @@ def main():
 
 
 def autofix():
-    for src in ORIGINAL_TRACKS:
+    for src in TRACKS:
         logger.info(f"[AUTOFIX] Processing {src}")
-        original_track_metadata = music_tag.load_file(src)
-        clean_all_tags(original_track_metadata)
-        original_track_metadata.save()
-        new_track_name = compose_filename(original_track_metadata)
-        src.rename(Path(src.parent, f'{new_track_name}{src.suffix}'))
+        track_metadata = music_tag.load_file(src)
+        clean_all_tags(track_metadata)
+        track_metadata.save()
+        rename_by_tag(src)
 
 
 def copy_tag(src, dest):
@@ -131,7 +136,7 @@ def rename_by_tag(src):
     logger.info(f"[RENAME_BY_TAG] Processing {src}")
     source_track_metadata = music_tag.load_file(src)
     filename = compose_filename(source_track_metadata)
-    source_path = Path(src)
+    source_path = to_path(src)
     source_path.rename(
         Path(source_path.parent, f'{filename}{source_path.suffix}')
     )
@@ -144,16 +149,17 @@ def full_tag_optimizer(src):
         return
 
     logger.info(f"[FULL_TAG_OPTIMIZER] Processing {src}")
-    original_track_metadata = music_tag.load_file(src)
-    clean_all_tags(original_track_metadata)
-    original_track_metadata.save()
+    track_metadata = music_tag.load_file(src)
+    clean_all_tags(track_metadata)
+    track_metadata.save()
 
-    set_missing_metadata_from_filename(src, original_track_metadata)
+    set_missing_metadata_from_filename(src, track_metadata)
 
-    if not original_track_metadata['artwork'].first:
-        download_and_set_cover_photo(original_track_metadata)
-    original_track_metadata.save()
+    if not track_metadata['artwork'].first:
+        download_and_set_cover_photo(track_metadata)
+    track_metadata.save()
 
+    remove_where_from(src)
     rename_by_tag(src)
 
 
@@ -189,66 +195,73 @@ def clean_all_tags(track_metadata):
 
 def clean_string(dirty_string):
     cleaned_metadata = re.sub(r'\[www\.slider\.kz]', '', dirty_string)
-    trimmed_metadata = re.sub(r'\s+', ' ', cleaned_metadata)
+    trimmed_metadata = re.sub(r'^\s+|\s+$', '', cleaned_metadata)
+    trimmed_metadata = re.sub(r'\s+', ' ', trimmed_metadata)
     return trimmed_metadata
 
 
 def set_missing_metadata_from_filename(src, track_metadata):
-    src = Path(src)
-    new_track_name = src.stem.replace("_", " ")
-    new_track_name = re.sub(r'^\d+\s+', '', new_track_name)
-    new_track_name = clean_string(new_track_name)
-    src.rename(Path(src.parent, f'{new_track_name}{src.suffix}'))
-
+    src_path = to_path(src)
     if not track_metadata['artist'].first or not track_metadata['tracktitle'].first:
-        if ' - ' in new_track_name:
-            artist, title = map(str.strip, new_track_name.split(' - ', 1))
+        if ' - ' in src_path.stem:
+            artist, title = map(str.strip, src_path.stem.split(' - ', 1))
             if not track_metadata['artist'].first:
                 track_metadata['artist'] = artist
             if not track_metadata['tracktitle'].first:
                 track_metadata['tracktitle'] = title
 
 
-def download_and_set_cover_photo(track_metadata):
-    query = f"{track_metadata['artist'].first} {track_metadata['tracktitle'].first} cover art"
-    url = f"https://www.google.com/search?q={query}&tbm=isch"
-
-    HEADERS = {"content-type": "image/png"}
-    html = requests.get(url, headers=HEADERS).text
-    soup = BeautifulSoup(html, "html.parser")
-
-    image_url = soup.find_all('img')[1]['src']
-    response = requests.get(image_url)
-
-    track_metadata['artwork'].set_data(response.content, fmt='image/jpeg')
-
-def get_album_art(album_id, token):
-    headers = {"Authorization": f"Bearer {token}"}
-    response = requests.get(f"https://api.spotify.com/v1/albums/{album_id}", headers=headers)
-
-    if response.status_code != 200:
-        raise Exception(response.content)
-
-    album = response.json()
-    # The images field is a list of images in descending size order.
-    # So the first image is the largest.
-    return album["images"][0]["url"]
-
-
-
-
-
 def get_spotify_token(client_id, client_secret):
     encoded = base64.b64encode(f"{client_id}:{client_secret}".encode())
     headers = {"Authorization": f"Basic {encoded.decode()}"}
     data = {"grant_type": "client_credentials"}
-
     response = requests.post("https://accounts.spotify.com/api/token", headers=headers, data=data)
-
     if response.status_code != 200:
         raise Exception(response.content)
-
     return response.json()["access_token"]
+
+
+def search_track(artist, title, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"q": f"{artist} {title}", "type": "track"}
+    response = requests.get("https://api.spotify.com/v1/search", headers=headers, params=params)
+    if response.status_code != 200:
+        raise Exception(response.content)
+    tracks = response.json()["tracks"]["items"]
+    if tracks:
+        return tracks[0]["album"]["id"]
+    return None
+
+
+def get_album_art(album_id, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    response = requests.get(f"https://api.spotify.com/v1/albums/{album_id}", headers=headers)
+    if response.status_code != 200:
+        raise Exception(response.content)
+    album = response.json()
+    return album["images"][0]["url"]
+
+
+def download_and_set_cover_photo(track_metadata):
+    token = get_spotify_token(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET)
+    album_id = search_track(track_metadata['artist'].first, track_metadata['tracktitle'].first, token)
+    if album_id:
+        album_art_url = get_album_art(album_id, token)
+        response = requests.get(album_art_url)
+        track_metadata['artwork'] = response.content
+
+
+def to_path(src):
+    if isinstance(src, str):
+        return Path(src)
+    elif isinstance(src, Path):
+        return src
+    else:
+        raise TypeError(f"Expected str or Path, got {type(src).__name__}")
+
+
+def remove_where_from(file_path):
+    os.system(f'xattr -d com.apple.metadata:kMDItemWhereFroms "{file_path}"')
 
 
 if __name__ == '__main__':
