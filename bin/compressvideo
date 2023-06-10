@@ -6,7 +6,7 @@ remove=no
 just_preview_compatible=no
 
 function print_help() {
-    echo "usage: `basename ${0}` <video_file>"
+    echo "usage: $(basename "${0}") <video_file>"
     echo
     echo "options:"
     echo "  -c, --codec                 Codec can be one ofh264, h265 or av1, default: ${codec}"

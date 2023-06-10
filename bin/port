@@ -3,5 +3,5 @@
 if test "${1}"; then
     lsof -i tcp:"$1"
 else
-    echo "usage: `basename ${0}` <port to check>"
+    echo "usage: $(basename "${0}") <port to check>"
 fi

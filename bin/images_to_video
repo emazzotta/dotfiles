@@ -8,5 +8,5 @@ exit 0
 if test "${1}"; then
     echo test
 else
-    echo "usage: `basename ${0}` <param>"
+    echo "usage: $(basename "${0}") <param>"
 fi

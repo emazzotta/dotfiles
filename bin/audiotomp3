@@ -6,6 +6,6 @@ if test "${1}"; then
     test "${2}" && output="${2}"
     ffmpeg -i "${input}" -vn -ar 44100 -ac 2 -b:a 320k "${output}.mp3"
 else
-    echo "usage: `basename ${0}` <input_file> [output_file]"
+    echo "usage: $(basename "${0}") <input_file> [output_file]"
 fi
 

@@ -21,5 +21,5 @@ if test "${1}"; then
         echo -e "${COLOR_RED}Aborting...${COLOR_RESET}"
     fi
 else
-    echo "usage: `basename ${0}` <text to send in robot voice> [user] [bot key]"
+    echo "usage: $(basename "${0}") <text to send in robot voice> [user] [bot key]"
 fi

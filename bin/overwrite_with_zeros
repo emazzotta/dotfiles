@@ -3,5 +3,5 @@
 if test "${1}"; then
     sudo dd if=/dev/zero of=/dev/${1} bs=1m
 else
-    echo "usage: `basename ${0}` <device name to overwrite>"
+    echo "usage: $(basename "${0}") <device name to overwrite>"
 fi

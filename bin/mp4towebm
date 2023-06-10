@@ -6,5 +6,5 @@ if test "${1}"; then
     test "${2}" && output="${2}"
     ffmpeg -i "${input}" -c:v libvpx -b:v 512k -c:a libvorbis -vf scale=1280:720 -ab 128k -preset veryslow "${output}.webm"
 else
-    echo "usage: `basename ${0}` <input_file> [output_file]"
+    echo "usage: $(basename "${0}") <input_file> [output_file]"
 fi

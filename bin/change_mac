@@ -7,5 +7,5 @@ if [[ $(whoami) == "root" ]]; then
     ifconfig en0 up
     echo "Your new physical address is ${mac}"
 else
-    echo "`basename ${0}` must be executed as root!"
+    echo "$(basename "${0}") must be executed as root!"
 fi

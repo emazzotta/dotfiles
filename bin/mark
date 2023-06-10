@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if ! test "${2}"; then
-    echo "usage: `basename ${0}` <score> <maximum> [<granted extra points>]"
+    echo "usage: $(basename "${0}") <score> <maximum> [<granted extra points>]"
 elif ! test "${3}"; then
     mark ${1} ${2} 0
 else

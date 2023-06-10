@@ -3,5 +3,5 @@
 if test "${1}"; then
     docker run --rm -v $PWD:/data asciinema/asciicast2gif "${1}.cast" video.gif
 else
-    echo "usage: `basename ${0}` <asciicast to convert>"
+    echo "usage: $(basename "${0}") <asciicast to convert>"
 fi

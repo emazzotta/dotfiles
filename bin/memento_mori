@@ -10,5 +10,5 @@ if test "${2}"; then
     echo "${days_left} days left ($(bc <<< "${days_left}/7") weeks)"
     echo
 else
-    echo "usage: `basename ${0}` <birthdate> <expected death date>"
+    echo "usage: $(basename "${0}") <birthdate> <expected death date>"
 fi

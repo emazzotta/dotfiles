@@ -3,5 +3,5 @@
 if test "${1}"; then
     kubectl -n personal-homepage exec -ti deployment/personal-homepage-file-server-deployment -- /bin/sh -c "cd /app && rm -rf ${@}"
 else
-    echo "usage: `basename ${0}` <file> [files...]"
+    echo "usage: $(basename "${0}") <file> [files...]"
 fi

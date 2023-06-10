@@ -13,8 +13,8 @@ if test "${2}"; then
     days_done=$((${days_total}-${days_left}))
     echo "${days_done} ${days_left} ${days_total}"
 else
-    echo "usage: `basename ${0}` <start_date> <end_date>"
+    echo "usage: $(basename "${0}") <start_date> <end_date>"
     echo
-    echo "example: `basename ${0}` \"2020-01-01 00:00:00\" \"2020-12-31 00:00:00\""
+    echo "example: $(basename "${0}") \"2020-01-01 00:00:00\" \"2020-12-31 00:00:00\""
     echo "output: <days_done> <days_left> <days_total>"
 fi

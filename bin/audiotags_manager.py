@@ -1,13 +1,15 @@
 #!/usr/bin/env python
 
 
+import argparse
 import logging
-import music_tag
 import os
 import re
 import unicodedata
 from itertools import chain
 from pathlib import Path
+
+import music_tag
 
 '''
 New track procedure:
@@ -60,6 +62,32 @@ TAGS = [
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Perform audio tags operations')
+
+    # Parameter: autofix
+    parser.add_argument('--autofix', action='store_true', help='Autofix needs no additional parameters')
+
+    # Parameter: copy_tag
+    parser.add_argument('--copy_tag', nargs=2, metavar=('SRC', 'DEST'),
+                        help='Copy tag needs a source and destination file')
+
+    # Parameter: rename_by_tag
+    parser.add_argument('--rename_by_tag', help='Rename by tag just needs a source file')
+
+    args = parser.parse_args()
+
+    if args.autofix:
+        autofix()
+    elif args.copy_tag:
+        src, dest = args.copy_tag
+        copy_tag(src, dest)
+    elif args.rename_by_tag:
+        rename_by_tag(args.rename_by_tag)
+    else:
+        print("Please provide valid parameters.")
+
+
+def autofix():
     for original_track_path in ORIGINAL_TRACKS:
         logger.info(f"Processing {original_track_path}")
         original_track_metadata = music_tag.load_file(original_track_path)
@@ -78,6 +106,35 @@ def main():
             platinum_notes_track_metadata.save()
             platinum_notes_track_path.rename(
                 Path(platinum_notes_track_path.parent, f'{new_track_name}_PN{platinum_notes_track_path.suffix}'))
+
+
+def copy_tag(src, dest):
+    if not os.path.exists(src):
+        print(f"Source file {src} does not exist.")
+        return
+    if not os.path.exists(dest):
+        print(f"Destination file {dest} does not exist.")
+        return
+
+    source_track_metadata = music_tag.load_file(src)
+    destination_track_metadata = music_tag.load_file(dest)
+    copy_metadata(source_track_metadata, destination_track_metadata)
+    destination_track_metadata.save()
+    print(f"Copied metadata from {src} to {dest}")
+
+
+def rename_by_tag(src):
+    if not os.path.exists(src):
+        print(f"Source file {src} does not exist.")
+        return
+
+    source_track_metadata = music_tag.load_file(src)
+    filename = compose_filename(source_track_metadata)
+    source_path = Path(src)
+    source_path.rename(
+        Path(source_path.parent, f'{filename}{source_path.suffix}')
+    )
+    print(f"Renamed via metadata from [{src}] to [{filename}]")
 
 
 def compose_filename(metadata):

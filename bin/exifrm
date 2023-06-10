@@ -3,5 +3,5 @@
 if test "${1}"; then
     exiftool -all= -overwrite_original_in_place "${1}"
 else
-    echo "usage: `basename ${0}` <file>"
+    echo "usage: $(basename "${0}") <file>"
 fi

@@ -3,5 +3,5 @@
 if test "${1}"; then
     echo "${@}" | sed -e 's/[^[:alnum:]]/-/g' | tr -s '-' | tr '[:upper:]' '[:lower:]'
 else
-    echo "usage: `basename ${0}` <string_to_slugify>" 
+    echo "usage: $(basename "${0}") <string_to_slugify>"
 fi

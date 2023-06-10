@@ -2,7 +2,7 @@
 
 
 if ! test "${1}"; then
-    echo "usage: `basename ${0}` <text> [signature_user]"
+    echo "usage: $(basename "${0}") <text> [signature_user]"
     exit 1
 fi
 

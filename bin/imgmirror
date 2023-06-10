@@ -3,9 +3,9 @@
 set -e
 
 if test "${1}"; then
-    output_file="${1%.*}.pdf"
+    output_file="${1%.*}_mirrored.${1##*.}"
     echo "Converting to ${output_file}"...
-    convert "${1}" "${output_file}"
+    convert "${1}" -flop "${output_file}"
 else
     echo "usage: $(basename "${0}") <input_file>"
 fi

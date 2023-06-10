@@ -3,5 +3,5 @@
 if test "${1}"; then
     date -r "${1}" "+%Y-%m-%d %H:%M:%S"
 else
-    echo "usage: `basename ${0}` <timestamp>"
+    echo "usage: $(basename "${0}") <timestamp>"
 fi

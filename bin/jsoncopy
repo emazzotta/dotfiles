@@ -9,5 +9,5 @@ if test "${1}"; then
         echo "${1}" | jq | pbcopy
     fi
 else
-    echo "usage: `basename ${0}` [-c/--clipboard] <json>"
+    echo "usage: $(basename "${0}") [-c/--clipboard] <json>"
 fi

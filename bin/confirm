@@ -8,5 +8,5 @@ if test "${2}"; then
         "${@}"
     fi
 else
-    echo "usage: `basename ${0}` <confirmation text> <command> [commands...]"
+    echo "usage: $(basename "${0}") <confirmation text> <command> [commands...]"
 fi

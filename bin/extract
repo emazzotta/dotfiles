@@ -17,9 +17,9 @@ if [ -f "${1}" ] ; then
         *) echo "don't know '${1}'..." ;;
     esac
 elif ! test "${1}" || [[ "${1}" == "--help" ]] || [[ "${1}" == "-h" ]]; then
-    echo "usage: `basename ${0}` <file>"
+    echo "usage: $(basename "${0}") <file>"
     echo "help :  -h, --help"
 else
     echo "'${1}' is not a valid file/option!"
-    echo "usage: `basename ${0}`"
+    echo "usage: $(basename "${0}")"
 fi

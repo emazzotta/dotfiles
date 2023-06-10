@@ -3,5 +3,5 @@
 if test "${1}"; then
     echo "${1}" | gpg --decrypt --quiet --no-verbose
 else
-    echo "usage: `basename ${0}` <text to decrypt>"
+    echo "usage: $(basename "${0}") <text to decrypt>"
 fi

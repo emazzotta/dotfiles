@@ -6,5 +6,5 @@ if test "${1}"; then
     parameters="${@}"
     python -c "import urllib.parse;print(urllib.parse.quote('${parameters}', safe=''))"
 else
-    echo "usage: `basename ${0}` <string to encode>"
+    echo "usage: $(basename "${0}") <string to encode>"
 fi

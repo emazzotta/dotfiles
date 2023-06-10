@@ -18,5 +18,5 @@ if test "${1}"; then
 		echo "Processes killed."
 	fi
 else
-    echo "usage: `basename ${0}` <param>"
+    echo "usage: $(basename "${0}") <param>"
 fi

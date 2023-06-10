@@ -10,5 +10,5 @@ elif test "${2}"; then
 elif test "${1}"; then
     "${0}" "${1}" "75804618" "${TELEGRAM_FILE_BOT_KEY}"
 else
-    echo "usage: `basename ${0}` <audio_file> [user] [bot key]"
+    echo "usage: $(basename "${0}") <audio_file> [user] [bot key]"
 fi

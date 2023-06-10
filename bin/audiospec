@@ -7,5 +7,5 @@ if test "${1}"; then
     output_file="${input_file%.*}_spectrogram.png"
     sox "${input_file}" -n spectrogram -o "${output_file}"
 else
-    echo "usage: `basename ${0}` <audio file>"
+    echo "usage: $(basename "${0}") <audio file>"
 fi

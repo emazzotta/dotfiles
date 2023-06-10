@@ -3,5 +3,5 @@
 if test "${2}"; then
     gpg --encrypt --sign --armor --recipient "${1}" "${2}"
 else
-    echo "usage: `basename ${0}` <recipient email> <textfile to encrypt>"
+    echo "usage: $(basename "${0}") <recipient email> <textfile to encrypt>"
 fi

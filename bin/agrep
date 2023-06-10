@@ -40,5 +40,5 @@ if test "${1}"; then
         fi
     fi
 else
-    echo "usage: `basename ${0}` [-e|--exact|-i|--inexact] <term>"
+    echo "usage: $(basename "${0}") [-e|--exact|-i|--inexact] <term>"
 fi

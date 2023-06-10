@@ -15,5 +15,5 @@ if test "${3}"; then
     pad_remaining=$(printf -v spaces '%*s' ${progressbar_length} ''; printf '%s\n' ${spaces// /${progress_remaining_character}})
     printf "%-${progressbar_length}s" "${pad_filled:0:${progress}}${pad_remaining:${progress}}"
 else
-    echo "usage: `basename ${0}` <current_progress> <max_progress> <progressbar_length> [progress_character] [progress_remaining_character]"
+    echo "usage: $(basename "${0}") <current_progress> <max_progress> <progressbar_length> [progress_character] [progress_remaining_character]"
 fi

@@ -3,6 +3,6 @@
 if test "${1}"; then
     test -f "${1}" && source "${1}"
 else
-    echo "usage: `basename ${0}` <file>"
+    echo "usage: $(basename "${0}") <file>"
 fi
 

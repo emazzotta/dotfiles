@@ -3,7 +3,7 @@
 set -e
 
 if ! test "${2}"; then
-    echo "usage: `basename ${0}` <video> <size in MB>"
+    echo "usage: $(basename "${0}") <video> <size in MB>"
     exit 1
 fi
 

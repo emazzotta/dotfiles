@@ -5,5 +5,5 @@ if test "${2}"; then
     shift
     gs -q -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -sOutputFile=${name} ${@}
 else
-    echo "usage: `basename ${0}` <output filename> <inputfile> [inputfiles]"
+    echo "usage: $(basename "${0}") <output filename> <inputfile> [inputfiles]"
 fi

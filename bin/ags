@@ -6,7 +6,7 @@ elif test "${1}"; then
     ag --hidden --filename-pattern "${1}" .
     ag --hidden -Q "${1}" .
 else
-    echo "usage: `basename ${0}` <filename>"
+    echo "usage: $(basename "${0}") <filename>"
     echo "      <pattern>"
     echo "      <pattern> <filename regex>"
 fi

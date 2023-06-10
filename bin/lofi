@@ -3,5 +3,5 @@
 if test "${1}"; then
     echo "${@}" | tr '[:lower:]' '[:upper:]' | sed 's/\(.\)/\1 /g'
 else
-    echo "usage: `basename ${0}` <text>"
+    echo "usage: $(basename "${0}") <text>"
 fi

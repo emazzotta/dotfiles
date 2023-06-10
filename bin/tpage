@@ -13,5 +13,5 @@ if test "${1}"; then
     open "https://validator.w3.org/nu/?doc=${url}"
     open "http://wave.webaim.org/report#/${url}"
 else
-    echo "usage: `basename ${0}` <url>"
+    echo "usage: $(basename "${0}") <url>"
 fi

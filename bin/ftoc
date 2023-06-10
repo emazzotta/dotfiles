@@ -3,5 +3,5 @@
 if test "${1}"; then
     python3 -c "print(f'{float(${1})}°F = {round(float(${1}-32)*5/9, 2)}°C')"
 else
-    echo "usage: `basename ${0}` <fahrenheit>"
+    echo "usage: $(basename "${0}") <fahrenheit>"
 fi

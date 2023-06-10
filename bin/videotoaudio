@@ -5,5 +5,5 @@ if test "${1}"; then
     output_file="${input_file%.*}.mp3"
     ffmpeg -i "${input_file}" -vn "${output_file}" # Explicitly drop video
 else
-    echo "usage: `basename ${0}` <video_file>"
+    echo "usage: $(basename "${0}") <video_file>"
 fi

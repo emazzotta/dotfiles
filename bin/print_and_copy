@@ -5,5 +5,5 @@ if test "${1}"; then
     echo "${1}"
     echo "(Copied to clipboard!)"
 else
-    echo "usage: `basename ${0}` <string>"
+    echo "usage: $(basename "${0}") <string>"
 fi

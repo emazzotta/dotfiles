@@ -9,5 +9,5 @@ if test "${1}"; then
     output_file="${name}_no_audio.${extension}"
     ffmpeg -i $input_file -vcodec copy -an $output_file
 else
-    echo "usage: `basename ${0}` <input_file>"
+    echo "usage: $(basename "${0}") <input_file>"
 fi

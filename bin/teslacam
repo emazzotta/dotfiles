@@ -5,5 +5,5 @@ if test "${1}"; then
     tesla_dashcam --timestamp_format '%d.%m.%Y %H:%M:%S' --rear --output ${HOME}/Desktop/TeslaSentry ${1}
     deactivate
 else
-    echo "usage: `basename ${0}` <source>"
+    echo "usage: $(basename "${0}") <source>"
 fi

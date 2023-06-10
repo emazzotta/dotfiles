@@ -5,6 +5,6 @@ if test "${1}"; then
     output_file="${input_file%.*}_compressed.pdf"
     gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -sOutputFile="${output_file}" "${input_file}"
 else
-    echo "usage: `basename ${0}` <inputfile>"
+    echo "usage: $(basename "${0}") <inputfile>"
 fi
 

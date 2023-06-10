@@ -1,8 +1,8 @@
 #!/bin/bash
 
 if ! test "${1}" || [[ "${1}" == "--help" ]] || [[ "${1}" == "-h" ]]; then
-    echo "usage: `basename ${0}` <folder>.extension"
-    echo "usage: `basename ${0}` <name>.extension <file/folder> [file/folder] ..."
+    echo "usage: $(basename "${0}") <folder>.extension"
+    echo "usage: $(basename "${0}") <name>.extension <file/folder> [file/folder] ..."
     echo "help : -h, --help"
     exit 1
 fi
