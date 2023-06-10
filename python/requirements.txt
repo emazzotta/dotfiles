@@ -1,7 +1,7 @@
-autopep8
-boto3
-bpython
-music_tag
-ptpython
-requests
-tesla_dashcam
+autopep8==2.0.2
+boto3==1.26.151
+bpython==0.24
+music_tag==0.4.3
+ptpython==3.0.23
+requests==2.31.0
+tesla_dashcam==0.1.20
