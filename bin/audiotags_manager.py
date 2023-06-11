@@ -13,26 +13,12 @@ from pathlib import Path
 import music_tag
 import requests
 
-'''
-New track procedure:
-
-1. Add missing artwork to new mp3 files
-2. Put mp3 files in "Original" folder in correct subdirectory based on genre
-3. Run Platinum Notes with new files
-4. Run this tag fixer
-'''
-
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
 SPOTIFY_CLIENT_ID = os.environ.get('SPOTIFY_CLIENT_ID')
 SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET')
-TRACKS_PATH = os.environ.get('DJ_TRACKS', f'{os.environ.get("HOME")}/Google_Drive/Music/DJing/Tracks')
-TRACKS = chain(
-    Path(TRACKS_PATH).glob('**/*.mp3'),
-    Path(TRACKS_PATH).glob('**/*.flac'),
-    Path(TRACKS_PATH).glob('**/*.wav')
-)
+TRACKS_PATH = os.environ.get('DJ_TRACKS')
 
 '''
 Hint regarding Mixed In Key:
@@ -48,19 +34,19 @@ TAGS = [
     'album',
     'albumartist',
     'artist',
+    'artwork',
     'comment',
     'compilation',
     'composer',
     'discnumber',
     'genre',
+    'isrc',
     'lyrics',
     'totaldiscs',
     'totaltracks',
     'tracknumber',
     'tracktitle',
     'year',
-    'isrc',
-    'artwork'
 ]
 
 
@@ -104,7 +90,10 @@ def main():
 
 
 def autofix():
-    for src in TRACKS:
+    for src in chain(
+            Path(TRACKS_PATH).glob('**/*.mp3'),
+            Path(TRACKS_PATH).glob('**/*.flac'),
+            Path(TRACKS_PATH).glob('**/*.wav')):
         logger.info(f"[AUTOFIX] Processing {src}")
         track_metadata = music_tag.load_file(src)
         clean_all_tags(track_metadata)
@@ -150,15 +139,11 @@ def full_tag_optimizer(src):
 
     logger.info(f"[FULL_TAG_OPTIMIZER] Processing {src}")
     track_metadata = music_tag.load_file(src)
-    clean_all_tags(track_metadata)
-    track_metadata.save()
-
     set_missing_metadata_from_filename(src, track_metadata)
-
+    clean_all_tags(track_metadata)
     if not track_metadata['artwork'].first:
         download_and_set_cover_photo(track_metadata)
     track_metadata.save()
-
     remove_where_from(src)
     rename_by_tag(src)
 
@@ -193,11 +178,15 @@ def clean_all_tags(track_metadata):
             pass
 
 
-def clean_string(dirty_string):
-    cleaned_metadata = re.sub(r'\[www\.slider\.kz]', '', dirty_string)
-    trimmed_metadata = re.sub(r'^\s+|\s+$', '', cleaned_metadata)
-    trimmed_metadata = re.sub(r'\s+', ' ', trimmed_metadata)
-    return trimmed_metadata
+def clean_string(line):
+    line = re.sub(r'\[www\.slider\.kz]', '', line)
+    line = re.sub(r'\s+', ' ', line)
+    line = line.replace('(Original Mix)', '')
+    line = line.replace('(Original Version)', '')
+    line = line.replace('(Extended Mix)', '')
+    line = line.replace('(Extended Version)', '')
+    line = re.sub(r'^\s+|\s+$', '', line)
+    return line
 
 
 def set_missing_metadata_from_filename(src, track_metadata):

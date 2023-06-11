@@ -240,6 +240,7 @@ alias superocd='ocd && update && rmraycastclipboard && rm_act_cache && gupallin 
 alias t='lazygit'
 alias tags_dj_fix='envify && av && audiotag_manager.py --autofix'
 alias tags_full_fix_here='envify && av && find . -type f \( -name "*.mp3" -o -name "*.wav" -o -name "*.flac" \) -exec audiotags_manager.py --full-tag-optimizer {} \;'
+alias tags_full_fix_this='envify && av && audiotags_manager.py --full-tag-optimizer'
 alias telegram_deleter='av && $PRIVATE_PROJECTS/telegram-deleter/src/telegram_deleter.sh && dv'
 alias thinking='print_and_copy 🤔'
 alias tick='print_and_copy "✓"'
