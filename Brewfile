@@ -52,6 +52,7 @@ brew "lzip"
 brew "mas"
 brew "minikube"
 brew "mycli" # SQL Terminal Client
+brew "neofetch"
 brew "nmap"
 brew "node"
 brew "npm"
