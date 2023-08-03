@@ -5,14 +5,14 @@ set -e
 # Delete local snapshots
 tmutil listlocalsnapshots / | tail -n+2 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}' | xargs -I {} sudo tmutil deletelocalsnapshots {}
 
-volume_path="/Volumes/SSD"
+volume_path="/Volumes/Samsung_1TB_TimeMachine"
 backup_count=$(tmutil listbackups | wc -l | tr -d '[:space:]')
 
 if [ -d "${volume_path}" ] && [ "${backup_count}" -gt 1 ]; then
     # Delete all except last SSD Backup
-    tmutil listbackups | head -n $((${backup_count} - 1)) | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}' | uniq | xargs -I {} sudo tmutil delete -d /Volumes/SSD -t {}
+    tmutil listbackups | head -n $((${backup_count} - 1)) | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}' | uniq | xargs -I {} sudo tmutil delete -d ${volume_path} -t {}
 else
-    echo "Either the volume /Volumes/SSD does not exist or there's only one backup:"
+    echo "Either the volume ${volume_path} does not exist or there's only one backup:"
     echo "Volume : $([ -d "${volume_path}" ] && echo 'mounted' || echo 'unmounted')"
     echo "Backups: ${backup_count}"
 fi

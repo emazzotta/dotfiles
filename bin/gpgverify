@@ -6,8 +6,8 @@ if ! test "${PRIVATE_PHONE_NUMBER}"; then
 fi
 
 if test "${2}"; then
-    echo "${2}" | gpg --no-default-keyring --keyring "${KEYFILEDIR}/${1}" --verify
+    echo "${2}" | gpg --no-default-keyring --keyring "${1}" --verify
 else
-    echo "usage: $(basename "${0}") <public key file in keys dir> <text to verify>"
+    echo "usage: $(basename "${0}") <public key file> <text to verify>"
 fi
 
