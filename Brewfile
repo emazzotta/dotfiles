@@ -55,6 +55,7 @@ brew "mycli" # SQL Terminal Client
 brew "neofetch"
 brew "nmap"
 brew "node"
+brew "node-gyp"
 brew "npm"
 brew "nvm"
 brew "openconnect"
