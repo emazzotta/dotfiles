@@ -8,7 +8,7 @@ export ANDROID_AVD_HOME=$HOME/.android/avd
 export ANDROID_HOME=$HOME/Library/Android/sdk
 export ANDROID_SDK=$HOME/Library/Android/sdk
 export ANDROID_SDK_ROOT=$HOME/Library/Android/sdk
-export GDRIVEDIR="$HOME/Google_Drive"
+export GDRIVEDIR="/Volumes/SanDisk_1TB/Backup/Google_Drive"
 export DOCUMENTDIR="$GDRIVEDIR/Dokumente"
 ### PATH EXPORTS ###
 export PATH="$CUSTOM_BIN_DIR:$PATH"
@@ -82,6 +82,8 @@ alias .v='cd $VENV_PATH'
 alias aco='vi "$DOTFILESPATH/autocomplete/custom_autocomplete"'
 alias af='audiofix'
 alias afa='audiofixall'
+alias ai_gpt='av && envify && interpreter -y'
+alias ai_llama='av && envify && interpreter -y --local'
 alias androidup='emulator -avd Pixel_C_API_30 &'
 alias ap='cd $WDIR/3ap'
 alias apps='cd $APPDIR'
