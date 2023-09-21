@@ -18,6 +18,6 @@ read -p "Press enter to continue"
 echo ${LOG} | pbcopy && echo "Copied LOG!"
 
 read -p "Press enter to read GPG to decrypt from Clipboard"
-CONTENT=$(gpd "$(pbpaste)" | head -n 1)
+CONTENT=$(gpd "$(pbpaste)" | head -n 2 | tail -n 1)
 echo ${CONTENT} | pbcopy && echo "Copied \"${CONTENT}\"!"
 
