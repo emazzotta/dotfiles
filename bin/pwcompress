@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# Exit on any error
+set -e
+
+# Usage message
+usage() {
+    echo "Usage: $0 [-c compression_level] <password> <file1> [file2 ...]"
+    echo "Optional parameters:"
+    echo "  -c  Compression level (0-9). Default is 5 (normal)."
+    exit 1
+}
+
+# Default compression level
+COMPRESSION_LEVEL=5
+
+# Check for optional compression level argument
+while getopts ":c:" opt; do
+    case $opt in
+        c)
+            COMPRESSION_LEVEL=$OPTARG
+            if ! [[ $COMPRESSION_LEVEL =~ ^[0-9]$ ]]; then
+                echo "Error: Compression level must be a number between 0 and 9."
+                exit 1
+            fi
+            ;;
+        \?)
+            echo "Invalid option: -$OPTARG"
+            usage
+            ;;
+        :)
+            echo "Option -$OPTARG requires an argument."
+            usage
+            ;;
+    esac
+done
+
+# Shift to remove options from $@
+shift $((OPTIND-1))
+
+# Check for at least two arguments (password and one file)
+if [ "$#" -lt 2 ]; then
+    usage
+fi
+
+# Extract password and shift arguments
+PASSWORD="$1"
+shift
+
+# Determine the archive name
+if [ "$#" -eq 1 ]; then
+    # If there's only one file, name the archive after the file
+    ARCHIVE_NAME="${1%.*}.7z"
+else
+    # If there are multiple files, name the archive after the directory of the first file
+    ARCHIVE_NAME="$(basename "$(dirname "$1")").7z"
+fi
+
+# Archive the files
+echo "Archive creation in progress, please wait... (compression level $COMPRESSION_LEVEL)"
+echo "$PASSWORD" | 7z a -mx=$COMPRESSION_LEVEL -p -mhe=on "$ARCHIVE_NAME" "$@"
+
+echo "Archive $ARCHIVE_NAME created successfully with compression level $COMPRESSION_LEVEL!"
+
