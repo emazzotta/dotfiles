@@ -2,8 +2,16 @@
 
 set -e
 
+delete_original=0
+
+for arg in "$@"; do
+    if [ "$arg" == "-d" ] || [ "$arg" == "--delete" ]; then
+        delete_original=1
+    fi
+done
+
 if [ "$#" -lt 2 ]; then
-    echo "Usage: $(basename ${0}) <output_format> <input_audio_file>"
+    echo "Usage: $(basename $0) <output_format> <input_audio_file> [-d|--delete]"
     exit 1
 fi
 
@@ -11,7 +19,7 @@ output_format="$1"
 input_file="$2"
 
 if [ ! -f "$input_file" ]; then
-    echo "Error: Input file not found!"
+    echo "Error: Input file '$input_file' not found!"
     exit 1
 fi
 
@@ -19,24 +27,12 @@ filename=$(basename -- "$input_file")
 extension="${filename##*.}"
 filename="${filename%.*}"
 
-if [ "$output_format" == "mp3" ]; then
-    conversion_tool="ffmpeg"
-else
-    conversion_tool="sox"
-fi
+ffmpeg -i "$input_file" "${filename}.${output_format}"
 
-case "$conversion_tool" in
-    ffmpeg)
-        ffmpeg -i "$input_file" -q:a 0 "${filename}.${output_format}"
-        ;;
-    sox)
-        sox "$input_file" "${filename}.${output_format}"
-        ;;
-    *)
-        echo "Error: Unexpected conversion tool!"
-        exit 1
-        ;;
-esac
+if [ $delete_original -eq 1 ]; then
+    rm "$input_file"
+    echo "Original file '$input_file' deleted."
+fi
 
 echo "Conversion complete: ${filename}.${output_format}"
 
