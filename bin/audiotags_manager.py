@@ -1,17 +1,17 @@
 #!/usr/bin/env python
 
 
+from PIL import UnidentifiedImageError
+from itertools import chain
+from pathlib import Path
 import argparse
 import base64
 import logging
+import music_tag
 import os
 import re
-import unicodedata
-from itertools import chain
-from pathlib import Path
-
-import music_tag
 import requests
+import unicodedata
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
@@ -94,6 +94,8 @@ def autofix():
             Path(TRACKS_PATH).glob('**/*.mp3'),
             Path(TRACKS_PATH).glob('**/*.flac'),
             Path(TRACKS_PATH).glob('**/*.wav')):
+        if src.name.startswith("._"):
+            continue
         logger.info(f"[AUTOFIX] Processing {src}")
         track_metadata = music_tag.load_file(src)
         clean_all_tags(track_metadata)
@@ -174,8 +176,8 @@ def clean_all_tags(track_metadata):
         try:
             if isinstance(track_metadata[tag].first, str):
                 track_metadata[tag] = clean_string(track_metadata[tag].first)
-        except ValueError:
-            pass
+        except (ValueError, UnidentifiedImageError) as e:
+            logger.warning(f"Error processing tag {tag}: {str(e)}")
 
 
 def clean_string(line):
