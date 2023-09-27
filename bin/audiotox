@@ -23,16 +23,19 @@ if [ ! -f "$input_file" ]; then
     exit 1
 fi
 
+# Extract directory path, filename, and extension from the input file
+dir_path=$(dirname "$input_file")
 filename=$(basename -- "$input_file")
 extension="${filename##*.}"
 filename="${filename%.*}"
 
-ffmpeg -i "$input_file" "${filename}.${output_format}"
+# Convert the file, ensuring the output is in the same directory as the input
+ffmpeg -i "$input_file" "${dir_path}/${filename}.${output_format}"
 
 if [ $delete_original -eq 1 ]; then
     rm "$input_file"
     echo "Original file '$input_file' deleted."
 fi
 
-echo "Conversion complete: ${filename}.${output_format}"
+echo "Conversion complete: ${dir_path}/${filename}.${output_format}"
 
