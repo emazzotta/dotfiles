@@ -1,12 +1,34 @@
 #!/bin/bash
 
-if test "${2}"; then
-    ag --hidden -Q "${1}" -G "${2}" .
-elif test "${1}"; then
-    ag --hidden --filename-pattern "${1}" .
-    ag --hidden -Q "${1}" .
+FILE_REGEX=""
+PATTERN=""
+FILE_GIVEN=false
+
+# Parse the command line arguments
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        -r|--file-regex)
+            FILE_REGEX="$2"
+            FILE_GIVEN=true
+            shift
+            ;;
+        *)
+            if [ -z "$PATTERN" ]; then
+                PATTERN="$1"
+            else
+                PATTERN="$PATTERN $1"
+            fi
+            ;;
+    esac
+    shift
+done
+
+# Check the provided arguments and execute the appropriate command
+if [ "$FILE_GIVEN" = true ] && [ ! -z "$PATTERN" ]; then
+    ag --hidden "$PATTERN" -G "$FILE_REGEX" .
+elif [ ! -z "$PATTERN" ]; then
+    ag --hidden "$PATTERN" .
 else
-    echo "usage: $(basename "${0}") <filename>"
-    echo "      <pattern>"
-    echo "      <pattern> <filename regex>"
+    echo "usage: $(basename "${0}") [-r <filename regex>] <pattern>"
 fi
+
