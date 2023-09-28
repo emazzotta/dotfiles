@@ -3,6 +3,7 @@
 FILE_REGEX=""
 PATTERN=""
 FILE_GIVEN=false
+SEARCH_PATH="."
 
 # Parse the command line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -10,6 +11,10 @@ while [[ "$#" -gt 0 ]]; do
         -r|--file-regex)
             FILE_REGEX="$2"
             FILE_GIVEN=true
+            shift
+            ;;
+        -p|--path)
+            SEARCH_PATH="$2"
             shift
             ;;
         *)
@@ -25,10 +30,10 @@ done
 
 # Check the provided arguments and execute the appropriate command
 if [ "$FILE_GIVEN" = true ] && [ ! -z "$PATTERN" ]; then
-    ag --hidden "$PATTERN" -G "$FILE_REGEX" .
+    ag --hidden "$PATTERN" -G "$FILE_REGEX" "$SEARCH_PATH"
 elif [ ! -z "$PATTERN" ]; then
-    ag --hidden "$PATTERN" .
+    ag --hidden "$PATTERN" "$SEARCH_PATH"
 else
-    echo "usage: $(basename "${0}") [-r <filename regex>] <pattern>"
+    echo "usage: $(basename "${0}") [-r <filename regex>] [-p <path>] <pattern>"
 fi
 
