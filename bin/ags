@@ -30,9 +30,15 @@ done
 
 # Check the provided arguments and execute the appropriate command
 if [ "$FILE_GIVEN" = true ] && [ ! -z "$PATTERN" ]; then
+    # Search for pattern in file contents
     ag --hidden "$PATTERN" -G "$FILE_REGEX" "$SEARCH_PATH"
+    # Search for files whose names match the pattern
+    ag --hidden --filename-pattern "$PATTERN" -G "$FILE_REGEX" "$SEARCH_PATH"
 elif [ ! -z "$PATTERN" ]; then
+    # Search for pattern in file contents
     ag --hidden "$PATTERN" "$SEARCH_PATH"
+    # Search for files whose names match the pattern
+    ag --hidden --filename-pattern "$PATTERN" "$SEARCH_PATH"
 else
     echo "usage: $(basename "${0}") [-r <filename regex>] [-p <path>] <pattern>"
 fi

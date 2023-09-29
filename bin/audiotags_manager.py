@@ -187,6 +187,8 @@ def clean_string(line):
     line = line.replace('(Original Version)', '')
     line = line.replace('(Extended Mix)', '')
     line = line.replace('(Extended Version)', '')
+    line = line.replace('(copy)', '')
+    line = re.sub(r'\(\d+\)', '', line)
     line = re.sub(r'^\s+|\s+$', '', line)
     return line
 
