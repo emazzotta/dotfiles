@@ -2,11 +2,19 @@
 
 set -u
 
+# Source the global environment file
+source "$GLOBAL_ENV_FILE"
+
 echo
 echo "Creating Notion Backup ${NOTION_EXPORT_FILENAME}"
 
 source "${VENV_PYTHON_3}/bin/activate"
-notion_backup_downloader ${NOTION_EXPORT_FILENAME}
+
+# Retry mechanism for notion_backup_downloader
+for i in {1..10}; do
+    notion_backup_downloader ${NOTION_EXPORT_FILENAME} && break || (echo "Retrying in 1 second..." && sleep 1)
+done
+
 BACKUP_PATH="${ZIPS_DIR}/Notion_Backup.7z"
 
 rm -f "${BACKUP_PATH}"
@@ -16,3 +24,4 @@ rm -f "${NOTION_EXPORT_FILENAME}"
 echo
 
 deactivate
+
