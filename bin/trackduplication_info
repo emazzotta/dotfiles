@@ -1,0 +1,87 @@
+#!/bin/bash
+
+# Get the search path from the first script argument or default to the current directory
+search_path=${1:-.}
+
+# Create a temporary file to store mp3 file details
+temp_file=$(mktemp /tmp/mp3_files.XXXXXX)
+
+# Find all mp3 files in the specified or default path and store their name and path in the temporary file
+find "$search_path" -type f -name "*.mp3" | while IFS= read -r file; do
+    # Extract the base name of the file
+    base_name=$(basename "$file" .mp3)
+
+    # Strip known version indicators from the filename (case-insensitive)
+    stripped_name=$(echo "$base_name" | sed -E -e 's/ \(extended\)//I' -e 's/ \(original\)//I' -e 's/ \(radio\)//I' -e 's/ \([a-zA-Z ]* edit\)//I' -e 's/ \([a-zA-Z ]* mix\)//I' -e 's/ \([a-zA-Z ]* version\)//I')
+
+    # Get the file size
+    size=$(stat -f%z "$file")
+
+    # Store data in the temporary file
+    echo "$stripped_name|$file|$size" >> "$temp_file"
+done
+
+# Sort the temporary file by the stripped name to group potential versions together
+sort "$temp_file" > "${temp_file}_sorted"
+mv "${temp_file}_sorted" "$temp_file"
+
+# Process the sorted file to identify potential different versions of the same song
+prev_name=""
+declare -a version_data
+while IFS="|" read -r stripped_name file size; do
+    if [[ "$stripped_name" == "$prev_name" ]]; then
+        version_data+=("$size|$file")
+    else
+        if [[ "${#version_data[@]}" -gt 1 ]]; then
+            printf "Potential Versions of: %s\n" "$prev_name"
+            printf "| %-8s | %-10s | %-40s | %-50s |\n" "Largest" "Size" "Path Dirname" "Path Basename"
+            printf "|%s|\n" "$(printf ' %.0s-' {1..118})"  # prints 118 dashes
+
+            # Sort version data by size in descending order
+            IFS=$'\n' sorted=($(sort -nr <<< "${version_data[*]}"))
+            first=true
+            for entry in "${sorted[@]}"; do
+                IFS="|" read -r size path <<< "$entry"
+                dir_name=$(dirname "$path")
+                base_name=$(basename "$path")
+                if $first; then
+                    printf "| %-8s | %-10s | %-40s | %-50s |\n" ":heavy_check_mark:" "$size" "$dir_name" "$base_name"
+                    first=false
+                else
+                    printf "| %-8s | %-10s | %-40s | %-50s |\n" " " "$size" "$dir_name" "$base_name"
+                fi
+            done
+            printf "\n\n"
+        fi
+        version_data=()
+        version_data+=("$size|$file")
+    fi
+    prev_name="$stripped_name"
+done < "$temp_file"
+
+# Handle the last set of potential versions
+if [[ "${#version_data[@]}" -gt 1 ]]; then
+    printf "Potential Versions of: %s\n" "$prev_name"
+    printf "| %-8s | %-10s | %-40s | %-50s |\n" "Largest" "Size" "Path Dirname" "Path Basename"
+    printf "|%s|\n" "$(printf ' %.0s-' {1..118})"  # prints 118 dashes
+
+    # Sort version data by size in descending order
+    IFS=$'\n' sorted=($(sort -nr <<< "${version_data[*]}"))
+    first=true
+    for entry in "${sorted[@]}"; do
+        IFS="|" read -r size path <<< "$entry"
+        dir_name=$(dirname "$path")
+        base_name=$(basename "$path")
+        if $first; then
+            printf "| %-8s | %-10s | %-40s | %-50s |\n" ":heavy_check_mark:" "$size" "$dir_name" "$base_name"
+            first=false
+        else
+            printf "| %-8s | %-10s | %-40s | %-50s |\n" " " "$size" "$dir_name" "$base_name"
+        fi
+    done
+    printf "\n\n"
+fi
+
+# Clean up the temporary file
+rm "$temp_file"
+

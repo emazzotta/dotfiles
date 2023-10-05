@@ -1,13 +1,11 @@
 #!/bin/bash
 
-echo "Deleting node modules"
-node_modules_delete
 
-echo "Killing port listeners"
-killportlisteners
-
-echo "Restarting database"
-docker-compose down && docker-compose up -d database
-
-echo "Installing and starting portal"
-yarn && yarn clean && npx @turbo/codemod update && yarn generate && yarn dev
+yes | cp -rf .env /tmp/.env
+yes | cp -rf .idea /tmp/.idea
+git clean -dfx
+cp /tmp/.env .env 
+cp /tmp/.idea .idea 
+yarn
+npx playwright install
+yarn && docker-compose down && docker-compose up -d database && yarn clean && yarn generate && yarn build && yarn dev
