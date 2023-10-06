@@ -1,87 +1,63 @@
-#!/bin/bash
+#!/usr/bin/env python3
 
-# Get the search path from the first script argument or default to the current directory
-search_path=${1:-.}
+import argparse
+import os
+import subprocess
+from collections import defaultdict
+from pathlib import Path
 
-# Create a temporary file to store mp3 file details
-temp_file=$(mktemp /tmp/mp3_files.XXXXXX)
 
-# Find all mp3 files in the specified or default path and store their name and path in the temporary file
-find "$search_path" -type f -name "*.mp3" | while IFS= read -r file; do
-    # Extract the base name of the file
-    base_name=$(basename "$file" .mp3)
+def generate_report(mp3_details, args):
+    header = f"# MP3 File Analysis\n\n- Search Path: {args.search_path}\n- Output Path: {args.output_path}\n\n"
+    if not mp3_details:
+        return header + "No MP3 files found or no duplicates detected."
 
-    # Strip known version indicators from the filename (case-insensitive)
-    stripped_name=$(echo "$base_name" | sed -E -e 's/ \(extended\)//I' -e 's/ \(original\)//I' -e 's/ \(radio\)//I' -e 's/ \([a-zA-Z ]* edit\)//I' -e 's/ \([a-zA-Z ]* mix\)//I' -e 's/ \([a-zA-Z ]* version\)//I')
+    details_content = ""
+    for stripped_name, details in mp3_details.items():
+        if len(details) > 1:
+            details_content += f"## Potential Versions of: {stripped_name}\n"
+            details_content += "| Path Basename | Largest | Size | Path Dirname |\n|---|---|---|---|\n"
 
-    # Get the file size
-    size=$(stat -f%z "$file")
+            details.sort(reverse=True)
+            first = True
+            for size, full_path in details:
+                dir_name = os.path.dirname(full_path)
+                base_name = os.path.basename(full_path)
+                largest_tick = "X" if first else " "
+                first = False
+                details_content += f"| {base_name} | {largest_tick} | {size} | {dir_name} |\n"
 
-    # Store data in the temporary file
-    echo "$stripped_name|$file|$size" >> "$temp_file"
-done
+            details_content += "\n"
 
-# Sort the temporary file by the stripped name to group potential versions together
-sort "$temp_file" > "${temp_file}_sorted"
-mv "${temp_file}_sorted" "$temp_file"
+    return header + details_content
 
-# Process the sorted file to identify potential different versions of the same song
-prev_name=""
-declare -a version_data
-while IFS="|" read -r stripped_name file size; do
-    if [[ "$stripped_name" == "$prev_name" ]]; then
-        version_data+=("$size|$file")
-    else
-        if [[ "${#version_data[@]}" -gt 1 ]]; then
-            printf "Potential Versions of: %s\n" "$prev_name"
-            printf "| %-8s | %-10s | %-40s | %-50s |\n" "Largest" "Size" "Path Dirname" "Path Basename"
-            printf "|%s|\n" "$(printf ' %.0s-' {1..118})"  # prints 118 dashes
 
-            # Sort version data by size in descending order
-            IFS=$'\n' sorted=($(sort -nr <<< "${version_data[*]}"))
-            first=true
-            for entry in "${sorted[@]}"; do
-                IFS="|" read -r size path <<< "$entry"
-                dir_name=$(dirname "$path")
-                base_name=$(basename "$path")
-                if $first; then
-                    printf "| %-8s | %-10s | %-40s | %-50s |\n" ":heavy_check_mark:" "$size" "$dir_name" "$base_name"
-                    first=false
-                else
-                    printf "| %-8s | %-10s | %-40s | %-50s |\n" " " "$size" "$dir_name" "$base_name"
-                fi
-            done
-            printf "\n\n"
-        fi
-        version_data=()
-        version_data+=("$size|$file")
-    fi
-    prev_name="$stripped_name"
-done < "$temp_file"
+def main():
+    parser = argparse.ArgumentParser(description='Find potential duplicate MP3 files and generate a report.')
+    parser.add_argument('search_path', help='Path to search for MP3 files.')
+    parser.add_argument('-o', '--output-path', default='.', help='Path to save the report file.')
+    args = parser.parse_args()
 
-# Handle the last set of potential versions
-if [[ "${#version_data[@]}" -gt 1 ]]; then
-    printf "Potential Versions of: %s\n" "$prev_name"
-    printf "| %-8s | %-10s | %-40s | %-50s |\n" "Largest" "Size" "Path Dirname" "Path Basename"
-    printf "|%s|\n" "$(printf ' %.0s-' {1..118})"  # prints 118 dashes
+    mp3_details = defaultdict(list)
+    for root, dirs, files in os.walk(args.search_path, followlinks=True):
+        for file in files:
+            if file.endswith('.mp3'):
+                full_path = os.path.join(root, file)
+                print(f"Processing {full_path}...")
+                base_name = os.path.basename(full_path)
+                stripped_name = base_name.rstrip('.mp3')
+                size = os.path.getsize(full_path)
+                mp3_details[stripped_name].append((size, full_path))
 
-    # Sort version data by size in descending order
-    IFS=$'\n' sorted=($(sort -nr <<< "${version_data[*]}"))
-    first=true
-    for entry in "${sorted[@]}"; do
-        IFS="|" read -r size path <<< "$entry"
-        dir_name=$(dirname "$path")
-        base_name=$(basename "$path")
-        if $first; then
-            printf "| %-8s | %-10s | %-40s | %-50s |\n" ":heavy_check_mark:" "$size" "$dir_name" "$base_name"
-            first=false
-        else
-            printf "| %-8s | %-10s | %-40s | %-50s |\n" " " "$size" "$dir_name" "$base_name"
-        fi
-    done
-    printf "\n\n"
-fi
+    report_content = generate_report(mp3_details, args)
 
-# Clean up the temporary file
-rm "$temp_file"
+    output_dir = Path(args.output_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    md_file_path = os.path.join(args.output_path, 'report.md')
+    with open(md_file_path, 'w') as md_file:
+        md_file.write(report_content)
+    print(f'Markdown report saved to {md_file_path}')
 
+
+if __name__ == '__main__':
+    main()
