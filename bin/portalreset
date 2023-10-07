@@ -4,8 +4,7 @@
 yes | cp -rf .env /tmp/.env
 yes | cp -rf .idea /tmp/.idea
 git clean -dfx
-cp /tmp/.env .env 
-cp /tmp/.idea .idea 
+cp -rf /tmp/.idea .idea 
 yarn
 npx playwright install
-yarn && docker-compose down && docker-compose up -d database && yarn clean && yarn generate && yarn build && yarn dev
+yarn setup && cp -rf /tmp/.env .env && docker-compose down && docker-compose up -d database && yarn clean && yarn generate && yarn build && yarn dev
