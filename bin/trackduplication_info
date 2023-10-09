@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def generate_report(mp3_details, args):
-    header = f"# MP3 File Analysis\n\n- Search Path: {args.search_path}\n- Output Path: {args.output_path}\n\n"
+    header = f"# MP3 File Analysis\n\n- Search Paths: {', '.join(args.search_path)}\n- Output Path: {args.output_path}\n\n"
     if not mp3_details:
         return header + "No MP3 files found or no duplicates detected."
 
@@ -34,20 +34,21 @@ def generate_report(mp3_details, args):
 
 def main():
     parser = argparse.ArgumentParser(description='Find potential duplicate MP3 files and generate a report.')
-    parser.add_argument('search_path', help='Path to search for MP3 files.')
+    parser.add_argument('search_path', nargs='+', help='Paths to search for MP3 files.')
     parser.add_argument('-o', '--output-path', default='.', help='Path to save the report file.')
     args = parser.parse_args()
 
     mp3_details = defaultdict(list)
-    for root, dirs, files in os.walk(args.search_path, followlinks=True):
-        for file in files:
-            if file.endswith('.mp3'):
-                full_path = os.path.join(root, file)
-                print(f"Processing {full_path}...")
-                base_name = os.path.basename(full_path)
-                stripped_name = base_name.rstrip('.mp3')
-                size = os.path.getsize(full_path)
-                mp3_details[stripped_name].append((size, full_path))
+    for search_path in args.search_path:
+        for root, dirs, files in os.walk(search_path, followlinks=True):
+            for file in files:
+                if file.endswith('.mp3'):
+                    full_path = os.path.join(root, file)
+                    print(f"Processing {full_path}...")
+                    base_name = os.path.basename(full_path)
+                    stripped_name = base_name.rstrip('.mp3')
+                    size = os.path.getsize(full_path)
+                    mp3_details[stripped_name].append((size, full_path))
 
     report_content = generate_report(mp3_details, args)
 
