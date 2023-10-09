@@ -2,13 +2,14 @@
 
 import argparse
 import os
-import subprocess
+import shutil
 from collections import defaultdict
 from pathlib import Path
 
 
-def generate_report(mp3_details, args):
+def generate_report(mp3_details, args, duplicate_groups_count):
     header = f"# MP3 File Analysis\n\n- Search Paths: {', '.join(args.search_path)}\n- Output Path: {args.output_path}\n\n"
+    header += f"{duplicate_groups_count} duplicate groups found.\n\n"
     if not mp3_details:
         return header + "No MP3 files found or no duplicates detected."
 
@@ -32,13 +33,46 @@ def generate_report(mp3_details, args):
     return header + details_content
 
 
+def handle_duplicates(mp3_details, dest_path):
+    for stripped_name, details in mp3_details.items():
+        if len(details) > 1:
+            print(f"\nPotential Versions of: {stripped_name}")
+            details.sort(reverse=True)
+            largest_file_path = details[0][1]
+            if dest_path:
+                dest_file_path = os.path.join(dest_path, os.path.basename(largest_file_path))
+                print(f'Will move {largest_file_path} to {dest_file_path}')
+            for size, full_path in details[1:]:
+                print(f'Will delete {full_path}')
+
+    user_confirmation = input("\nAre you sure you want to move and delete files? Type 'yes' to confirm: ")
+    if user_confirmation.lower() != 'yes':
+        print("Operation canceled.")
+        return
+
+    for stripped_name, details in mp3_details.items():
+        if len(details) > 1:
+            details.sort(reverse=True)
+            largest_file_path = details[0][1]
+            if dest_path:
+                dest_file_path = os.path.join(dest_path, os.path.basename(largest_file_path))
+                shutil.move(largest_file_path, dest_file_path)
+                print(f'Moved {largest_file_path} to {dest_file_path}')
+            for size, full_path in details[1:]:
+                os.remove(full_path)
+                print(f'Deleted {full_path}')
+
+
 def main():
     parser = argparse.ArgumentParser(description='Find potential duplicate MP3 files and generate a report.')
     parser.add_argument('search_path', nargs='+', help='Paths to search for MP3 files.')
     parser.add_argument('-o', '--output-path', default='.', help='Path to save the report file.')
+    parser.add_argument('-d', '--destination-path',
+                        help='Path to move the largest file and delete the remaining duplicates.')
     args = parser.parse_args()
 
     mp3_details = defaultdict(list)
+    duplicate_groups_count = 0
     for search_path in args.search_path:
         for root, dirs, files in os.walk(search_path, followlinks=True):
             for file in files:
@@ -50,7 +84,13 @@ def main():
                     size = os.path.getsize(full_path)
                     mp3_details[stripped_name].append((size, full_path))
 
-    report_content = generate_report(mp3_details, args)
+    for details in mp3_details.values():
+        if len(details) > 1:
+            duplicate_groups_count += 1
+
+    print(f"\n{duplicate_groups_count} duplicate groups found.")
+
+    report_content = generate_report(mp3_details, args, duplicate_groups_count)
 
     output_dir = Path(args.output_path)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -58,6 +98,9 @@ def main():
     with open(md_file_path, 'w') as md_file:
         md_file.write(report_content)
     print(f'Markdown report saved to {md_file_path}')
+
+    if args.destination_path:
+        handle_duplicates(mp3_details, args.destination_path)
 
 
 if __name__ == '__main__':
