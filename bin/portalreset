@@ -4,6 +4,7 @@
 yes | cp -rf .env /tmp/.env
 yes | cp -rf .idea /tmp/.idea
 git clean -dfx
+git pull
 cp -rf /tmp/.idea .idea 
 yarn
 npx playwright install

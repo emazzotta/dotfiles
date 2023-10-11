@@ -8,6 +8,7 @@ tap "homebrew/services"
 
 brew "adr-tools"
 brew "aria2"
+brew "artillery"
 brew "awscli"
 brew "awslogs"
 brew "bash-completion"
