@@ -9,10 +9,13 @@ from glob import glob
 
 def convert_audio(input_file, output_format, output_path, delete_original):
     filename, _ = os.path.splitext(os.path.basename(input_file))
+    
+    # If output_path is provided, use it; otherwise, save in the current directory
     if output_path:
         output_file = f"{output_path}/{filename}.{output_format}"
     else:
-        output_file = f"{os.path.dirname(input_file)}/{filename}.{output_format}"
+        # Ensure the output is in the current directory
+        output_file = f"./{filename}.{output_format}"
 
     codec = {
         'flac': 'flac',
