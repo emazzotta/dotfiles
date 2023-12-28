@@ -28,6 +28,7 @@ export APPDIR="$ROOT/Applications"
 export BOILERPLATE_PATH="$PRIVATE_PROJECTS/katas/boilerplate"
 export BOOKMARKDIR=$DOCUMENTDIR/Bookmarks
 export CLICOLOR=1
+export CMAKE_MAKE_PROGRAM=$(which ninja)
 export CRONTAB_FILE="$DOTFILESPATH/cron/crontab"
 export DESKDIR="$HOME/Desktop"
 export DOWNLOADDIR="$HOME/Downloads"
