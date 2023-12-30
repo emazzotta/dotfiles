@@ -2,11 +2,10 @@
 import os
 import subprocess
 
-
 SOURCE_DRIVE = "SanDisk_1TB"
 EXCLUDE_DRIVES = ["Macintosh HD", ".timemachine"]
-VOLUMES_PATH = "/Volumes/"
-RSYNC_FLAGS = ["-avh", "--delete", "--progress"]
+VOLUMES_PATH = "/Volumes"
+RSYNC_FLAGS = ["-avh", "--delete", "--progress", "--exclude", "TODO/"]
 
 
 def get_drive_space(path):
