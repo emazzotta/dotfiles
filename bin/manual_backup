@@ -3,7 +3,7 @@ import os
 import subprocess
 
 SOURCE_DRIVE = "SanDisk_1TB"
-EXCLUDE_DRIVES = ["Macintosh HD", ".timemachine"]
+EXCLUDE_DRIVES = ["Macintosh HD", ".timemachine", "com.apple.TimeMachine.localsnapshots"]
 VOLUMES_PATH = "/Volumes"
 RSYNC_FLAGS = ["-avh", "--delete", "--progress", "--exclude", "TODO/"]
 
@@ -26,31 +26,46 @@ def display_space_details(path, label):
     print(f"{label} - Total: {total:.2f} GB, Used: {used:.2f} GB, Free: {free:.2f} GB")
 
 
-def main():
-    source = os.path.join(VOLUMES_PATH, SOURCE_DRIVE)
-    targets = get_available_targets()
-
-    print("Source Drive Space Details:")
-    display_space_details(source, SOURCE_DRIVE)
-
+def select_target(targets):
     print("\nAvailable Targets:")
     for i, target in enumerate(targets, 1):
         target_path = os.path.join(VOLUMES_PATH, target)
         print(f"{i}. {target}")
         display_space_details(target_path, target)
 
-    try:
-        choice = int(input("\nEnter the number of your target: ")) - 1
-        if choice < 0 or choice >= len(targets):
-            raise ValueError("Selection out of range")
-    except ValueError:
-        print("Invalid selection. Exiting.")
-        return
+    choice = -1
+    while choice not in range(len(targets)):
+        try:
+            choice = int(input("\nEnter the number of your target: ")) - 1
+            if choice < 0 or choice >= len(targets):
+                print("Please enter a valid number from the list.")
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+    return os.path.join(VOLUMES_PATH, targets[choice])
 
-    target = os.path.join(VOLUMES_PATH, targets[choice])
+
+def confirm_and_execute_rsync(source, target, rsync_command):
+    print("\nSource Directory:", source)
+    print("Target Directory:", target)
+    print("Rsync Command:", ' '.join(rsync_command))
+    proceed = input("Proceed with rsync? (y/N): ").strip().lower()
+    if proceed == "y":
+        subprocess.run(rsync_command)
+    else:
+        print("Rsync operation cancelled.")
+
+
+def main():
+    source = os.path.join(VOLUMES_PATH, SOURCE_DRIVE) + '/'
+    targets = get_available_targets()
+
+    print("Source Drive Space Details:")
+    display_space_details(source, SOURCE_DRIVE)
+
+    target = select_target(targets)
     rsync_command = ["rsync"] + RSYNC_FLAGS + [source, target]
-    print("\nExecuting:", " ".join(rsync_command))
-    subprocess.run(rsync_command)
+
+    confirm_and_execute_rsync(source, target, rsync_command)
 
 
 if __name__ == "__main__":
