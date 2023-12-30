@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+
+
+SOURCE_DRIVE = "SanDisk_1TB"
+EXCLUDE_DRIVES = ["Macintosh HD", ".timemachine"]
+VOLUMES_PATH = "/Volumes/"
+RSYNC_FLAGS = ["-avh", "--delete", "--progress"]
+
+
+def get_drive_space(path):
+    statvfs = os.statvfs(path)
+    total = (statvfs.f_blocks * statvfs.f_frsize) / (1024**3)
+    free = (statvfs.f_bfree * statvfs.f_frsize) / (1024**3)
+    used = total - free
+    return total, used, free
+
+
+def get_available_targets():
+    drives = os.listdir(VOLUMES_PATH)
+    return [d for d in drives if d not in EXCLUDE_DRIVES + [SOURCE_DRIVE]]
+
+
+def display_space_details(path, label):
+    total, used, free = get_drive_space(path)
+    print(f"{label} - Total: {total:.2f} GB, Used: {used:.2f} GB, Free: {free:.2f} GB")
+
+
+def main():
+    source = os.path.join(VOLUMES_PATH, SOURCE_DRIVE)
+    targets = get_available_targets()
+
+    print("Source Drive Space Details:")
+    display_space_details(source, SOURCE_DRIVE)
+
+    print("\nAvailable Targets:")
+    for i, target in enumerate(targets, 1):
+        target_path = os.path.join(VOLUMES_PATH, target)
+        print(f"{i}. {target}")
+        display_space_details(target_path, target)
+
+    try:
+        choice = int(input("\nEnter the number of your target: ")) - 1
+        if choice < 0 or choice >= len(targets):
+            raise ValueError("Selection out of range")
+    except ValueError:
+        print("Invalid selection. Exiting.")
+        return
+
+    target = os.path.join(VOLUMES_PATH, targets[choice])
+    rsync_command = ["rsync"] + RSYNC_FLAGS + [source, target]
+    print("\nExecuting:", " ".join(rsync_command))
+    subprocess.run(rsync_command)
+
+
+if __name__ == "__main__":
+    main()
