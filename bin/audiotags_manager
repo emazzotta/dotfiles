@@ -183,13 +183,22 @@ def clean_all_tags(track_metadata):
 def clean_string(line):
     line = re.sub(r'\[www\.slider\.kz]', '', line)
     line = re.sub(r'\s+', ' ', line)
+
     line = line.replace('(Original Mix)', '')
     line = line.replace('(Original Version)', '')
     line = line.replace('(Extended Mix)', '')
     line = line.replace('(Extended Version)', '')
     line = line.replace('(copy)', '')
+    line = re.sub(r'\(\s*(\w+\s+)*(mix|version|edit)\s*\)', lambda match: f"({match.group(1).capitalize().strip() + ' ' + match.group(2).capitalize()})", line)
+
     line = re.sub(r'\(\d+\)', '', line)
-    line = re.sub(r'^\s+|\s+$', '', line)
+
+    # Remove space before commas and parentheses
+    line = re.sub(r'\s+,', ',', line)
+    line = re.sub(r'\s+\)', ')', line)
+    line = re.sub(r'\(\s+', '(', line)
+
+    line = line.strip()
     return line
 
 
