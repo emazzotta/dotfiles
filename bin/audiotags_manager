@@ -155,7 +155,8 @@ def compose_filename(metadata):
 
 
 def normalize_special_characters(new_track_name):
-    normalized = unicodedata.normalize('NFD', new_track_name).encode('ASCII', 'ignore').decode()
+    normalized = new_track_name.replace("€", "E")
+    normalized = unicodedata.normalize('NFD', normalized).encode('ASCII', 'ignore').decode()
     normalized = normalized.replace("/", "_")
     normalized = normalized.replace("?", "...")
     if new_track_name != normalized:
@@ -186,8 +187,10 @@ def clean_string(line):
 
     line = line.replace('(Original Mix)', '')
     line = line.replace('(Original Version)', '')
+    line = line.replace('(Original)', '')
     line = line.replace('(Extended Mix)', '')
     line = line.replace('(Extended Version)', '')
+    line = line.replace('(Extended)', '')
     line = line.replace('(copy)', '')
     line = re.sub(r'\(\s*(\w+\s+)*(mix|version|edit)\s*\)', lambda match: f"({match.group(1).capitalize().strip() + ' ' + match.group(2).capitalize()})", line)
 
