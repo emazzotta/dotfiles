@@ -237,7 +237,6 @@ alias rmwin="find . -type f -name 'Thumbs.db' -or -name 'desktop.ini' -or -name 
 alias rmzero='find . -size 0 | xargs rm'
 alias rnup='$HOME/Projects/mikafi/roasterapp/node_modules/react-native/scripts/launchPackager.command'
 alias rp='source $HOME/.bashrc'
-alias rr='rm -rf'
 alias sconf='vi $HOME/.ssh/config'
 alias sdkmanupdate='yes | sdk update;rmjsdk'
 alias see="fzf --preview 'less {}'"
