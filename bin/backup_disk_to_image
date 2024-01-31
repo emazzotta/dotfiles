@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# List available disks
+echo "Listing available disks..."
+diskutil list
+
+# Prompt user to select a disk
+read -p "Enter the disk identifier to backup (e.g., disk1): " disk_id
+
+# Confirm disk selection
+echo "You selected $disk_id. Please confirm this is correct."
+read -p "Press enter to continue or CTRL+C to abort..."
+
+# Default backup path to Desktop
+default_path="$HOME/Desktop/${disk_id}_backup.img"
+
+# Ask for a destination path, defaulting to Desktop
+read -p "Enter the destination path for the backup or press enter to use default ($default_path): " dest_path
+dest_path=${dest_path:-$default_path}
+
+# Confirm destination path
+echo "The backup will be saved to: $dest_path"
+
+# Execute dd command
+echo "Starting backup of /dev/$disk_id to $dest_path. This may take a while..."
+sudo dd if=/dev/$disk_id of="$dest_path" bs=1m status=progress
+
+echo "Backup completed successfully."
+

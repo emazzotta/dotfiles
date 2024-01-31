@@ -1,0 +1,32 @@
+#!/bin/bash
+
+read -p "Enter the full path of the .wic image file: " WIC_IMAGE_PATH
+
+if [[ ! -f "${WIC_IMAGE_PATH}" ]]; then
+    echo "The specified file does not exist. Please check the path and try again."
+    exit 1
+fi
+
+echo "Listing available disks..."
+diskutil list
+
+read -p "Enter the disk identifier where the image will be written (e.g., disk2): " disk_id
+
+echo "You have selected $disk_id. This will overwrite all data on the disk."
+read -p "Are you sure you want to proceed? (y/N): " confirmation
+
+if [[ "${confirmation}" != "y" && "${confirmation}" != "Y" ]]; then
+    echo "Operation aborted by the user."
+    exit 0
+fi
+
+echo "Unmounting disk /dev/${disk_id}..."
+diskutil unmountDisk /dev/${disk_id} || { echo "Failed to unmount /dev/${disk_id}. Please unmount all volumes manually and try again."; exit 1; }
+
+DD_OUTPUT_PATH="/dev/${disk_id}"
+
+echo "Writing image to $DD_OUTPUT_PATH. Please wait..."
+sudo dd bs=4M if="${WIC_IMAGE_PATH}" of="${DD_OUTPUT_PATH}" status=progress && sync
+
+echo "Image write completed successfully."
+
