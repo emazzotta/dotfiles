@@ -22,7 +22,7 @@ dest_path=${dest_path:-$default_path}
 echo "The backup will be saved to: $dest_path"
 
 echo "Starting backup of /dev/$disk_id to $dest_path. This may take a while..."
-sudo dd bs=4M if=/dev/$disk_id of="$dest_path" status=progress
+sudo dd bs=4M if=/dev/$disk_id of="$dest_path" status=progress && sync
 
 echo "Backup completed successfully."
 
