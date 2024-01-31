@@ -1,8 +1,8 @@
 #!/bin/bash
 
-read -p "Enter the full path of the .wic image file: " WIC_IMAGE_PATH
+read -p "Enter the full path of the image file: " IMAGE_PATH
 
-if [[ ! -f "${WIC_IMAGE_PATH}" ]]; then
+if [[ ! -f "${IMAGE_PATH}" ]]; then
     echo "The specified file does not exist. Please check the path and try again."
     exit 1
 fi
@@ -32,7 +32,7 @@ diskutil unmountDisk "/dev/${disk_id}" || { echo "Failed to unmount /dev/${disk_
 DD_OUTPUT_PATH="/dev/${disk_id}"
 
 echo "Writing image to $DD_OUTPUT_PATH. Please wait..."
-sudo dd bs=4M if="${WIC_IMAGE_PATH}" of="${DD_OUTPUT_PATH}" status=progress && sync
+sudo dd bs=4M if="${IMAGE_PATH}" of="${DD_OUTPUT_PATH}" status=progress && sync
 
 echo "Image write completed successfully."
 
