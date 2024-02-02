@@ -2,14 +2,25 @@
 
 set -euo pipefail
 
-plugins=("actions/upload-artifact" "actions/checkout", "slackapi/slack-github-action", "docker/build-push-action", "docker/setup-qemu-action", "setup-buildx-action", "docker/login-action", "aws-actions/configure-aws-credentials", "actions/download-artifact")
-versions=("v4" "v4", "v1", "v1", "v1", "v1", "v1", "v1", "v1", "v1")
+plugin_versions=(
+    "actions/cache@v4"
+    "actions/checkout@v4"
+    "actions/download-artifact@v4"
+    "actions/setup-node@v4"
+    "actions/upload-artifact@v4"
+    "aws-actions/configure-aws-credentials@v4"
+    "docker/build-push-action@v5"
+    "docker/login-action@v3"
+    "docker/setup-buildx-action@v3"
+    "docker/setup-qemu-action@v3"
+    "hashicorp/setup-terraform@v3"
+    "mikafi/ec2-github-runner@main"
+    "slackapi/slack-github-action@v1"
+)
 
-length=${#plugins[@]}
-
-for ((i=0; i<$length; i++)); do
-    plugin=${plugins[$i]}
-    version=${versions[$i]}
+for pair in "${plugin_versions[@]}"; do
+    plugin=$(echo "$pair" | cut -d'@' -f1)
+    version=$(echo "$pair" | cut -d'@' -f2)
     echo "Updating $plugin to $version..."
     replace_action_plugin_version "$plugin" "$version"
 done
