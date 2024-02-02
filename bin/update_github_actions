@@ -1,0 +1,18 @@
+#!/bin/bash
+
+set -euo pipefail
+
+plugins=("actions/upload-artifact" "actions/checkout", "slackapi/slack-github-action", "docker/build-push-action", "docker/setup-qemu-action", "setup-buildx-action", "docker/login-action", "aws-actions/configure-aws-credentials", "actions/download-artifact")
+versions=("v4" "v4", "v1", "v1", "v1", "v1", "v1", "v1", "v1", "v1")
+
+length=${#plugins[@]}
+
+for ((i=0; i<$length; i++)); do
+    plugin=${plugins[$i]}
+    version=${versions[$i]}
+    echo "Updating $plugin to $version..."
+    replace_action_plugin_version "$plugin" "$version"
+done
+
+echo "All specified plugins have been updated to their target versions."
+
