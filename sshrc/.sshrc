@@ -1,7 +1,21 @@
 #!/bin/bash
 
+if command -v tput &> /dev/null; then
+    RESET="$(tput sgr0)"
+    GREEN="$(tput setaf 10)"
+    WHITE="$(tput setaf 15)"
+    CYAN="$(tput setaf 14)"
+    YELLOW="$(tput setaf 11)"
+else
+    RESET="\[\033[0m\]"
+    GREEN="\[\033[38;5;10m\]"
+    WHITE="\[\033[38;5;15m\]"
+    CYAN="\[\033[38;5;14m\]"
+    YELLOW="\[\033[38;5;11m\]"
+fi
+
 export EDITOR='vim'
-export PS1="\[\033[38;5;10m\]\u@\h\[$(tput sgr0)\]\[\033[38;5;15m\] \[$(tput sgr0)\]\[\033[38;5;14m\]\w\[$(tput sgr0)\]\[\033[38;5;15m\] \[$(tput sgr0)\]\[\033[38;5;11m\]\\$\[$(tput sgr0)\]\[\033[38;5;15m\] \[$(tput sgr0)\]"
+export PS1="${GREEN}\u@\h${WHITE} ${CYAN}\w ${YELLOW}\\$ ${RESET}"
 
 alias .1='cd ..'
 alias .2='.1;.1'
@@ -11,7 +25,6 @@ alias .5='.4;.1'
 alias .du='du -hsx * | sort -rh | head -10'
 alias .s='cd ${HOME}/.ssh'
 alias dc='docker-compose'
-alias dclogclean='truncate -s 0 /var/lib/docker/containers/*/*-json.log'
 alias dps='docker ps'
 alias dt='cd ${HOME}/Desktop'
 alias e='exit'
