@@ -22,7 +22,9 @@ def convert_audio(input_file, output_format, output_path, delete_original):
         'alac': 'alac',
         'wav': 'pcm_s16le',
         'ogg': 'libvorbis',
-        'mp3': 'libmp3lame'
+        'mp3': 'libmp3lame',
+        'aif': 'pcm_s16le',
+        'aiff': 'pcm_s16le'
     }.get(output_format)
 
     if not codec:
@@ -31,7 +33,6 @@ def convert_audio(input_file, output_format, output_path, delete_original):
 
     command = ["ffmpeg", "-i", input_file, "-c:a", codec]
 
-    # For mp3 format, add quality parameter
     if output_format == 'mp3':
         command.extend(["-q:a", "0"])
 
@@ -47,7 +48,7 @@ def convert_audio(input_file, output_format, output_path, delete_original):
 
 
 def get_audio_files(directory):
-    audio_extensions = ['wav', 'flac', 'mp3', 'ogg', 'alac']
+    audio_extensions = ['wav', 'flac', 'mp3', 'ogg', 'alac', 'aif', 'aiff']
     audio_files = []
     for extension in audio_extensions:
         audio_files.extend(glob(f"{directory}/**/*.{extension}", recursive=True))
@@ -78,3 +79,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
