@@ -53,6 +53,7 @@ brew "lftp" # Advanced FTP
 brew "libav" # Git Video
 brew "lsd"
 brew "lzip"
+brew "mailsy"
 brew "mas"
 brew "minikube"
 brew "mycli" # SQL Terminal Client
@@ -79,6 +80,7 @@ brew "rust"
 brew "sloccount"
 brew "socat"
 brew "sox"
+brew "speedtest-cli"
 brew "stats"
 brew "stow"
 brew "the_silver_searcher"
