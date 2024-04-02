@@ -28,7 +28,7 @@
   },
   "json.schemas": [],
   "[html]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "vscode.html-language-features"
   },
   "workbench.startupEditor": "none",
   "[typescript]": {
