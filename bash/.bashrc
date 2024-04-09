@@ -98,7 +98,7 @@ alias audiospecall='find . -type f \( -name "*.mp3" -o -name "*.wav" -o -name "*
 alias autoc='find . -iname *.h -o -iname *.c -o -iname *.cpp | xargs clang-format -style=file -i'
 alias autopep='av;find . -name "*py" | xargs -I {} autopep8 -i {};dv'
 alias autostart='cd $HOME/Library/LaunchAgents'
-alias av='source "$VENV_PYTHON_3/bin/activate"'
+alias av='if [ -f "./venv/bin/activate"  ]; then source "./venv/bin/activate"; else source "$VENV_PYTHON_3/bin/activate"; fi'
 alias basic_aliases_copy='echo "alias l=clear;alias ll=\"ls -ltra\";alias .1=\"cd ..\";alias e=exit" | pbcopy'
 alias bf='vi $DOTFILESPATH/Brewfile'
 alias bfdump='brew bundle dump'
