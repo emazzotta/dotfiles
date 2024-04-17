@@ -6,7 +6,7 @@ source "${GLOBAL_ENV_FILE}"
 
 EXTRACTION_PATH="${DESKDIR}/data.txt"
 rm -f "${EXTRACTION_PATH}"
-yes "${PASSWORD_ZIPS}" | 7z x "${ZIPS_DIR}/data.txt.7z" -o"${DESKDIR}"  > /dev/null 2>&1 || :
+7z x "${ZIPS_DIR}/data.txt.7z" -p"${PASSWORD_ZIPS}" -o"${DESKDIR}"  > /dev/null 2>&1 || :
 
 URL=$(cat "${EXTRACTION_PATH}" | tail -n+1 | head -n 1)
 LOG=$(cat "${EXTRACTION_PATH}" | tail -n+2 | head -n 1)
