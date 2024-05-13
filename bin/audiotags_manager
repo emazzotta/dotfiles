@@ -183,6 +183,7 @@ def clean_all_tags(track_metadata):
 
 def clean_string(line):
     line = re.sub(r'\[www\.slider\.kz]', '', line)
+    line = re.sub(r'Converted by https\:\/\/spotifydown\.com', '', line)
     line = re.sub(r'\s+', ' ', line)
 
     line = line.replace('(Original Mix)', '')
