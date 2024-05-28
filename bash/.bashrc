@@ -1,4 +1,5 @@
 #!/bin/bash
+
 ### MAIN EXPORTS ###
 export WDIR="$HOME/Projects"
 export PRIVATE_PROJECTS="$WDIR/private"
