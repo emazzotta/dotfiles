@@ -68,6 +68,7 @@ brew "pandoc"
 brew "pdfgrep"
 brew "perl"
 brew "pkg-config" # Required by pdfgrep etc.
+brew "poppler" # pdfinfo util
 brew "potrace" # SVGify
 brew "prettyping"
 brew "pv"
