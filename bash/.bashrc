@@ -11,6 +11,7 @@ export ANDROID_SDK=$HOME/Library/Android/sdk
 export ANDROID_SDK_ROOT=$HOME/Library/Android/sdk
 export GDRIVEDIR="/Volumes/SanDisk_1TB/Backup/Google_Drive"
 export DOCUMENTDIR="$GDRIVEDIR/Dokumente"
+export DJ_DIR="$GDRIVEDIR/Music/01_DJ"
 ### PATH EXPORTS ###
 export PATH="$CUSTOM_BIN_DIR:$PATH"
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -222,7 +223,8 @@ alias py='av;ptpython;dv'
 alias record='asciinema rec'
 alias refresh_homepage='kubectl rollout restart deployment -n personal-homepage personal-homepage-server-deployment'
 alias reinstall_py='rm -rf "$VENV_PYTHON_3";pip install virtualenv && genvenv3 "$VENV_PYTHON_3" && av && pip install --upgrade pip && pip install -r $DOTFILESPATH/python/requirements.txt && ycminstall'
-alias rekordboxxml='vi $GDRIVEDIR/Music/01_DJ/Rekordbox/rekordbox.xml'
+alias rekordboxdir='cd $DJ_DIR/Rekordbox'
+alias rekordboxxml='vi $DJ_DIR/Rekordbox/rekordbox.xml'
 alias rm_act_cache='rm -rf $HOME/.cache/act'
 alias rm_brew_pkg='find "/opt/homebrew/Caskroom" -type f -name "*.pkg" -delete && rm -rf "$HOME/Library/Caches/Homebrew/downloads" && mkdir -p "$HOME/Library/Caches/Homebrew/downloads"'
 alias rm_microsoft_autoupdater='sudo rm -rf "/Library/Application Support/Microsoft/MAU2.0"'

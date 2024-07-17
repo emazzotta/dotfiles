@@ -5,7 +5,6 @@ PATTERN=""
 FILE_GIVEN=false
 SEARCH_PATH="."
 
-# Parse the command line arguments
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
         -r|--file-regex)
@@ -28,13 +27,28 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-if [ "$FILE_GIVEN" = true ] && [ ! -z "$PATTERN" ]; then
-    # Search for pattern in file contents within files that match the file regex
-    ag --hidden "$PATTERN" -G "$FILE_REGEX" "$SEARCH_PATH"
-elif [ ! -z "$PATTERN" ]; then
-    # Search for pattern in file contents
-    ag --hidden "$PATTERN" "$SEARCH_PATH"
-else
+if [ -z "$PATTERN" ]; then
     echo "usage: $(basename "${0}") [-r <filename regex>] [-p <path>] <pattern>"
+    exit 1
+fi
+
+echo "Searching for files and content matching pattern: '$PATTERN'"
+
+if [ "$FILE_GIVEN" = true ]; then
+    echo "Files matching the filename pattern:"
+    echo 
+    find "$SEARCH_PATH" -type f -iname "*$FILE_REGEX*" -print
+    echo
+    echo "Content matches within files matching the filename pattern:"
+    echo
+    find "$SEARCH_PATH" -type f -iname "*$FILE_REGEX*" -exec ag --hidden "$PATTERN" '{}' +
+else
+    echo "Files matching the filename pattern:"
+    echo
+    find "$SEARCH_PATH" -type f -iname "*$PATTERN*" -print
+    echo
+    echo "Content matches within all files:"
+    echo
+    ag --hidden "$PATTERN" "$SEARCH_PATH"
 fi
 
