@@ -4,7 +4,7 @@ import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from os import listdir
-from os.path import join, basename, isdir
+from os.path import join, basename, isdir, dirname
 
 VOLUMES_PATH = "/Volumes"
 SOURCE_DRIVE = "SanDisk_1TB"
@@ -39,7 +39,7 @@ RCLONE_FLAGS = [
     "--delete-during",
     "--progress",
     "--transfers", "2",
-    "--checkers", "2",
+    "--checkers", "8",
     "--no-update-modtime",
     *(flatten(["--exclude", f"{folder}/**"] for folder in EXCLUDE_FOLDERS))
 ]
@@ -91,24 +91,27 @@ def select_target(targets):
 def confirm_and_execute_command(source, target, command, tool_name, parallel=False, subdirectories=None):
     print(f"\nSource Directory: {source}")
     print(f"Target Directory: {target}")
-    print(f"{tool_name} Command: {' '.join(command)}")
-    proceed = input(f"Proceed with {tool_name}? (y/N): ").strip().lower()
-    if proceed == "y":
-        if parallel and subdirectories:
-            print("\nStarting parallel rsync processes...")
-            parallel_rsync(subdirectories, source, target)
-            print("All rsync processes completed.")
-        else:
-            subprocess.run(command)
+
+    if parallel and subdirectories:
+        print("\nStarting parallel rsync processes...")
+        parallel_rsync(subdirectories, source, target, tool_name)
+        print("All rsync processes completed.")
+        return
     else:
-        print(f"{tool_name} operation cancelled.")
+        print(f"{tool_name} Command: {' '.join(command)}")
+        proceed = input(f"Proceed with {tool_name}? (y/N): ").strip().lower()
+        if proceed == "y":
+            subprocess.run(command)
+        else:
+            print(f"{tool_name} operation cancelled.")
 
 
-def parallel_rsync(subdirectories, source_base, target_base):
+def parallel_rsync(subdirectories, source_base, target_base, tool_name):
     def rsync_dir(subdir):
         source_path = join(source_base, subdir)
-        target_path = join(target_base, subdir)
-        command = ["rsync"] + RSYNC_FLAGS + [source_path + '/', target_path + '/']
+        target_path = join(target_base, subdir.replace(source_base, f"{target_base}/"))
+        command = ["rsync"] + RSYNC_FLAGS + [f"{source_path}/", target_path]
+        print(f"\n{tool_name} Command: {' '.join(command)}\n\n")
         subprocess.run(command)
 
     with ThreadPoolExecutor(max_workers=len(subdirectories)) as executor:
@@ -139,7 +142,7 @@ def main():
 
         parallel_choice = input("Do you want to use parallel rsync? (y/N): ").strip().lower()
         if parallel_choice == "y" and subdirectories:
-            print(f"\nProceeding with parallel rsync for each subdirectory... [{', '.join(subdirectories)}]")
+            print(f"\nProceeding with parallel rsync for each subdirectory")
             confirm_and_execute_command(source, target, command, "rsync", parallel=True, subdirectories=subdirectories)
         else:
             confirm_and_execute_command(source, target, command, "rsync")
