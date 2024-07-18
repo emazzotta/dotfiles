@@ -6,9 +6,7 @@ import subprocess
 SOURCE_DRIVE = "SanDisk_1TB"
 EXCLUDE_DRIVES = ["Macintosh HD", ".timemachine", "com.apple.TimeMachine.localsnapshots"]
 VOLUMES_PATH = "/Volumes"
-RCLONE_FLAGS = ["-v", "--delete-during", "--progress"]
-TRANSFER_THREADS = 2
-CHECKER_THREADS = 4
+RCLONE_FLAGS = ["-v", "--delete-during", "--progress", "--transfers", "2", "--checkers", "4", "--no-update-modtime"]
 
 def get_drive_space(path):
     statvfs = os.statvfs(path)
@@ -60,10 +58,9 @@ def main():
     display_space_details(source, SOURCE_DRIVE)
 
     target = select_target(targets)
-    rclone_command = ["rclone", "sync", source, target] + RCLONE_FLAGS + ["--transfers", str(TRANSFER_THREADS), "--checkers", str(CHECKER_THREADS)]
+    rclone_command = ["rclone", "sync", source, target] + RCLONE_FLAGS
 
     confirm_and_execute_rclone(source, target, rclone_command)
 
 if __name__ == "__main__":
     main()
-
