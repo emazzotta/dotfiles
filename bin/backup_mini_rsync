@@ -18,6 +18,15 @@ RCLONE_FLAGS = [
     "--exclude", ".TemporaryItems/**",
     "--exclude", ".Trashes/**"
 ]
+RSYNC_FLAGS = [
+    "-avh",
+    "--delete",
+    "--progress",
+    "--exclude", ".Spotlight-V100/",
+    "--exclude", ".fseventsd/",
+    "--exclude", ".TemporaryItems/",
+    "--exclude", ".Trashes/"
+]
 
 def get_drive_space(path):
     statvfs = os.statvfs(path)
@@ -51,15 +60,15 @@ def select_target(targets):
             print("Invalid input. Please enter a number.")
     return os.path.join(VOLUMES_PATH, targets[choice])
 
-def confirm_and_execute_rclone(source, target, rclone_command):
-    print("\nSource Directory:", source)
-    print("Target Directory:", target)
-    print("Rclone Command:", ' '.join(rclone_command))
-    proceed = input("Proceed with rclone? (y/N): ").strip().lower()
+def confirm_and_execute_command(source, target, command, tool_name):
+    print(f"\nSource Directory: {source}")
+    print(f"Target Directory: {target}")
+    print(f"{tool_name} Command:", ' '.join(command))
+    proceed = input(f"Proceed with {tool_name}? (y/N): ").strip().lower()
     if proceed == "y":
-        subprocess.run(rclone_command)
+        subprocess.run(command)
     else:
-        print("Rclone operation cancelled.")
+        print(f"{tool_name} operation cancelled.")
 
 def main():
     source = os.path.join(VOLUMES_PATH, SOURCE_DRIVE) + '/'
@@ -69,9 +78,18 @@ def main():
     display_space_details(source, SOURCE_DRIVE)
 
     target = select_target(targets)
-    rclone_command = ["rclone", "sync", source, target] + RCLONE_FLAGS
 
-    confirm_and_execute_rclone(source, target, rclone_command)
+    choice = input("Do you want to use rsync or rclone? (rsync/rclone): ").strip().lower()
+
+    if choice == "rclone":
+        command = ["rclone", "sync", source, target] + RCLONE_FLAGS
+        confirm_and_execute_command(source, target, command, "rclone")
+    elif choice == "rsync":
+        command = ["rsync"] + RSYNC_FLAGS + [source, target]
+        confirm_and_execute_command(source, target, command, "rsync")
+    else:
+        print("Invalid choice. Please select either 'rsync' or 'rclone'.")
 
 if __name__ == "__main__":
     main()
+

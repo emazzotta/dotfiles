@@ -73,6 +73,7 @@ brew "potrace" # SVGify
 brew "prettyping"
 brew "pv"
 brew "python3"
+brew "rclone"
 brew "reattach-to-user-namespace"
 brew "ruby"
 brew "rust"
