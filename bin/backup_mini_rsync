@@ -4,7 +4,7 @@ import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from os import listdir
-from os.path import join, basename, isdir, dirname
+from os.path import join, basename, isdir
 
 VOLUMES_PATH = "/Volumes"
 SOURCE_DRIVE = "SanDisk_1TB"
