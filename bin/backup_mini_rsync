@@ -6,8 +6,9 @@ import subprocess
 SOURCE_DRIVE = "SanDisk_1TB"
 EXCLUDE_DRIVES = ["Macintosh HD", ".timemachine", "com.apple.TimeMachine.localsnapshots"]
 VOLUMES_PATH = "/Volumes"
-RSYNC_FLAGS = ["-avh", "--delete", "--progress"]
-
+RCLONE_FLAGS = ["-v", "--delete-during", "--progress"]
+TRANSFER_THREADS = 2
+CHECKER_THREADS = 4
 
 def get_drive_space(path):
     statvfs = os.statvfs(path)
@@ -16,16 +17,13 @@ def get_drive_space(path):
     used = total - free
     return total, used, free
 
-
 def get_available_targets():
     drives = os.listdir(VOLUMES_PATH)
     return [d for d in drives if d not in EXCLUDE_DRIVES + [SOURCE_DRIVE]]
 
-
 def display_space_details(path, label):
     total, used, free = get_drive_space(path)
     print(f"{label} - Total: {total:.2f} GB, Used: {used:.2f} GB, Free: {free:.2f} GB")
-
 
 def select_target(targets):
     print("\nAvailable Targets:")
@@ -44,17 +42,15 @@ def select_target(targets):
             print("Invalid input. Please enter a number.")
     return os.path.join(VOLUMES_PATH, targets[choice])
 
-
-def confirm_and_execute_rsync(source, target, rsync_command):
+def confirm_and_execute_rclone(source, target, rclone_command):
     print("\nSource Directory:", source)
     print("Target Directory:", target)
-    print("Rsync Command:", ' '.join(rsync_command))
-    proceed = input("Proceed with rsync? (y/N): ").strip().lower()
+    print("Rclone Command:", ' '.join(rclone_command))
+    proceed = input("Proceed with rclone? (y/N): ").strip().lower()
     if proceed == "y":
-        subprocess.run(rsync_command)
+        subprocess.run(rclone_command)
     else:
-        print("Rsync operation cancelled.")
-
+        print("Rclone operation cancelled.")
 
 def main():
     source = os.path.join(VOLUMES_PATH, SOURCE_DRIVE) + '/'
@@ -64,10 +60,10 @@ def main():
     display_space_details(source, SOURCE_DRIVE)
 
     target = select_target(targets)
-    rsync_command = ["rsync"] + RSYNC_FLAGS + [source, target]
+    rclone_command = ["rclone", "sync", source, target] + RCLONE_FLAGS + ["--transfers", str(TRANSFER_THREADS), "--checkers", str(CHECKER_THREADS)]
 
-    confirm_and_execute_rsync(source, target, rsync_command)
-
+    confirm_and_execute_rclone(source, target, rclone_command)
 
 if __name__ == "__main__":
     main()
+
