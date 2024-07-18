@@ -7,8 +7,11 @@ SOURCE_DRIVE = "SanDisk_1TB"
 EXCLUDE_DRIVES = ["Macintosh HD", ".timemachine", "com.apple.TimeMachine.localsnapshots"]
 VOLUMES_PATH = "/Volumes"
 RCLONE_FLAGS = [
-    "-v", "--delete-during", "--progress",
-    "--transfers", "2", "--checkers", "4",
+    "-v",
+    "--delete-during",
+    "--progress",
+    "--transfers", "2",
+    "--checkers", "2",
     "--no-update-modtime",
     "--exclude", ".Spotlight-V100/**",
     "--exclude", ".fseventsd/**",
