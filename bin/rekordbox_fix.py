@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import xml.etree.ElementTree as ET
+import sys
+import os
 
 def process_xml(input_path, output_path):
     tree = ET.parse(input_path)
@@ -34,12 +36,26 @@ def process_xml(input_path, output_path):
     # Remove the tracks slated for deletion
     for track_id in list(to_delete.keys()):
         for track in root.findall(".//TRACK[@TrackID='" + track_id + "']"):
-            parent = root.find('.//COLLECTION')  # Assuming TRACKs are direct children of COLLECTION
+            parent = root.find('.//COLLECTION')
             if track in parent:
                 parent.remove(track)
 
     # Save the modified XML
     tree.write(output_path)
 
-# Replace with the actual file paths
-process_xml('input.xml', 'output.xml')
+def main():
+    if len(sys.argv) < 2:
+        script_name = os.path.basename(sys.argv[0])
+        print("Error: You need to pass the path to the input XML file as an argument.")
+        print(f"Usage: {script_name} input.xml")
+        sys.exit(1)  # Exit with an error status
+
+    input_path = sys.argv[1]
+    output_dir = os.path.dirname(input_path)  # Get the directory of the input file
+    output_path = os.path.join(output_dir, "rekordbox.processed.xml")  # Create output path in the same directory
+    process_xml(input_path, output_path)
+    print(f"Processing complete. Output file saved as '{output_path}'.")
+
+if __name__ == "__main__":
+    main()
+
