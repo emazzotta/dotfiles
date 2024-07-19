@@ -120,6 +120,7 @@ alias dgui='docker run --rm -d -p 9000:9000 -v /var/run/docker.sock:/var/run/doc
 alias diff='icdiff'
 alias dign='vi .dockerignore'
 alias dive='docker run -ti --rm  -v /var/run/docker.sock:/var/run/docker.sock wagoodman/dive'
+alias dj='cd ~/Music/01_DJ/'
 alias dl='cd $DOWNLOADDIR'
 alias dload='aria2c'
 alias dnscheck='dig @1.1.1.1 ns +short'
