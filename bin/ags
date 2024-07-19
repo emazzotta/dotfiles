@@ -16,6 +16,10 @@ while [[ "$#" -gt 0 ]]; do
             SEARCH_PATH="$2"
             shift
             ;;
+        -h|--help)
+            PATTERN=""
+            shift
+            ;;
         *)
             if [ -z "$PATTERN" ]; then
                 PATTERN="$1"
