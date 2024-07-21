@@ -10,6 +10,8 @@ import time
 import sys
 import os
 
+PLAYLIST_NAME = "Shazam"
+
 scope = 'playlist-modify-private playlist-read-private'
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope))
 
@@ -60,11 +62,12 @@ def add_tracks_to_playlist(playlist_id, track_file):
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print("Usage: script.py <path_to_track_file>")
+        script_name = os.path.basename(__file__)
+        print(f"Usage: {script_name} <path_to_track_file>")
         sys.exit(1)
 
     track_file = sys.argv[1]
-    playlist_id = find_or_create_playlist('Shazam')
+    playlist_id = find_or_create_playlist(PLAYLIST_NAME)
 
     tracks_not_found, rate_limited_occurred = add_tracks_to_playlist(playlist_id, track_file)
 
