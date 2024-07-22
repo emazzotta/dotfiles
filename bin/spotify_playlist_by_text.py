@@ -3,6 +3,7 @@
 ###
 # https://developer.spotify.com/dashboard
 ###
+print("Remember to run `envify && av`")
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
@@ -76,4 +77,4 @@ if __name__ == '__main__':
     if rate_limited_occurred:
         print("Rate limiting was encountered during the operation.")
     else:
-        print("All track operations completed without rate limiting.")
+        print("All track operations completed")

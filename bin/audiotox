@@ -6,6 +6,16 @@ import subprocess
 import sys
 from glob import glob
 
+audio_extensions = [
+	'aif',
+	'aiff',
+	'alac',
+	'flac',
+	'm4a',
+	'mp3',
+	'ogg',
+	'wav',
+]
 
 def convert_audio(input_file, output_format, output_path, delete_original):
     filename, _ = os.path.splitext(os.path.basename(input_file))
@@ -14,17 +24,17 @@ def convert_audio(input_file, output_format, output_path, delete_original):
     if output_path:
         output_file = f"{output_path}/{filename}.{output_format}"
     else:
-        # Ensure the output is in the current directory
         output_file = f"./{filename}.{output_format}"
 
     codec = {
-        'flac': 'flac',
-        'alac': 'alac',
-        'wav': 'pcm_s16le',
-        'ogg': 'libvorbis',
-        'mp3': 'libmp3lame',
         'aif': 'pcm_s16le',
-        'aiff': 'pcm_s16le'
+        'aiff': 'pcm_s16le',
+        'alac': 'alac',
+        'flac': 'flac',
+        'm4a': 'aac',
+        'mp3': 'libmp3lame',
+        'ogg': 'libvorbis',
+        'wav': 'pcm_s16le',
     }.get(output_format)
 
     if not codec:
@@ -48,7 +58,6 @@ def convert_audio(input_file, output_format, output_path, delete_original):
 
 
 def get_audio_files(directory):
-    audio_extensions = ['wav', 'flac', 'mp3', 'ogg', 'alac', 'aif', 'aiff']
     audio_files = []
     for extension in audio_extensions:
         audio_files.extend(glob(f"{directory}/**/*.{extension}", recursive=True))
@@ -79,4 +88,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
