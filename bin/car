@@ -1,3 +1,0 @@
-#!/bin/bash
-
-cd $WDIR/private/carstatus && docker-compose run --rm carstatus

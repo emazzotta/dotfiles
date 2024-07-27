@@ -28,7 +28,7 @@ sudo scutil --set ComputerName Emanuele-Machine
 sudo defaults write -g InitialKeyRepeat -int 20
 sudo defaults write -g KeyRepeat -int 2
 sudo defaults write /Library/Preferences/com.apple.TimeMachine RequiresACPower -bool false
-sudo defaults write /Library/Preferences/com.apple.loginwindow LoginwindowText "If found please return to Emanuele Mazzotta - Call ${PRIVATE_PHONE_NUMBER}"
+sudo defaults write /Library/Preferences/com.apple.loginwindow LoginwindowText "If found please return to Emanuele - Call ${PRIVATE_PHONE_NUMBER}"
 sudo defaults write com.apple.BluetoothAudioAgent "Apple Bitpool Min (editable)" -int 40
 # Enable Developer Option
 sudo defaults write com.apple.Safari IncludeDevelopMenu -bool true
