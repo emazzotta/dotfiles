@@ -94,9 +94,9 @@ brew "xsv"
 brew "xz" # Required by many tools
 brew "zsh"
 
-cask "adobe-acrobat-reader" # For autocompleting certain forms
 cask "aldente"
 cask "apparency"
+cask "appcleaner"
 cask "arc"
 cask "audio-hijack"
 cask "blackhole-2ch"
