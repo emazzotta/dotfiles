@@ -13,7 +13,7 @@ def convert_image(input_file, output_format, output_path, delete_original):
     else:
         output_file = f"./{filename}.{output_format}"
 
-    command = ["magick", "convert", input_file, output_file]
+    command = ["magick", input_file, output_file]
     result = subprocess.run(command, check=True)
     
     if result.returncode != 0:

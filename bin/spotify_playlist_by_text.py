@@ -1,15 +1,29 @@
 #!/usr/bin/env python3
 
-###
-# https://developer.spotify.com/dashboard
-###
-print("Remember to run `envify && av`")
-
-import spotipy
-from spotipy.oauth2 import SpotifyOAuth
-import time
 import sys
 import os
+
+# Check environment variables
+env_vars = ['SPOTIPY_CLIENT_ID', 'SPOTIPY_CLIENT_SECRET', 'SPOTIPY_REDIRECT_URI']
+missing_env_vars = [var for var in env_vars if not os.getenv(var)]
+
+# Attempt to import necessary modules
+missing_modules = []
+try:
+    import spotipy
+    from spotipy.oauth2 import SpotifyOAuth
+except ImportError as e:
+    missing_modules.append(str(e).split()[-1])
+
+import time
+
+# If any environment variables are missing or modules can't be imported
+if missing_env_vars or missing_modules:
+    print("Run envify and av")
+    sys.exit(1)
+
+# Script continues after checks
+print("All required modules and environment variables are available.")
 
 PLAYLIST_NAME = "Shazam"
 
@@ -77,4 +91,4 @@ if __name__ == '__main__':
     if rate_limited_occurred:
         print("Rate limiting was encountered during the operation.")
     else:
-        print("All track operations completed")
+        print("All track operations completed.")

@@ -3,7 +3,7 @@
 set -e
 
 if test "${1}"; then
-	openssl x509 -in "${1}" -text -noout
+    openssl x509 -in "${1}" -text -noout
 else
     echo "usage: $(basename "${0}") <certificate file>"
 fi

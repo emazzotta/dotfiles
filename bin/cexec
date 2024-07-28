@@ -4,8 +4,8 @@ if test "${1}"; then
     name="${1}"
     shift
     gcc -o "${name%.*}" *.c
-    "./${name%.*}" ${@}
+    "./${name%.*}" "${@}"
     /bin/rm -rf "${name%.*}"
 else
-    echo "Missing c file argument"
+    echo "usage: $(basename "${0}") <c-file to execute>"
 fi
