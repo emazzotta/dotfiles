@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 
-import sys
 import os
+import sys
+import time
 
-# Check environment variables
-env_vars = ['SPOTIPY_CLIENT_ID', 'SPOTIPY_CLIENT_SECRET', 'SPOTIPY_REDIRECT_URI']
-missing_env_vars = [var for var in env_vars if not os.getenv(var)]
-
-# Attempt to import necessary modules
 missing_modules = []
 try:
     import spotipy
@@ -15,20 +11,21 @@ try:
 except ImportError as e:
     missing_modules.append(str(e).split()[-1])
 
-import time
+REQUIRED_ENV_VARS = [
+    'SPOTIPY_CLIENT_ID',
+    'SPOTIPY_CLIENT_SECRET',
+    'SPOTIPY_REDIRECT_URI'
+]
+PLAYLIST_NAME = "00_Shazam"
 
-# If any environment variables are missing or modules can't be imported
-if missing_env_vars or missing_modules:
-    print("Run envify and av")
+MISSING_ENV_VARS = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
+if MISSING_ENV_VARS or missing_modules:
+    print("Run:\nenvify && av")
     sys.exit(1)
-
-# Script continues after checks
-print("All required modules and environment variables are available.")
-
-PLAYLIST_NAME = "Shazam"
 
 scope = 'playlist-modify-private playlist-read-private'
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope))
+
 
 def find_or_create_playlist(name):
     user_id = sp.current_user()['id']
@@ -39,6 +36,7 @@ def find_or_create_playlist(name):
             return playlist['id']
 
     return sp.user_playlist_create(user_id, name, public=False, description='A playlist from Shazam')['id']
+
 
 def add_tracks_to_playlist(playlist_id, track_file):
     existing_tracks = set([item['track']['id'] for item in sp.playlist_tracks(playlist_id)['items']])
@@ -74,6 +72,7 @@ def add_tracks_to_playlist(playlist_id, track_file):
         sp.playlist_add_items(playlist_id, track_ids)
 
     return not_found, rate_limited
+
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
