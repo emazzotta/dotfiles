@@ -1,28 +1,3 @@
 #!/bin/bash
 
-echo "Listing available disks..."
-diskutil list
-
-read -p "Enter the disk identifier to backup (e.g., disk1): " disk_id
-
-diskutil info "/dev/${disk_id}" &>/dev/null
-if [ $? -ne 0 ]; then
-    echo "The specified disk /dev/${disk_id} does not exist. Please check the disk identifier and try again."
-    exit 1
-fi
-
-echo "You selected $disk_id. Please confirm this is correct."
-read -p "Press enter to continue or CTRL+C to abort..."
-
-default_path="$HOME/Desktop/${disk_id}_backup.img"
-
-read -p "Enter the destination path for the backup or press enter to use default ($default_path): " dest_path
-dest_path=${dest_path:-$default_path}
-
-echo "The backup will be saved to: $dest_path"
-
-echo "Starting backup of /dev/$disk_id to $dest_path. This may take a while..."
-sudo dd bs=4M if=/dev/$disk_id of="$dest_path" status=progress && sync
-
-echo "Backup completed successfully."
-
+backup_restore_util 1
