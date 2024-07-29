@@ -14,6 +14,10 @@ def convert_image(input_file, output_format, output_path, delete_original):
     else:
         output_file = f"./{filename}.{output_format}"
 
+    if os.path.exists(output_file):
+        print(f"Output file '{output_file}' already exists, skipping...")
+        return
+
     command = ["magick", input_file, output_file]
     result = subprocess.run(command, check=True)
 
@@ -25,7 +29,7 @@ def convert_image(input_file, output_format, output_path, delete_original):
         os.remove(input_file)
         print(f"Original file '{input_file}' deleted.")
 
-    print(f"Conversion complete: {output_file}")
+    return output_file
 
 
 def get_image_files(directory):
@@ -53,8 +57,10 @@ def main():
         print(f"Error: Input '{args.input}' not found!")
         sys.exit(1)
 
+    converted_files = []
     for input_file in input_files:
-        convert_image(input_file, args.output_format, args.output_path, args.delete)
+        converted_files.append(convert_image(input_file, args.output_format, args.output_path, args.delete))
+    print('\n'.join([f"Conversion complete: '{x}'" for x in converted_files if x]))
 
 
 if __name__ == "__main__":

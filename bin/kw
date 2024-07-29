@@ -21,7 +21,7 @@ week=$(date +%V | sed 's/^0*//')
 max=52
 percentage=$(bc <<< "scale=10; 100/${max}*${week}")
 progressbar=$(progressbar ${week} ${max} ${progressbar_length} "◼" "◻")
-printer "KW" "${week}/52" "${progressbar}" "${percentage}"
+printer "Kalenderwoche" "${week}/52" "${progressbar}" "${percentage}"
 
 count_down_printer() {
     result="$(count_down "${1}" "${2}")"

@@ -17,12 +17,18 @@ CODEC = {
     'wav': 'pcm_s16le',
 }
 
+
 def convert_audio(input_file, output_format, output_path, delete_original):
     filename, _ = os.path.splitext(os.path.basename(input_file))
     if output_path:
         output_file = f"{output_path}/{filename}.{output_format}"
     else:
         output_file = f"./{filename}.{output_format}"
+
+    if os.path.exists(output_file):
+        print(f"Output file '{output_file}' already exists, skipping...")
+        return
+
     codec = CODEC.get(output_format)
     if not codec:
         print(f"Error: Unsupported output format '{output_format}'")
@@ -32,10 +38,13 @@ def convert_audio(input_file, output_format, output_path, delete_original):
         command.extend(["-q:a", "0"])
     command.append(output_file)
     subprocess.run(command, check=True)
+
     if delete_original:
         os.remove(input_file)
         print(f"Original file '{input_file}' deleted.")
-    print(f"Conversion complete: {output_file}")
+
+    return output_file
+
 
 def get_audio_files(directory):
     audio_files = []
@@ -43,10 +52,12 @@ def get_audio_files(directory):
         audio_files.extend(glob(f"{directory}/**/*.{extension}", recursive=True))
     return audio_files
 
+
 def main():
     parser = argparse.ArgumentParser(description='Convert audio files.')
     parser.add_argument('-i', '--input', required=True, help='The audio file or directory of audio files to convert.')
-    parser.add_argument('-f', '--format', required=True, dest='output_format', help='The format of the output audio file.')
+    parser.add_argument('-f', '--format', required=True, dest='output_format',
+                        help='The format of the output audio file.')
     parser.add_argument('-d', '--delete', action='store_true', help='Delete the original file(s) after conversion.')
     parser.add_argument('-o', '--output-path', help='Path where to save the converted file(s).')
     args = parser.parse_args()
@@ -57,8 +68,12 @@ def main():
     else:
         print(f"Error: Input '{args.input}' not found!")
         sys.exit(1)
+
+    converted_files = []
     for input_file in input_files:
-        convert_audio(input_file, args.output_format, args.output_path, args.delete)
+        converted_files.append(convert_audio(input_file, args.output_format, args.output_path, args.delete))
+    print('\n'.join([f"Conversion complete: '{x}'" for x in converted_files if x]))
+
 
 if __name__ == "__main__":
     main()
