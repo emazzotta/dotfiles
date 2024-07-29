@@ -1,16 +1,20 @@
 #!/bin/bash
 
 ### MAIN EXPORTS ###
-export WDIR="$HOME/Projects"
-export PRIVATE_PROJECTS="$WDIR/private"
-export DOTFILESPATH="$PRIVATE_PROJECTS/dotfiles"
-export CUSTOM_BIN_DIR="$DOTFILESPATH/bin"
 export ANDROID_AVD_HOME=$HOME/.android/avd
 export ANDROID_HOME=$HOME/Library/Android/sdk
 export ANDROID_SDK=$HOME/Library/Android/sdk
 export ANDROID_SDK_ROOT=$HOME/Library/Android/sdk
+
+export WDIR="$HOME/Projects"
+export PRIVATE_PROJECTS="$WDIR/private"
+export DOTFILESPATH="$PRIVATE_PROJECTS/dotfiles"
+export CUSTOM_BIN_DIR="$DOTFILESPATH/bin"
+
 export GDRIVEDIR="/Volumes/SanDisk_1TB/Backup/Google_Drive"
 export DOCUMENTDIR="$GDRIVEDIR/Dokumente"
+
+export DJ_DIR="$HOME/Music/01_DJ"
 ### PATH EXPORTS ###
 export PATH="$CUSTOM_BIN_DIR:$PATH"
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -32,6 +36,7 @@ export CLICOLOR=1
 export CMAKE_MAKE_PROGRAM=$(which ninja)
 export CRONTAB_FILE="$DOTFILESPATH/cron/crontab"
 export DESKDIR="$HOME/Desktop"
+export DJ_TRACKS="$DJ_DIR/00_Collection"
 export DOWNLOADDIR="$HOME/Downloads"
 export EDITOR=/opt/homebrew/bin/vim
 export GITDUMMYDIR="$PRIVATE_PROJECTS/gitdummy"
@@ -47,8 +52,8 @@ export LC_ALL=en_US.UTF-8
 export LC_CTYPE=en_US.UTF-8
 export LC_TYPE=en_US.UTF-8
 export LESS='-R'
-export LSCOLORS="GxFxBxDxCxegedabagacad"
 export LS_COLORS="di=1;36;40:ln=1;35;40:so=1;31;40:pi=1;33;40:ex=1;32;40:bd=34;46:cd=34;43:su=0;41:sg=0;46:tw=0;42:ow=0;43:"
+export LSCOLORS="GxFxBxDxCxegedabagacad"
 export MANPAGER="less -X"
 export MARKDOWNDIR=$DOCUMENTDIR/Markdown
 export PRIVATECOMMITSDIR="$PRIVATE_PROJECTS/private-commits"
@@ -116,7 +121,7 @@ alias dgui='docker run --rm -d -p 9000:9000 -v /var/run/docker.sock:/var/run/doc
 alias diff='icdiff'
 alias dign='vi .dockerignore'
 alias dive='docker run -ti --rm  -v /var/run/docker.sock:/var/run/docker.sock wagoodman/dive'
-alias dj='cd $HOME/Music/01_DJ/'
+alias dj='cd $DJ_DIR'
 alias dl='cd $DOWNLOADDIR'
 alias dload='aria2c'
 alias dnscheck='dig @1.1.1.1 ns +short'
