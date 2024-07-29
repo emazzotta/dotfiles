@@ -1,5 +1,0 @@
-#!/bin/bash
-
-name=${1}
-[[ ${name} == "" ]] && name=.
-/usr/local/bin/idea "${PWD}/${1}"

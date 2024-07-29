@@ -8,7 +8,7 @@ if ! test "${PRIVATE_PHONE_NUMBER}"; then
 fi
 
 # Install custom plist
-sudo ./bin/install_plist
+sudo ./bin/install_mac_plist
 
 osascript -e 'tell application "System Preferences" to quit'
 

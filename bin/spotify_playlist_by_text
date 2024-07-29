@@ -20,7 +20,7 @@ PLAYLIST_NAME = "00_Shazam"
 
 MISSING_ENV_VARS = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
 if MISSING_ENV_VARS or missing_modules:
-    print("Run:\nenvify && av")
+    print("envify && av")
     sys.exit(1)
 
 scope = 'playlist-modify-private playlist-read-private'

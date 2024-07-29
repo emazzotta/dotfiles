@@ -7,5 +7,5 @@ if test "${1}"; then
     java "${name%.*}" ${@}
     /bin/rm -rf "${name%.*}.class"
 else
-    echo "Missing java file argument"
+    echo "usage: $(basename "${0}") <java-file to execute>"
 fi

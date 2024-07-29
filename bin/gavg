@@ -1,3 +1,0 @@
-#!/bin/bash
-
-git log | grep Date | awk '{print " : "$4" "$3" "$6}' | sort | uniq -c | awk '{ sum+=$1 } END { print "Average: " sum/NR}'

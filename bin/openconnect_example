@@ -1,5 +1,0 @@
-#!/bin/bash
-
-set -e
-
-sudo openconnect ras.zhaw.ch <<< $(echo "ZHAW-Edu\nmazzoema\n`security find-generic-password -wa mazzoema`")

@@ -1,7 +1,0 @@
-#!/bin/bash
-
-if test "${1}"; then
-    ssh rancher@${1} -i ~/.ssh/id_ed25519_k8s -o StrictHostKeyChecking=no
-else
-    echo "usage: $(basename "${0}") <host_ip>"
-fi
