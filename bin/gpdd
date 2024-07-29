@@ -2,7 +2,7 @@
 
 set -e
 
-source "${GLOBAL_ENV_FILE}"
+source "$GLOBAL_ENV_FILE"
 
 EXTRACTION_PATH="${DESKDIR}/data.txt"
 rm -f "${EXTRACTION_PATH}"

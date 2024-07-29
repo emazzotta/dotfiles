@@ -18,9 +18,10 @@ EXCLUDE_DRIVES = [
 
 EXCLUDE_FOLDERS = [
     ".Spotlight-V100",
-    ".fseventsd",
     ".TemporaryItems",
-    ".Trashes"
+    ".Trashes",
+    ".fseventsd",
+    ".tmp.driveupload",
 ]
 
 
