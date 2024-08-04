@@ -2,7 +2,7 @@
 
 set -e
 
-output_filename="merged.wav"
+output_filename="merged"
 output_format="wav"
 
 show_help() {
@@ -21,6 +21,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -o|--output)
             output_filename="$2"
+            output_filename="${output_filename%.*}"
             shift
             shift
             ;;
@@ -45,15 +46,6 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
-if [ -f "$output_filename" ]; then
-    echo -n "The file '$output_filename' already exists. Do you want to overwrite it? (y/N): "
-    read -r answer
-    if ! echo "${answer}" | grep -iq "^y"; then
-        echo "Aborting script."
-        exit 1
-    fi
-fi
-
 TEMP_FILE="$(mktemp)"
 TEMP_DIR="$(mktemp -d)"
 
@@ -69,15 +61,15 @@ for file in "$@"; do
     echo "file '$standardized_file'" >> "$TEMP_FILE"
 done
 
-ffmpeg -y -f concat -safe 0 -i "$TEMP_FILE" -c copy "$output_filename"
-echo "Audio files have been merged into '$output_filename'."
+full_filename_temp="${output_filename}.wav"
+ffmpeg -y -f concat -safe 0 -i "$TEMP_FILE" -c copy "$full_filename_temp"
+echo
+echo "Audio files have been merged into '$full_filename_temp'."
 
 rm -f "$TEMP_FILE"
 rm -rf "$TEMP_DIR"
 
 if [ "$output_format" != "wav" ]; then
-    converted_filename="${output_filename%.*}.$output_format"
-    audiotox -f "$output_format" -i "$output_filename"
-    rm "$output_filename"
-    echo "Converted to $converted_filename and original file removed."
+    audiotox -f "$output_format" -i "$full_filename_temp"
+    rm "$full_filename_temp"
 fi
