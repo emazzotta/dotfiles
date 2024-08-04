@@ -2,26 +2,54 @@
 
 set -e
 
-echo "Starting audio merge script..."
+output_filename="merged.wav"
 
 show_help() {
-    echo "Usage: $(basename $0) <audio files...>"
     echo "Merge multiple audio files into a single WAV file after standardizing their format."
     echo
-    echo "<audio files...>    Space-separated list of audio files to merge."
+    echo "Usage: $(basename $0) [-o <output_filename>] <audio files...>"
     echo
-    echo "Example: $(basename $0) file1.mp3 file2.ogg"
-    echo "This merges 'file1.mp3' and 'file2.ogg' into 'merged.wav' after standardizing formats."
+    echo "Options:"
+    echo "  -o, --output FILENAME    Specify the output file name (default is 'merged.wav')."
+    echo
+    echo "<audio files...>    Space-separated list of audio files to merge."
 }
 
-# Check if at least one audio file is provided
+while [[ $# -gt 0 ]]; do
+    key="$1"
+    case $key in
+        -o|--output)
+            output_filename="$2"
+            shift
+            shift
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
 if [ $# -eq 0 ]; then
     echo "Error: No audio files specified."
     show_help
     exit 1
 fi
 
-# Create the file list for ffmpeg
+if [ -f "$output_filename" ]; then
+    echo -n "The file '$output_filename' already exists. Do you want to overwrite it? (y/N): "
+    read -r answer
+    if ! echo "${answer}" | grep -iq "^y"; then
+        echo "Aborting script."
+        exit 1
+    else
+        echo "Continuing..."
+    fi
+fi
+
 TEMP_FILE="$(mktemp)"
 TEMP_DIR="$(mktemp -d)"
 
@@ -37,10 +65,8 @@ for file in "$@"; do
     echo "file '$standardized_file'" >> "$TEMP_FILE"
 done
 
-# Perform the concatenation
-ffmpeg -y -f concat -safe 0 -i "$TEMP_FILE" -c copy merged.wav
-echo "Audio files have been merged into 'merged.wav'."
+ffmpeg -y -f concat -safe 0 -i "$TEMP_FILE" -c copy "$output_filename"
+echo "Audio files have been merged into '$output_filename'."
 
-# Clean up the temporary files
 rm -f "$TEMP_FILE"
 rm -rf "$TEMP_DIR"

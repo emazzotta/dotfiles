@@ -10,13 +10,13 @@ if test "${1}"; then
     echo -ne "${process_list}"
     echo
     echo
-	echo -n "Are you sure you want to kill those processes (y/N)? "
+    echo -n "Are you sure you want to kill those processes (y/N)? "
     read -r answer
     if echo "${answer}" | grep -iq "^y"; then
-    	echo -ne "${process_list}" | awk '{print $2}' | xargs kill
+        echo -ne "${process_list}" | awk '{print $2}' | xargs kill
         echo
-		echo "Processes killed."
-	fi
+        echo "Processes killed."
+    fi
 else
     echo "usage: $(basename "${0}") <param>"
 fi
