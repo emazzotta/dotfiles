@@ -3,23 +3,29 @@
 set -e
 
 output_filename="merged.wav"
+output_format="wav"
 
 show_help() {
-    echo "Merge multiple audio files into a single WAV file after standardizing their format."
+    echo "Merge multiple audio files into a single audio file and convert it to the specified format."
     echo
-    echo "Usage: $(basename $0) [-o <output_filename>] <audio files...>"
+    echo "Usage: $(basename $0) [-o <output_filename>] [-f <format>] <audio files...>"
     echo
     echo "Options:"
     echo "  -o, --output FILENAME    Specify the output file name (default is 'merged.wav')."
+    echo "  -f, --format FORMAT      Specify the audio format (e.g., mp3, ogg) after merging."
     echo
     echo "<audio files...>    Space-separated list of audio files to merge."
 }
 
 while [[ $# -gt 0 ]]; do
-    key="$1"
-    case $key in
+    case "$1" in
         -o|--output)
             output_filename="$2"
+            shift
+            shift
+            ;;
+        -f|--format)
+            output_format="$2"
             shift
             shift
             ;;
@@ -45,8 +51,6 @@ if [ -f "$output_filename" ]; then
     if ! echo "${answer}" | grep -iq "^y"; then
         echo "Aborting script."
         exit 1
-    else
-        echo "Continuing..."
     fi
 fi
 
@@ -66,8 +70,14 @@ for file in "$@"; do
 done
 
 ffmpeg -y -f concat -safe 0 -i "$TEMP_FILE" -c copy "$output_filename"
-echo
 echo "Audio files have been merged into '$output_filename'."
 
 rm -f "$TEMP_FILE"
 rm -rf "$TEMP_DIR"
+
+if [ "$output_format" != "wav" ]; then
+    converted_filename="${output_filename%.*}.$output_format"
+    audiotox -f "$output_format" -i "$output_filename"
+    rm "$output_filename"
+    echo "Converted to $converted_filename and original file removed."
+fi
