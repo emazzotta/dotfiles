@@ -29,7 +29,7 @@ for file in "$@"; do
     if [ ! -f "$file" ]; then
         echo "Error: File '$file' not found."
         rm -f "$TEMP_FILE"
-        rmdir "$TEMP_DIR"
+        rm -rf "$TEMP_DIR"
         exit 1
     fi
     standardized_file="${TEMP_DIR}/standardized_$(basename "$file").wav"
