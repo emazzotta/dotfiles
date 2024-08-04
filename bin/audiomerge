@@ -66,6 +66,7 @@ for file in "$@"; do
 done
 
 ffmpeg -y -f concat -safe 0 -i "$TEMP_FILE" -c copy "$output_filename"
+echo
 echo "Audio files have been merged into '$output_filename'."
 
 rm -f "$TEMP_FILE"
