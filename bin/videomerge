@@ -2,12 +2,32 @@
 
 set -e
 
-if test "${1}"; then
-    INPUT_FILES=$(echo "${@}" | sed "s/ /\n/g" | xargs -I {} echo "file '$(pwd -P)/'{}'")
-    TEMP_FILE="$(mktemp)"
-    echo "${INPUT_FILES}" > ${TEMP_FILE}
-    ffmpeg -f concat -safe 0 -i ${TEMP_FILE} -c copy merged.mp4
-    rm -f "${TEMP_FILE}"
-else
-    echo "usage: $(basename "${0}") <videos...>"
+echo "Starting video merge script..."
+
+show_help() {
+    echo "Usage: $(basename $0) <video files...>"
+    echo "Concatenate multiple video files into a single MP4 file named 'merged.mp4'."
+    echo
+    echo "Example: $(basename $0) video1.mp4 video2.mp4"
+}
+
+if [ $# -eq 0 ] || [[ "$1" == "-h" ]]; then
+    show_help
+    exit 1
 fi
+
+TEMP_FILE="$(mktemp)"
+for video in "$@"; do
+    if [ ! -f "$video" ]; then
+        echo "Error: File '$video' not found."
+        rm -f "$TEMP_FILE"
+        exit 1
+    fi
+    echo "file '$(pwd -P)/$video'" >> "$TEMP_FILE"
+done
+
+ffmpeg -f concat -safe 0 -i "$TEMP_FILE" -c copy merged.mp4
+echo "Videos have been merged into 'merged.mp4'."
+
+rm -f "$TEMP_FILE"
+

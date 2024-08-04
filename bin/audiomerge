@@ -4,56 +4,43 @@ set -e
 
 echo "Starting audio merge script..."
 
-if test "${1}"; then
-    # Check for file types
-    MP3_COUNT=$(echo "${@}" | tr ' ' '\n' | grep -c .mp3$ || echo "0")
-    WAV_COUNT=$(echo "${@}" | tr ' ' '\n' | grep -c .wav$ || echo "0")
-    TOTAL_FILES=$#
+show_help() {
+    echo "Usage: $(basename $0) <audio files...>"
+    echo "Merge multiple audio files into a single WAV file after standardizing their format."
+    echo
+    echo "<audio files...>    Space-separated list of audio files to merge."
+    echo
+    echo "Example: $(basename $0) file1.mp3 file2.ogg"
+    echo "This merges 'file1.mp3' and 'file2.ogg' into 'merged.wav' after standardizing formats."
+}
 
-    echo "MP3 files detected: $MP3_COUNT"
-    echo "WAV files detected: $WAV_COUNT"
-    echo "Total files: $TOTAL_FILES"
-
-    # Determine output format based on input
-    if [[ $MP3_COUNT -eq $TOTAL_FILES ]]; then
-        OUTPUT_FORMAT="mp3"
-    elif [[ $WAV_COUNT -eq $TOTAL_FILES ]]; then
-        OUTPUT_FORMAT="wav"
-    else
-        OUTPUT_FORMAT="wav"
-        # Convert all MP3s to WAVs
-        for file in "${@}"; do
-            if [[ $file == *.mp3 ]]; then
-                echo "Converting $file to WAV format..."
-                ffmpeg -i "$file" "${file%.mp3}.wav"
-            fi
-        done
-    fi
-
-    echo "Output format will be: $OUTPUT_FORMAT"
-
-    # Create list of files to concatenate
-    INPUT_FILES=$(echo "${@}" | sed "s/\.mp3/\.wav/g" | sed "s/ /\n/g" | xargs -I {} echo "file '$(pwd -P)/'{}'")
-    TEMP_FILE="$(mktemp)"
-    echo "${INPUT_FILES}" > ${TEMP_FILE}
-
-    echo "Merging audio files..."
-    ffmpeg -f concat -safe 0 -i ${TEMP_FILE} -c copy "merged.${OUTPUT_FORMAT}"
-    rm -f "${TEMP_FILE}"
-
-    # If we converted MP3s to WAVs, clean up the temporary WAV files
-    if [[ $OUTPUT_FORMAT == "wav" && $MP3_COUNT -gt 0 ]]; then
-        for file in "${@}"; do
-            if [[ $file == *.mp3 ]]; then
-                echo "Cleaning up temporary WAV file for $file..."
-                rm -f "${file%.mp3}.wav"
-            fi
-        done
-    fi
-
-    echo "Merging complete! Output file is merged.${OUTPUT_FORMAT}"
-
-else
-    echo "usage: $(basename "${0}") <audios...>"
+# Check if at least one audio file is provided
+if [ $# -eq 0 ]; then
+    echo "Error: No audio files specified."
+    show_help
+    exit 1
 fi
 
+# Create the file list for ffmpeg
+TEMP_FILE="$(mktemp)"
+TEMP_DIR="$(mktemp -d)"
+
+for file in "$@"; do
+    if [ ! -f "$file" ]; then
+        echo "Error: File '$file' not found."
+        rm -f "$TEMP_FILE"
+        rmdir "$TEMP_DIR"
+        exit 1
+    fi
+    standardized_file="${TEMP_DIR}/standardized_$(basename "$file").wav"
+    ffmpeg -y -i "$file" -ar 44100 -ac 2 -acodec pcm_s16le "$standardized_file"
+    echo "file '$standardized_file'" >> "$TEMP_FILE"
+done
+
+# Perform the concatenation
+ffmpeg -y -f concat -safe 0 -i "$TEMP_FILE" -c copy merged.wav
+echo "Audio files have been merged into 'merged.wav'."
+
+# Clean up the temporary files
+rm -f "$TEMP_FILE"
+rm -rf "$TEMP_DIR"

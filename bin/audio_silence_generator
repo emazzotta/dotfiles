@@ -1,0 +1,53 @@
+#!/bin/bash
+
+set -e
+
+show_help() {
+    echo "Usage: $(basename $0) [-m minutes] [-s seconds]"
+    echo "Generate a silent MP3 file of a specified duration."
+    echo
+    echo "  -m    Duration in minutes"
+    echo "  -s    Duration in seconds"
+    echo "  -h    Display this help and exit"
+    echo
+    echo "Example: $(basename $0) -m 5 -s 30"
+    echo "This generates a file named '5_minutes_30_seconds_silence.mp3' with 5 minutes and 30 seconds of silence."
+}
+
+minutes=0
+seconds=0
+
+while getopts 'm:s:h' option; do
+    case "$option" in
+        m) minutes=$OPTARG ;;
+        s) seconds=$OPTARG ;;
+        h) show_help
+           exit 0 ;;
+        ?) show_help
+           exit 1 ;;
+    esac
+done
+
+total_seconds=$((minutes * 60 + seconds))
+
+if [[ $total_seconds -le 0 ]]; then
+    echo "Error: Duration must be greater than zero."
+    show_help
+    exit 1
+fi
+
+file_name=""
+if [[ $minutes -gt 0 ]]; then
+    file_name="${minutes}_minutes"
+fi
+if [[ $seconds -gt 0 ]]; then
+    if [[ -n "$file_name" ]]; then
+        file_name="${file_name}_"
+    fi
+    file_name="${file_name}${seconds}_seconds"
+fi
+file_name="${file_name}_silence.mp3"
+
+ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t $total_seconds "$file_name" &> /dev/null
+echo "Generated $file_name with $total_seconds seconds of silence."
+
