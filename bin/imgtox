@@ -33,7 +33,7 @@ def convert_image(input_file, output_format, output_path, delete_original):
 
 
 def get_image_files(directory):
-    image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.gif', '*.bmp', '*.tiff', '*.webp', '*.svg']
+    image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.gif', '*.bmp', '*.tiff', '*.webp', '*.svg', '*.heic']
     image_files = []
     for extension in image_extensions:
         image_files.extend(glob(os.path.join(directory, '**', extension), recursive=True))
