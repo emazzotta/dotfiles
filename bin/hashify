@@ -9,7 +9,7 @@ import sys
 def hash_data(algorithm, data):
     try:
         hasher = hashlib.new(algorithm)
-        hasher.update(data.encode('utf-8'))
+        hasher.update(data)
         return hasher.hexdigest()
     except ValueError:
         print(f"Error: Unsupported algorithm '{algorithm}'")
@@ -36,7 +36,7 @@ def main():
         if not os.path.isfile(args.input):
             print(f"Error: File not found: {args.input}")
             sys.exit(1)
-        with open(args.input, 'r', encoding='utf-8') as file:
+        with open(args.input, 'rb+') as file:
             input_data = file.read()
         input_type = 'file'
     else:
