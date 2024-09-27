@@ -67,6 +67,7 @@ def get_available_targets():
 
 
 def display_space_details(path, label):
+    print("Source Drive Space Details:")
     total, used, free = get_drive_space(path)
     print(f"{label} - Total: {total:.2f} GB, Used: {used:.2f} GB, Free: {free:.2f} GB")
 
@@ -78,14 +79,15 @@ def select_target(targets):
         print(f"{i}. {target}")
         display_space_details(target_path, target)
 
-    choice = -1
+    choice = ""
     while choice not in range(len(targets)):
         try:
             choice = int(input("\nEnter the number of your target: ")) - 1
             if choice < 0 or choice >= len(targets):
-                print("Please enter a valid number from the list.")
+                print(
+                    f"Target '{choice + 1}' does not exist. Check available targets above.")
         except ValueError:
-            print("Invalid input. Please enter a number.")
+            print(f"Invalid input '{choice}'. Please enter a number.")
     return join(VOLUMES_PATH, targets[choice])
 
 
@@ -110,7 +112,8 @@ def confirm_and_execute_command(source, target, command, tool_name, parallel=Fal
 def parallel_rsync(subdirectories, source_base, target_base, tool_name):
     def rsync_dir(subdir):
         source_path = join(source_base, subdir)
-        target_path = join(target_base, subdir.replace(source_base, f"{target_base}/"))
+        target_path = join(target_base, subdir.replace(
+            source_base, f"{target_base}/"))
         command = ["rsync"] + RSYNC_FLAGS + [f"{source_path}/", target_path]
         print(f"\n{tool_name} Command: {' '.join(command)}\n\n")
         subprocess.run(command)
@@ -119,20 +122,13 @@ def parallel_rsync(subdirectories, source_base, target_base, tool_name):
         executor.map(rsync_dir, subdirectories)
 
 
-def main():
-    source = join(VOLUMES_PATH, SOURCE_DRIVE) + '/'
-    targets = get_available_targets()
-
-    print("Source Drive Space Details:")
-    display_space_details(source, SOURCE_DRIVE)
-    target = select_target(targets)
-
-    choice = input("Do you want to use rsync or rclone? r(s)ync/r(c)lone: ").strip().lower()
-
+def process_backup_command_choice(source, target):
+    choice = input(
+        "Do you want to use rsync or rclone? (Default: rsync) r(S)ync/r(c)lone: ").strip().lower()
     if choice == "c":
         command = ["rclone", "sync", source, target] + RCLONE_FLAGS
         confirm_and_execute_command(source, target, command, "rclone")
-    elif choice == "s":
+    elif choice == "s" or choice == "":
         command = ["rsync"] + RSYNC_FLAGS + [source, target]
 
         subdirectories = find_subdirectories(source)
@@ -141,14 +137,25 @@ def main():
             for i, subdir in enumerate(subdirectories, 1):
                 print(f"{i}. {subdir}")
 
-        parallel_choice = input("Do you want to use parallel rsync? (y/N): ").strip().lower()
+        parallel_choice = input(
+            "Do you want to use parallel rsync? (y/N): ").strip().lower()
         if parallel_choice == "y" and subdirectories:
             print(f"\nProceeding with parallel rsync for each subdirectory")
-            confirm_and_execute_command(source, target, command, "rsync", parallel=True, subdirectories=subdirectories)
+            confirm_and_execute_command(
+                source, target, command, "rsync", parallel=True, subdirectories=subdirectories)
         else:
             confirm_and_execute_command(source, target, command, "rsync")
     else:
-        print("Invalid choice. Please select either 'rsync' or 'rclone'.")
+        print("Invalid choice. Please select either 'rsync' or 'rclone'.\n")
+        process_backup_command_choice(source, target)
+
+
+def main():
+    source = join(VOLUMES_PATH, SOURCE_DRIVE) + '/'
+    targets = get_available_targets()
+    display_space_details(source, SOURCE_DRIVE)
+    target = select_target(targets)
+    process_backup_command_choice(source, target)
 
 
 def find_subdirectories(source):
