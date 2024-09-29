@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 
 
-from PIL import UnidentifiedImageError
-from itertools import chain
-from pathlib import Path
 import argparse
 import base64
 import logging
-import music_tag
 import os
 import re
-import requests
 import unicodedata
+from itertools import chain
+from pathlib import Path
+
+import music_tag
+import requests
+from PIL import UnidentifiedImageError
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
@@ -30,24 +31,27 @@ Hint regarding Mixed In Key:
 6. Reload tags of tracks if necessary
 '''
 
-TAGS = [
-    'album',
-    'albumartist',
-    'artist',
-    'artwork',
-    'comment',
-    'compilation',
-    'composer',
-    'discnumber',
-    'genre',
-    'isrc',
-    'lyrics',
-    'totaldiscs',
-    'totaltracks',
-    'tracknumber',
-    'tracktitle',
-    'year',
-]
+from enum import Enum
+
+
+class Tags(Enum):
+    ALBUM = 'album'
+    ALBUMARTIST = 'albumartist'
+    ARTIST = 'artist'
+    ARTWORK = 'artwork'
+    COMMENT = 'comment'
+    COMPILATION = 'compilation'
+    COMPOSER = 'composer'
+    DISCNUMBER = 'discnumber'
+    GENRE = 'genre'
+    ISRC = 'isrc'
+    LYRICS = 'lyrics'
+    TOTALDISCS = 'totaldiscs'
+    TOTALTRACKS = 'totaltracks'
+    TRACKNUMBER = 'tracknumber'
+    TRACKTITLE = 'tracktitle'
+    YEAR = 'year'
+
 
 
 def main():
@@ -143,7 +147,7 @@ def full_tag_optimizer(src):
     track_metadata = music_tag.load_file(src)
     set_missing_metadata_from_filename(src, track_metadata)
     clean_all_tags(track_metadata)
-    if not track_metadata['artwork'].first:
+    if not track_metadata[Tags.ARTWORK.value].first:
         download_and_set_cover_photo(track_metadata)
     track_metadata.save()
     remove_where_from(src)
@@ -151,7 +155,7 @@ def full_tag_optimizer(src):
 
 
 def compose_filename(metadata):
-    return normalize_special_characters(f"{metadata['artist']} - {metadata['tracktitle']}")
+    return normalize_special_characters(f"{metadata[Tags.ARTIST.value]} - {metadata[Tags.TRACKTITLE.value]}")
 
 
 def normalize_special_characters(new_track_name):
@@ -165,7 +169,7 @@ def normalize_special_characters(new_track_name):
 
 
 def copy_metadata(destination, source):
-    for tag in TAGS:
+    for tag in [tag.value for tag in Tags]:
         try:
             destination[tag] = source[tag]
         except ValueError:
@@ -173,17 +177,23 @@ def copy_metadata(destination, source):
 
 
 def clean_all_tags(track_metadata):
-    for tag in TAGS:
+    for tag in [tag.value for tag in Tags]:
         try:
             if isinstance(track_metadata[tag].first, str):
-                track_metadata[tag] = clean_string(track_metadata[tag].first)
+                track_metadata[tag] = clean_string(tag_value=track_metadata[tag].first, tag_name=tag)
         except (ValueError, UnidentifiedImageError) as e:
             logger.warning(f"Error processing tag {tag}: {str(e)}")
 
 
-def clean_string(line):
+def clean_string(tag_value, tag_name=None):
+    line = tag_value
+
+    if tag_name == "artist":
+        while re.search(r'(\w+)/(\w+)', line):
+            line = re.sub(r'(\w+)/(\w+)', r'\1, \2', line)
+
     line = re.sub(r'\[www\.slider\.kz]', '', line)
-    line = re.sub(r'Converted by https\:\/\/spotifydown\.com', '', line)
+    line = re.sub(r'Converted by https://spotifydown\.com', '', line)
     line = re.sub(r'\s+', ' ', line)
 
     line = line.replace('(Original Mix)', '')
@@ -193,7 +203,8 @@ def clean_string(line):
     line = line.replace('(Extended Version)', '')
     line = line.replace('(Extended)', '')
     line = line.replace('(copy)', '')
-    line = re.sub(r'\(\s*(\w+\s+)*(mix|version|edit)\s*\)', lambda match: f"({match.group(1).capitalize().strip() + ' ' + match.group(2).capitalize()})", line)
+    line = re.sub(r'\(\s*(\w+\s+)*(mix|version|edit)\s*\)',
+                  lambda match: f"({match.group(1).capitalize().strip() + ' ' + match.group(2).capitalize()})", line)
 
     line = re.sub(r'\(\d+\)', '', line)
 
@@ -208,13 +219,13 @@ def clean_string(line):
 
 def set_missing_metadata_from_filename(src, track_metadata):
     src_path = to_path(src)
-    if not track_metadata['artist'].first or not track_metadata['tracktitle'].first:
+    if not track_metadata[Tags.ARTIST.value].first or not track_metadata[Tags.TRACKTITLE.value].first:
         if ' - ' in src_path.stem:
             artist, title = map(str.strip, src_path.stem.split(' - ', 1))
-            if not track_metadata['artist'].first:
-                track_metadata['artist'] = artist
-            if not track_metadata['tracktitle'].first:
-                track_metadata['tracktitle'] = title
+            if not track_metadata[Tags.ARTIST.value].first:
+                track_metadata[Tags.ARTIST.value] = artist
+            if not track_metadata[Tags.TRACKTITLE.value].first:
+                track_metadata[Tags.TRACKTITLE.value] = title
 
 
 def get_spotify_token(client_id, client_secret):
@@ -250,11 +261,11 @@ def get_album_art(album_id, token):
 
 def download_and_set_cover_photo(track_metadata):
     token = get_spotify_token(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET)
-    album_id = search_track(track_metadata['artist'].first, track_metadata['tracktitle'].first, token)
+    album_id = search_track(track_metadata[Tags.ARTIST.value].first, track_metadata[Tags.TRACKTITLE.value].first, token)
     if album_id:
         album_art_url = get_album_art(album_id, token)
         response = requests.get(album_art_url)
-        track_metadata['artwork'] = response.content
+        track_metadata[Tags.ARTWORK.value] = response.content
 
 
 def to_path(src):
