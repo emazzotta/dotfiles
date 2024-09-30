@@ -16,7 +16,7 @@ REQUIRED_ENV_VARS = [
     'SPOTIPY_CLIENT_SECRET',
     'SPOTIPY_REDIRECT_URI'
 ]
-PLAYLIST_NAME = "00_Shazam"
+PLAYLIST_NAME = "My Shazam Tracks"
 
 MISSING_ENV_VARS = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
 if MISSING_ENV_VARS or missing_modules:
