@@ -32,6 +32,8 @@ export PATH="$HOME/.yarn/bin:$HOME/.config/yarn/global/node_modules/.bin:$PATH"
 export APPDIR="$ROOT/Applications"
 export BOILERPLATE_PATH="$PRIVATE_PROJECTS/katas/boilerplate"
 export BOOKMARKDIR=$DOCUMENTDIR/Bookmarks
+export BREW_CASK_IGNORELIST="mixed-in-key,my-cask-to-pin"
+export BREW_CASK_IGNORELIST=$(echo $BREW_CASK_IGNORELIST | sed 's/,/\\|/g')
 export CLICOLOR=1
 export CMAKE_MAKE_PROGRAM=$(which ninja)
 export CRONTAB_FILE="$DOTFILESPATH/cron/crontab"
@@ -52,8 +54,8 @@ export LC_ALL=en_US.UTF-8
 export LC_CTYPE=en_US.UTF-8
 export LC_TYPE=en_US.UTF-8
 export LESS='-R'
-export LS_COLORS="di=1;36;40:ln=1;35;40:so=1;31;40:pi=1;33;40:ex=1;32;40:bd=34;46:cd=34;43:su=0;41:sg=0;46:tw=0;42:ow=0;43:"
 export LSCOLORS="GxFxBxDxCxegedabagacad"
+export LS_COLORS="di=1;36;40:ln=1;35;40:so=1;31;40:pi=1;33;40:ex=1;32;40:bd=34;46:cd=34;43:su=0;41:sg=0;46:tw=0;42:ow=0;43:"
 export MANPAGER="less -X"
 export MARKDOWNDIR=$DOCUMENTDIR/Markdown
 export PRIVATECOMMITSDIR="$PRIVATE_PROJECTS/private-commits"
@@ -108,7 +110,7 @@ alias bom='echo -ne "\xEF\xBB\xBF"'
 alias brew='arch -arm64 brew'
 alias bri='brew install'
 alias bru='brew uninstall'
-alias bup='echo "Updating Brew";git -C "$(brew --repo)" fetch --tags;brew update;brew upgrade;brew upgrade --cask --greedy;brew cleanup;brew cu -afy --cleanup;brew cleanup;rm_brew_pkg'
+alias bup='echo "Updating Brew";git -C "$(brew --repo)" fetch --tags;brew update;brew upgrade;brew upgrade --cask --greedy $(brew list --cask | grep --invert-match --regexp "$BREW_CASK_IGNORELIST");brew cleanup;brew cu -afy --cleanup;brew cleanup;rm_brew_pkg'
 alias cb='cd $CUSTOM_BIN_DIR'
 alias ce='crontab_editor'
 alias cl='crontab -l'
