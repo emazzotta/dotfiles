@@ -23,7 +23,8 @@ if [ "$(uname)" == "Darwin" ]; then
     brew install --cask karabiner-elements
 
     # Install the rest
-    brew bundle --file="./Brewfile"
+    brew bundle --file="./brew/Brewfile"
+    brew install --cask "./brew/mixed-in-key.rb"
 
     # Set Dock items
     OLDIFS=$IFS
