@@ -35,7 +35,7 @@ def convert_audio(input_file, output_format, output_path, delete_original):
         sys.exit(1)
     command = ["ffmpeg", "-i", input_file, "-c:a", codec]
     if output_format == 'mp3':
-        command.extend(["-q:a", "0"])
+        command.extend(["-b:a", "320k"])
     command.append(output_file)
     subprocess.run(command, check=True)
 
