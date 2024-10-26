@@ -267,6 +267,7 @@ alias timer='echo "Timer started. Stop with Ctrl-D." && date && time cat && date
 alias tm='tmux'
 alias tmk='tmux kill-session -t'
 alias tml='tmux ls'
+alias trp='tmux source-file ~/.tmux.conf' # reload tmux conf
 alias tz='date "+%z %Z"'
 alias unow='print_and_copy $(date +%s)'
 alias update='macsoftwareupdate;bup;npm install -g npm;sdkmanupdate;vimpluginupdate'
