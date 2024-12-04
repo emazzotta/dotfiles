@@ -94,7 +94,7 @@ brew "xsv"
 brew "xz" # Required by many tools
 brew "zsh"
 
-cask "ableton-live-standard"
+cask "ableton-live-suite"
 cask "aldente"
 cask "apparency"
 cask "appcleaner"
