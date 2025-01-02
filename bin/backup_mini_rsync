@@ -17,6 +17,7 @@ EXCLUDE_DRIVES = [
 ]
 
 EXCLUDE_FOLDERS = [
+    ".DocumentRevisions-V100",
     ".Spotlight-V100",
     ".TemporaryItems",
     ".Trashes",
