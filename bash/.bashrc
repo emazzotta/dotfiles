@@ -47,6 +47,7 @@ export HISTCONTROL="ignoreboth"
 export HISTTIMEFORMAT="%Y-%m-%d %T "
 export HOMEBREW_CASK_OPTS="--appdir=/Applications"
 export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
+export JAVA_LIBRARY_PATH="/Users/emanuelemazzotta/Projects/leo-productions/leonardo/trunk/leonardo-leonardo/target/natives.mac"
 export KEYTIMEOUT=1
 export KUBE_DIR="$HOME/.kube"
 export LANGUAGE=en_US.UTF-8
@@ -208,7 +209,7 @@ alias lb='cd $PRIVATE_PROJECTS/lighthouse-badges'
 alias lig='lazygit'
 alias ll='ls -lah'
 alias localdbs='mysql -h 127.0.0.1 -u root <<< "SHOW DATABASES;"'
-alias lrp='cd $WDIR/leonardo-productions-ag'
+alias lrp='cd $WDIR/leo-productions'
 alias lrr='print_and_copy $BOOKLIST_LINK'
 alias ls='lsd'
 alias m='make'
