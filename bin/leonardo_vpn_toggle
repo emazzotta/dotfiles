@@ -1,0 +1,52 @@
+#!/bin/bash
+
+source leonardo_account
+
+VPN_NAME="LeonardoVPN"
+SERVER_ADDRESS="vpn.leonardo.ag"
+
+check_vpn_config() {
+    scutil --nc list | grep -q "$VPN_NAME"
+    return $?
+}
+
+is_leonardo_vpn_connected() {
+    check_vpn_config && scutil --nc status "$VPN_NAME" | grep -qw "Connected"
+    return $?
+}
+
+create_vpn_config() {
+    echo "Configuring VPN settings..."
+    sudo networksetup -createnetworkservice "$VPN_NAME" "$INTERFACE"
+    sudo networksetup -setvpnsettings "$VPN_NAME" "$SERVER_ADDRESS" "$ACCOUNT_NAME" "$AD_PASSWORD"
+    sudo networksetup -setipsecsharedsecret "$VPN_NAME" "$VPN_SHARED_SECRET"
+    echo "VPN configuration created."
+}
+
+connect_or_disconnect_vpn() {
+    is_leonardo_vpn_connected
+    if [ $? -eq 0 ]; then
+        echo "Disconnecting $VPN_NAME..."
+        scutil --nc stop "$VPN_NAME"
+        if [ $? -eq 0 ]; then
+            echo "$VPN_NAME disconnected."
+        else
+            echo "Failed to disconnect $VPN_NAME."
+        fi
+    else
+        echo "Connecting to $VPN_NAME..."
+        scutil --nc start "$VPN_NAME"
+        if [ $? -eq 0 ]; then
+            echo "$VPN_NAME connected."
+        else
+            echo "Failed to connect $VPN_NAME."
+        fi
+    fi
+}
+
+check_vpn_config
+if [ $? -ne 0 ]; then
+    create_vpn_config
+fi
+
+connect_or_disconnect_vpn

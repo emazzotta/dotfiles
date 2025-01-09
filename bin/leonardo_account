@@ -1,0 +1,39 @@
+#!/bin/bash
+
+export AD_ACCOUNT="emanuele.mazzotta" # Change this to your account!
+export AD_PASSWORD_NAME="LeonardoActiveDirectory:$AD_ACCOUNT"
+export VPN_SHARED_SECRET_NAME="LeonardoVPNSecret"
+
+if [ ! -t 0 ]; then
+    echo "Not running in an interactive shell in 'leonardo_account'. Ignoring user input!"
+    exit 1
+fi
+
+get_keychain_password() {
+    local keychain_account=$1
+    local keychain_password_name=$2
+    PASSWORD=$(security find-generic-password -a "$keychain_account" -s "$keychain_password_name" -w 2>/dev/null)
+    if [ -z "$PASSWORD" ]; then
+        add_password_to_keychain "$keychain_account" "$keychain_password_name"
+        PASSWORD=$(get_keychain_password "$keychain_account" "$keychain_password_name")
+    fi
+    echo "$PASSWORD"
+}
+
+add_password_to_keychain() {
+    local keychain_account=$1
+    local keychain_password_name=$2
+    if ! security find-generic-password -a "$keychain_account" -s "$keychain_password_name" &>/dev/null; then
+        read -s -r -p "Enter password: " PASSWORD
+        echo
+        security add-generic-password -a "$keychain_account" -s "$keychain_password_name" -w "$PASSWORD"
+    else
+        echo "Password already exists in the Keychain. No need to add it."
+    fi
+}
+
+AD_PASSWORD="$(get_keychain_password "$AD_ACCOUNT" "$AD_PASSWORD_NAME")"
+export AD_PASSWORD
+
+VPN_SHARED_SECRET="$(get_keychain_password "$VPN_SHARED_SECRET_NAME" "VPN:$VPN_SHARED_SECRET_NAME")"
+export VPN_SHARED_SECRET

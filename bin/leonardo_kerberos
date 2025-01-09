@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# This file depends on the 'expect' command -> brew install expect
+
+source leonardo_account
+
+DOMAIN="LEONARDO.LOCAL"
+DOMAIN_IP="192.168.5.5"
+PRINCIPAL="$LEONARDO_ACTIVE_DIRECTORY_ACCOUNT@$DOMAIN"
+
+check_network_reachability() {
+    ping -c 1 "$DOMAIN_IP" &> /dev/null
+    return $?
+}
+
+check_kerberos_tickets() {
+    (klist | grep -v '>>>Expired<<<' | grep -q "$DOMAIN") &> /dev/null
+    return $?
+}
+
+expect_kinit() {
+    local password=$1
+    expect -c "
+spawn kinit $PRINCIPAL
+expect \"$PRINCIPAL's password:\"
+send \"$password\r\"
+expect eof
+"
+}
+
+if check_kerberos_tickets; then
+    echo "Valid Kerberos ticket found for $PRINCIPAL."
+    exit 0
+fi
+
+echo "No valid Kerberos ticket found for $PRINCIPAL."
+
+if check_network_reachability; then
+    echo "Obtaining a new ticket..."
+    expect_kinit "$AD_PASSWORD" &> /dev/null
+    echo "New Kerberos ticket obtained for $PRINCIPAL."
+else
+    echo "Active Directory domain '$DOMAIN_IP' is not reachable."
+    exit 1
+fi
