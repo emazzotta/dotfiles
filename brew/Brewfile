@@ -52,6 +52,7 @@ brew "lftp" # Advanced FTP
 brew "libav" # Git Video
 brew "lsd"
 brew "lzip"
+brew "macosvpn"
 brew "mailsy"
 brew "mas"
 brew "maven"
