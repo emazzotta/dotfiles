@@ -4,11 +4,6 @@ export AD_ACCOUNT="emanuele.mazzotta" # Change this to your account!
 export AD_PASSWORD_NAME="LeonardoActiveDirectory:$AD_ACCOUNT"
 export VPN_SHARED_SECRET_NAME="LeonardoVPNSecret"
 
-if [ ! -t 0 ]; then
-    echo "Not running in an interactive shell in 'leonardo_account'. Ignoring user input!"
-    exit 1
-fi
-
 get_keychain_password() {
     local keychain_account=$1
     local keychain_password_name=$2
@@ -24,7 +19,7 @@ add_password_to_keychain() {
     local keychain_account=$1
     local keychain_password_name=$2
     if ! security find-generic-password -a "$keychain_account" -s "$keychain_password_name" &>/dev/null; then
-        read -s -r -p "Enter password: " PASSWORD
+        read -s -r -p "Enter password for $keychain_password_name: " PASSWORD
         echo
         security add-generic-password -a "$keychain_account" -s "$keychain_password_name" -w "$PASSWORD"
     else
