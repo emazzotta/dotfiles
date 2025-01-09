@@ -16,11 +16,41 @@ is_leonardo_vpn_connected() {
 }
 
 create_vpn_config() {
-    echo "Configuring VPN settings..."
-    sudo networksetup -createnetworkservice "$VPN_NAME" "$INTERFACE"
-    sudo networksetup -setvpnsettings "$VPN_NAME" "$SERVER_ADDRESS" "$ACCOUNT_NAME" "$AD_PASSWORD"
-    sudo networksetup -setipsecsharedsecret "$VPN_NAME" "$VPN_SHARED_SECRET"
-    echo "VPN configuration created."
+    if ! command -v macosvpn >/dev/null 2>&1; then
+        echo "macosvpn is not installed."
+        read -p "Do you want to install macosvpn using Homebrew? (y/n): " answer
+        case $answer in
+            [Yy]* )
+                if ! command -v brew >/dev/null 2>&1; then
+                    echo "Homebrew is not installed. Please install Homebrew first."
+                    return 1
+                fi
+                echo "Installing macosvpn..."
+                brew install macosvpn
+                if [ $? -ne 0 ]; then
+                    echo "Failed to install macosvpn. Please try again later."
+                    return 1
+                fi
+                ;;
+            [Nn]* )
+                echo "macosvpn installation aborted by user."
+                return 1
+                ;;
+            * )
+                echo "Please answer yes or no."
+                return 1
+                ;;
+        esac
+    fi
+
+    echo "Creating VPN configuration with macosvpn..."
+    sudo macosvpn create --l2tp "$VPN_NAME" --endpoint "$SERVER_ADDRESS" --username "$AD_ACCOUNT" --password "$AD_PASSWORD" --sharedsecret "$VPN_SHARED_SECRET"
+    if [ $? -eq 0 ]; then
+        echo "$VPN_NAME VPN configuration created successfully."
+    else
+        echo "Failed to create VPN configuration."
+        return 1
+    fi
 }
 
 connect_or_disconnect_vpn() {
@@ -28,7 +58,7 @@ connect_or_disconnect_vpn() {
     if [ $? -eq 0 ]; then
         echo "Disconnecting $VPN_NAME..."
         scutil --nc stop "$VPN_NAME"
-        if [ $? -eq 0 ]; then
+        if ! is_leonardo_vpn_connected; then
             echo "$VPN_NAME disconnected."
         else
             echo "Failed to disconnect $VPN_NAME."
@@ -36,7 +66,7 @@ connect_or_disconnect_vpn() {
     else
         echo "Connecting to $VPN_NAME..."
         scutil --nc start "$VPN_NAME"
-        if [ $? -eq 0 ]; then
+        if is_leonardo_vpn_connected; then
             echo "$VPN_NAME connected."
         else
             echo "Failed to connect $VPN_NAME."
