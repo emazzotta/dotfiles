@@ -1,0 +1,30 @@
+#!/bin/bash
+
+source leonardo_account
+
+NETWORK_DRIVE_FOLDER="Daten"
+SERVER_IP=192.168.5.155
+SERVER="smb://$AD_ACCOUNT@$SERVER_IP/$NETWORK_DRIVE_FOLDER"
+MOUNT_POINT="$HOME/$NETWORK_DRIVE_FOLDER"
+
+if mount | grep " on $MOUNT_POINT " > /dev/null; then
+    echo "Network drive '$SERVER' is already mounted at $MOUNT_POINT"
+else
+    if [ ! -d "$MOUNT_POINT" ]; then
+        mkdir -p "$MOUNT_POINT"
+    fi
+
+    expect -c "
+    log_user 0
+    spawn mount_smbfs $SERVER $MOUNT_POINT
+    expect \"Password for $SERVER_IP:\"
+    send \"$AD_PASSWORD\r\"
+    expect eof
+    "
+
+    if mount | grep " on $MOUNT_POINT " > /dev/null; then
+        echo "Network drive '$SERVER' mounted at $MOUNT_POINT"
+    else
+        echo "Failed to mount network drive '$SERVER' at $MOUNT_POINT"
+    fi
+fi

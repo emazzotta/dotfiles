@@ -56,8 +56,18 @@ create_vpn_config() {
 connect_or_disconnect_vpn() {
     is_leonardo_vpn_connected
     if [ $? -eq 0 ]; then
-        echo "Disconnecting $VPN_NAME..."
-        scutil --nc stop "$VPN_NAME"
+        if [ "$1" != "--connect-only" ]; then
+            read -p "$VPN_NAME is connected. Disconnect? (y/N): " user_input
+            case $user_input in
+                [Yy])
+                    echo "Disconnecting $VPN_NAME..."
+                    scutil --nc stop "$VPN_NAME"
+                    ;;
+                *)
+                    echo "No changes made. VPN remains connected."
+                    ;;
+            esac
+        fi
     else
         echo "Connecting to $VPN_NAME..."
         scutil --nc start --secret "$VPN_SHARED_SECRET" "$VPN_NAME"
@@ -69,4 +79,4 @@ if [ $? -ne 0 ]; then
     create_vpn_config
 fi
 
-connect_or_disconnect_vpn
+connect_or_disconnect_vpn $1
