@@ -1,21 +1,24 @@
 #!/bin/bash
 
-leonardo_account
-
-leonardo_vpn_toggle --connect-only
 HOST="devserver.leonardo.local"
-MAX_TRIES=10
+MAX_TRIES=5
 
-check_host() {
+is_host_reachable() {
     ping -c 1 $HOST > /dev/null 2>&1
     return $?
 }
 
-for (( i=0; i<$MAX_TRIES; i++ )); do
-    echo "Checking if $HOST is reachable, attempt $((i+1))..."
-    if check_host; then
-        echo "$HOST is reachable."
-        leonardo_kerberos
+leonardo_account
+
+if ! is_host_reachable; then
+  leonardo_vpn_toggle --connect-only
+fi
+
+for (( i=0; i<MAX_TRIES; i++ )); do
+    if is_host_reachable; then
+        echo "Leonardo network is reachable."
+        leon
+        ardo_kerberos
         leonardo_drive
         exit 0
     fi

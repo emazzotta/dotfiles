@@ -8,7 +8,7 @@ SERVER="smb://$AD_ACCOUNT@$SERVER_IP/$NETWORK_DRIVE_FOLDER"
 MOUNT_POINT="$HOME/$NETWORK_DRIVE_FOLDER"
 
 if mount | grep " on $MOUNT_POINT " > /dev/null; then
-    echo "Network drive '$SERVER' is already mounted at $MOUNT_POINT"
+    echo "Network drive '$NETWORK_DRIVE_FOLDER' is already mounted"
 else
     if [ ! -d "$MOUNT_POINT" ]; then
         mkdir -p "$MOUNT_POINT"
@@ -23,8 +23,8 @@ else
     "
 
     if mount | grep " on $MOUNT_POINT " > /dev/null; then
-        echo "Network drive '$SERVER' mounted at $MOUNT_POINT"
+        echo "Network drive '$NETWORK_DRIVE_FOLDER' mounted at $MOUNT_POINT"
     else
-        echo "Failed to mount network drive '$SERVER' at $MOUNT_POINT"
+        echo "Failed to mount network drive '$NETWORK_DRIVE_FOLDER' at $MOUNT_POINT"
     fi
 fi
