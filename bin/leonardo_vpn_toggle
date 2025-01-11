@@ -5,47 +5,23 @@ source leonardo_account
 VPN_NAME="LeonardoVPN"
 SERVER_ADDRESS="vpn.leonardo.ag"
 
-check_vpn_config() {
+is_leonardo_vpn_configured() {
     scutil --nc list | grep -q "$VPN_NAME"
     return $?
 }
 
 is_leonardo_vpn_connected() {
-    check_vpn_config && scutil --nc status "$VPN_NAME" | grep -qw "Connected"
+    is_leonardo_vpn_configured && scutil --nc status "$VPN_NAME" | grep -qw "Connected"
     return $?
 }
 
 create_vpn_config() {
     if ! command -v macosvpn >/dev/null 2>&1; then
-        echo "macosvpn is not installed."
-        read -p "Do you want to install macosvpn using Homebrew? (y/n): " answer
-        case $answer in
-            [Yy]* )
-                if ! command -v brew >/dev/null 2>&1; then
-                    echo "Homebrew is not installed. Please install Homebrew first."
-                    return 1
-                fi
-                echo "Installing macosvpn..."
-                brew install macosvpn
-                if [ $? -ne 0 ]; then
-                    echo "Failed to install macosvpn. Please try again later."
-                    return 1
-                fi
-                ;;
-            [Nn]* )
-                echo "macosvpn installation aborted by user."
-                return 1
-                ;;
-            * )
-                echo "Please answer yes or no."
-                return 1
-                ;;
-        esac
+        echo "macosvpn is not installed. install via 'brew install macosvpn'"
+        exit 1
     fi
-
     echo "Creating VPN configuration with macosvpn..."
-    sudo macosvpn create --l2tp "$VPN_NAME" --endpoint "$SERVER_ADDRESS" --username "$AD_ACCOUNT" --password "$AD_PASSWORD" --sharedsecret "$VPN_SHARED_SECRET"
-    if [ $? -eq 0 ]; then
+    if sudo macosvpn create --l2tp "$VPN_NAME" --endpoint "$SERVER_ADDRESS" --username "$AD_ACCOUNT" --password "$AD_PASSWORD" --sharedsecret "$VPN_SHARED_SECRET"; then
         echo "$VPN_NAME VPN configuration created successfully."
     else
         echo "Failed to create VPN configuration."
@@ -54,33 +30,26 @@ create_vpn_config() {
 }
 
 connect_or_disconnect_vpn() {
-    is_leonardo_vpn_connected
-    if [ $? -eq 0 ]; then
-        if [ "$1" != "--connect-only" ]; then
-            read -p "$VPN_NAME is connected. Disconnect? (y/N): " user_input
-            case $user_input in
-                [Yy])
-                    echo "Disconnecting $VPN_NAME..."
-                    if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
-                        echo "Unmounting network drive '$NETWORK_DRIVE_FOLDER'"
-                        umount "$NETWORK_DRIVE_MOUNT_POINT"
-                    fi
-                    scutil --nc stop "$VPN_NAME"
-                    ;;
-                *)
-                    echo "No changes made. VPN remains connected."
-                    ;;
-            esac
-        fi
+    if is_leonardo_vpn_connected; then
+        read -r -p "$VPN_NAME is connected. Disconnect? (y/N): " user_input
+        case $user_input in
+            [Yy])
+                echo "Disconnecting $VPN_NAME..."
+                umount "$NETWORK_DRIVE_MOUNT_POINT" &> /dev/null
+                scutil --nc stop "$VPN_NAME"
+                ;;
+            *)
+                echo "No changes made. VPN remains connected."
+                ;;
+        esac
     else
         echo "Connecting to $VPN_NAME..."
         scutil --nc start --secret "$VPN_SHARED_SECRET" "$VPN_NAME"
     fi
 }
 
-check_vpn_config
-if [ $? -ne 0 ]; then
+if ! is_leonardo_vpn_configured; then
     create_vpn_config
 fi
 
-connect_or_disconnect_vpn $1
+connect_or_disconnect_vpn "$1"

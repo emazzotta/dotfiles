@@ -11,7 +11,10 @@ is_host_reachable() {
 leonardo_account
 
 if ! is_host_reachable; then
-  leonardo_vpn_toggle --connect-only
+  leonardo_vpn_toggle
+else
+  leonardo_vpn_toggle
+  exit 0
 fi
 
 for (( i=0; i<MAX_TRIES; i++ )); do
