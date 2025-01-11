@@ -11,6 +11,9 @@ is_leonardo_vpn_configured() {
 }
 
 is_leonardo_vpn_connected() {
+    if ! is_leonardo_vpn_configured; then
+        create_vpn_config
+    fi
     is_leonardo_vpn_configured && scutil --nc status "$VPN_NAME" | grep -qw "Connected"
     return $?
 }
@@ -48,8 +51,4 @@ connect_or_disconnect_vpn() {
     fi
 }
 
-if ! is_leonardo_vpn_configured; then
-    create_vpn_config
-fi
-
-connect_or_disconnect_vpn "$1"
+connect_or_disconnect_vpn
