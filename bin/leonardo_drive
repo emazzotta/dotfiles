@@ -2,29 +2,24 @@
 
 source leonardo_account
 
-NETWORK_DRIVE_FOLDER="Daten"
-SERVER_IP=192.168.5.155
-SERVER="smb://$AD_ACCOUNT@$SERVER_IP/$NETWORK_DRIVE_FOLDER"
-MOUNT_POINT="$HOME/$NETWORK_DRIVE_FOLDER"
-
-if mount | grep " on $MOUNT_POINT " > /dev/null; then
+if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
     echo "Network drive '$NETWORK_DRIVE_FOLDER' is already mounted"
 else
-    if [ ! -d "$MOUNT_POINT" ]; then
-        mkdir -p "$MOUNT_POINT"
+    if [ ! -d "$NETWORK_DRIVE_MOUNT_POINT" ]; then
+        mkdir -p "$NETWORK_DRIVE_MOUNT_POINT"
     fi
 
     expect -c "
     log_user 0
-    spawn mount_smbfs $SERVER $MOUNT_POINT
-    expect \"Password for $SERVER_IP:\"
+    spawn mount_smbfs $NETWORK_DRIVE_FULL_URL $NETWORK_DRIVE_MOUNT_POINT
+    expect \"Password for $NETWORK_DRIVE_SERVER_IP:\"
     send \"$AD_PASSWORD\r\"
     expect eof
     "
 
-    if mount | grep " on $MOUNT_POINT " > /dev/null; then
-        echo "Network drive '$NETWORK_DRIVE_FOLDER' mounted at $MOUNT_POINT"
+    if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
+        echo "Network drive '$NETWORK_DRIVE_FOLDER' mounted at $NETWORK_DRIVE_MOUNT_POINT"
     else
-        echo "Failed to mount network drive '$NETWORK_DRIVE_FOLDER' at $MOUNT_POINT"
+        echo "Failed to mount network drive '$NETWORK_DRIVE_FOLDER' at $NETWORK_DRIVE_MOUNT_POINT"
     fi
 fi

@@ -2,7 +2,13 @@
 
 export AD_ACCOUNT="emanuele.mazzotta" # Change this to your account!
 export AD_PASSWORD_NAME="LeonardoActiveDirectory:$AD_ACCOUNT"
+
 export VPN_SHARED_SECRET_NAME="LeonardoVPNSecret"
+
+export NETWORK_DRIVE_FOLDER="Daten"
+export NETWORK_DRIVE_SERVER_IP=192.168.5.155
+export NETWORK_DRIVE_FULL_URL="smb://$AD_ACCOUNT@$NETWORK_DRIVE_SERVER_IP/$NETWORK_DRIVE_FOLDER"
+export NETWORK_DRIVE_MOUNT_POINT="$HOME/$NETWORK_DRIVE_FOLDER"
 
 get_keychain_password() {
     local keychain_account=$1

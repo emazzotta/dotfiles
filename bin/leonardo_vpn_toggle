@@ -61,6 +61,10 @@ connect_or_disconnect_vpn() {
             case $user_input in
                 [Yy])
                     echo "Disconnecting $VPN_NAME..."
+                    if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
+                        echo "Unmounting network drive '$NETWORK_DRIVE_FOLDER'"
+                        umount "$NETWORK_DRIVE_MOUNT_POINT"
+                    fi
                     scutil --nc stop "$VPN_NAME"
                     ;;
                 *)
