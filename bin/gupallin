@@ -10,15 +10,18 @@ CUSTOM_RELEASE_PATTERN="^[0-9]+.([0-9]+|x)(.[0-9]+|.x)?$" # Matches patterns lik
 function pull_branch() {
     test "${2}" || return 1
     if git -C "${2}" rev-parse --verify "origin/${1}" &> /dev/null && git -C "${2}" checkout "${1}" &> /dev/null; then
-        git -C "${2}" pull --quiet --rebase
-        [ $? -eq 0 ] && substep_success "Pulled ${1}" || substep_error "Pulling ${1} failed"
+        if git -C "${2}" pull --quiet --rebase; then
+          substep_success "Pulled ${1}"
+        else
+          substep_error "Pulling ${1} failed"
+        fi
         git -C "${2}" checkout --quiet -
     fi
 }
 
 function pull_branches_by_regex() {
     test "${2}" || return 1
-    git -C "${2}" branch -r | sed 's/origin\///g' | sed 's/ //g' | grep -E "${1}" | while read branch; do
+    git -C "${2}" branch -r | sed 's/origin\///g' | sed 's/ //g' | grep -E "${1}" | while read -r branch; do
         pull_branch "${branch}" "${2}"
     done
 }
@@ -44,5 +47,5 @@ find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir;
         fi
     fi
 done
-success "Done pulling updates."
 
+success "Done updating git repositories."

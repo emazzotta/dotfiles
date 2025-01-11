@@ -1,0 +1,26 @@
+#!/bin/bash
+
+root_dir="$(pwd)"
+test "${1}" && root_dir="${1}"
+
+test -f "${CUSTOM_BIN_DIR}/prettyprint" && source "${CUSTOM_BIN_DIR}/prettyprint"
+
+function update_svn_directory() {
+    svn_dir="${1}"
+    if [ -d "${svn_dir}/.svn" ]; then
+        substep_info "Updating ${svn_dir}"
+        svn update "${svn_dir}" --quiet
+        if [ $? -eq 0 ]; then
+            substep_success "Updated successfully"
+        else
+            substep_error "Update failed"
+        fi
+    fi
+}
+
+info "Checking ${root_dir} for SVN updates..."
+find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
+    update_svn_directory "${dir}"
+done
+
+success "Done updating svn repositories."

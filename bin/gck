@@ -2,7 +2,7 @@
 
 source "${CUSTOM_BIN_DIR}/prettyprint"
 
-info "Checking for unfinished work."
+info "Checking for unfinished git work."
 
 dir="${WDIR}"
 test "${1}" && dir="${1}"

@@ -194,13 +194,9 @@ alias gunstage='git restore --staged .'
 alias gup='git pull --rebase --autostash'
 alias hrp='cd $WDIR/hackathons'
 alias isotoutf='iconv -f iso-8859-1 -t utf-8'
-alias j17='sdk use java $(find_java_sdk 17)'
-alias j21='sdk use java $(find_java_sdk 21)'
 alias j21intel='export JAVA_HOME=$WDIR/leo-productions/jdk-21.jdk/Contents/Home'
-alias j23='sdk use java $(find_java_sdk 23)'
-alias j8='sdk use java $(find_java_sdk 8)'
-alias j8='sdk use java $(find_java_sdk 8)'
 alias jc='find . -name "build" -or -name "out" -or -name "generated" | xargs -I {} rm -rf {}'
+alias jv='java -version'
 alias k='kubectl'
 alias kc='kubeconf'
 alias ke='vi $HOME/.config/karabiner/karabiner.json'
@@ -260,13 +256,14 @@ alias shrug='print_and_copy "¯\_(ツ)_/¯"'
 alias spacey='envify && 7z x "$ZIPS_DIR/Spacey.7z" -o"$DESKDIR" -p"$PASSWORD_ZIPS"'
 alias spotify_clean='rm -rf /Users/$USERNAME/Library/Caches/com.spotify.client/Data'
 alias spub='find $HOME/.ssh -name "id_*.pub" | while read file;do echo "$file:" && cat $file;done'
+alias srevert='svn revert -R .'
 alias srp='cd $WDIR/archive/siroop'
 alias ss='sshrc'
 alias sshfix='ssh-add --apple-use-keychain'
 alias sshkeyadd='ssh-add --apple-use-keychain'
 alias sshpasswd='ssh-keygen -p -f'
 alias st='vi $DOTFILESPATH/setup'
-alias superocd='sshkeyadd && ocd && update && rmraycastclipboard && rmmac && gupallin "$HOME" && zgen update <<< "n" &> /dev/null && gck "$HOME" && create_backups'
+alias superocd='sshkeyadd && ocd && update && rmraycastclipboard && rmmac && gupallin "$HOME" && supallin "$HOME" && zgen update <<< "n" &> /dev/null && gck "$HOME" && sck "$HOME" && create_backups'
 alias t='lazygit'
 alias telegram_deleter='av && $PRIVATE_PROJECTS/telegram-deleter/src/telegram_deleter.sh && dv'
 alias thinking='print_and_copy 🤔'
@@ -296,6 +293,36 @@ alias ze='vi $HOME/.zshrc'
 alias zep='vi $HOME/.zpreztorc'
 alias zh='vi $HISTFILE'
 alias zrp='cd $WDIR/zhaw'
+### FUNCTIONS ###
+find_java_sdk() {
+    input_version="$*"
+    matched_version=$(sdk list java |
+      grep "installed" |
+      fzf --filter="$input_version" |
+      head -n 1 |
+      awk -F'|' '{print $NF}' |
+      sed 's/^ *//;s/ *$//')
+
+    if [ ! -n "$matched_version" ]; then
+        exit 1
+    fi
+
+    echo "$matched_version"
+}
+j() {
+    if [ $# -eq 0 ]; then
+        echo "Usage: j <version>"
+        return 1
+    fi
+
+    local version=$(find_java_sdk "$@")
+    if [[ -n "$version" ]]; then
+        sdk use java "$version"
+    else
+        echo "No Java SDK version found for $*"
+        return 1
+    fi
+}
 ### COMMANDS ###
 source load "$HOME/.sdkman/bin/sdkman-init.sh"
 source load "$DOTFILESPATH/autocomplete/custom_autocomplete"

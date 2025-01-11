@@ -1,0 +1,27 @@
+#!/bin/bash
+
+source "${CUSTOM_BIN_DIR}/prettyprint"
+
+info "Checking for unfinished svn work."
+
+dir="${WDIR}"
+test "${1}" && dir="${1}"
+
+find "${dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
+    if [ -d "${dir}/.svn" ]; then
+        echo -n "."
+        if [[ "$(svn status "${dir}")" != "" ]]; then
+            echo 
+            substep_info "${dir} [svn uncommitted changes]"
+            svn status "${dir}"
+        fi
+        if [[ "$(svn diff -r BASE:HEAD "${dir}")" != "" ]]; then
+            echo
+            substep_info "${dir} [svn local modifications]"
+            echo -e "$(svn diff -r BASE:HEAD "${dir}")"
+        fi
+    fi
+done
+
+echo
+success "Done."
