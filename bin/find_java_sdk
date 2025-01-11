@@ -1,9 +1,26 @@
 #!/bin/bash
 
-set -e
+source "$HOME/.sdkman/bin/sdkman-init.sh"
 
-if test "${1}"; then
-    echo test
-else
-    echo "usage: `basename ${0}` <param>"
+if ! command -v fzf &> /dev/null; then
+    exit 1
 fi
+
+input_version="$*"
+if [ -z "$input_version" ]; then
+    exit 1
+fi
+
+matched_version=$(sdk list java |
+  grep "installed" |
+  fzf --filter="$input_version" |
+  head -n 1 |
+  awk -F'|' '{print $NF}' |
+  sed 's/^ *//;s/ *$//')
+
+if [ -n "$matched_version" ]; then
+    echo "$matched_version"
+    exit 0
+fi
+
+exit 1
