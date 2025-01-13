@@ -33,7 +33,7 @@ create_vpn_config() {
 }
 
 connect_or_disconnect_vpn() {
-    if is_leonardo_vpn_connected; then
+    if is_leonardo_vpn_connected && [ "$1" != "--enable" ]; then
         read -r -p "$VPN_NAME is connected. Disconnect? (y/N): " user_input
         case $user_input in
             [Yy])
@@ -45,10 +45,10 @@ connect_or_disconnect_vpn() {
                 echo "No changes made. VPN remains connected."
                 ;;
         esac
-    else
+    elif [ "$1" != "--disable" ]; then
         echo "Connecting to $VPN_NAME..."
         scutil --nc start --secret "$VPN_SHARED_SECRET" "$VPN_NAME"
     fi
 }
 
-connect_or_disconnect_vpn
+connect_or_disconnect_vpn "$1"
