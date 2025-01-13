@@ -6,7 +6,7 @@ DOMAIN="LEONARDO.LOCAL"
 PRINCIPAL="$AD_ACCOUNT@$DOMAIN"
 
 check_kerberos_tickets() {
-    (klist | grep -v '>>>Expired<<<' | grep -q "$DOMAIN") &> /dev/null
+    (klist | grep -v '>>>Expired<<<' | grep -v "Principal: $PRINCIPAL" | grep -q "$DOMAIN") &> /dev/null
     return $?
 }
 
