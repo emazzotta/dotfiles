@@ -16,6 +16,7 @@ stow -d "${DIR}" -t "${HOME}" maven
 stow -d "${DIR}" -t "${HOME}" sdkman
 stow -d "${DIR}" -t "${HOME}" ssh
 stow -d "${DIR}" -t "${HOME}" sshrc
+stow -d "${DIR}" -t "${HOME}" subversion
 stow -d "${DIR}" -t "${HOME}" tmux
 stow -d "${DIR}" -t "${HOME}" vim
 stow -d "${DIR}" -t "${HOME}" zsh
