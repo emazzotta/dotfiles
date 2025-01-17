@@ -31,6 +31,7 @@ brew "gist"
 brew "git"
 brew "git-crypt"
 brew "git-lfs"
+brew "git-svn"
 brew "gnupg"
 brew "go"
 brew "gource" # Git Video
