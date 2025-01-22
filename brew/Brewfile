@@ -41,6 +41,7 @@ brew "htop"
 brew "icdiff"
 brew "id3v2"
 brew "imagemagick" # SVGify
+brew "jandedobbeleer/oh-my-posh/oh-my-posh" # Powershell Theme
 brew "jq"
 brew "k3d"
 brew "krb5"
@@ -74,6 +75,7 @@ brew "perl"
 brew "pkg-config" # Required by pdfgrep etc.
 brew "poppler" # pdfinfo util
 brew "potrace" # SVGify
+brew "powershell"
 brew "prettyping"
 brew "pv"
 brew "python3"

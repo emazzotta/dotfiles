@@ -13,6 +13,7 @@ stow -d "${DIR}" -t "${HOME}" karabiner
 stow -d "${DIR}" -t "${HOME}" kerberos
 stow -d "${DIR}" -t "${HOME}" lftp
 stow -d "${DIR}" -t "${HOME}" maven
+stow -d "${DIR}" -t "${HOME}" powershell
 stow -d "${DIR}" -t "${HOME}" sdkman
 stow -d "${DIR}" -t "${HOME}" ssh
 stow -d "${DIR}" -t "${HOME}" sshrc
