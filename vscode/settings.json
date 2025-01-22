@@ -47,5 +47,6 @@
   "editor.tabSize": 2,
   "git.autofetch": true,
   "git.openRepositoryInParentFolders": "always",
-  "python.defaultInterpreterPath": "/Users/emanuelemazzotta/.venv/python-3-venv"
+  "python.defaultInterpreterPath": "/Users/emanuelemazzotta/.venv/python-3-venv",
+  "explorer.confirmDelete": false
 }

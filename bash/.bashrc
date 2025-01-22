@@ -55,10 +55,11 @@ export LC_ALL=en_US.UTF-8
 export LC_CTYPE=en_US.UTF-8
 export LC_TYPE=en_US.UTF-8
 export LESS='-R'
-export LSCOLORS="GxFxBxDxCxegedabagacad"
 export LS_COLORS="di=1;36;40:ln=1;35;40:so=1;31;40:pi=1;33;40:ex=1;32;40:bd=34;46:cd=34;43:su=0;41:sg=0;46:tw=0;42:ow=0;43:"
+export LSCOLORS="GxFxBxDxCxegedabagacad"
 export MANPAGER="less -X"
 export MARKDOWNDIR=$DOCUMENTDIR/Markdown
+export POSH_THEMES_PATH="$(brew --prefix oh-my-posh)/themes"
 export PRIVATECOMMITSDIR="$PRIVATE_PROJECTS/private-commits"
 export PROMPT_DIRTRIM=2
 export PYTHONIOENCODING='UTF-8'
