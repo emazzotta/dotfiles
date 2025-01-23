@@ -7,13 +7,8 @@ function Get-LongListing {
 }
 Set-Alias -Name ll -Value Get-LongListing
 
-#######
-
-#function Connect-VM {
-#    Enter-PSSession -HostName devserver.leonardo.local -UserName "LEONARDO\Administrator" -SSHTransport -Port 2222
-#}
-
 function Connect-VM {
+#    Enter-PSSession -HostName devserver.leonardo.local -UserName "LEONARDO\Administrator" -SSHTransport -Port 2222
     $CustomProfilePath = "C:\Users\administrator.LEONARDO\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
     $session = New-PSSession -HostName devserver.leonardo.local -UserName "LEONARDO\Administrator" -SSHTransport -Port 2222
     Invoke-Command -Session $session -ScriptBlock {
