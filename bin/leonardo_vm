@@ -16,7 +16,6 @@ else
         mkdir -p "$MOUNT_POINT"
     fi
 
-    echo "Command 'mount_smbfs $NETWORK_DRIVE_FULL_URL $MOUNT_POINT'"
     expect -c "
     log_user 0
     spawn mount_smbfs $NETWORK_DRIVE_FULL_URL $MOUNT_POINT
