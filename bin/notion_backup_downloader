@@ -1,19 +1,19 @@
 #!/usr/bin/env python
 
+import glob
 import os
 import subprocess
 import sys
 import time
-import requests
-import glob
 
+import requests
 
 TZ = os.getenv("TZ", "Europe/Zurich")
 NOTION_API = os.getenv('NOTION_API', 'https://www.notion.so/api/v3')
-NOTION_SPACE_ID = os.getenv('NOTION_SPACE_ID')
-NOTION_TOKEN_V2 = os.getenv('NOTION_TOKEN_V2')
 HOME_DIRECTORY = os.getenv('HOME')
 DOWNLOAD_PATH = f"{HOME_DIRECTORY}/Desktop/"
+NOTION_SPACE_ID = os.getenv('NOTION_SPACE_ID')
+NOTION_TOKEN_V2 = os.getenv('NOTION_TOKEN_V2')
 NOTION_EXPORT_PATH = os.getenv('NOTION_EXPORT_PATH')
 
 
@@ -41,9 +41,12 @@ def create_export():
             break
         print(f'\rPages exported: {task.get("status").get("pagesExported")}', end="")
 
-    export_url = task.get("status").get("exportURL")
-    print(f"\nExport created: {export_url}")
-    return export_url
+    # Was removed from API: task.get("status").get("exportURL")
+    if task.get("state") != "success":
+        print(f"\nExport creation failed!")
+        return
+
+    print(f"\nExport created! Download it!")
 
 
 def download_export(export_url, target_path):
@@ -63,6 +66,16 @@ def download_export(export_url, target_path):
     return target_path
 
 
+def wait_for_manual_download():
+    while True:
+        response = input("Did you download the export? (y/N): ").strip().lower()
+        if response in {"y", "yes"}:
+            print("Continuing...")
+            break
+        else:
+            print("Please download the export before continuing.")
+
+
 ENQUEUE_TASK_PARAM = {
     "task": {
         "eventName": "exportSpace",
@@ -77,7 +90,6 @@ ENQUEUE_TASK_PARAM = {
     }
 }
 
-
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Must pass expected filename")
@@ -87,8 +99,9 @@ if __name__ == "__main__":
     exported_files = glob.glob(f"{DOWNLOAD_PATH}/*[Ee]xport*.zip")
 
     if not exported_files:
-        created_export_url = create_export()
-        downloaded_file = download_export(created_export_url, target_filename)
+        create_export()
+        wait_for_manual_download()
+        # downloaded_file = download_export(created_export_url, target_filename)
     else:
         downloaded_file = max(exported_files, key=os.path.getctime)
         print(f"Found existing export file: {downloaded_file}")
