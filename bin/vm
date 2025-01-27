@@ -1,0 +1,13 @@
+#!/bin/bash
+
+devrun() {
+  if [ "$#" -eq 0 ]; then
+    echo "Usage: devrun <command>"
+    return 1
+  fi
+
+  local command="${*%%|*}"
+  ssh -q devserver "$command" 2>/dev/null
+}
+
+devrun $@
