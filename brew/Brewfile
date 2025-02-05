@@ -35,6 +35,7 @@ brew "git-svn"
 brew "gnupg"
 brew "go"
 brew "gource" # Git Video
+brew "graphviz"
 brew "hashicorp/tap/packer"
 brew "helm"
 brew "htop"
