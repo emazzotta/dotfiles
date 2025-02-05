@@ -21,6 +21,7 @@ brew "diff-so-fancy"
 brew "dockutil"
 brew "duti"
 brew "exiftool"
+brew "fdk-aac" # Git Video
 brew "ffmpeg"
 brew "flac"
 brew "fzf"
