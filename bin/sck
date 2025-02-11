@@ -4,10 +4,15 @@ source "${CUSTOM_BIN_DIR}/prettyprint"
 
 info "Checking for unfinished svn work."
 
+if ! curl -k --silent --head --connect-timeout 5 "https://devserver.leonardo.local" > /dev/null; then
+    error "Network timeout: Cannot reach devserver.leonardo.local. Skipping SVN work check."
+    exit 1
+fi
+
 dir="${WDIR}"
 test "${1}" && dir="${1}"
 
-find "${dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
+find "${dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
     if [ -d "${dir}/.svn" ]; then
         echo -n "."
         if [[ "$(svn status "${dir}")" != "" ]]; then
@@ -25,3 +30,4 @@ done
 
 echo
 success "Done."
+

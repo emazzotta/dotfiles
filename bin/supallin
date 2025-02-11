@@ -19,8 +19,15 @@ function update_svn_directory() {
 }
 
 info "Checking ${root_dir} for SVN updates..."
-find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
+
+if ! curl -k --silent --head --connect-timeout 5 "https://devserver.leonardo.local" > /dev/null; then
+    error "Network timeout: Cannot reach devserver.leonardo.local. Skipping SVN updates."
+    exit 1
+fi
+
+find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
     update_svn_directory "${dir}"
 done
 
 success "Done updating svn repositories."
+
