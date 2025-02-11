@@ -10,7 +10,7 @@ export NETWORK_DRIVE_SERVER_IP=192.168.5.155
 export NETWORK_DRIVE_FULL_URL="smb://$AD_ACCOUNT@$NETWORK_DRIVE_SERVER_IP/$NETWORK_DRIVE_FOLDER"
 export NETWORK_DRIVE_MOUNT_POINT="$HOME/$NETWORK_DRIVE_FOLDER"
 
-export VM_DRIVE_MOUNT_POINT="smb://admin@192.168.5.7:4445/Devserver-VM"
+export VM_DRIVE_MOUNT_POINT="smb://admin@192.168.5.7:4445/Devserver-Windows-VM"
 
 get_keychain_password() {
     local keychain_account=$1
