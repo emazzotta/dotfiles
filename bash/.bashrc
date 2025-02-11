@@ -34,9 +34,17 @@ export BOILERPLATE_PATH="$PRIVATE_PROJECTS/katas/boilerplate"
 export BOOKMARKDIR=$DOCUMENTDIR/Bookmarks
 export BREW_CASK_IGNORELIST="mixed-in-key,my-cask-to-pin"
 export BREW_CASK_IGNORELIST=$(echo $BREW_CASK_IGNORELIST | sed 's/,/\\|/g')
+export CC="/opt/homebrew/bin/gcc-14"
 export CLICOLOR=1
+export CMAKE_CXX_COMPILER="/opt/homebrew/bin/g++-14"
+export CMAKE_CXX_FLAGS="-std=c++17"
+export CMAKE_CXX_STANDARD="17"
+export CMAKE_C_COMPILER="/opt/homebrew/bin/gcc-14"
+export CMAKE_EXE_LINKER_FLAGS="-lstdc++fs"
 export CMAKE_MAKE_PROGRAM=$(which ninja)
+export CMAKE_OPTIONS="-DUSE_SYSTEM_LIBCLANG=ON"
 export CRONTAB_FILE="$DOTFILESPATH/cron/crontab"
+export CXX="/opt/homebrew/bin/g++-14"
 export DESKDIR="$HOME/Desktop"
 export DJ_TRACKS="$DJ_DIR/00_Collection"
 export DOWNLOADDIR="$HOME/Downloads"
@@ -55,8 +63,8 @@ export LC_ALL=en_US.UTF-8
 export LC_CTYPE=en_US.UTF-8
 export LC_TYPE=en_US.UTF-8
 export LESS='-R'
-export LS_COLORS="di=1;36;40:ln=1;35;40:so=1;31;40:pi=1;33;40:ex=1;32;40:bd=34;46:cd=34;43:su=0;41:sg=0;46:tw=0;42:ow=0;43:"
 export LSCOLORS="GxFxBxDxCxegedabagacad"
+export LS_COLORS="di=1;36;40:ln=1;35;40:so=1;31;40:pi=1;33;40:ex=1;32;40:bd=34;46:cd=34;43:su=0;41:sg=0;46:tw=0;42:ow=0;43:"
 export MANPAGER="less -X"
 export MARKDOWNDIR=$DOCUMENTDIR/Markdown
 export POSH_THEMES_PATH="$(brew --prefix oh-my-posh)/themes"
