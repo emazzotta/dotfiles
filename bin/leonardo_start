@@ -21,7 +21,6 @@ for (( i=0; i<MAX_TRIES; i++ )); do
         echo "Leonardo network is reachable."
         leonardo_kerberos
         leonardo_drive
-        leonardo_vm
         exit 0
     fi
     sleep 1

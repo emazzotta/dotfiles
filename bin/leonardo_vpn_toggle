@@ -39,7 +39,6 @@ connect_or_disconnect_vpn() {
             [Yy])
                 echo "Disconnecting $VPN_NAME..."
                 umount "$NETWORK_DRIVE_MOUNT_POINT" &> /dev/null
-                umount "$VM_DRIVE_MOUNT_POINT" &> /dev/null
                 scutil --nc stop "$VPN_NAME"
                 ;;
             *)
