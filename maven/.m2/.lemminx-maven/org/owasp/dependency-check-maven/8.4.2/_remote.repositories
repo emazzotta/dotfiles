@@ -1,0 +1,4 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Feb 17 13:21:11 CET 2025
+dependency-check-maven-8.4.2.jar>nexus=
+dependency-check-maven-8.4.2.pom>nexus=
