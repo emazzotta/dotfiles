@@ -5,29 +5,36 @@ test "${1}" && root_dir="${1}"
 
 test -f "${CUSTOM_BIN_DIR}/prettyprint" && source "${CUSTOM_BIN_DIR}/prettyprint"
 
+function has_remote_access() {
+    local remote_url="$1"
+    curl -k --silent --head --connect-timeout 5 "$remote_url" &> /dev/null || return 1
+}
+
+function has_svn_access() {
+    local svn_url=$(svn info "$1" --show-item repos-root-url 2>/dev/null) || return 1
+    has_remote_access "$svn_url" || return 1
+}
+
 function update_svn_directory() {
-    svn_dir="${1}"
-    if [ -d "${svn_dir}/.svn" ]; then
-        substep_info "Updating ${svn_dir}"
-        svn update "${svn_dir}" --quiet
-        if [ $? -eq 0 ]; then
-            substep_success "Updated successfully"
-        else
-            substep_error "Update failed"
-        fi
+    substep_info "Updating ${1}"
+    svn update "${1}" --quiet
+    if [ $? -eq 0 ]; then
+        substep_success "Updated successfully"
+    else
+        substep_error "Update failed"
     fi
 }
 
 info "Checking ${root_dir} for SVN updates..."
 
-if ! curl -k --silent --head --connect-timeout 5 "https://devserver.leonardo.local" > /dev/null; then
-    error "Network timeout: Cannot reach devserver.leonardo.local. Skipping SVN updates."
-    exit 1
-fi
-
 find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
-    update_svn_directory "${dir}"
+    if [ -d "${dir}/.svn" ]; then
+        if has_svn_access "${dir}"; then
+            update_svn_directory "${dir}"
+        else
+            substep_error "No access to remote for ${dir}"
+        fi
+    fi
 done
 
 success "Done updating svn repositories."
-

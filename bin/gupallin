@@ -13,9 +13,14 @@ function convert_git_url_to_http() {
     echo "${git_url%.git}"
 }
 
+function has_remote_access() {
+    local remote_url="$1"
+    curl -k --silent --head --connect-timeout 5 "$remote_url" &> /dev/null || return 1
+}
+
 function has_git_access() {
     local remote_url=$(git -C "$1" remote get-url origin 2>/dev/null) || return 1
-    curl -k --silent --head --connect-timeout 5 "$(convert_git_url_to_http "$remote_url")" &> /dev/null || return 1
+    has_remote_access "$(convert_git_url_to_http "$remote_url")" || return 1
 }
 
 function pull_branch() {
