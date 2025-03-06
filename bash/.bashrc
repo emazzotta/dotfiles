@@ -55,7 +55,6 @@ export HISTCONTROL="ignoreboth"
 export HISTTIMEFORMAT="%Y-%m-%d %T "
 export HOMEBREW_CASK_OPTS="--appdir=/Applications"
 export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
-export JAVA_LIBRARY_PATH="/Users/emanuelemazzotta/Projects/leo-productions/leonardo/trunk/leonardo-leonardo/target/natives.mac"
 export KEYTIMEOUT=1
 export KUBE_DIR="$HOME/.kube"
 export LANGUAGE=en_US.UTF-8

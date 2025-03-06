@@ -103,7 +103,6 @@ brew "xz" # Required by many tools
 brew "zsh"
 
 # cask "kicad"
-caks "windows-app"
 cask "ableton-live-suite"
 cask "aldente"
 cask "apparency"
@@ -144,6 +143,7 @@ cask "vcv-rack"
 cask "visual-studio-code"
 cask "vlc"
 cask "vnc-viewer"
+cask "windows-app"
 cask "xquartz"
 
 # Mac App Store
