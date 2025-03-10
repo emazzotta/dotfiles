@@ -110,7 +110,6 @@ cask "appcleaner"
 cask "arc"
 cask "audio-hijack"
 cask "blackhole-2ch"
-cask "caffeine"
 cask "daisydisk"
 cask "docker"
 cask "eclipse-java"
@@ -153,3 +152,4 @@ mas "Affinity Photo", id: 824183456
 mas "Shazam", id: 897118787
 mas "WireGuard", id: 1451685025
 mas "Yubico Authenticator", id: 1497506650
+mas "Amphetamine", id: 123
