@@ -7,6 +7,11 @@ function Get-LongListing {
 }
 Set-Alias -Name ll -Value Get-LongListing
 
+function ..1 { cd .. }
+function ..2 { cd ..; cd .. }
+function ..3 { cd ..; cd ..; cd .. }
+function ..4 { cd ..; cd ..; cd ..; cd .. }
+
 function Connect-Devserver-VM {
     # Enter-PSSession -HostName devserver.leonardo.local -UserName "LEONARDO\Administrator" -SSHTransport -Port 2222
     $CustomProfilePath = "C:\Users\administrator.LEONARDO\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
@@ -39,3 +44,4 @@ function Connect-Devshost-VM {
 
 Set-Alias -Name dsrv -Value Connect-Devserver-VM
 Set-Alias -Name dhost -Value Connect-Devshost-VM
+
