@@ -12,9 +12,8 @@
 .run
 .vscode
 Thumbs.db
-apps/api/src/i18n
+builds
 generated
-modules/prompt/functions/
 npm-debug.log
 out
 sources_non_forked
