@@ -119,6 +119,7 @@ cask "eclipse-java"
 cask "electrum"
 cask "fission"
 cask "font-hack-nerd-font"
+cask "google-chrome" # lighthouse
 cask "google-drive"
 cask "gpg-suite"
 cask "intellij-idea"
