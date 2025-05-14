@@ -1,6 +1,6 @@
 [user]
-	name = GitLab CI
-	email = ci@gitlab.leonardo.local
+	name = Emanuele Mazzotta
+	email = mazzotta.emanuele@gmail.com
 	signingkey = 73EB5C8CAC4297A8
 [push]
 	default = simple
