@@ -9,9 +9,10 @@ test "${1}" && dir="${1}"
 
 find "${dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
     if [ -d "${dir}/.git" ]; then
+        current_branch=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
         echo -n "."
         if [[ "$(git -C "${dir}" status -s)" != "" ]]; then
-            echo 
+            echo
             substep_info "${dir} [git uncommitted changes]"
             git -C "${dir}" status -s
         fi
@@ -24,6 +25,10 @@ find "${dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
             echo
             substep_info "${dir} [git stashed changes]"
             git -C "${dir}" stash list
+        fi
+        if [[ "${current_branch}" != "main" && "${current_branch}" != "master" ]]; then
+            echo
+            substep_info "${dir} [current branch: ${current_branch}]"
         fi
     fi
 done
