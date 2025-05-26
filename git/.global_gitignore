@@ -16,6 +16,7 @@ builds
 generated
 npm-debug.log
 out
+prompt_garrett_setup
 sources_non_forked
 taget
 tf.json
