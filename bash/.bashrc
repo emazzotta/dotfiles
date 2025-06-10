@@ -251,6 +251,7 @@ alias rm_brew_pkg='find "/opt/homebrew/Caskroom" -type f -name "*.pkg" -delete &
 alias rm_microsoft_autoupdater='sudo rm -rf "/Library/Application Support/Microsoft/MAU2.0"'
 alias rm_node_modules='find "$(pwd)" -type d -name "node_modules" -exec rm -rf {} \;'
 alias rmds="find . -type f -name '.DS_Store*' -delete"
+alias rmeclipse='find . \( -name ".project" -o -name ".classpath" -o -name ".settings" \) -exec rm -rf {} +'
 alias rmjsdk='rm -rf "$HOME/.sdkman/archives/";mkdir -p "$HOME/.sdkman/archives/"'
 alias rmlog="find . -type f -name '*.log' -delete"
 alias rmmac='find /Volumes/SanDisk_1TB/ -type f -name "Icon?" -print -delete; dot_clean -nm /Volumes/SanDisk_1TB/'
