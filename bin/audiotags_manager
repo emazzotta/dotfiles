@@ -192,8 +192,9 @@ def clean_string(tag_value, tag_name=None):
         while re.search(r'(\w+)/(\w+)', line):
             line = re.sub(r'(\w+)/(\w+)', r'\1, \2', line)
 
-    line = re.sub(r'\[www\.slider\.kz]', '', line)
-    line = re.sub(r'Converted by https://spotifydown\.com', '', line)
+    line = re.sub(r'https?://[^\s]+|www\.[^\s]+', '', line)
+    line = re.sub(r'Converted by', '', line)
+    line = re.sub(r'Purchased at Beatport', '', line)
     line = re.sub(r'\s+', ' ', line)
 
     line = line.replace('(Original Mix)', '')
