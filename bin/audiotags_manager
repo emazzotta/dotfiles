@@ -197,13 +197,23 @@ def clean_string(tag_value, tag_name=None):
     line = re.sub(r'Purchased at Beatport', '', line)
     line = re.sub(r'\s+', ' ', line)
 
-    line = line.replace('(Original Mix)', '')
-    line = line.replace('(Original Version)', '')
-    line = line.replace('(Original)', '')
-    line = line.replace('(Extended Mix)', '')
-    line = line.replace('(Extended Version)', '')
-    line = line.replace('(Extended)', '')
-    line = line.replace('(copy)', '')
+    patterns = [
+        r'\(copy\)'
+        r'\(Extended Mix\)',
+        r'\(Extended Version\)',
+        r'\(Extended\)',
+        r'\(Original Mix\)',
+        r'\(Original Version\)',
+        r'\(Original\)',
+        r'Original Mix',
+        r'Original',
+    ]
+
+    for pattern in patterns:
+        line = re.sub(pattern, '', line, flags=re.IGNORECASE)
+
+    line = re.sub(r'-\s*-', '-', line)
+
     line = re.sub(r'\(\s*(\w+\s+)*(mix|version|edit)\s*\)',
                   lambda match: f"({match.group(1).capitalize().strip() + ' ' + match.group(2).capitalize()})", line)
 
