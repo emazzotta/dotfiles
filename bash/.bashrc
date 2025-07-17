@@ -158,6 +158,7 @@ alias etmg='vi $HOME/.tmux.conf'
 alias ev='vi .env'
 alias evscode="vi ${DOTFILESPATH}/vscode/settings.json"
 alias eyes='print_and_copy "( ͡° ͜ʖ ͡°) ( ͡⊙ ͜ʖ ͡⊙) ( ͡◉ ͜ʖ ͡◉)"'
+alias find-gitlab-pages='find . -name ".git" -type d -exec bash -c '\''repo=$(dirname "{}"); [ -d "$repo/ops/gitlab-pages"  ] && echo "✓ $repo"'\'' \;'
 alias find_duplicate='find . -type f -maxdepth 4 -exec basename {} \; | sort -rn | uniq -d | while read dup; do find . -type f -maxdepth 4 -name "$dup"; done'
 alias g='source repo'
 alias gadd='git add --all'
