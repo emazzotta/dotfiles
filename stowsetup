@@ -2,10 +2,15 @@
 
 DIR=$(dirname "$0")
 
-VS_CODE_DIR="${HOME}/Library/Application Support/Code/User"
-mkdir -p ${VS_CODE_DIR}
-
+rm -rf ~/.bash_profile.bak
 mv ~/.bash_profile ~/.bash_profile.bak
+
+rm -rf ~/.sdkman/etc/config.bak
+mv ~/.sdkman/etc/config ~/.sdkman/etc/config.bak
+
+rm -rf ~/.zshrc.bak
+mv ~/.zshrc ~/.zshrc.bak
+
 stow -d "${DIR}" -t "${HOME}" bash
 stow -d "${DIR}" -t "${HOME}" emacs
 stow -d "${DIR}" -t "${HOME}" git

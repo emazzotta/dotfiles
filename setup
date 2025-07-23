@@ -21,6 +21,7 @@ if [ "$(uname)" == "Darwin" ]; then
     brew install iterm2
     brew install arc
     brew install karabiner-elements
+    brew install vscode
 
     # Install the rest
     brew bundle --file="./brew/Brewfile"
@@ -42,22 +43,13 @@ if [ "$(uname)" == "Darwin" ]; then
     ./.macos
     ./duti/setfiledefaults
 
-    cargo install dutree
-
     npm install -g eslint
-    npm install -g gatsby-cli
-    npm install -g svgexport
     npm install -g vue
     npm install -g yarn
 
     ln -sf $(which python3) /usr/local/bin/python
     ln -sf $(which pip3) /usr/local/bin/pip
     pip install --upgrade pip
-
-    gem install --user-install bundler
-    gem install --user-install github-pages
-    gem install --user-install rails
-    gem install --user-install rake
 
     git -C "${HOME}" clone https://github.com/gpakosz/.tmux.git
     ln -sf "${HOME}/.tmux/.tmux.conf" "${HOME}"
