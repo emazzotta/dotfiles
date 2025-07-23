@@ -1,4 +1,5 @@
 tap "buo/cask-upgrade"
+tap "jandedobbeleer/oh-my-posh"
 
 brew "adr-tools"
 brew "aria2"
@@ -36,7 +37,7 @@ brew "htop"
 brew "icdiff"
 brew "id3v2"
 brew "imagemagick" # SVGify
-brew "jandedobbeleer/oh-my-posh/oh-my-posh" # Powershell Theme
+brew "oh-my-posh" # Powershell Theme
 brew "jq"
 brew "k3d"
 brew "krb5"
