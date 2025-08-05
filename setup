@@ -29,6 +29,12 @@ run_if_exists() {
     fi
 }
 
+run_command_if_file_exists() {
+    local file="$1"
+    shift
+    [[ -f "$file" ]] && "$@"
+}
+
 sudo -v
 while true; do sudo -n true; sleep 60; kill -0 "$" || exit; done 2>/dev/null &
 
@@ -51,11 +57,10 @@ brew install stow raycast iterm2 arc karabiner-elements visual-studio-code
 echo "Setting up dotfiles"
 run_if_exists ./stowsetup && source "$HOME/.bash_profile"
 
-[[ -f ./brew/Brewfile ]] && brew bundle --file=./brew/Brewfile
-[[ -f ./brew/mixed-in-key.rb ]] && brew install --cask ./brew/mixed-in-key.rb
-
-sudo chown -R root /Applications/KeeWeb.app
-ssh-keygen -y -f ~/.ssh/id_rsa > ~/.ssh/id_rsa.pub
+run_command_if_file_exists "./brew/Brewfile" brew bundle --file=./brew/Brewfile
+run_command_if_file_exists "./brew/mixed-in-key.rb" brew install --cask ./brew/mixed-in-key.rb
+run_command_if_file_exists "/Applications/KeeWeb.app" sudo chown -R root /Applications/KeeWeb.app
+run_command_if_file_exists "$HOME/.ssh/id_rsa" ssh-keygen -y -f $HOME/.ssh/id_rsa > $HOME/.ssh/id_rsa.pub
 
 echo "Applying settings"
 run_if_exists ./.macos

@@ -341,7 +341,7 @@ load() {
 }
 load "$DOTFILESPATH/autocomplete/custom_autocomplete"
 load "$DOTFILESPATH/bin/colors"
-test "$BASH_VERSION" && source load "$HOME/.sshrc"
+test "$BASH_VERSION" && load "$HOME/.sshrc"
 if test "$ZSH_VERSION"; then
     source "$HOME/.zgen/zgen.zsh"
     load "$DOTFILESPATH/bin/zshaddhistory"
