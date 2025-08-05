@@ -35,6 +35,16 @@ defaults write com.apple.dock orientation -string "left"
 defaults write com.apple.dock show-recents -bool false
 killall Dock
 
+echo "Configuring status bar settings..."
+sudo defaults write com.apple.Spotlight "NSStatusItem Visible Item-0" -bool false
+defaults write com.apple.controlcenter "NSStatusItem Visible Battery" -bool false
+defaults write com.apple.TextInputMenu visible -bool false
+defaults write com.apple.controlcenter "NSStatusItem Visible WiFi" -bool false
+defaults write com.apple.controlcenter "NSStatusItem Visible NowPlaying" -bool false
+defaults write com.apple.controlcenter "NSStatusItem Visible DoNotDisturb" -bool false
+killall SystemUIServer
+killall ControlCenter
+
 echo "Spotlight settings..."
 defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 64 "<dict><key>enabled</key><false/></dict>"
 defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 65 "<dict><key>enabled</key><false/></dict>"
