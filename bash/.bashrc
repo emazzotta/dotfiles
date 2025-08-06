@@ -252,7 +252,6 @@ alias rmds="find . -type f -name '.DS_Store*' -delete"
 alias rmeclipse='find . \( -name ".project" -o -name ".classpath" -o -name ".settings" \) -exec rm -rf {} +'
 alias rmjsdk='rm -rf "$HOME/.sdkman/archives/";mkdir -p "$HOME/.sdkman/archives/"'
 alias rmlog="find . -type f -name '*.log' -delete"
-alias rmmac='find /Volumes/SanDisk_1TB/ -type f -name "Icon?" -print -delete; dot_clean -nm /Volumes/SanDisk_1TB/'
 alias rmnogit='git clean -dfx'
 alias rmpy="find . -type f -name '*.pyc' -o -name '.cache' -o -name 'target' -o -name '.coverage' -o -name '__pycache__' -delete"
 alias rmraycastclipboard='rm -rf "$HOME/Library/Caches/com.raycast.macos/Clipboard" && mkdir -p "$HOME/Library/Caches/com.raycast.macos/Clipboard"'

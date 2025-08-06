@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -e
+
+VOLUME="/Volumes/SanDisk_1TB"
+if [ -d "$VOLUME" ]; then
+  echo "Cleaning macOS metadata from $VOLUME ..."
+  find "$VOLUME" -type f -name "Icon?" -print -delete
+  dot_clean -nm "$VOLUME"
+  echo "Done."
+fi
