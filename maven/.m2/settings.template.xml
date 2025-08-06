@@ -20,17 +20,17 @@
 		<server>
 			<id>nexus</id>
 			<username>admin</username>
-			<password>${env.NEXUS_PASSWORD}</password>
+			<password>${NEXUS_PASSWORD}</password>
 		</server>
 		<server>
 			<id>nexus.releases</id>
 			<username>admin</username>
-			<password>${env.NEXUS_PASSWORD}</password>
+			<password>${NEXUS_PASSWORD}</password>
 		</server>
 		<server>
 			<id>nexus.snapshots</id>
 			<username>admin</username>
-			<password>${env.NEXUS_PASSWORD}</password>
+			<password>${NEXUS_PASSWORD}</password>
 		</server>
 	</servers>
 
@@ -47,7 +47,7 @@
 			<id>signing</id>
 			<properties>
 				<signing.container>p11#383b9a46a23303f0</signing.container>
-				<signing.password>${env.SIGNING_PASSWORD}</signing.password>
+				<signing.password>${SIGNING_PASSWORD}</signing.password>
 			</properties>
 		</profile>
 		<profile>

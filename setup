@@ -60,7 +60,8 @@ run_if_exists ./stowsetup && source "$HOME/.bash_profile"
 run_command_if_file_exists "./brew/Brewfile" brew bundle --file=./brew/Brewfile
 run_command_if_file_exists "./brew/mixed-in-key.rb" brew install --cask ./brew/mixed-in-key.rb
 run_command_if_file_exists "/Applications/KeeWeb.app" sudo chown -R root /Applications/KeeWeb.app
-run_command_if_file_exists "$HOME/.ssh/id_rsa" ssh-keygen -y -f $HOME/.ssh/id_rsa > $HOME/.ssh/id_rsa.pub
+[[ ! -f "$HOME/.ssh/id_rsa.pub" ]] && run_command_if_file_exists "$HOME/.ssh/id_rsa" ssh-keygen -y -f $HOME/.ssh/id_rsa > $HOME/.ssh/id_rsa.pub
+[[ ! -f "$DOTFILESPATH/maven/.m2/settings.xml" ]] && envify && envsubst < "$DOTFILESPATH/maven/.m2/settings.template.xml" > "$DOTFILESPATH/maven/.m2/settings.xml"
 
 echo "Applying settings"
 run_if_exists ./.macos

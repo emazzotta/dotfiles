@@ -1,7 +1,3 @@
-!**/.gnupg/gpg-agent.conf
-!**/.gnupg/gpg.conf
-!**/.m2/settings.xml
-!**/.ssh/config
 **/.gnupg/**
 **/.m2/**
 **/.ssh/**
@@ -15,3 +11,8 @@ cache
 email
 keys
 node_modules
+
+!**/.gnupg/gpg-agent.conf
+!**/.gnupg/gpg.conf
+!**/.m2/settings.template.xml
+!**/.ssh/config

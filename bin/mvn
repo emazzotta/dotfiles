@@ -1,4 +1,0 @@
-#!/bin/bash
-
-source "$GLOBAL_ENV_FILE"
-exec /opt/homebrew/bin/mvn "$@"
