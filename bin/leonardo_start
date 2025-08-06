@@ -19,8 +19,8 @@ fi
 for (( i=0; i<MAX_TRIES; i++ )); do
     if is_host_reachable; then
         echo "Leonardo network is reachable."
-        leonardo_kerberos
         leonardo_drive
+        leonardo_kerberos
         exit 0
     fi
     sleep 1
