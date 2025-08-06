@@ -1,10 +1,5 @@
 #!/bin/bash
 
-DIR=$(dirname "$0")
-VS_CODE_DIR="${HOME}/Library/Application Support/Code/User"
-
-mkdir -p "${VS_CODE_DIR}"
-
 backup_file() {
     local file=$1
     [[ -f "$file" ]] && mv "$file" "$file.bak"
@@ -13,6 +8,10 @@ backup_file() {
 backup_file ~/.bash_profile
 backup_file ~/.sdkman/etc/config
 backup_file ~/.zshrc
+
+DIR=$(dirname "$0")
+VS_CODE_DIR="${HOME}/Library/Application Support/Code/User"
+mkdir -p "${VS_CODE_DIR}"
 
 stow -d "${DIR}" -t "${HOME}" bash
 stow -d "${DIR}" -t "${HOME}" emacs

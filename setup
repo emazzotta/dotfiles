@@ -16,8 +16,8 @@ install_if_missing() {
 
 clone_if_missing() {
     local dir=$1
-    local repo=$2
-    [[ -d "$dir" ]] || git clone "$repo" "$dir"
+    shift
+    [[ -d "$dir" ]] || git clone "$@" "$dir"
 }
 
 run_if_exists() {
@@ -77,12 +77,13 @@ sudo ln -sf /opt/homebrew/bin/pip3 /usr/local/bin/pip3
 
 echo "Setting up terminal"
 clone_if_missing "$HOME/.tmux" "https://github.com/gpakosz/.tmux.git"
-clone_if_missing "${ZDOTDIR:-$HOME}/.zprezto" "https://github.com/sorin-ionescu/prezto.git --recursive"
+clone_if_missing "${ZDOTDIR:-$HOME}/.zprezto" "https://github.com/sorin-ionescu/prezto.git" --recursive
 clone_if_missing "$HOME/.zgen" "https://github.com/tarjoilija/zgen.git"
 [[ "$SHELL" != "/bin/zsh" ]] && chsh -s /bin/zsh
 
 echo "Setting up Vim"
-clone_if_missing "$HOME/.vim_runtime" "https://github.com/amix/vimrc.git --depth=1"
+clone_if_missing "$HOME/.vim_runtime" "https://github.com/amix/vimrc.git" --depth=1
+sh ~/.vim_runtime/install_awesome_vimrc.sh
 
 VIM_PLUGINS="$HOME/.vim_runtime/my_plugins"
 mkdir -p "$VIM_PLUGINS"
@@ -110,6 +111,6 @@ echo "Building CoC plugin"
 cd "$VIM_PLUGINS/coc.nvim" && npm ci
 
 echo "Installing CoC extensions"
-vim -c 'CocInstall coc-clangd coc-tsserver coc-python coc-json coc-css coc-html' -c 'qa' 2>/dev/null || echo "Run :CocInstall manually in vim"
+vim -c 'CocInstall coc-clangd coc-tsserver coc-python coc-json coc-css coc-html' -c 'qa'
 
 echo "Setup complete! Restart your terminal."
