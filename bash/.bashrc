@@ -3,20 +3,19 @@
 ### MAIN EXPORTS ###
 export ANDROID_AVD_HOME=$HOME/.android/avd
 export ANDROID_HOME=$HOME/Library/Android/sdk
-export ANDROID_SDK=$HOME/Library/Android/sdk
-export ANDROID_SDK_ROOT=$HOME/Library/Android/sdk
+export ANDROID_SDK=$ANDROID_HOME
+export ANDROID_SDK_ROOT=$ANDROID_HOME
 
 export WDIR="$HOME/Projects"
 export PRIVATE_PROJECTS="$WDIR/private"
 export DOTFILESPATH="$PRIVATE_PROJECTS/dotfiles"
 export CUSTOM_BIN_DIR="$DOTFILESPATH/bin"
-# export GDRIVEDIR="/Volumes/SanDisk_1TB/Backup/Google_Drive"
 export GDRIVEDIR="$HOME/Google_Drive"
 export DOCUMENTDIR="$GDRIVEDIR/Dokumente"
 export DJ_DIR="$HOME/Music/01_DJ"
 export GCC_VERSION="15"
 ### PATH EXPORTS ###
-export PATH="$CUSTOM_BIN_DIR:$PATH"
+export PATH="$CUSTOM_BIN_DIR:/opt/homebrew/bin:$PATH"
 export PATH="$PATH:$HOME/.cargo/bin"
 export PATH="$PATH:$HOME/.docker/bin"
 export PATH="$PATH:$HOME/.local/bin"
@@ -26,7 +25,6 @@ export PATH="$PATH:$ANDROID_HOME/platform-tools"
 export PATH="$PATH:$ANDROID_HOME/tools"
 export PATH="$PATH:$ANDROID_HOME/tools/bin"
 export PATH="$PATH:$HOME/.bun/bin"
-export PATH="$PATH:/opt/homebrew/bin"
 ### EXPORTS ###
 export APPDIR="$ROOT/Applications"
 export BOILERPLATE_PATH="$PRIVATE_PROJECTS/katas/boilerplate"
@@ -172,7 +170,7 @@ alias gconf='vi $HOME/.gitconfig'
 alias gcontrib='git shortlog -sn --all --no-merges'
 alias gd='git diff'
 alias gdrop='git stash drop'
-alias genvenv3='virtualenv -p python3.12'
+alias genvenv3='virtualenv -p python3'
 alias ggi='vi $HOME/.global_gitignore'
 alias gign='vi .gitignore'
 alias ginit='git init && git commit -m "Initial commit" --allow-empty'
@@ -243,7 +241,7 @@ alias rags='ags -r rekordbox.xml -p "$HOME/Music/rekordbox"'
 alias ram='mem'
 alias record='asciinema rec'
 alias refresh_homepage='kubectl rollout restart deployment -n personal-homepage personal-homepage-server-deployment'
-alias reinstall_py='rm -rf "$VENV_PYTHON_3";pip install virtualenv && genvenv3 "$VENV_PYTHON_3" && av && pip install --upgrade pip && pip install -r $DOTFILESPATH/python/requirements.txt'
+alias reinstall_py='rm -rf "$VENV_PYTHON_3";genvenv3 "$VENV_PYTHON_3" && av && pip install --upgrade pip && pip install -r $DOTFILESPATH/python/requirements.txt'
 alias rekordboxxml='vi $HOME/Music/rekordbox/rekordbox.xml'
 alias rm_brew_pkg='find "/opt/homebrew/Caskroom" -type f -name "*.pkg" -delete && rm -rf "$HOME/Library/Caches/Homebrew/downloads" && mkdir -p "$HOME/Library/Caches/Homebrew/downloads"'
 alias rm_microsoft_autoupdater='sudo rm -rf "/Library/Application Support/Microsoft/MAU2.0"'

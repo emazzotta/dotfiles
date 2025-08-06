@@ -70,9 +70,10 @@ echo "Installing Node packages"
 npm install -g eslint vue yarn
 
 echo "Setting up Python"
-sudo ln -sf "$(which python3)" /usr/local/bin/python 2>/dev/null || true
-sudo ln -sf "$(which pip3)" /usr/local/bin/pip 2>/dev/null || true
-pip install --upgrade pip
+sudo ln -sf /opt/homebrew/bin/python3 /usr/local/bin/python
+sudo ln -sf /opt/homebrew/bin/python3 /usr/local/bin/python3
+sudo ln -sf /opt/homebrew/bin/pip3 /usr/local/bin/pip
+sudo ln -sf /opt/homebrew/bin/pip3 /usr/local/bin/pip3
 
 echo "Setting up terminal"
 clone_if_missing "$HOME/.tmux" "https://github.com/gpakosz/.tmux.git"
