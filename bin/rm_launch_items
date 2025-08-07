@@ -5,9 +5,7 @@ DIRS=(
   "/Library/LaunchDaemons"
 )
 
-PREFIXES=("com.microsoft" "com.adobe")
-
-echo "🔍 Searching for launch items starting with: ${PREFIXES[*]}"
+PREFIXES=("com.microsoft" "com.adobe" "com.google" "com.spotify")
 
 for dir in "${DIRS[@]}"; do
   if [[ -d "$dir" ]]; then
@@ -20,10 +18,8 @@ for dir in "${DIRS[@]}"; do
         fi
       done
     done
-  else
-    echo "⚠️  Directory not found: $dir"
   fi
 done
 
-echo "✅ Done cleaning up Adobe and Microsoft launch items."
+echo "✅ Done."
 
