@@ -1,13 +1,15 @@
 #!/bin/bash
 
 PATTERNS=(
-  "AdobeIPCBroker"
-  "Adobe Desktop Service"
-  "Creative Cloud Helper"
-  "Core Sync"
   "ACCFinderSync"
   "Adobe Crash Processor"
+  "Adobe Desktop Service"
+  "AdobeIPCBroker"
   "CCXProcess"
+  "Core Sync"
+  "Creative Cloud Helper"
+  "Microsoft AutoUpdate"
+  "com.microsoft.autoupdate.helper"
 )
 
 for pattern in "${PATTERNS[@]}"; do
@@ -18,5 +20,5 @@ for pattern in "${PATTERNS[@]}"; do
   fi
 done
 
-echo "✅ Done killing Adobe-related processes."
+echo "✅ Done killing unwanted processes."
 
