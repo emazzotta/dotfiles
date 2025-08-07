@@ -1,0 +1,29 @@
+#!/bin/bash
+
+DIRS=(
+  "/Library/LaunchAgents"
+  "/Library/LaunchDaemons"
+)
+
+PREFIXES=("com.microsoft" "com.adobe")
+
+echo "🔍 Searching for launch items starting with: ${PREFIXES[*]}"
+
+for dir in "${DIRS[@]}"; do
+  if [[ -d "$dir" ]]; then
+    for prefix in "${PREFIXES[@]}"; do
+      matches=("$dir"/"$prefix"*.plist)
+      for file in "${matches[@]}"; do
+        if [[ -e "$file" ]]; then
+          echo "🗑️  Removing: $file"
+          sudo rm -v "$file"
+        fi
+      done
+    done
+  else
+    echo "⚠️  Directory not found: $dir"
+  fi
+done
+
+echo "✅ Done cleaning up Adobe and Microsoft launch items."
+

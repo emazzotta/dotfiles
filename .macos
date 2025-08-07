@@ -96,6 +96,7 @@ configure_finder() {
     defaults write com.apple.finder ShowHardDrivesOnDesktop -bool true
     defaults write com.apple.finder ShowMountedServersOnDesktop -bool true
     defaults write com.apple.finder ShowRemovableMediaOnDesktop -bool true
+    defaults write com.apple.finder ShowPathbar -bool true # Option + Command + P
     killall cfprefsd
     killall Finder
 }
@@ -116,3 +117,4 @@ defaults write com.apple.screencapture location "${HOME}/Desktop/"
 defaults write com.google.android.studio AppleWindowTabbingMode manual
 
 echo "macOS configuration complete! Some changes may require a restart."
+
