@@ -1,0 +1,22 @@
+#!/bin/bash
+
+PATTERNS=(
+  "AdobeIPCBroker"
+  "Adobe Desktop Service"
+  "Creative Cloud Helper"
+  "Core Sync"
+  "ACCFinderSync"
+  "Adobe Crash Processor"
+  "CCXProcess"
+)
+
+for pattern in "${PATTERNS[@]}"; do
+  pids=$(pgrep -f "$pattern")
+  if [[ -n "$pids" ]]; then
+    echo "🔪 Killing processes matching: $pattern"
+    echo "$pids" | xargs kill -9
+  fi
+done
+
+echo "✅ Done killing Adobe-related processes."
+
