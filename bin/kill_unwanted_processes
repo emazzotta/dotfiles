@@ -16,7 +16,7 @@ for pattern in "${PATTERNS[@]}"; do
   pids=$(pgrep -f "$pattern")
   if [[ -n "$pids" ]]; then
     echo "🔪 Killing processes matching: $pattern"
-    echo "$pids" | xargs kill -9
+    echo "$pids" | xargs sudo kill -9
   fi
 done
 
