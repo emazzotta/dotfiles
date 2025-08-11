@@ -99,7 +99,7 @@
             "standalone_modifiers": { "left_control": "escape" },
             "virtual_hid_keyboard": {
                 "country_code": 1,
-                "keyboard_type_v2": "iso"
+                "keyboard_type_v2": "ansi"
             }
         }
     ]

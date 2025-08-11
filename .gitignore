@@ -1,6 +1,7 @@
 **/.gnupg/**
 **/.m2/**
 **/.ssh/**
+**/karabiner/**
 *.dat
 *.db
 *.tar.gz
@@ -16,3 +17,5 @@ node_modules
 !**/.gnupg/gpg.conf
 !**/.m2/settings.template.xml
 !**/.ssh/config
+!**/karabiner/karabiner.json
+
