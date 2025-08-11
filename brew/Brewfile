@@ -57,6 +57,7 @@ brew "neofetch"
 brew "nmap"
 brew "node"
 brew "npm"
+brew "nsis"
 brew "nvm"
 brew "oh-my-posh" # Powershell Theme
 brew "ollama"
