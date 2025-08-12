@@ -110,6 +110,15 @@ configure_mail() {
 }
 configure_mail
 
+echo "Configuring Microsoft Office settings..."
+defaults write com.microsoft.Word SendAllTelemetryEnabled -bool FALSE
+defaults write com.microsoft.Excel SendAllTelemetryEnabled -bool FALSE
+defaults write com.microsoft.Powerpoint SendAllTelemetryEnabled -bool FALSE
+defaults write com.microsoft.Outlook SendAllTelemetryEnabled -bool FALSE
+defaults write com.microsoft.onenote.mac SendAllTelemetryEnabled -bool FALSE
+defaults write com.microsoft.autoupdate2 SendAllTelemetryEnabled -bool FALSE
+defaults write com.microsoft.Office365ServiceV2 SendAllTelemetryEnabled -bool FALSE
+
 echo "Configuring additional settings..."
 sudo defaults write com.apple.BluetoothAudioAgent "Apple Bitpool Min (editable)" -int 40
 defaults write com.apple.menuextra.battery ShowPercent -string "YES"
