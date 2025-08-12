@@ -47,7 +47,7 @@
   "editor.tabSize": 2,
   "git.autofetch": true,
   "git.openRepositoryInParentFolders": "always",
-  "python.defaultInterpreterPath": "/Users/emanuelemazzotta/.venv/python-3-venv",
+  "python.defaultInterpreterPath": "/Users/emanuelemazzotta/.venv/python-3-venv/bin/python",
   "explorer.confirmDelete": false,
   "yaml.schemas": {
     "/Users/emanuelemazzotta/.vscode/extensions/continue.continue-1.0.19-darwin-arm64/config-yaml-schema.json": [

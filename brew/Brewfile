@@ -89,6 +89,7 @@ brew "watch"
 brew "websocat"
 brew "wget"
 brew "xsv"
+brew "yt-dlp"
 brew "xz" # Required by many tools
 brew "zsh"
 
