@@ -1,6 +1,7 @@
 #!/bin/bash
 
 DIRS=(
+  "$HOME/Library/LaunchAgents"
   "/Library/LaunchAgents"
   "/Library/LaunchDaemons"
 )
