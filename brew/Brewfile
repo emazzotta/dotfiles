@@ -36,6 +36,7 @@ brew "icdiff"
 brew "id3v2"
 brew "imagemagick" # SVGify
 brew "jq"
+brew "jsign" # Needed for .exe signing, also install "SafeNet Authentication Client"!
 brew "k3d"
 brew "krb5"
 brew "ksync"

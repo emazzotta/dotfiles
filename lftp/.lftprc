@@ -4,6 +4,7 @@ set color:dir-colors "rs=0:di=01;36:fi=01;32:ln=01;31:*.txt=01;35:*.html=00;35:"
 # Aliases
 alias ll cls -al
 alias l !clear
+alias e exit
 alias .1 'cd ..'
 alias .2 'cd ../..'
 alias .3 'cd ../../..'
