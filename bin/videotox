@@ -6,61 +6,102 @@ from glob import glob
 import sys
 
 FORMAT_CODECS = {
-    "m4v": ("libx264", "aac"),
-    "mkv": ("libx264", "aac"),
     "mp4": ("libx264", "aac"),
+    "m4v": ("libx264", "aac"),
+    "mov": ("libx264", "aac"),
+    "mkv": ("libx264", "aac"),
+    "avi": ("libx264", "mp3"),
+    "webm": ("libvpx-vp9", "libopus"),
     "mpg": ("mpeg2video", "mp2"),
-    "webm": ("libvpx-vp9", "libvorbis"),
+    "mpeg": ("mpeg2video", "mp2"),
 }
 
 EXTRA_ARGS = {
-    "m4v": ["-profile:v", "high", "-level", "4.0", "-movflags", "+faststart"],
+    "mp4": ["-movflags", "+faststart"],
+    "m4v": ["-movflags", "+faststart"],
+    "mov": ["-movflags", "+faststart"],
+    "webm": ["-b:v", "0"],
 }
 
-VIDEO_EXTS = tuple(FORMAT_CODECS.keys())
+VIDEO_EXTS = ["mp4", "m4v", "mov", "mkv", "avi", "webm", "mpg", "mpeg", "wmv", "flv", "3gp", "mts", "m2ts"]
 
-def out_path(input_file: Path, fmt: str, output_dir: Path | None) -> Path:
-    base = input_file.stem + f".{fmt}"
-    return (output_dir / base) if output_dir else input_file.with_suffix(f".{fmt}")
 
-def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_original: bool) -> Path | None:
+def get_output_path(input_file: Path, fmt: str, output_dir: Path | None) -> Path:
+    base_name = input_file.stem
+    ext = f".{fmt}"
+
+    if output_dir:
+        output_path = output_dir / f"{base_name}{ext}"
+    else:
+        output_path = input_file.parent / f"{base_name}{ext}"
+
+    if output_path.exists():
+        response = input(f"File exists: {output_path}\nOverwrite? [y/N/a] (N=add _converted, a=abort): ").lower()
+        if response == 'a':
+            sys.exit("Aborted")
+        elif response != 'y':
+            counter = ""
+            while True:
+                suffix = f"_converted{counter}"
+                if output_dir:
+                    output_path = output_dir / f"{base_name}{suffix}{ext}"
+                else:
+                    output_path = input_file.parent / f"{base_name}{suffix}{ext}"
+                if not output_path.exists():
+                    break
+                counter = "_2" if not counter else f"_{int(counter[1:]) + 1}"
+
+    return output_path
+
+
+def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_original: bool, crf: str) -> Path | None:
     vcodec, acodec = FORMAT_CODECS.get(fmt, (None, None))
-    if not vcodec or not acodec:
-        print(f"Unsupported output format: {fmt}")
+    if not vcodec:
+        print(f"Unsupported format: {fmt}")
         return None
-    output_file = out_path(input_file, fmt, output_dir)
-    if output_file.exists():
-        print(f"Exists, skipped: {output_file}")
-        return output_file
+
+    output_file = get_output_path(input_file, fmt, output_dir)
+
     cmd = [
               "ffmpeg",
               "-i", str(input_file),
               "-c:v", vcodec,
               "-c:a", acodec,
-              "-crf", "18",
-          ] + EXTRA_ARGS.get(fmt, []) + [str(output_file)]
-    subprocess.run(cmd, check=True)
-    if delete_original:
-        input_file.unlink(missing_ok=True)
-    return output_file
+              "-crf", crf,
+          ] + EXTRA_ARGS.get(fmt, []) + ["-y", str(output_file)]
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+        print(f"Converted: {input_file} -> {output_file}")
+        if delete_original:
+            input_file.unlink(missing_ok=True)
+        return output_file
+    except subprocess.CalledProcessError:
+        print(f"Failed: {input_file}")
+        return None
+
 
 def list_inputs(path: Path) -> list[Path]:
     if path.is_file():
         return [path]
     if path.is_dir():
-        files: list[Path] = []
+        files = []
         for ext in VIDEO_EXTS:
             files.extend(Path(p) for p in glob(str(path / f"**/*.{ext}"), recursive=True))
-        return files
+            files.extend(Path(p) for p in glob(str(path / f"**/*.{ext.upper()}"), recursive=True))
+        return sorted(set(files))
     print(f"Input not found: {path}")
     sys.exit(1)
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="Convert video files with consistent quality.")
+
+def main():
+    p = argparse.ArgumentParser(description="Convert video files")
     p.add_argument("-i", "--input", required=True, help="Video file or directory")
-    p.add_argument("-f", "--format", required=True, dest="fmt", help="Output format: " + ", ".join(FORMAT_CODECS))
+    p.add_argument("-f", "--format", required=True, dest="fmt",
+                   choices=FORMAT_CODECS.keys(), help="Output format")
     p.add_argument("-o", "--output-path", help="Output directory")
     p.add_argument("-d", "--delete", action="store_true", help="Delete original after conversion")
+    p.add_argument("-q", "--quality", default="23", help="CRF quality (0-51, default: 23)")
     args = p.parse_args()
 
     src = Path(args.input).expanduser().resolve()
@@ -69,10 +110,19 @@ def main() -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
 
     inputs = list_inputs(src)
-    results = [convert_one(f, args.fmt, out_dir, args.delete) for f in inputs]
-    done = [str(p) for p in results if p]
-    if done:
-        print("\n".join(f"Conversion complete: {x}" for x in done))
+    if not inputs:
+        print("No video files found")
+        sys.exit(1)
+
+    results = []
+    for f in inputs:
+        result = convert_one(f, args.fmt, out_dir, args.delete, args.quality)
+        if result:
+            results.append(result)
+
+    if results:
+        print(f"\nConverted {len(results)} file(s)")
+
 
 if __name__ == "__main__":
     main()
