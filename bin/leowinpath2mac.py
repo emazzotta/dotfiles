@@ -17,6 +17,7 @@ def normalize_path(path):
         return 'K:\\Daten'
 
     path = re.sub(r'^\\\\192\.168\.5\.155\\Daten\\', r'K:\\Daten\\', path)
+    path = re.sub(r'^\\\\192\.168\.5\.155\\([^\\]+)\\', r'K:\\Daten\\\1\\', path)
     path = re.sub(r'^K:\\(?!Daten)', r'K:\\Daten\\', path)
 
     if not path.startswith('K:\\Daten'):
@@ -29,26 +30,11 @@ def convert_to_mac(windows_path):
     mac_path = mac_path.replace('\\', '/')
     return mac_path
 
-@pytest.mark.parametrize("input_path,expected", [
-    ('K:', 'K:\\Daten'),
-    ('K:\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon',
-     'K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon'),
-    ('K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon',
-     'K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon'),
-    ('\\\\192.168.5.155\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon',
-     'K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon'),
-    ('\\\\192.168.5.155\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon',
-     'K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon'),
-])
-def test_normalize_path_as_expected(input_path, expected):
-    result = normalize_path(input_path)
-    assert result == expected
-
 def main():
     script_name = os.path.basename(sys.argv[0])
 
     if len(sys.argv) >= 2 and sys.argv[1] == 'check':
-        pytest.main([__file__, '-v'])
+        pytest.main([__file__ + ('.py' if not __file__.endswith('.py') else ''), '-v'])
         return
 
     if len(sys.argv) < 2:
@@ -79,3 +65,18 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+@pytest.mark.parametrize("input_path,expected", [
+    ('K:', 'K:\\Daten'),
+    ('K:\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon',
+     'K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon'),
+    ('K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon',
+     'K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon'),
+    ('\\\\192.168.5.155\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon',
+     'K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon'),
+    ('\\\\192.168.5.155\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon',
+     'K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon'),
+])
+def should_normalize_path_as_expected(input_path, expected):
+    result = normalize_path(input_path)
+    assert result == expected
