@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 r"""
 Examples:
-\\192.168.5.155\PROJEKTE\2_Leonardo\43_Leonardo 24\8_Tests\Testfälle\vollständiger Invaliditätsfall.leon
+\\192.168.5.155\Bereich_Informatik\PROJEKTE\2_Leonardo\43_Leonardo 24\8_Tests\Testfälle\vollständiger Invaliditätsfall.leon
 K:\Daten\Bereich_Informatik\PROJEKTE\2_Leonardo\43_Leonardo 24\8_Tests\Testfälle\vollständiger Invaliditätsfall.leon
 K:\Bereich_Informatik\PROJEKTE\2_Leonardo\43_Leonardo 24\8_Tests\Testfälle\vollständiger Invaliditätsfall.leon
 """
@@ -10,18 +10,20 @@ import urllib.parse
 import subprocess
 import os
 import re
-import pytest
+
+K_DATEN = 'K:\\Daten'
+
 
 def normalize_path(path):
     if path == 'K:':
-        return 'K:\\Daten'
+        return K_DATEN
 
-    path = re.sub(r'^\\\\192\.168\.5\.155\\Daten\\', r'K:\\Daten\\', path)
-    path = re.sub(r'^\\\\192\.168\.5\.155\\([^\\]+)\\', r'K:\\Daten\\\1\\', path)
+    path = re.sub(r'^\\+', '', path)
+    path = re.sub(r'^192\.168\.5\.155\\(?:Daten\\)?(.*)$', r'K:\\Daten\\\1', path)
     path = re.sub(r'^K:\\(?!Daten)', r'K:\\Daten\\', path)
 
-    if not path.startswith('K:\\Daten'):
-        raise ValueError("Path must start with K: or \\\\192.168.5.155")
+    if not path.startswith(K_DATEN):
+        raise ValueError("Path must start with K: or 192.168.5.155")
 
     return path
 
@@ -34,8 +36,10 @@ def main():
     script_name = os.path.basename(sys.argv[0])
 
     if len(sys.argv) >= 2 and sys.argv[1] == 'check':
-        pytest.main([__file__ + ('.py' if not __file__.endswith('.py') else ''), '-v'])
-        return
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        test_file = os.path.join(script_dir, 'tests', 'leowinpath2mac_tests.py')
+        result = subprocess.run([sys.executable, test_file], capture_output=False, text=True)
+        sys.exit(result.returncode)
 
     if len(sys.argv) < 2:
         print(f"Usage: {script_name} K:\\path\\to\\file or {script_name} \\\\192.168.5.155\\Daten\\path\\to\\file")
@@ -65,18 +69,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-@pytest.mark.parametrize("input_path,expected", [
-    ('K:', 'K:\\Daten'),
-    ('K:\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon',
-     'K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon'),
-    ('K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon',
-     'K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon'),
-    ('\\\\192.168.5.155\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon',
-     'K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon'),
-    ('\\\\192.168.5.155\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon',
-     'K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon'),
-])
-def should_normalize_path_as_expected(input_path, expected):
-    result = normalize_path(input_path)
-    assert result == expected
