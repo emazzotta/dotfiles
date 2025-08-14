@@ -1,7 +1,9 @@
 autopep8==2.3.2
-boto3==1.40.3
+boto3==1.40.8
 bpython==0.25
 music_tag==0.4.3
 ptpython==3.0.30
+pytest-sugar==1.0.0
+pytest==8.3.5
 requests==2.32.4
 tesla_dashcam==0.1.20
