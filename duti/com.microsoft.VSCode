@@ -1,10 +1,13 @@
 adoc
 c
+c2v
 conf
 cpp
 csv
 env
 h
+h2h
+h2r
 ir
 java
 js
@@ -15,11 +18,13 @@ msg
 nfc
 opml
 py
+r2h
 sh
 sql
 toml
 ts
 txt
+v2c
 vbs
 xml
 yaml
