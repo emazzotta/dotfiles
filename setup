@@ -67,15 +67,17 @@ if $IS_MAC; then
   sudo ln -sf /opt/homebrew/bin/pip3 /usr/local/bin/pip3
 
   run_command_if_file_exists "$HOME/Projects/private/dotfiles" ln -sf "$HOME/Projects/private/dotfiles" "$HOME/dotfiles"
+else
+  ln -sf /usr/bin/python3 /usr/local/bin/python
 fi
 
 [[ -d "$HOME/.sdkman" ]] || curl -s "https://get.sdkman.io" | bash
 
-#echo "Setting up Java"
-#for version in 8.0.432.fx-zulu 17.0.13.fx-zulu 21.0.5.fx-zulu 23.0.1.fx-zulu; do
-#    bash -c "source '$HOME/.sdkman/bin/sdkman-init.sh' && sdk install java $version"
-#done
-#bash -c "source '$HOME/.sdkman/bin/sdkman-init.sh' && sdk default java 21.0.5.fx-zulu"
+echo "Setting up Java"
+for version in 8.0.432.fx-zulu 17.0.13.fx-zulu 21.0.5.fx-zulu 23.0.1.fx-zulu; do
+    bash -c "source '$HOME/.sdkman/bin/sdkman-init.sh' && sdk install java $version"
+done
+bash -c "source '$HOME/.sdkman/bin/sdkman-init.sh' && sdk default java 21.0.5.fx-zulu"
 
 echo "Preparing Vim before dotfiles setup"
 clone_if_missing "$HOME/.vim_runtime" "https://github.com/amix/vimrc.git" --depth=1

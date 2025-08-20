@@ -24,7 +24,7 @@ build: fetch-dotfiles
 run:
 	@docker-compose up -d --remove-orphans
 
-shell:
+shell: run
 	@docker-compose exec dev /bin/bash
 
 stop:
