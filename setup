@@ -116,11 +116,9 @@ do
 done
 
 echo "Building CoC plugin"
-cd "$VIM_PLUGINS/coc.nvim" && npm ci
+cd "$VIM_PLUGINS/coc.nvim" && npm i && npm ci
 
-if $IS_MAC; then
-  echo "Installing CoC extensions"
-  vim -c 'CocInstall coc-clangd coc-tsserver coc-python coc-json coc-css coc-html' -c 'qa'
-fi
+echo "Installing CoC extensions"
+vim -c 'CocInstall coc-clangd coc-tsserver coc-python coc-json coc-css coc-html' -c 'qa'
 
 echo "Setup complete! Restart your terminal."
