@@ -60,7 +60,7 @@ brew "node"
 brew "npm"
 brew "nsis"
 brew "nvm"
-brew "oh-my-posh" # Powershell Theme
+brew "oh-my-posh" # Shell Theme
 brew "ollama"
 brew "openconnect"
 brew "openvpn"
@@ -70,6 +70,7 @@ brew "perl"
 brew "pkg-config" # Required by pdfgrep etc.
 brew "poppler" # pdfinfo util
 brew "potrace" # SVGify
+brew "powershell"
 brew "prettyping"
 brew "pv"
 brew "python3"
