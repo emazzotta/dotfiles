@@ -77,6 +77,9 @@ fi
 #done
 #bash -c "source '$HOME/.sdkman/bin/sdkman-init.sh' && sdk default java 21.0.5.fx-zulu"
 
+echo "Preparing Vim before dotfiles setup"
+clone_if_missing "$HOME/.vim_runtime" "https://github.com/amix/vimrc.git" --depth=1
+
 echo "Setting up dotfiles"
 run_if_exists ./stowsetup && source "$HOME/.bashrc"
 
@@ -90,7 +93,6 @@ clone_if_missing "$HOME/.zgen" "https://github.com/tarjoilija/zgen.git"
 [[ "$SHELL" != "/bin/zsh" ]] && chsh -s /bin/zsh
 
 echo "Setting up Vim"
-[ -e "$HOME/.vim_runtime/install_awesome_vimrc.sh" ] || git clone "https://github.com/amix/vimrc.git" --depth=1 "$HOME/.vim_runtime"
 sh "$HOME/.vim_runtime/install_awesome_vimrc.sh"
 
 VIM_PLUGINS="$HOME/.vim_runtime/my_plugins"
