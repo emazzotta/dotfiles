@@ -89,7 +89,7 @@ clone_if_missing "$HOME/.zgen" "https://github.com/tarjoilija/zgen.git"
 
 echo "Setting up Vim"
 clone_if_missing "$HOME/.vim_runtime" "https://github.com/amix/vimrc.git" --depth=1
-sh ~/.vim_runtime/install_awesome_vimrc.sh
+sh "$HOME/.vim_runtime/install_awesome_vimrc.sh"
 
 VIM_PLUGINS="$HOME/.vim_runtime/my_plugins"
 mkdir -p "$VIM_PLUGINS"
