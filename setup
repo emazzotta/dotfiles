@@ -95,9 +95,7 @@ clone_if_missing "$HOME/.zgen" "https://github.com/tarjoilija/zgen.git"
 echo "Setting up Vim"
 sh "$HOME/.vim_runtime/install_awesome_vimrc.sh"
 
-VIM_PLUGINS="$HOME/.vim_runtime/my_plugins"
-mkdir -p "$VIM_PLUGINS"
-
+mkdir -p "$VIM_PLUGINS_DIR"
 for plugin in \
     Glench/Vim-Jinja2-Syntax \
     neoclide/coc.nvim \
@@ -114,12 +112,12 @@ for plugin in \
     vim-airline/vim-airline
 do
     name=$(basename "$plugin")
-    clone_if_missing "$VIM_PLUGINS/$name" "https://github.com/$plugin.git"
+    clone_if_missing "$VIM_PLUGINS_DIR/$name" "https://github.com/$plugin.git"
 done
 
 if $IS_MAC; then
   echo "Building CoC plugin"
-  cd "$VIM_PLUGINS/coc.nvim" && npm i && npm ci
+  cd "$VIM_PLUGINS_DIR/coc.nvim" && npm ci
 
   echo "Installing CoC extensions"
   vim -c 'CocInstall coc-clangd coc-tsserver coc-python coc-json coc-css coc-html' -c 'qa'

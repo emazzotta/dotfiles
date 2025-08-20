@@ -1,0 +1,11 @@
+services:
+  dev:
+    build: .
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./workspace:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ~/.ssh:/root/.ssh:ro
+    environment:
+      - TERM=xterm-256color
