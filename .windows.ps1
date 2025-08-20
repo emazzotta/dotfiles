@@ -1,3 +1,5 @@
+#!/usr/bin/env pwsh
+
 # Set directory for installation - Chocolatey does not lock
 # down the directory if not the default
 $InstallDir='C:\ProgramData\chocoportable'
