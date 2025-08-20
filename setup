@@ -2,8 +2,6 @@
 
 set -e
 
-[[ "$(uname)" == "Darwin" ]] || { echo "macOS only"; exit 1; }
-
 cd "$(dirname "$0")"
 
 echo() { printf "\n\033[36m%s\033[0m\n" "$*"; }
@@ -35,13 +33,40 @@ run_command_if_file_exists() {
     [[ -f "$file" ]] && "$@"
 }
 
-sudo -v
-while true; do sudo -n true; sleep 60; kill -0 "$" || exit; done 2>/dev/null &
+OS="$(uname -s)"
+IS_MAC=false
+[[ "$OS" == "Darwin" ]] && IS_MAC=true
 
-echo "Installing core tools"
-sudo xcode-select --install 2>/dev/null || true
-install_if_missing bun 'curl -s "https://bun.sh/install" | bash'
-install_if_missing brew '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+if $IS_MAC; then
+  sudo -v
+  while true; do sudo -n true; sleep 60; kill -0 "$" || exit; done 2>/dev/null &
+
+  echo "Installing core tools"
+  sudo xcode-select --install 2>/dev/null || true
+  install_if_missing bun 'curl -s "https://bun.sh/install" | bash'
+  install_if_missing brew '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+
+  echo "Installing apps"
+  brew analytics off
+  brew install stow raycast iterm2 arc karabiner-elements visual-studio-code
+
+  run_command_if_file_exists "./brew/Brewfile" brew bundle --file=./brew/Brewfile
+  run_command_if_file_exists "./brew/mixed-in-key.rb" brew install --cask ./brew/mixed-in-key.rb
+  run_command_if_file_exists "/Applications/KeeWeb.app" sudo chown -R root /Applications/KeeWeb.app
+  [[ ! -f "$HOME/.ssh/id_rsa.pub" ]] && run_command_if_file_exists "$HOME/.ssh/id_rsa" ssh-keygen -y -f $HOME/.ssh/id_rsa > $HOME/.ssh/id_rsa.pub
+  [[ ! -f "$DOTFILESPATH/maven/.m2/settings.xml" ]] && envify && envsubst < "$DOTFILESPATH/maven/.m2/settings.template.xml" > "$DOTFILESPATH/maven/.m2/settings.xml"
+
+  echo "Applying settings"
+  run_if_exists ./.macos
+  run_if_exists ./duti/setfiledefaults
+
+  echo "Setting up Python"
+  sudo ln -sf /opt/homebrew/bin/python3 /usr/local/bin/python
+  sudo ln -sf /opt/homebrew/bin/python3 /usr/local/bin/python3
+  sudo ln -sf /opt/homebrew/bin/pip3 /usr/local/bin/pip
+  sudo ln -sf /opt/homebrew/bin/pip3 /usr/local/bin/pip3
+fi
+
 [[ -d "$HOME/.sdkman" ]] || curl -s "https://get.sdkman.io" | bash
 
 echo "Setting up Java"
@@ -50,31 +75,11 @@ for version in 8.0.432.fx-zulu 17.0.13.fx-zulu 21.0.5.fx-zulu 23.0.1.fx-zulu; do
 done
 bash -c "source '$HOME/.sdkman/bin/sdkman-init.sh' && sdk default java 21.0.5.fx-zulu"
 
-echo "Installing apps"
-brew analytics off
-brew install stow raycast iterm2 arc karabiner-elements visual-studio-code
-
 echo "Setting up dotfiles"
 run_if_exists ./stowsetup && source "$HOME/.bash_profile"
 
-run_command_if_file_exists "./brew/Brewfile" brew bundle --file=./brew/Brewfile
-run_command_if_file_exists "./brew/mixed-in-key.rb" brew install --cask ./brew/mixed-in-key.rb
-run_command_if_file_exists "/Applications/KeeWeb.app" sudo chown -R root /Applications/KeeWeb.app
-[[ ! -f "$HOME/.ssh/id_rsa.pub" ]] && run_command_if_file_exists "$HOME/.ssh/id_rsa" ssh-keygen -y -f $HOME/.ssh/id_rsa > $HOME/.ssh/id_rsa.pub
-[[ ! -f "$DOTFILESPATH/maven/.m2/settings.xml" ]] && envify && envsubst < "$DOTFILESPATH/maven/.m2/settings.template.xml" > "$DOTFILESPATH/maven/.m2/settings.xml"
-
-echo "Applying settings"
-run_if_exists ./.macos
-run_if_exists ./duti/setfiledefaults
-
 echo "Installing Node packages"
 npm install -g eslint vue yarn
-
-echo "Setting up Python"
-sudo ln -sf /opt/homebrew/bin/python3 /usr/local/bin/python
-sudo ln -sf /opt/homebrew/bin/python3 /usr/local/bin/python3
-sudo ln -sf /opt/homebrew/bin/pip3 /usr/local/bin/pip
-sudo ln -sf /opt/homebrew/bin/pip3 /usr/local/bin/pip3
 
 echo "Setting up terminal"
 clone_if_missing "$HOME/.tmux" "https://github.com/gpakosz/.tmux.git"
