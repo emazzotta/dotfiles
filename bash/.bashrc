@@ -8,7 +8,7 @@ export ANDROID_SDK_ROOT=$ANDROID_HOME
 
 export WDIR="$HOME/Projects"
 export PRIVATE_PROJECTS="$WDIR/private"
-export DOTFILESPATH="$PRIVATE_PROJECTS/dotfiles"
+export DOTFILESPATH="$HOME/dotfiles"
 export CUSTOM_BIN_DIR="$DOTFILESPATH/bin"
 export GDRIVEDIR="$HOME/Google_Drive"
 export DOCUMENTDIR="$GDRIVEDIR/Dokumente"

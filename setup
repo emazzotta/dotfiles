@@ -20,7 +20,7 @@ clone_if_missing() {
 
 run_if_exists() {
     local file=$1
-    if [[ -f "$file" ]]; then
+    if [[ -e "$file" ]]; then
         "$file"
     else
         echo "Warning: $file not found, skipping"
@@ -30,7 +30,7 @@ run_if_exists() {
 run_command_if_file_exists() {
     local file="$1"
     shift
-    [[ -f "$file" ]] && "$@"
+    [[ -e "$file" ]] && "$@"
 }
 
 OS="$(uname -s)"
@@ -65,6 +65,8 @@ if $IS_MAC; then
   sudo ln -sf /opt/homebrew/bin/python3 /usr/local/bin/python3
   sudo ln -sf /opt/homebrew/bin/pip3 /usr/local/bin/pip
   sudo ln -sf /opt/homebrew/bin/pip3 /usr/local/bin/pip3
+
+  run_command_if_file_exists "$HOME/Projects/private/dotfiles" ln -sf "$HOME/Projects/private/dotfiles" "$HOME/dotfiles"
 fi
 
 [[ -d "$HOME/.sdkman" ]] || curl -s "https://get.sdkman.io" | bash
