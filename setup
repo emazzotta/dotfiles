@@ -110,13 +110,14 @@ for plugin in \
     vim-airline/vim-airline
 do
     name=$(basename "$plugin")
-    clone_if_missing "$VIM_PLUGINS/$name" "git@github.com:$plugin.git"
+    clone_if_missing "$VIM_PLUGINS/$name" "https://github.com/$plugin.git"
 done
 
-echo "Building CoC plugin"
-cd "$VIM_PLUGINS/coc.nvim" && npm ci
-
-echo "Installing CoC extensions"
-vim -c 'CocInstall coc-clangd coc-tsserver coc-python coc-json coc-css coc-html' -c 'qa'
+if $IS_MAC; then
+  echo "Building CoC plugin"
+  cd "$VIM_PLUGINS/coc.nvim" && npm ci
+  echo "Installing CoC extensions"
+  vim -c 'CocInstall coc-clangd coc-tsserver coc-python coc-json coc-css coc-html' -c 'qa'
+fi
 
 echo "Setup complete! Restart your terminal."
