@@ -1,23 +1,19 @@
 #!/bin/bash
-
 DEFAULT_COMPRESSION_LEVEL=${DEFAULT_COMPRESSION_LEVEL:-5}
-
 if ! test "${1}" || [[ "${1}" == "--help" ]] || [[ "${1}" == "-h" ]]; then
     echo "usage: $(basename "${0}") <folder>.extension"
     echo "usage: $(basename "${0}") <name>.extension <file/folder> [file/folder] ..."
     echo "help : -h, --help"
     exit 1
 fi
-
 name=${1}
-extension=${1#*.}
+extension=${1##*.}
 if ! test "${2}"; then
-    compressee="${1%%.*}"
+    compressee="${1%.*}"
 else
     shift
     compressee="${@}"
 fi
-
 echo "Archive to create: ${name}"
 echo "Archive contents: ${compressee}"
 echo "Compression level (if applicable): ${DEFAULT_COMPRESSION_LEVEL}"
@@ -37,3 +33,4 @@ case "${extension}" in
     *7z) 7z a -mx=$DEFAULT_COMPRESSION_LEVEL "${name}" ${compressee} ;;
     *) echo "don't know '${extension}'..." ;;
 esac
+
