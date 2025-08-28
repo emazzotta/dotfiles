@@ -267,7 +267,6 @@ alias sshfix='ssh-add --apple-use-keychain'
 alias sshkeyadd='ssh-add --apple-use-keychain'
 alias sshpasswd='ssh-keygen -p -f'
 alias st='vi $DOTFILESPATH/setup'
-alias superocd='sshkeyadd && ocd && update && rmraycastclipboard && rmmac && upallin "$HOME" && zgen update <<< "n" &> /dev/null && ck "$HOME" && create_backups && kill_unwanted_processes && rm_launch_items'
 alias t='lazygit'
 alias telegram_deleter='av && $PRIVATE_PROJECTS/telegram-deleter/src/telegram_deleter.sh && dv'
 alias timer='echo "Timer started. Stop with Ctrl-D." && date && time cat && date'
@@ -327,6 +326,43 @@ j() {
 ### COMMANDS ###
 load() {
     [[ -f "$1" ]] && source "$1"
+}
+superocd() {
+    echo "Refreshing sudo credentials..."
+    sudo -v
+    
+    while true; do 
+        sudo -n true
+        sleep 60
+        kill -0 "$$" || exit
+    done 2>/dev/null &
+    local sudo_keeper_pid=$!
+    
+    echo "Starting superocd sequence..."
+    
+    sshkeyadd && \
+    ocd && \
+    update && \
+    rmraycastclipboard && \
+    rmmac && \
+    upallin "$HOME" && \
+    zgen update <<< "n" &> /dev/null && \
+    ck "$HOME" && \
+    create_backups && \
+    kill_unwanted_processes && \
+    rm_launch_items
+    
+    local exit_code=$?
+    
+    kill "$sudo_keeper_pid" 2>/dev/null
+    
+    if [ $exit_code -eq 0 ]; then
+        echo "superocd completed successfully!"
+    else
+        echo "superocd encountered an error (exit code: $exit_code)"
+    fi
+    
+    return $exit_code
 }
 load "$DOTFILESPATH/autocomplete/custom_autocomplete"
 load "$DOTFILESPATH/bin/colors"

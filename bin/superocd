@@ -1,0 +1,5 @@
+#!/bin/bash
+
+set -e
+
+sshkeyadd && ocd && update && rmraycastclipboard && rmmac && upallin "$HOME" && zgen update <<< "n" &> /dev/null && ck "$HOME" && create_backups && kill_unwanted_processes && rm_launch_items
