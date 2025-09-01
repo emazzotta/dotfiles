@@ -328,16 +328,6 @@ load() {
     [[ -f "$1" ]] && source "$1"
 }
 superocd() {
-    echo "Refreshing sudo credentials..."
-    sudo -v
-    
-    while true; do 
-        sudo -n true
-        sleep 60
-        kill -0 "$$" || exit
-    done 2>/dev/null &
-    local sudo_keeper_pid=$!
-    
     echo "Starting superocd sequence..."
     
     sshkeyadd && \
@@ -353,15 +343,6 @@ superocd() {
     rm_launch_items
     
     local exit_code=$?
-    
-    kill "$sudo_keeper_pid" 2>/dev/null
-    
-    if [ $exit_code -eq 0 ]; then
-        echo "superocd completed successfully!"
-    else
-        echo "superocd encountered an error (exit code: $exit_code)"
-    fi
-    
     return $exit_code
 }
 load "$DOTFILESPATH/autocomplete/custom_autocomplete"
