@@ -2,7 +2,7 @@
 
 if test "${1}"; then
     source "${VENV_PYTHON_3}/bin/activate"
-    tesla_dashcam --timestamp_format '%d.%m.%Y %H:%M:%S' --rear --output ${HOME}/Desktop/TeslaSentry ${1}
+    tesla_dashcam --sentry_start_offset=60 --sentry_end_offset=-30 --timestamp_format '%d.%m.%Y %H:%M:%S' --rear --output ${HOME}/Desktop/TeslaSentry ${1}
     deactivate
 else
     echo "usage: $(basename "${0}") <source>"
