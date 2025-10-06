@@ -1,0 +1,40 @@
+#!/bin/bash
+
+set -e
+
+#!/bin/bash
+
+if [ -z "$1" ]; then
+    echo "Usage: $0 <domain>"
+    echo "Example: $0 google.com"
+    exit 1
+fi
+
+DOMAIN="$1"
+
+echo "Checking email DNS records for: $DOMAIN"
+echo "=========================================="
+
+echo -e "\n=== MX Records ==="
+dig $DOMAIN MX +short
+
+echo -e "\n=== SPF Record ==="
+dig $DOMAIN TXT +short | grep spf
+
+echo -e "\n=== DKIM Record ==="
+dig default._domainkey.$DOMAIN TXT +short
+
+echo -e "\n=== Mail CNAME ==="
+dig mail.$DOMAIN CNAME +short
+
+echo -e "\n=== Autoconfig CNAME ==="
+dig autoconfig.$DOMAIN CNAME +short
+
+echo -e "\n=== Autodiscover CNAME ==="
+dig autodiscover.$DOMAIN CNAME +short
+
+echo -e "\n=== Autodiscover SRV ==="
+dig _autodiscover._tcp.$DOMAIN SRV +short
+
+echo -e "\n=========================================="
+
