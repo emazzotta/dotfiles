@@ -3,7 +3,7 @@
   "files.autoSave": "afterDelay",
   "files.autoSaveDelay": 500,
   "[json]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "vscode.json-language-features"
   },
   "typescript.suggest.paths": false,
   "workbench.editorAssociations": {
