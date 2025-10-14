@@ -1,71 +1,145 @@
 #!/usr/bin/env python3
-r"""
-Examples:
-\\192.168.5.155\Bereich_Informatik\PROJEKTE\2_Leonardo\43_Leonardo 24\8_Tests\Testfälle\vollständiger Invaliditätsfall.leon
-K:\Daten\Bereich_Informatik\PROJEKTE\2_Leonardo\43_Leonardo 24\8_Tests\Testfälle\vollständiger Invaliditätsfall.leon
-K:\Bereich_Informatik\PROJEKTE\2_Leonardo\43_Leonardo 24\8_Tests\Testfälle\vollständiger Invaliditätsfall.leon
-"""
 import sys
 import urllib.parse
 import subprocess
 import os
 import re
 
-K_DATEN = 'K:\\Daten'
+HOME_DATEN = os.path.join(os.path.expanduser("~"), "Daten")
+
+
+def normalize_slashes(path):
+    return path.replace('/', '\\')
+
+
+def remove_leading_slashes(path):
+    return re.sub(r'^\\+', '', path)
+
+
+def has_daten(path):
+    return bool(re.search(r'Daten', path, re.IGNORECASE))
+
+
+def extract_from_daten(path):
+    match = re.search(r'Daten(?:\\.*)?$', path, re.IGNORECASE)
+    daten_part = match.group(0)
+    daten_part = re.sub(r'^Daten', 'Daten', daten_part, count=1, flags=re.IGNORECASE)
+    return f'K:\\{daten_part}'
 
 
 def normalize_path(path):
+    path = normalize_slashes(path)
+    path = remove_leading_slashes(path)
+
     if path == 'K:':
-        return K_DATEN
+        return 'K:\\Daten'
 
-    path = re.sub(r'^\\+', '', path)
-    path = re.sub(r'^192\.168\.5\.155\\(?:Daten\\)?(.*)$', r'K:\\Daten\\\1', path)
-    path = re.sub(r'^K:\\(?!Daten)', r'K:\\Daten\\', path)
+    if has_daten(path):
+        return extract_from_daten(path)
 
-    if not path.startswith(K_DATEN):
-        raise ValueError("Path must start with K: or 192.168.5.155")
+    if path.startswith('K:\\'):
+        return path.replace('K:\\', 'K:\\Daten\\', 1)
 
-    return path
+    if path.startswith('192.168.5.155\\'):
+        return path.replace('192.168.5.155\\', 'K:\\Daten\\', 1)
 
-def convert_to_mac(windows_path):
-    mac_path = windows_path.replace('K:\\Daten', f'{os.path.expanduser("~")}/Daten', 1)
-    mac_path = mac_path.replace('\\', '/')
-    return mac_path
+    raise ValueError("Path must contain 'Daten' or start with K: or 192.168.5.155")
+
+
+def to_mac_path(windows_path):
+    mac_path = windows_path.replace('K:\\Daten', HOME_DATEN, 1)
+    return mac_path.replace('\\', '/')
+
+
+def is_folder(path):
+    if path.endswith(('/','\\')) or path.endswith(('/.','\\.')):
+        return True
+
+    last_component = os.path.basename(path)
+    return '.' not in last_component
+
+
+def create_file_url(mac_path):
+    return 'file://' + urllib.parse.quote(mac_path)
+
+
+def copy_to_clipboard(text):
+    subprocess.run(['pbcopy'], input=text, text=True)
+
+
+def open_path(path):
+    subprocess.run(['open', path])
+
+
+def get_parent_folder(path):
+    return os.path.dirname(path)
+
+
+def run_tests():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    test_file = os.path.join(script_dir, 'tests', 'leowinpath2mac_tests.py')
+    result = subprocess.run([sys.executable, test_file], capture_output=False, text=True)
+    sys.exit(result.returncode)
+
+
+def print_usage(script_name):
+    print(f"Usage: {script_name} <path>")
+    print(f"       {script_name} check  (run tests)")
+    print()
+    print("Examples:")
+    print(f"  {script_name} K:\\Daten\\path\\to\\file.leon")
+    print(f"  {script_name} K:\\Bereich_Informatik\\file.leon")
+    print(f"  {script_name} C:\\anything\\Daten\\path\\to\\file.leon")
+    print(f"  {script_name} /Users/someone/Daten/path/to/folder")
+    print(f"  {script_name} \\\\192.168.5.155\\anything\\Daten\\path")
+
+
+def prompt_user_action(mac_path):
+    path_type = "folder" if is_folder(mac_path) else "file"
+    choice = input(f"\nOpen {path_type}? (Y/f/n): ").strip().lower()
+
+    if choice in ['', 'y']:
+        open_path(mac_path)
+    elif choice == 'f':
+        folder = get_parent_folder(mac_path) if not is_folder(mac_path) else mac_path
+        open_path(folder)
+
+
+def process_path(input_path):
+    normalized = normalize_path(input_path)
+    mac_path = to_mac_path(normalized)
+    file_url = create_file_url(mac_path)
+
+    copy_to_clipboard(file_url)
+
+    path_type = "Folder" if is_folder(mac_path) else "File"
+    print(f"Type:       {path_type}")
+    print(f"Normalized: {normalized}")
+    print(f"Mac path:   {mac_path}")
+    print(f"File URL:   {file_url}")
+    print("\nFile URL copied to clipboard!")
+
+    prompt_user_action(mac_path)
+
 
 def main():
     script_name = os.path.basename(sys.argv[0])
 
     if len(sys.argv) >= 2 and sys.argv[1] == 'check':
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        test_file = os.path.join(script_dir, 'tests', 'leowinpath2mac_tests.py')
-        result = subprocess.run([sys.executable, test_file], capture_output=False, text=True)
-        sys.exit(result.returncode)
+        run_tests()
 
     if len(sys.argv) < 2:
-        print(f"Usage: {script_name} K:\\path\\to\\file or {script_name} \\\\192.168.5.155\\Daten\\path\\to\\file")
-        print(f"       {script_name} check  (run tests)")
+        print_usage(script_name)
         sys.exit(1)
 
-    path = ' '.join(sys.argv[1:])
+    input_path = ' '.join(sys.argv[1:])
 
     try:
-        normalized = normalize_path(path)
-        mac_path = convert_to_mac(normalized)
-        file_url = 'file://' + urllib.parse.quote(mac_path)
-
-        subprocess.run(['pbcopy'], input=file_url, text=True)
-        print(file_url)
-
-        choice = input("Open file? (Y/f/n): ").strip().lower()
-        if choice in ['', 'y']:
-            subprocess.run(['open', mac_path])
-        elif choice == 'f':
-            folder_path = os.path.dirname(mac_path)
-            subprocess.run(['open', folder_path])
-
+        process_path(input_path)
     except ValueError as e:
         print(f"Error: {e}")
         sys.exit(1)
+
 
 if __name__ == '__main__':
     main()
