@@ -8,6 +8,23 @@ import re
 HOME_DATEN = os.path.join(os.path.expanduser("~"), "Daten")
 
 
+def is_file_url(path):
+    return path.startswith('file://')
+
+
+def parse_file_url(file_url):
+    path = file_url
+
+    if path.startswith('file:///'):
+        path = path[7:]
+    elif path.startswith('file://'):
+        path = path[7:]
+
+    path = urllib.parse.unquote(path)
+
+    return path
+
+
 def normalize_slashes(path):
     return path.replace('/', '\\')
 
@@ -28,6 +45,9 @@ def extract_from_daten(path):
 
 
 def normalize_path(path):
+    if is_file_url(path):
+        path = parse_file_url(path)
+
     path = normalize_slashes(path)
     path = remove_leading_slashes(path)
 
@@ -77,7 +97,7 @@ def get_parent_folder(path):
 
 def run_tests():
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    test_file = os.path.join(script_dir, 'tests', 'leopath_tests.py')
+    test_file = os.path.join(script_dir, 'tests', 'leowinpath2mac_tests.py')
     result = subprocess.run([sys.executable, test_file], capture_output=False, text=True)
     sys.exit(result.returncode)
 
@@ -94,10 +114,10 @@ def print_usage(script_name):
     print()
     print("Examples:")
     print(f"  {script_name} 'K:\\Daten\\path\\to\\file.leon'")
+    print(f"  {script_name} 'file:///Users/name/Daten/file.pdf'")
     print(f"  {script_name} -")
-    print(f"  echo 'K:\\path\\file.txt' | {script_name} -")
     print()
-    print("Note: On Mac/Linux, quote Windows paths or use '-' to paste interactively")
+    print("Note: Supports file:// URLs with automatic URL decoding")
 
 
 def prompt_user_action(mac_path):
