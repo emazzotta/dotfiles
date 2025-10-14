@@ -77,21 +77,27 @@ def get_parent_folder(path):
 
 def run_tests():
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    test_file = os.path.join(script_dir, 'tests', 'leowinpath2mac_tests.py')
+    test_file = os.path.join(script_dir, 'tests', 'leopath_tests.py')
     result = subprocess.run([sys.executable, test_file], capture_output=False, text=True)
     sys.exit(result.returncode)
 
 
+def read_from_stdin():
+    print("Paste the path and press Enter:")
+    return input().strip()
+
+
 def print_usage(script_name):
     print(f"Usage: {script_name} <path>")
-    print(f"       {script_name} check  (run tests)")
+    print(f"       {script_name} -           (read path from stdin/paste)")
+    print(f"       {script_name} check       (run tests)")
     print()
     print("Examples:")
-    print(f"  {script_name} K:\\Daten\\path\\to\\file.leon")
-    print(f"  {script_name} K:\\Bereich_Informatik\\file.leon")
-    print(f"  {script_name} C:\\anything\\Daten\\path\\to\\file.leon")
-    print(f"  {script_name} /Users/someone/Daten/path/to/folder")
-    print(f"  {script_name} \\\\192.168.5.155\\anything\\Daten\\path")
+    print(f"  {script_name} 'K:\\Daten\\path\\to\\file.leon'")
+    print(f"  {script_name} -")
+    print(f"  echo 'K:\\path\\file.txt' | {script_name} -")
+    print()
+    print("Note: On Mac/Linux, quote Windows paths or use '-' to paste interactively")
 
 
 def prompt_user_action(mac_path):
@@ -132,12 +138,23 @@ def main():
         print_usage(script_name)
         sys.exit(1)
 
-    input_path = ' '.join(sys.argv[1:])
+    if sys.argv[1] == '-':
+        if not sys.stdin.isatty():
+            input_path = sys.stdin.read().strip()
+        else:
+            input_path = read_from_stdin()
+    else:
+        input_path = ' '.join(sys.argv[1:])
+
+    if not input_path:
+        print("Error: No path provided")
+        sys.exit(1)
 
     try:
         process_path(input_path)
     except ValueError as e:
         print(f"Error: {e}")
+        print(f"\nTip: On Mac/Linux, quote Windows paths or use '{script_name} -' to paste interactively")
         sys.exit(1)
 
 
