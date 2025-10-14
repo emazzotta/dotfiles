@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import pytest
-from bin.leopath import normalize_path
 
+from bin.leopath import normalize_path
 
 TEST_CASES = [
     pytest.param(
