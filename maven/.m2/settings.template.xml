@@ -12,7 +12,7 @@
 		<mirror>
 			<id>nexus</id>
 			<mirrorOf>*</mirrorOf>
-			<url>http://devserver.leonardo.local:9081/repository/maven-public/</url>
+			<url>http://nexus.leonardo.local:9081/repository/maven-public/</url>
 		</mirror>
 	</mirrors>
 
