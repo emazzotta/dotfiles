@@ -24,7 +24,6 @@ alias .4='.3;.1'
 alias .5='.4;.1'
 alias .du='du -hsx * | sort -rh | head -10'
 alias .s='cd ${HOME}/.ssh'
-alias dc='docker-compose'
 alias dps='docker ps'
 alias dt='cd ${HOME}/Desktop'
 alias e='exit'
@@ -33,7 +32,6 @@ alias eh='vi ${HOME}/.bash_history'
 alias ekh='vi ${HOME}/.ssh/known_hosts'
 alias ep='vi ${HOME}/.bashrc;rp'
 alias ev='vi .env'
-alias gdc='function _gdc() {(cd ${DOCKER_COMPOSE_DIR} && docker-compose "${@}")};_gdc'
 alias l='clear'
 alias ll='ls -lta'
 alias m='make'
@@ -43,3 +41,25 @@ alias rr='rm -rf'
 alias sconf='vi ${HOME}/.ssh/config'
 alias vdc='vi docker-compose.yml'
 alias y='yarn'
+
+CUSTOM_USER="developer"
+CUSTOM_IP="192.168.5.8"
+
+CURRENT_USER="$(whoami)"
+CURRENT_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || ip addr show 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -n1 || ipconfig getifaddr en0 2>/dev/null)"
+
+if [[ "$CURRENT_USER" == "$CUSTOM_USER" ]] && [[ "$CURRENT_IP" == "$CUSTOM_IP" ]]; then
+  echo ""
+  echo "⚡️ Recognized host: ${CURRENT_USER}@${CURRENT_IP} → ⚙️  custom env loaded"
+  echo ""
+  export DOCKER_COMPOSE_DIR=/opt/docker-data
+  alias .f='cd ${DOCKER_COMPOSE_DIR}'
+else
+  echo ""
+  echo "🌐 Generic host: ${CURRENT_USER}@${CURRENT_IP} → 📦  default config"
+  echo ""
+fi
+
+dc() {
+  (cd "${DOCKER_COMPOSE_DIR:-.}" && docker compose "$@")
+}
