@@ -1,28 +1,27 @@
 #!/usr/bin/env python3
-import sys
-import urllib.parse
-import subprocess
+
 import os
 import re
+import subprocess
+import sys
+import urllib.parse
+
+FILE_PROTOCOL_PREFIX = 'file://'
 
 HOME_DATEN = os.path.join(os.path.expanduser("~"), "Daten")
 
 
 def is_file_url(path):
-    return path.startswith('file://')
+    return path.startswith(FILE_PROTOCOL_PREFIX)
 
 
 def parse_file_url(file_url):
     path = file_url
 
-    if path.startswith('file:///'):
-        path = path[7:]
-    elif path.startswith('file://'):
+    if is_file_url(path):
         path = path[7:]
 
-    path = urllib.parse.unquote(path)
-
-    return path
+    return urllib.parse.unquote(path)
 
 
 def normalize_slashes(path):
@@ -72,7 +71,7 @@ def to_mac_path(windows_path):
 
 
 def is_folder(path):
-    if path.endswith(('/','\\')) or path.endswith(('/.','\\.')):
+    if path.endswith(('/', '\\')) or path.endswith(('/.', '\\.')):
         return True
 
     last_component = os.path.basename(path)
@@ -80,7 +79,7 @@ def is_folder(path):
 
 
 def create_file_url(mac_path):
-    return 'file://' + urllib.parse.quote(mac_path)
+    return FILE_PROTOCOL_PREFIX + urllib.parse.quote(mac_path)
 
 
 def copy_to_clipboard(text):
@@ -120,12 +119,16 @@ def print_usage(script_name):
     print("Note: Supports file:// URLs with automatic URL decoding")
 
 
-def prompt_user_action(mac_path):
+def prompt_user_action(mac_path, windows_path):
     path_type = "folder" if is_folder(mac_path) else "file"
-    choice = input(f"\nOpen {path_type}? (Y/f/n): ").strip().lower()
+    choice = input(f"\nOpen {path_type}? (Y/w/f/n): ").strip().lower()
 
     if choice in ['', 'y']:
         open_path(mac_path)
+    elif choice == 'w':
+        print(f"\nWindows path: {windows_path}")
+        copy_to_clipboard(windows_path)
+        print("Windows path copied to clipboard!")
     elif choice == 'f':
         folder = get_parent_folder(mac_path) if not is_folder(mac_path) else mac_path
         open_path(folder)
@@ -145,7 +148,7 @@ def process_path(input_path):
     print(f"File URL:   {file_url}")
     print("\nFile URL copied to clipboard!")
 
-    prompt_user_action(mac_path)
+    prompt_user_action(mac_path, normalized)
 
 
 def main():
