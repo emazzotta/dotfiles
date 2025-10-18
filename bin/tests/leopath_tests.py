@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 import pytest
+import sys
+import os
 
-from bin.leopath import normalize_path
+from ..leopath import normalize_path
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 TEST_CASES = [
     pytest.param(

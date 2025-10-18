@@ -97,7 +97,7 @@ def get_parent_folder(path):
 def run_tests():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     test_file = os.path.join(script_dir, 'tests', 'leopath_tests.py')
-    result = subprocess.run([sys.executable, test_file], capture_output=False, text=True)
+    result = subprocess.run([sys.executable, '-m', 'pytest', test_file, '-v'], capture_output=False, text=True)
     sys.exit(result.returncode)
 
 
