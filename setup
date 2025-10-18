@@ -74,10 +74,10 @@ fi
 [[ -d "$HOME/.sdkman" ]] || curl -s "https://get.sdkman.io" | bash
 
 echo "Setting up Java"
-for version in 8.0.432.fx-zulu 17.0.13.fx-zulu 21.0.5.fx-zulu 23.0.1.fx-zulu 25-tem; do
+for version in 21.0.8-tem 25-tem; do
     bash -c "source '$HOME/.sdkman/bin/sdkman-init.sh' && sdk install java $version"
 done
-bash -c "source '$HOME/.sdkman/bin/sdkman-init.sh' && sdk default java 21.0.5.fx-zulu"
+bash -c "source '$HOME/.sdkman/bin/sdkman-init.sh' && sdk default java 21.0.8-tem"
 
 echo "Preparing Vim before dotfiles setup"
 clone_if_missing "$HOME/.vim_runtime" "https://github.com/amix/vimrc.git" --depth=1
