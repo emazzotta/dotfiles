@@ -9,6 +9,7 @@ PATTERNS=(
   "Core Sync"
   "Creative Cloud Helper"
   "Microsoft AutoUpdate"
+  "Microsoft Update Assistant"
   "com.microsoft.autoupdate.helper"
 )
 
@@ -16,9 +17,13 @@ for pattern in "${PATTERNS[@]}"; do
   pids=$(pgrep -f "$pattern")
   if [[ -n "$pids" ]]; then
     echo "🔪 Killing processes matching: $pattern"
-    echo "$pids" | xargs sudo kill -9
+    echo "$pids" | xargs kill -9
   fi
 done
 
-echo "✅ Done killing unwanted processes."
+UPDATE_APP="/Library/Application Support/Microsoft/MAU2.0/Microsoft AutoUpdate.app/Contents/MacOS/Microsoft Update Assistant.app"
+if [ -e "$UPDATE_APP"  ]; then
+        sudo mv "$UPDATE_APP" "$UPDATE_APP.disabled"
+fi
 
+echo "✅ Done killing unwanted processes."
