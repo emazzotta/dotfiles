@@ -213,6 +213,7 @@ alias leoftp_mount='envify && open ftp://${LEO_FTP_USER}:${LEO_FTP_PASS}@${LEO_F
 alias lig='lazygit'
 alias ll='ls -lah'
 alias localdbs='mysql -h 127.0.0.1 -u root <<< "SHOW DATABASES;"'
+alias lpath='leopath'
 alias lrp='cd $WDIR/leo-productions'
 alias lrr='print_and_copy $BOOKLIST_LINK'
 alias ls='lsd'
