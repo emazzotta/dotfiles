@@ -338,8 +338,8 @@ superocd() {
     rmmac && \
     upallin "$HOME" && \
     zgen update <<< "n" &> /dev/null && \
-    ck "$HOME" && \
     create_backups && \
+    ck "$HOME" && \
     kill_unwanted_processes && \
     rm_launch_items
     
