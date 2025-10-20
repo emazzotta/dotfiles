@@ -1,0 +1,24 @@
+#!/bin/bash
+set -e
+
+if [ -z "$1" ]; then
+  echo "Usage: $0 <tag-name>"
+  echo "Example: $0 v1.0.0"
+  exit 1
+fi
+
+TAG="$1"
+
+echo "Deleting tag '$TAG' locally..."
+git tag -d "$TAG" || echo "Tag not found locally (ok)"
+
+echo "Deleting tag '$TAG' from remote..."
+git push origin ":refs/tags/$TAG" || echo "Tag not found on remote (ok)"
+
+echo "Creating tag '$TAG' on current commit..."
+git tag "$TAG"
+
+echo "Pushing tag '$TAG' to remote..."
+git push origin "$TAG"
+
+echo "✓ Tag '$TAG' successfully recreated and pushed!"
