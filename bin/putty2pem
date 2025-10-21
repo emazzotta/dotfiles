@@ -1,0 +1,23 @@
+#!/bin/bash
+set -e
+
+if [ -z "$1" ]; then
+  echo "Usage: $0 <file.ppk>"
+  exit 1
+fi
+
+PPK_FILE="$1"
+PEM_FILE="${PPK_FILE%.ppk}.pem"
+
+if [ ! -f "$PPK_FILE" ]; then
+  echo "Error: File '$PPK_FILE' not found"
+  exit 1
+fi
+
+echo "Converting $PPK_FILE to $PEM_FILE..."
+
+docker run --rm -ti -v "$(dirname "$PPK_FILE"):/keys" alpine sh -c \
+  "apk add putty > /dev/null 2>&1 && \
+   puttygen /keys/$(basename "$PPK_FILE") -O private-openssh -o /keys/$(basename "$PEM_FILE")"
+
+chmod 600 "$PEM_FILE"
