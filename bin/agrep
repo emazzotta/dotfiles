@@ -1,44 +1,49 @@
 #!/bin/bash
 
-FILE=${HOME}/.bashrc;
+FILE="${HOME}/.bashrc"
+EXACT_FLAG="-iF"
 
-if test "${1}"; then
-    arg="--inexact"
-    if test "${2}"; then
-        if [[ ${1} == "-e" || ${1} == "--exact" ]]; then
-            arg="--exact"
-        fi
-        term="${2}"
-    else
-        term="${1}"
-    fi
-    result=$(ls ${CUSTOM_BIN_DIR} | grep -qw "${term}")
-    # Is not a function
-    if [ $? -eq 1 ]; then
-        if [[ "${arg}" == "--exact" ]]; then
-            grep -w export "${FILE}" | awk '{$1="export"; print $0}' | grep -iFw "${term}"
-            grep -w alias "${FILE}" | awk '{$1="alias"; print $0}' | grep -iFw "${term}"
-            ls ${CUSTOM_BIN_DIR}* | while read line; do
-                cat ${CUSTOM_BIN_DIR}/${line} | grep -qiFw "${term}" && cat ${CUSTOM_BIN_DIR}/${line} | grep -iFw "${term}" | xargs -I {} bash -c "echo -e '{} ${COLOR_RED}(${line})${COLOR_RESET}'"
-            done
-        else
-            grep -w export "${FILE}" | awk '{$1="export"; print $0}' | grep -iF "${term}"
-            grep -w alias "${FILE}" | awk '{$1="alias"; print $0}' | grep -iF "${term}"
-            ls ${CUSTOM_BIN_DIR}* | while read line; do
-                cat ${CUSTOM_BIN_DIR}/${line} | grep -qiF "${term}" && cat ${CUSTOM_BIN_DIR}/${line} | grep -iF "${term}" | xargs -I {} bash -c "echo -e '{} ${COLOR_RED}(${line})${COLOR_RESET}'"
-            done
-        fi
-    else
-        # Is a function
-        FULL_PATH=${CUSTOM_BIN_DIR}/${term}
-        if [[ "${arg}" == "--inexact" ]] && ls ${FULL_PATH}* &> /dev/null; then
-            ls ${FULL_PATH}* | while read line; do
-                cat ${line}
-            done
-        else
-            [ -e ${FULL_PATH} ] && cat ${FULL_PATH}
-        fi
-    fi
+if [[ $# -eq 0 ]]; then
+    echo "usage: $(basename "$0") [-e|--exact] <term>"
+    exit 1
+fi
+
+if [[ "$1" == "-e" || "$1" == "--exact" ]]; then
+    EXACT_FLAG="-iFw"
+    TERM="${2:-}"
 else
-    echo "usage: $(basename "${0}") [-e|--exact|-i|--inexact] <term>"
+    TERM="$1"
+fi
+
+[[ -z "$TERM" ]] && echo "Error: search term required" && exit 1
+
+search_in_bashrc() {
+    local prefix=$1
+    grep -w "$prefix" "$FILE" | awk -v p="$prefix" '{$1=p; print}' | grep $EXACT_FLAG "$TERM"
+}
+
+search_in_custom_bin() {
+    ls "${CUSTOM_BIN_DIR}" 2>/dev/null | while read -r filename; do
+        local filepath="${CUSTOM_BIN_DIR}/${filename}"
+        [[ ! -f "$filepath" ]] && continue
+        if cat "$filepath" | grep -q $EXACT_FLAG "$TERM"; then
+            cat "$filepath" | grep $EXACT_FLAG "$TERM" | while read -r line; do
+                echo -e "${line} ${COLOR_RED}(${filename})${COLOR_RESET}"
+            done
+        fi
+    done
+}
+
+if ! ls "${CUSTOM_BIN_DIR}" 2>/dev/null | grep -qw "$TERM"; then
+    search_in_bashrc "export"
+    search_in_bashrc "alias"
+    search_in_custom_bin
+else
+    FULL_PATH="${CUSTOM_BIN_DIR}/${TERM}"
+
+    if [[ "$EXACT_FLAG" == "-iF" ]] && ls "${FULL_PATH}"* &>/dev/null; then
+        cat "${FULL_PATH}"*
+    elif [[ -e "$FULL_PATH" ]]; then
+        cat "$FULL_PATH"
+    fi
 fi
