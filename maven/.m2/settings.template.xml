@@ -3,11 +3,6 @@
 		  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
    https://maven.apache.org/xsd/settings-1.0.0.xsd">
 
-	<interactiveMode />
-	<usePluginRegistry />
-	<offline />
-	<pluginGroups />
-
 	<mirrors>
 		<mirror>
 			<id>nexus</id>
@@ -33,8 +28,6 @@
 			<password>${NEXUS_PASSWORD}</password>
 		</server>
 	</servers>
-
-	<proxies />
 
 	<profiles>
 		<profile>
