@@ -56,7 +56,7 @@
 				<repository>
 					<id>nexus.releases</id>
 					<name>Managed Internal Repository</name>
-					<url>http://devserver.leonardo.local:9081/repository/maven-releases/</url>
+					<url>http://nexus.leonardo.local:9081/repository/maven-releases/</url>
 					<releases>
 						<enabled>true</enabled>
 						<updatePolicy>always</updatePolicy>
@@ -68,7 +68,7 @@
 				<repository>
 					<id>nexus.snapshots</id>
 					<name>Managed Snapshots Repository</name>
-					<url>http://devserver.leonardo.local:9081/repository/maven-snapshots/</url>
+					<url>http://nexus.leonardo.local:9081/repository/maven-snapshots/</url>
 					<releases>
 						<enabled>false</enabled>
 					</releases>
@@ -80,7 +80,7 @@
 				<repository>
 					<id>nexus</id>
 					<name>Managed Internal Repository</name>
-					<url>http://devserver.leonardo.local:9081/repository/maven-public/</url>
+					<url>http://nexus.leonardo.local:9081/repository/maven-public/</url>
 					<releases><enabled>true</enabled></releases>
 					<snapshots><enabled>true</enabled></snapshots>
 				</repository>
