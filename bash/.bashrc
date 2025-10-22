@@ -336,6 +336,7 @@ superocd() {
     update && \
     rmraycastclipboard && \
     rmmac && \
+    rm_old_gitlab_builds && \
     upallin "$HOME" && \
     zgen update <<< "n" &> /dev/null && \
     create_backups && \

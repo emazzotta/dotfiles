@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# Delete folders older than 1 hour in ~/builds (recursively)
+
+set -euo pipefail
+
+BUILDS_DIR="${HOME}/builds"
+DRY_RUN=false
+
+[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
+
+if [[ ! -d "$BUILDS_DIR" ]]; then
+    echo "Directory $BUILDS_DIR does not exist"
+    exit 1
+fi
+
+echo "Searching for folders older than 1 hour in $BUILDS_DIR..."
+
+while IFS= read -r -d '' dir; do
+    if $DRY_RUN; then
+        echo "[DRY RUN] Would delete: $dir"
+    else
+        echo "Deleting: $dir"
+        rm -rf "$dir"
+    fi
+done < <(find "$BUILDS_DIR" -mindepth 1 -type d -mmin +60 -print0)
+
+echo "Cleanup complete!"
