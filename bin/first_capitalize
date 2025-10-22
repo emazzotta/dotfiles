@@ -1,7 +1,4 @@
 #!/bin/bash
 
-if test "${1}"; then
-    echo "$(tr '[:lower:]' '[:upper:]' <<< ${1:0:1})${1:1}"
-else
-    echo "No string to capitalize passed."
-fi
+[[ -z "$1" ]] && exit 1
+echo "$(tr '[:lower:]' '[:upper:]' <<< "${1:0:1}")${1:1}"

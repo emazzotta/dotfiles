@@ -1,6 +1,9 @@
 #!/bin/bash
 
 git add --all
+
 parameters="${@:1:$#-1}"
 commit_message="${@: -1}"
+
+[[ -z "$commit_message" ]] && git commit --amend ${parameters} && exit
 git commit ${parameters} -m "$(first_capitalize "${commit_message}")"
