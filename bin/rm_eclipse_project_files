@@ -1,0 +1,6 @@
+#!/bin/bash
+
+set -e
+
+find . \( -name ".project" -o -name ".classpath" -o -name ".settings" \) -exec rm -rf {} +
+
