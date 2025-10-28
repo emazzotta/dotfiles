@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -e
+
+SRC_PROJECT="${1:?Usage: $0 <source_project_path>}"
+SRC_DIR="$SRC_PROJECT/ops/scripts/gitlab"
+
+if [ ! -d "$SRC_DIR" ]; then
+  echo "Source not found: $SRC_DIR"
+  exit 1
+fi
+
+echo "Source: $SRC_DIR"
+read -p "Use this source? (y/N) " ok
+[ "$ok" = "y" ] || [ "$ok" = "Y" ] || exit 0
+
+PARENT_DIR="$(dirname "$SRC_PROJECT")"
+TARGETS=""
+for d in "$PARENT_DIR"/*; do
+  [ -d "$d" ] || continue
+  [ "$d" = "$SRC_PROJECT" ] && continue
+  if [ -d "$d/ops/scripts/gitlab" ]; then
+    TARGETS="$TARGETS
+$d"
+  fi
+done
+
+if [ -z "$TARGETS" ]; then
+  echo "No sister projects with existing ops/scripts/gitlab."
+  exit 0
+fi
+
+echo "Targets:"
+echo "$TARGETS"
+read -p "Proceed copying to these targets? (y/N) " go
+[ "$go" = "y" ] || [ "$go" = "Y" ] || exit 0
+
+echo "$TARGETS" | while read -r t; do
+  [ -n "$t" ] || continue
+  echo "→ Copying to $t"
+  rsync -a "$SRC_DIR"/ "$t/ops/scripts/gitlab"/
+done
+
+echo "Done."
+
