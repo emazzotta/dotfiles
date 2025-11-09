@@ -26,6 +26,7 @@ export PATH="$PATH:$ANDROID_HOME/tools"
 export PATH="$PATH:$ANDROID_HOME/tools/bin"
 export PATH="$PATH:$HOME/.bun/bin"
 ### EXPORTS ###
+export ANTHROPIC_MODEL="claude-sonnet-4-5-20250929"
 export APPDIR="$ROOT/Applications"
 export BOOKMARKDIR=$DOCUMENTDIR/Bookmarks
 export BREW_CASK_IGNORELIST="mixed-in-key,my-cask-to-pin"
