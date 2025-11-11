@@ -1,0 +1,31 @@
+#!/bin/bash
+set -e
+
+echo "Cleaning development cache and build files..."
+
+# Python cache and build files
+find . -type d -name "__pycache__" -exec rm -rf {} +
+find . -type f -name "*.pyc" -delete
+find . -type f -name "*.pyo" -delete
+find . -type d -name "*.egg-info" -exec rm -rf {} +
+find . -type d -name ".pytest_cache" -exec rm -rf {} +
+find . -type d -name ".mypy_cache" -exec rm -rf {} +
+find . -type d -name ".tox" -exec rm -rf {} +
+find . -type d -name "htmlcov" -exec rm -rf {} +
+find . -type f -name ".coverage" -delete
+find . -type d -name "dist" -exec rm -rf {} +
+find . -type d -name "build" -exec rm -rf {} +
+
+# Java/Maven/Gradle cache and build files
+find . -type d -name "target" -exec rm -rf {} +
+find . -type d -name ".gradle" -exec rm -rf {} +
+find . -type f -name "*.class" -delete
+find . -type d -name "dependency-reduced-pom.xml" -exec rm -rf {} +
+find . -type d -name "bin" -exec rm -rf {} +
+find . -type d -name "out" -exec rm -rf {} +
+
+# OS-specific files
+find . -type f -name ".DS_Store" -delete
+find . -type f -name "Thumbs.db" -delete
+
+echo "Cleanup complete!"
