@@ -2,7 +2,7 @@
 set -e
 
 SKIP_COMPILE=false
-if [ "$1" == "--fast" ]; then
+if [ "$1" == "--fast" ] || [ "$1" == "-f" ]; then
     SKIP_COMPILE=true
 fi
 
@@ -32,5 +32,5 @@ fi
 
 echo "▶️  Starting Leonardo application..."
 change_dir "$RESOURCES_DIR"
-mvn -f "$LEONARDO_DIR/pom.xml" exec:java -pl leonardo-leonardo -Dexec.mainClass="$MAIN_CLASS"
+mvn -f "$LEONARDO_DIR/pom.xml" exec:java -pl leonardo-leonardo -Dexec.mainClass="$MAIN_CLASS" -Dlog4j2.rootLevel=INFO
 echo "✅ Leonardo startup complete!"
