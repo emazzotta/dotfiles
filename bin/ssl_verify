@@ -1,0 +1,376 @@
+#!/bin/bash
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+TARGET="${1:-google.com:443}"
+HOST=$(echo $TARGET | cut -d: -f1)
+PORT=$(echo $TARGET | cut -d: -f2)
+
+if [ "$HOST" == "$PORT" ]; then
+    PORT=443
+fi
+
+print_section() {
+    echo -e "\n${YELLOW}>>> $1${NC}"
+    echo "-------------------------------------------"
+}
+
+check_wildcard_match() {
+    local hostname="$1"
+    local pattern="$2"
+
+    if [[ "$pattern" == "*."* ]]; then
+        local domain="${pattern#*.}"
+        local host_suffix="${hostname##*.}"
+        local remaining="${hostname%.$host_suffix}"
+
+        if [[ "$remaining.$host_suffix" == *".$domain" ]] || [[ "$hostname" == *".$domain" ]]; then
+            return 0
+        fi
+    fi
+
+    if [[ "$hostname" == "$pattern" ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+echo -e "${BLUE}================================================${NC}"
+echo -e "${BLUE}SSL/TLS Certificate Verification Tool${NC}"
+echo -e "${BLUE}================================================${NC}"
+echo -e "Target: ${GREEN}${HOST}:${PORT}${NC}"
+echo -e "Date: $(date '+%Y-%m-%d %H:%M:%S %Z')\n"
+
+print_section "Connectivity Check"
+if ! nc -z -w 5 "$HOST" "$PORT" 2>/dev/null; then
+    echo -e "${RED}✗ Cannot connect to ${HOST}:${PORT}${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓ Successfully connected to ${HOST}:${PORT}${NC}"
+
+print_section "Retrieving Certificate"
+CERT_OUTPUT=$(echo | openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" 2>/dev/null)
+echo "$CERT_OUTPUT" | openssl x509 -noout -text 2>/dev/null > /tmp/cert_full.txt
+echo "$CERT_OUTPUT" | openssl x509 2>/dev/null > /tmp/cert.pem
+
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}✓ Certificate retrieved successfully${NC}"
+else
+    echo -e "${RED}✗ Failed to retrieve certificate${NC}"
+    exit 1
+fi
+
+print_section "Certificate Identification"
+SERIAL=$(openssl x509 -in /tmp/cert.pem -noout -serial 2>/dev/null | cut -d= -f2)
+echo "Serial Number: ${SERIAL}"
+
+FINGERPRINT_SHA256=$(openssl x509 -in /tmp/cert.pem -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)
+echo "SHA256 Fingerprint: ${FINGERPRINT_SHA256}"
+
+FINGERPRINT_SHA1=$(openssl x509 -in /tmp/cert.pem -noout -fingerprint -sha1 2>/dev/null | cut -d= -f2)
+echo "SHA1 Fingerprint: ${FINGERPRINT_SHA1}"
+
+print_section "Subject Information"
+SUBJECT=$(openssl x509 -in /tmp/cert.pem -noout -subject 2>/dev/null | sed 's/subject=//')
+echo -e "Subject: ${CYAN}${SUBJECT}${NC}"
+
+SUBJECT_CN=$(openssl x509 -in /tmp/cert.pem -noout -subject 2>/dev/null | grep -o "CN=[^,]*" | cut -d= -f2)
+echo "Common Name (CN): ${SUBJECT_CN}"
+
+print_section "Issuer Information"
+ISSUER=$(openssl x509 -in /tmp/cert.pem -noout -issuer 2>/dev/null | sed 's/issuer=//')
+echo "Issuer: ${ISSUER}"
+
+ISSUER_CN=$(openssl x509 -in /tmp/cert.pem -noout -issuer 2>/dev/null | grep -o "CN=[^,]*" | cut -d= -f2)
+ISSUER_O=$(openssl x509 -in /tmp/cert.pem -noout -issuer 2>/dev/null | grep -o "O=[^,]*" | cut -d= -f2)
+echo "Issuer CN: ${ISSUER_CN}"
+echo "Issuer Organization: ${ISSUER_O}"
+
+print_section "Validity Period"
+START_DATE=$(openssl x509 -in /tmp/cert.pem -noout -startdate 2>/dev/null | cut -d= -f2)
+END_DATE=$(openssl x509 -in /tmp/cert.pem -noout -enddate 2>/dev/null | cut -d= -f2)
+
+echo "Valid From: ${START_DATE}"
+echo "Valid Until: ${END_DATE}"
+
+EXPIRY_EPOCH=$(date -j -f "%b %d %T %Y %Z" "$END_DATE" "+%s" 2>/dev/null || echo 0)
+START_EPOCH=$(date -j -f "%b %d %T %Y %Z" "$START_DATE" "+%s" 2>/dev/null || echo 0)
+CURRENT_EPOCH=$(date "+%s")
+DAYS_UNTIL_EXPIRY=$(( ($EXPIRY_EPOCH - $CURRENT_EPOCH) / 86400 ))
+TOTAL_VALIDITY_DAYS=$(( ($EXPIRY_EPOCH - $START_EPOCH) / 86400 ))
+
+echo "Total Validity Period: ${TOTAL_VALIDITY_DAYS} days"
+
+if [ $DAYS_UNTIL_EXPIRY -lt 0 ]; then
+    DAYS_EXPIRED=$(( -$DAYS_UNTIL_EXPIRY ))
+    echo -e "${RED}✗ Certificate EXPIRED ${DAYS_EXPIRED} days ago${NC}"
+    CERT_VALID=false
+elif [ $DAYS_UNTIL_EXPIRY -lt 7 ]; then
+    echo -e "${RED}⚠ CRITICAL: Certificate expires in ${DAYS_UNTIL_EXPIRY} days${NC}"
+    CERT_VALID=true
+elif [ $DAYS_UNTIL_EXPIRY -lt 30 ]; then
+    echo -e "${YELLOW}⚠ WARNING: Certificate expires in ${DAYS_UNTIL_EXPIRY} days${NC}"
+    CERT_VALID=true
+else
+    echo -e "${GREEN}✓ Certificate is valid for ${DAYS_UNTIL_EXPIRY} more days${NC}"
+    CERT_VALID=true
+fi
+
+print_section "Subject Alternative Names (SAN)"
+SAN_OUTPUT=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A1 "Subject Alternative Name" | tail -n1 | sed 's/^[[:space:]]*//')
+
+if [ -n "$SAN_OUTPUT" ]; then
+    echo "$SAN_OUTPUT"
+
+    SAN_COUNT=$(echo "$SAN_OUTPUT" | tr ',' '\n' | grep -c "DNS:")
+    echo -e "\nTotal SAN entries: ${SAN_COUNT}"
+else
+    echo -e "${YELLOW}⚠ No Subject Alternative Names found${NC}"
+fi
+
+print_section "Hostname Verification"
+HOSTNAME_MATCH=false
+
+if echo "$SAN_OUTPUT" | grep -q "DNS:${HOST}"; then
+    echo -e "${GREEN}✓ Exact hostname match found in SAN${NC}"
+    HOSTNAME_MATCH=true
+elif [ -n "$SUBJECT_CN" ] && [ "$SUBJECT_CN" == "$HOST" ]; then
+    echo -e "${GREEN}✓ Hostname matches Common Name${NC}"
+    HOSTNAME_MATCH=true
+else
+    while IFS= read -r san_entry; do
+        san_entry=$(echo "$san_entry" | sed 's/DNS://g' | xargs)
+        if check_wildcard_match "$HOST" "$san_entry"; then
+            echo -e "${GREEN}✓ Hostname matches wildcard certificate: ${san_entry}${NC}"
+            HOSTNAME_MATCH=true
+            break
+        fi
+    done < <(echo "$SAN_OUTPUT" | tr ',' '\n' | grep "DNS:")
+
+    if [ "$HOSTNAME_MATCH" = false ] && [ -n "$SUBJECT_CN" ]; then
+        if check_wildcard_match "$HOST" "$SUBJECT_CN"; then
+            echo -e "${GREEN}✓ Hostname matches wildcard CN: ${SUBJECT_CN}${NC}"
+            HOSTNAME_MATCH=true
+        fi
+    fi
+fi
+
+if [ "$HOSTNAME_MATCH" = false ]; then
+    echo -e "${RED}✗ Hostname does NOT match certificate${NC}"
+    echo "Requested: ${HOST}"
+    echo "Certificate CN: ${SUBJECT_CN}"
+    echo "Certificate SANs: ${SAN_OUTPUT}"
+fi
+
+print_section "Certificate Chain Validation"
+CHAIN_OUTPUT=$(echo | openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" -showcerts 2>&1)
+VERIFY_CODE=$(echo "$CHAIN_OUTPUT" | grep "Verify return code:" | head -n1)
+
+echo "$VERIFY_CODE"
+
+if echo "$VERIFY_CODE" | grep -q "Verify return code: 0 (ok)"; then
+    echo -e "${GREEN}✓ Certificate chain is valid and trusted${NC}"
+    CHAIN_VALID=true
+else
+    echo -e "${RED}✗ Certificate chain validation failed${NC}"
+    CHAIN_VALID=false
+fi
+
+CHAIN_COUNT=$(echo "$CHAIN_OUTPUT" | grep -c "BEGIN CERTIFICATE" || echo 0)
+echo "Certificates in chain: ${CHAIN_COUNT}"
+
+print_section "Public Key Information"
+PUBKEY_INFO=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A2 "Public Key Algorithm")
+echo "$PUBKEY_INFO"
+
+KEY_SIZE=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep "Public-Key:" | grep -o "[0-9]*")
+echo "Key Size: ${KEY_SIZE} bits"
+
+if [ "$KEY_SIZE" -lt 2048 ]; then
+    echo -e "${RED}✗ Key size is weak (< 2048 bits)${NC}"
+elif [ "$KEY_SIZE" -ge 2048 ] && [ "$KEY_SIZE" -lt 4096 ]; then
+    echo -e "${GREEN}✓ Key size is adequate (2048+ bits)${NC}"
+else
+    echo -e "${GREEN}✓ Key size is strong (4096+ bits)${NC}"
+fi
+
+print_section "Signature Algorithm"
+SIG_ALGO=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep "Signature Algorithm" | head -n1 | sed 's/^[[:space:]]*//')
+echo "$SIG_ALGO"
+
+if echo "$SIG_ALGO" | grep -iq "sha1"; then
+    echo -e "${RED}✗ Using weak SHA1 signature algorithm${NC}"
+elif echo "$SIG_ALGO" | grep -iq "sha256\|sha384\|sha512"; then
+    echo -e "${GREEN}✓ Using strong signature algorithm${NC}"
+fi
+
+print_section "TLS Protocol Support"
+echo "Testing supported TLS versions..."
+
+for version in ssl3 tls1 tls1_1 tls1_2 tls1_3; do
+    PROTO_TEST=$(timeout 5 openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" -$version </dev/null 2>&1 || true)
+
+    if echo "$PROTO_TEST" | grep -q "Protocol.*TLS"; then
+        PROTO_VERSION=$(echo "$PROTO_TEST" | grep "Protocol" | awk '{print $2}')
+
+        case $version in
+            ssl3|tls1|tls1_1)
+                echo -e "${RED}⚠ ${PROTO_VERSION} supported (DEPRECATED - security risk)${NC}"
+                ;;
+            tls1_2)
+                echo -e "${GREEN}✓ ${PROTO_VERSION} supported${NC}"
+                ;;
+            tls1_3)
+                echo -e "${GREEN}✓ ${PROTO_VERSION} supported (recommended)${NC}"
+                ;;
+        esac
+    fi
+done
+
+print_section "Cipher Suite Information"
+CIPHER_FULL=$(echo | openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" 2>/dev/null | grep "Cipher" | head -n1)
+echo "$CIPHER_FULL"
+
+CIPHER_NAME=$(echo "$CIPHER_FULL" | awk '{print $3}')
+if echo "$CIPHER_NAME" | grep -iq "ECDHE\|DHE"; then
+    echo -e "${GREEN}✓ Forward secrecy enabled${NC}"
+else
+    echo -e "${YELLOW}⚠ Forward secrecy may not be enabled${NC}"
+fi
+
+print_section "Certificate Extensions"
+echo "Key Usage:"
+openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A1 "X509v3 Key Usage" | tail -n1 | sed 's/^[[:space:]]*//'
+
+echo -e "\nExtended Key Usage:"
+openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A1 "X509v3 Extended Key Usage" | tail -n1 | sed 's/^[[:space:]]*//'
+
+echo -e "\nBasic Constraints:"
+openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A1 "X509v3 Basic Constraints" | tail -n1 | sed 's/^[[:space:]]*//'
+
+print_section "Certificate Authority Information"
+AIA=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A5 "Authority Information Access")
+if [ -n "$AIA" ]; then
+    echo "$AIA" | sed 's/^[[:space:]]*//'
+else
+    echo "No AIA extension found"
+fi
+
+print_section "OCSP Stapling"
+OCSP_OUTPUT=$(echo | openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" -status 2>/dev/null)
+
+if echo "$OCSP_OUTPUT" | grep -q "OCSP Response Status: successful"; then
+    echo -e "${GREEN}✓ OCSP stapling is enabled and working${NC}"
+    echo "$OCSP_OUTPUT" | grep -A10 "OCSP Response Data"
+elif echo "$OCSP_OUTPUT" | grep -q "OCSP response: no response sent"; then
+    echo -e "${YELLOW}⚠ OCSP stapling not enabled${NC}"
+else
+    echo -e "${YELLOW}⚠ OCSP stapling status unknown${NC}"
+fi
+
+print_section "Certificate Transparency (CT) Logs"
+SCT=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A20 "CT Precertificate SCTs")
+if [ -n "$SCT" ]; then
+    echo -e "${GREEN}✓ Certificate includes CT log entries${NC}"
+    SCT_COUNT=$(echo "$SCT" | grep -c "Signed Certificate Timestamp:" || echo 0)
+    echo "CT log entries: ${SCT_COUNT}"
+else
+    echo -e "${YELLOW}⚠ No Certificate Transparency information found${NC}"
+fi
+
+print_section "Certificate Chain Details"
+echo "Extracting certificate chain..."
+echo ""
+
+CERT_NUM=1
+echo "$CHAIN_OUTPUT" | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' | \
+while IFS= read -r line; do
+    if [[ "$line" == "-----BEGIN CERTIFICATE-----" ]]; then
+        echo -e "${CYAN}Certificate #${CERT_NUM}:${NC}"
+        CERT_NUM=$((CERT_NUM + 1))
+    fi
+    echo "$line"
+
+    if [[ "$line" == "-----END CERTIFICATE-----" ]]; then
+        echo ""
+    fi
+done | head -100
+
+print_section "Security Assessment"
+ISSUES=0
+WARNINGS=0
+CRITICAL=0
+
+if [ "$HOSTNAME_MATCH" = false ]; then
+    echo -e "${RED}✗ CRITICAL: Hostname mismatch${NC}"
+    CRITICAL=$((CRITICAL + 1))
+fi
+
+if [ "$CERT_VALID" = false ]; then
+    echo -e "${RED}✗ CRITICAL: Certificate is expired${NC}"
+    CRITICAL=$((CRITICAL + 1))
+fi
+
+if [ "$CHAIN_VALID" = false ]; then
+    echo -e "${RED}✗ CRITICAL: Certificate chain is not trusted${NC}"
+    CRITICAL=$((CRITICAL + 1))
+fi
+
+if timeout 5 openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" -tls1 </dev/null 2>&1 | grep -q "Protocol.*TLSv1\.0"; then
+    echo -e "${YELLOW}⚠ WARNING: TLSv1.0 supported (should be disabled)${NC}"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+if timeout 5 openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" -tls1_1 </dev/null 2>&1 | grep -q "Protocol.*TLSv1\.1"; then
+    echo -e "${YELLOW}⚠ WARNING: TLSv1.1 supported (should be disabled)${NC}"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+if [ "$KEY_SIZE" -lt 2048 ]; then
+    echo -e "${RED}✗ CRITICAL: Weak key size (< 2048 bits)${NC}"
+    CRITICAL=$((CRITICAL + 1))
+fi
+
+if echo "$SIG_ALGO" | grep -iq "sha1"; then
+    echo -e "${RED}✗ CRITICAL: Using deprecated SHA1 signature${NC}"
+    CRITICAL=$((CRITICAL + 1))
+fi
+
+if [ $DAYS_UNTIL_EXPIRY -lt 30 ] && [ $DAYS_UNTIL_EXPIRY -ge 0 ]; then
+    echo -e "${YELLOW}⚠ WARNING: Certificate expiring soon${NC}"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+if ! echo "$OCSP_OUTPUT" | grep -q "OCSP Response Status: successful"; then
+    echo -e "${YELLOW}⚠ INFO: OCSP stapling not enabled${NC}"
+    ISSUES=$((ISSUES + 1))
+fi
+
+print_section "Summary"
+echo -e "Critical Issues: ${RED}${CRITICAL}${NC}"
+echo -e "Warnings: ${YELLOW}${WARNINGS}${NC}"
+echo -e "Info: ${BLUE}${ISSUES}${NC}"
+
+if [ $CRITICAL -eq 0 ] && [ $WARNINGS -eq 0 ]; then
+    echo -e "\n${GREEN}✓ Certificate configuration is secure${NC}"
+elif [ $CRITICAL -eq 0 ]; then
+    echo -e "\n${YELLOW}⚠ Certificate is valid but has minor issues${NC}"
+else
+    echo -e "\n${RED}✗ Certificate has critical security issues${NC}"
+fi
+
+echo -e "\n${BLUE}================================================${NC}"
+echo -e "${BLUE}Verification Complete${NC}"
+echo -e "${BLUE}================================================${NC}\n"
+
+rm -f /tmp/cert_full.txt /tmp/cert.pem
+
+exit 0
