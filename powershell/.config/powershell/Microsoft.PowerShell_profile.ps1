@@ -15,7 +15,7 @@ function ..4 { cd ..; cd ..; cd ..; cd .. }
 function Connect-Devserver-VM {
     # Enter-PSSession -HostName devserver.leonardo.local -UserName "LEONARDO\Administrator" -SSHTransport -Port 2222
     $CustomProfilePath = "C:\Users\administrator.LEONARDO\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
-    $session = New-PSSession -HostName devserver.leonardo.local -UserName "Administrator" -SSHTransport -Port 2222
+    $session = New-PSSession -HostName devserver.leonardo.local -UserName "administrator" -SSHTransport -Port 2222
     Invoke-Command -Session $session -ScriptBlock {
         param($ProfilePath)
         if (Test-Path $ProfilePath) {
@@ -27,7 +27,8 @@ function Connect-Devserver-VM {
     Enter-PSSession -Session $session
 }
 
-function Connect-Devshost-VM {
+# TODO: Setup passwordless access
+function Connect-Devhost-VM {
     # Enter-PSSession -HostName 192.168.192.150 -UserName "dev-server\administrator" -SSHTransport -Port 2222
     $CustomProfilePath = "C:\Users\Administrator\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
     $session = New-PSSession -HostName 192.168.192.150 -UserName "administrator" -SSHTransport -Port 2222
@@ -43,5 +44,4 @@ function Connect-Devshost-VM {
 }
 
 Set-Alias -Name dsrv -Value Connect-Devserver-VM
-Set-Alias -Name dhost -Value Connect-Devshost-VM
-
+Set-Alias -Name dhost -Value Connect-Devhost-VM

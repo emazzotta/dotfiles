@@ -14,11 +14,23 @@ Set-ExecutionPolicy Bypass -Scope Process -Force;
 # https://chocolatey.org/install
 iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 
-
 # Software
+choco install adobereader -y
 choco install brave -y
-choco install ccleaner -y
-choco install git.commandline -y
-choco install notepadplusplus.commandline -y
-choco install ruby.portable -y
-choco install steam -y
+choco install curl -y
+choco install docker-desktop -y
+choco install eclipse -y
+choco install git -y
+choco install gitlab-runner -y
+choco install intellijidea-ultimate -y
+choco install maven -y
+choco install nsis -y
+choco install oh-my-posh -y
+choco install openjdk -y
+choco install powershell-core -y
+choco install vim -y
+choco install windirstat -y # check disk space
+choco install winscp -y # easy file transfer to a linux server
+
+# oh-my-posh font install meslo
+# wsl --install
