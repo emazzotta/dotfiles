@@ -97,3 +97,5 @@ Set-Alias -Name wl -Value Connect-Parallels-VM
 
 Set-Alias -Name l -Value Clear-Host
 Set-Alias -Name ll -Value Get-LongListing
+Set-Alias -Name e -Value Exit-PSSession
+
