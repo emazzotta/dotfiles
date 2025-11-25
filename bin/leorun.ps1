@@ -6,7 +6,7 @@
 $ErrorActionPreference = "Stop"
 
 $SKIP_COMPILE = $Fast -or $f
-$MAVEN_SETTINGS = "Z:\Projects\private\dotfiles\maven\.m2\settings.xml"
+$MAVEN_SETTINGS = "\\Mac\Home\Projects\private\dotfiles\maven\.m2\settings.xml"
 
 $env:LEONARDO_PROJECTS = "C:\Users\emanuelemazzotta\ProjectsWindows"
 $LEONARDO_DIR = "$env:LEONARDO_PROJECTS\leonardo"
@@ -31,6 +31,8 @@ if (-not $SKIP_COMPILE) {
     Write-Host "⚡ Skipping compilation (fast mode)" -ForegroundColor Magenta
     Change-Dir $LEONARDO_DIR
 }
+
+git pull
 
 Write-Host "▶️  Starting Leonardo application..." -ForegroundColor Green
 Change-Dir $RESOURCES_DIR
