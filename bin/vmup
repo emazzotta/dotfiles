@@ -18,13 +18,13 @@ open "$FILE_EXPLORER"
 echo "⏳ Waiting for VM to be ready..."
 sleep 1.5
 
-osascript <<EOF 2>/dev/null || true
-tell application "File Explorer"
-    set miniaturized of window 1 to true
+osascript <<EOF 2>/dev/null
+tell application "System Events"
+    set visible of process "File Explorer" to false
 end tell
 EOF
 
 (sleep 600 && osascript -e 'quit app "File Explorer"' 2>/dev/null) &
 echo $! > "$PID_FILE"
 
-echo "✅ VM active (File Explorer minimized, will close in 10 mins)"
+echo "✅ VM active (File Explorer hidden, will close in 10 mins)"
