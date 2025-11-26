@@ -1,15 +1,16 @@
-﻿# ssh emanuelemazzotta@10.211.55.3 'pwsh -Command "\\Mac\Home\Projects\private\dotfiles\bin\leorun.ps1 -f"'
-
-param(
+﻿param(
     [switch]$Fast,
-    [switch]$f
+    [switch]$f,
+    [switch]$Quick,
+    [switch]$q
 )
 
 $ErrorActionPreference = "Stop"
 
 $SKIP_COMPILE = $Fast -or $f
+$QUICK_COMPILE = $Quick -or $q
 $MAVEN_SETTINGS = "\\Mac\Home\Projects\private\dotfiles\maven\.m2\settings.xml"
-$env:MAVEN_OPTS = '-Djava.awt.headless=false -Dlog4j2.rootLevel=INFO'
+$env:MAVEN_OPTS = '-Djava.awt.headless=false -Dlog4j2.rootLevel=DEBUG'
 
 $env:LEONARDO_PROJECTS = "C:\Users\emanuelemazzotta\ProjectsWindows"
 $LEONARDO_DIR = "$env:LEONARDO_PROJECTS\leonardo"
@@ -28,7 +29,7 @@ if ($isSSH) {
     Write-Host "🔗 SSH detected - launching in Windows GUI session via Task Scheduler..." -ForegroundColor Yellow
 
     $scriptPath = $MyInvocation.MyCommand.Path
-    $fastArg = if ($SKIP_COMPILE) { "-Fast" } else { "" }
+    $fastArg = if ($SKIP_COMPILE) { "-Fast" } elseif ($QUICK_COMPILE) { "-Quick" } else { "" }
     $command = "Set-Location '$PSScriptRoot'; & '$scriptPath' $fastArg"
 
     $action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -Command `"$command`""
@@ -60,11 +61,14 @@ Write-Host "🔄 Checking out branch: $sourceBranch" -ForegroundColor Cyan
 git checkout $sourceBranch
 git pull
 
-if (-not $SKIP_COMPILE) {
-    Write-Host "🔨 Building Leonardo..." -ForegroundColor Cyan
+if ($QUICK_COMPILE) {
+    Write-Host "⚡ Quick incremental compile (no clean)..." -ForegroundColor Yellow
+    mvn -s $MAVEN_SETTINGS compile -DskipTests
+} elseif (-not $SKIP_COMPILE) {
+    Write-Host "🔨 Full clean compile..." -ForegroundColor Cyan
     mvn -s $MAVEN_SETTINGS clean compile -DskipTests
 } else {
-    Write-Host "⚡ Skipping compilation (fast mode)" -ForegroundColor Magenta
+    Write-Host "⏭️  Skipping compilation entirely" -ForegroundColor Magenta
 }
 
 Write-Host "▶️  Starting Leonardo application..." -ForegroundColor Green
