@@ -2,11 +2,29 @@
 
 set -e
 
+PID_FILE="/tmp/vmup_fileexplorer.pid"
+
+if [ -f "$PID_FILE" ]; then
+    OLD_PID=$(cat "$PID_FILE")
+    if kill -0 "$OLD_PID" 2>/dev/null; then
+        kill "$OLD_PID" 2>/dev/null
+        echo "🔄 Reset timer (killed previous wait process)"
+    fi
+    rm "$PID_FILE"
+fi
+
 FILE_EXPLORER=$(find "$HOME/Applications (Parallels)" -name "File Explorer.app" -type d | head -n 1)
 open "$FILE_EXPLORER"
 echo "⏳ Waiting for VM to be ready..."
-sleep 0.3
+sleep 1.5
+
+osascript <<EOF 2>/dev/null || true
+tell application "File Explorer"
+    set miniaturized of window 1 to true
+end tell
+EOF
 
 (sleep 600 && osascript -e 'quit app "File Explorer"' 2>/dev/null) &
+echo $! > "$PID_FILE"
 
-echo "✅ VM active (File Explorer will close in 10 mins)"
+echo "✅ VM active (File Explorer minimized, will close in 10 mins)"
