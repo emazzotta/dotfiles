@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 
 $SKIP_COMPILE = $Fast -or $f
 $MAVEN_SETTINGS = "\\Mac\Home\Projects\private\dotfiles\maven\.m2\settings.xml"
+$env:MAVEN_OPTS = '-Djava.awt.headless=false -Dlog4j2.rootLevel=INFO'
 
 $env:LEONARDO_PROJECTS = "C:\Users\emanuelemazzotta\ProjectsWindows"
 $LEONARDO_DIR = "$env:LEONARDO_PROJECTS\leonardo"
@@ -36,6 +37,6 @@ git pull
 
 Write-Host "▶️  Starting Leonardo application..." -ForegroundColor Green
 Change-Dir $RESOURCES_DIR
-mvn -s $MAVEN_SETTINGS -f "$LEONARDO_DIR\pom.xml" exec:java -pl leonardo-leonardo "-Dexec.mainClass=$MAIN_CLASS" "-Dlog4j2.rootLevel=INFO"
+mvn -s $MAVEN_SETTINGS $MAVEN_OPTS -f "$LEONARDO_DIR\pom.xml" exec:java -pl leonardo-leonardo "-Dexec.mainClass=$MAIN_CLASS"
 
 Write-Host "✅ Leonardo startup complete!" -ForegroundColor Green

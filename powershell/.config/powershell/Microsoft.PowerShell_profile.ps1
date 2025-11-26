@@ -9,6 +9,32 @@ function ..2 { cd ..; cd .. }
 function ..3 { cd ..; cd ..; cd .. }
 function ..4 { cd ..; cd ..; cd ..; cd .. }
 
+
+### X11 ###
+
+# choco install -y VcXsrv
+# choco install -y xming
+
+# Must be before 'Match Group administrators'!
+# Add-Content -Path "C:\ProgramData\ssh\sshd_config" -Value "X11Forwarding yes"
+# Add-Content -Path "C:\ProgramData\ssh\sshd_config" -Value "X11DisplayOffset 10"
+# Add-Content -Path "C:\ProgramData\ssh\sshd_config" -Value "X11UseLocalhost no"
+# Add-Content -Path "C:\ProgramData\ssh\sshd_config" -Value 'XAuthLocation "C:/Program Files/VcXsrv/xauth.exe"'
+
+# $env:DISPLAY = "10.211.55.2:0"
+# $env:DISPLAY= "127.0.0.1:0.0"
+$vcxsrvPath = "C:\Program Files\VcXsrv"
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";$vcxsrvPath", [EnvironmentVariableTarget]::Machine)
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+# on Windows: Start "XLaunch"
+# on macOS: $ xhost + 10.211.55.3
+if (Get-Command Get-NetRoute -ErrorAction SilentlyContinue) {
+    $macIP = (Get-NetRoute -DestinationPrefix "0.0.0.0/0").NextHop | Select-Object -First 1
+    $env:DISPLAY = "${macIP}:0"
+}
+###########
+
 function Connect-Devserver-VM {
     # $ Enter-PSSession -HostName devserver.leonardo.local -UserName "LEONARDO\Administrator" -SSHTransport -Port 2222
     $CustomProfilePath = "C:\Users\administrator.LEONARDO\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
@@ -67,6 +93,7 @@ function Connect-Parallels-VM {
             . $DestPath
             Write-Host "Profile loaded successfully"
         }
+        Write-Host "DISPLAY is set to: $env:DISPLAY"
     } -ArgumentList $DotfilesProfilePath, $CustomProfilePath
     Enter-PSSession -Session $session
 }
@@ -80,10 +107,17 @@ function Set-Up-SSH-Access {
     choco install powershell-core -y
     Add-Content -Path "C:\ProgramData\ssh\sshd_config" -Value 'Subsystem powershell "C:/Program Files/PowerShell/7/pwsh.exe" -sshs -NoLogo -NoProfile'
     Restart-Service sshd
+
 }
 
 function leorun {
     & \\Mac\Home\Projects\private\dotfiles\bin\leorun.ps1 @args
+}
+
+function Run-Interactive {
+    # choco install -y sysinternals
+    param([string]$Command)
+    PsExec.exe -i -d pwsh -Command $Command
 }
 
 Set-Alias -Name wdev -Value Connect-Devserver-VM
@@ -98,4 +132,3 @@ Set-Alias -Name wl -Value Connect-Parallels-VM
 Set-Alias -Name l -Value Clear-Host
 Set-Alias -Name ll -Value Get-LongListing
 Set-Alias -Name e -Value Exit-PSSession
-
