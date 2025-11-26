@@ -1,4 +1,6 @@
-﻿param(
+﻿# ssh emanuelemazzotta@10.211.55.3 'pwsh -Command "\\Mac\Home\Projects\private\dotfiles\bin\leorun.ps1 -f"'
+
+param(
     [switch]$Fast,
     [switch]$f
 )
@@ -13,6 +15,7 @@ $env:LEONARDO_PROJECTS = "C:\Users\emanuelemazzotta\ProjectsWindows"
 $LEONARDO_DIR = "$env:LEONARDO_PROJECTS\leonardo"
 $RESOURCES_DIR = "$env:LEONARDO_PROJECTS\leonardo\leonardo-resources"
 $MAIN_CLASS = "ifactory.leonardo.model.LeonardoApplication"
+$SOURCE_LEONARDO_DIR = "\\Mac\Home\Projects\leo-productions\leonardo"
 
 function Change-Dir($Path) {
     Write-Host "📁 Changing to: $Path" -ForegroundColor Cyan
@@ -46,17 +49,26 @@ Write-Host "📂 Work directory: $env:LEONARDO_PROJECTS"
 Write-Host "☕ Main class: $MAIN_CLASS"
 Write-Host ""
 
+Write-Host "🔍 Detecting branch from source repository..." -ForegroundColor Cyan
+Push-Location $SOURCE_LEONARDO_DIR
+$sourceBranch = git rev-parse --abbrev-ref HEAD
+Pop-Location
+Write-Host "📌 Source branch: $sourceBranch" -ForegroundColor Green
+
+Change-Dir $LEONARDO_DIR
+Write-Host "🔄 Checking out branch: $sourceBranch" -ForegroundColor Cyan
+git checkout $sourceBranch
+git pull
+
 if (-not $SKIP_COMPILE) {
     Write-Host "🔨 Building Leonardo..." -ForegroundColor Cyan
-    Change-Dir $LEONARDO_DIR
     mvn -s $MAVEN_SETTINGS clean compile -DskipTests
 } else {
     Write-Host "⚡ Skipping compilation (fast mode)" -ForegroundColor Magenta
-    Change-Dir $LEONARDO_DIR
 }
-
-git pull
 
 Write-Host "▶️  Starting Leonardo application..." -ForegroundColor Green
 Change-Dir $RESOURCES_DIR
 mvn -s $MAVEN_SETTINGS -f "$LEONARDO_DIR\pom.xml" exec:java -pl leonardo-leonardo "-Dexec.mainClass=$MAIN_CLASS"
+
+Write-Host "✅ Leonardo startup complete!" -ForegroundColor Green
