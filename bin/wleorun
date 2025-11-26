@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -e
+
+args=""
+for arg in "$@"; do
+    args="$args $arg"
+done
+
+vmup 2>/dev/null || echo "vmup done..."
+ssh wlocal "pwsh -Command \"\\\\Mac\\Home\\Projects\\private\\dotfiles\\bin\\leorun.ps1$args\"" >/dev/null 2>&1 &
+echo "✅ Leonardo starting in background (PID: $!)"

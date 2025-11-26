@@ -70,5 +70,3 @@ if (-not $SKIP_COMPILE) {
 Write-Host "▶️  Starting Leonardo application..." -ForegroundColor Green
 Change-Dir $RESOURCES_DIR
 mvn -s $MAVEN_SETTINGS -f "$LEONARDO_DIR\pom.xml" exec:java -pl leonardo-leonardo "-Dexec.mainClass=$MAIN_CLASS"
-
-Write-Host "✅ Leonardo startup complete!" -ForegroundColor Green
