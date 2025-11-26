@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# See opencode project docker-compose.yml
+
+DATA_DIR="$HOME/Projects/private/opencode/data/opencode"
+
+docker run -it --rm \
+  --name opencode-here \
+  --add-host="host.docker.internal:host-gateway" \
+  -v "$DATA_DIR/app:/root/.opencode" \
+  -v "$DATA_DIR/.claude.json:/root/.claude.json" \
+  -v "$DATA_DIR/claude:/root/.claude" \
+  -v "$DATA_DIR/config:/root/.config" \
+  -v "$DATA_DIR/local:/root/.local" \
+  -v "$DATA_DIR/workspace:/workspace" \
+  -v "$PWD:/workspace/code" \
+  -e ANTHROPIC_MODEL \
+  -e OLLAMA_HOST=http://ollama:11434 \
+  -e ABLETON_HOST=host.docker.internal \
+  -e ABLETON_PORT=9877 \
+  -w /workspace \
+  emazzotta/opencode:latest claude "$@"
