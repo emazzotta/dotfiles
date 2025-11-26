@@ -14,6 +14,8 @@ email
 keys
 node_modules
 
+cache-management.ps1
+
 workspace/
 dotfiles/
 

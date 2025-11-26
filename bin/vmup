@@ -5,5 +5,8 @@ set -e
 FILE_EXPLORER=$(find "$HOME/Applications (Parallels)" -name "File Explorer.app" -type d | head -n 1)
 open "$FILE_EXPLORER"
 echo "⏳ Waiting for VM to be ready..."
-sleep 0.5
-osascript -e 'quit app "File Explorer"'
+sleep 0.3
+
+(sleep 600 && osascript -e 'quit app "File Explorer"' 2>/dev/null) &
+
+echo "✅ VM active (File Explorer will close in 10 mins)"

@@ -1,0 +1,12 @@
+Set-Alias -Name gui -Value Start-InGUI
+Set-Alias -Name rr -Value Remove-ReadOnly
+Set-Alias -Name bkems -Value Backup-EmsCache
+Set-Alias -Name rsems -Value Restore-EmsCache
+Set-Alias -Name wdev -Value Connect-Devserver-VM
+Set-Alias -Name wd -Value Connect-Devserver-VM
+Set-Alias -Name whost -Value Connect-Devhost-VM
+Set-Alias -Name wh -Value Connect-Devhost-VM
+Set-Alias -Name wlocal -Value Connect-Parallels-VM
+Set-Alias -Name wl -Value Connect-Parallels-VM
+Set-Alias -Name ll -Value Get-LongListing
+Set-Alias -Name e -Value Exit-PSSession
