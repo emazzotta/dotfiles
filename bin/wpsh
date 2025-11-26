@@ -1,0 +1,4 @@
+#!/bin/bash
+
+vmup 2>/dev/null
+pwsh -NoExit -Command "Connect-Parallels-VM"

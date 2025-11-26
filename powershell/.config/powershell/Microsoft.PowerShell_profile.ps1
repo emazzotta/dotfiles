@@ -107,11 +107,15 @@ function Set-Up-SSH-Access {
     choco install powershell-core -y
     Add-Content -Path "C:\ProgramData\ssh\sshd_config" -Value 'Subsystem powershell "C:/Program Files/PowerShell/7/pwsh.exe" -sshs -NoLogo -NoProfile'
     Restart-Service sshd
-
 }
 
 function leorun {
     & \\Mac\Home\Projects\private\dotfiles\bin\leorun.ps1 @args
+}
+
+function l {
+    $ESC = [char]27
+    Write-Host "$ESC[2J$ESC[H" -NoNewline
 }
 
 function Run-Interactive {
@@ -129,6 +133,5 @@ Set-Alias -Name wh -Value Connect-Devhost-VM
 Set-Alias -Name wlocal -Value Connect-Parallels-VM
 Set-Alias -Name wl -Value Connect-Parallels-VM
 
-Set-Alias -Name l -Value Clear-Host
 Set-Alias -Name ll -Value Get-LongListing
 Set-Alias -Name e -Value Exit-PSSession
