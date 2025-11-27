@@ -28,6 +28,11 @@ EXTRA_ARGS = {
 }
 
 AUDIO_EXTS = ["mp3", "m4a", "aac", "flac", "wav", "aif", "aiff", "alac", "ogg", "opus", "wma", "ape", "wv"]
+VIDEO_EXTS = ["mp4", "mkv", "avi", "mov", "flv", "webm", "wmv", "m4v", "mpg", "mpeg", "3gp", "ogv"]
+
+
+def is_video_file(file_path: Path) -> bool:
+    return file_path.suffix.lower().lstrip('.') in VIDEO_EXTS
 
 
 def get_output_path(input_file: Path, fmt: str, output_dir: Path | None) -> Path:
@@ -66,11 +71,14 @@ def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_orig
 
     output_file = get_output_path(input_file, fmt, output_dir)
 
-    cmd = [
-              "ffmpeg",
-              "-i", str(input_file),
-              "-c:a", codec,
-          ] + EXTRA_ARGS.get(fmt, []) + ["-y", str(output_file)]
+    cmd = ["ffmpeg", "-i", str(input_file)]
+
+    if is_video_file(input_file):
+        cmd.append("-vn")
+
+    cmd.extend(["-c:a", codec])
+    cmd.extend(EXTRA_ARGS.get(fmt, []))
+    cmd.extend(["-y", str(output_file)])
 
     try:
         subprocess.run(cmd, check=True, capture_output=True)
@@ -88,7 +96,7 @@ def list_inputs(path: Path) -> list[Path]:
         return [path]
     if path.is_dir():
         files = []
-        for ext in AUDIO_EXTS:
+        for ext in AUDIO_EXTS + VIDEO_EXTS:
             files.extend(Path(p) for p in glob(str(path / f"**/*.{ext}"), recursive=True))
             files.extend(Path(p) for p in glob(str(path / f"**/*.{ext.upper()}"), recursive=True))
         return sorted(set(files))
@@ -97,8 +105,8 @@ def list_inputs(path: Path) -> list[Path]:
 
 
 def main():
-    p = argparse.ArgumentParser(description="Convert audio files")
-    p.add_argument("-i", "--input", required=True, help="Audio file or directory")
+    p = argparse.ArgumentParser(description="Convert audio files and extract audio from video files")
+    p.add_argument("-i", "--input", required=True, help="Audio/video file or directory")
     p.add_argument("-f", "--format", required=True, dest="fmt",
                    choices=AUDIO_CODECS.keys(), help="Output format")
     p.add_argument("-o", "--output-path", help="Output directory")
@@ -112,7 +120,7 @@ def main():
 
     inputs = list_inputs(src)
     if not inputs:
-        print("No audio files found")
+        print("No audio or video files found")
         sys.exit(1)
 
     results = []
