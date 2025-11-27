@@ -21,7 +21,6 @@ find . -type d -name "target" -exec rm -rf {} +
 find . -type d -name ".gradle" -exec rm -rf {} +
 find . -type f -name "*.class" -delete
 find . -type d -name "dependency-reduced-pom.xml" -exec rm -rf {} +
-find . -type d -name "bin" -exec rm -rf {} +
 find . -type d -name "out" -exec rm -rf {} +
 
 # OS-specific files
