@@ -11,3 +11,7 @@ function l {
     $ESC = [char]27
     Write-Host "$ESC[2J$ESC[H" -NoNewline
 }
+
+function Navigate-MacHome {
+    Set-Location \\Mac\Home
+}

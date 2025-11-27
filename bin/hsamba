@@ -1,0 +1,9 @@
+#!/bin/bash
+
+set -e
+
+docker run --rm -it --name home-samba -p 4139:139 -p 4445:445 \
+    -v "$HOME/samba":/mount \
+    -d dperson/samba \
+    -u "admin;admin" \
+    -s "mac-home-samba;/mount;yes;no;yes;all;none;admin"

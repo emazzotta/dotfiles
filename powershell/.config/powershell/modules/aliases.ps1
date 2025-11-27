@@ -10,3 +10,4 @@ Set-Alias -Name wlocal -Value Connect-Parallels-VM
 Set-Alias -Name wl -Value Connect-Parallels-VM
 Set-Alias -Name ll -Value Get-LongListing
 Set-Alias -Name e -Value Exit-PSSession
+Set-Alias -Name mac -Value Navigate-MacHome
