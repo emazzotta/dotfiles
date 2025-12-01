@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 $SKIP_COMPILE = $Fast -or $f
 $QUICK_COMPILE = $Quick -or $q
 $MAVEN_SETTINGS = "\\Mac\Home\Projects\private\dotfiles\maven\.m2\settings.xml"
-$env:MAVEN_OPTS = '-Djava.awt.headless=false -Dlog4j2.rootLevel=DEBUG'
+$env:MAVEN_OPTS = '-Djava.awt.headless=false -Dlog4j2.rootLevel=INFO' # SET LOG LEVEL HERE
 
 $env:LEONARDO_PROJECTS = "C:\Users\emanuelemazzotta\ProjectsWindows"
 $LEONARDO_DIR = "$env:LEONARDO_PROJECTS\leonardo"
