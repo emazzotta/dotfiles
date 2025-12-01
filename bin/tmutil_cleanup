@@ -6,7 +6,7 @@ set -e
 tmutil listlocalsnapshots / | tail -n+2 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}' | xargs -I {} sudo tmutil deletelocalsnapshots {}
 
 # Array of volume paths
-volume_paths=("/Volumes/Samsung_1TB_TimeMachine" "/Volumes/Crucial_4TB_TimeMachine")
+volume_paths=("/Volumes/Crucial_4TB_TimeMachine")
 
 for volume_path in "${volume_paths[@]}"; do
 
