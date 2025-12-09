@@ -4,6 +4,8 @@ FILE_REGEX=""
 PATTERN=""
 FILE_GIVEN=false
 SEARCH_PATH="."
+EXCLUDE_PATTERNS=()
+EXCLUDE_CONTENT=()
 
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
@@ -14,6 +16,14 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         -p|--path)
             SEARCH_PATH="$2"
+            shift
+            ;;
+        -e|--exclude)
+            EXCLUDE_PATTERNS+=("$2")
+            shift
+            ;;
+        -x|--exclude-content)
+            EXCLUDE_CONTENT+=("$2")
             shift
             ;;
         -h|--help)
@@ -32,27 +42,69 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 if [ -z "$PATTERN" ]; then
-    echo "usage: $(basename "${0}") [-r <filename regex>] [-p <path>] <pattern>"
+    echo "usage: $(basename "${0}") [-r <filename regex>] [-p <path>] [-e <exclude path>] [-x <exclude content>] <pattern>"
+    echo "  -e/--exclude        : exclude file paths (can be specified multiple times)"
+    echo "  -x/--exclude-content: exclude lines containing pattern (can be specified multiple times)"
     exit 1
 fi
 
 echo "Searching for files and content matching pattern: '$PATTERN'"
 
+AG_IGNORE_ARGS=()
+for exclude in "${EXCLUDE_PATTERNS[@]}"; do
+    AG_IGNORE_ARGS+=(--ignore "$exclude")
+done
+
+FIND_PRUNE_ARGS=()
+for exclude in "${EXCLUDE_PATTERNS[@]}"; do
+    FIND_PRUNE_ARGS+=(-not -path "*$exclude*")
+done
+
+build_filter_awk() {
+    if [ ${#EXCLUDE_CONTENT[@]} -eq 0 ]; then
+        echo "1"
+        return
+    fi
+
+    local awk_script="/"
+    local first=true
+    for exclude in "${EXCLUDE_CONTENT[@]}"; do
+        if [ "$first" = true ]; then
+            awk_script="${exclude}"
+            first=false
+        else
+            awk_script="${awk_script}|${exclude}"
+        fi
+    done
+    awk_script="/${awk_script}/ {next} {print}"
+    echo "$awk_script"
+}
+
+AWK_FILTER=$(build_filter_awk)
+
 if [ "$FILE_GIVEN" = true ]; then
     echo "Files matching the filename pattern:"
-    echo 
-    find "$SEARCH_PATH" -type f -iname "*$FILE_REGEX*" -print
+    echo
+    find "$SEARCH_PATH" -type f -iname "*$FILE_REGEX*" "${FIND_PRUNE_ARGS[@]}" -print
     echo
     echo "Content matches within files matching the filename pattern:"
     echo
-    find "$SEARCH_PATH" -type f -iname "*$FILE_REGEX*" -exec ag --hidden "$PATTERN" '{}' +
+    if [ ${#EXCLUDE_CONTENT[@]} -gt 0 ]; then
+        find "$SEARCH_PATH" -type f -iname "*$FILE_REGEX*" "${FIND_PRUNE_ARGS[@]}" -exec ag --hidden --color --group "$PATTERN" '{}' + | awk "$AWK_FILTER"
+    else
+        find "$SEARCH_PATH" -type f -iname "*$FILE_REGEX*" "${FIND_PRUNE_ARGS[@]}" -exec ag --hidden "$PATTERN" '{}' +
+    fi
 else
     echo "Files matching the filename pattern:"
     echo
-    find "$SEARCH_PATH" -type f -iname "*$PATTERN*" -print
+    find "$SEARCH_PATH" -type f -iname "*$PATTERN*" "${FIND_PRUNE_ARGS[@]}" -print
     echo
     echo "Content matches within all files:"
     echo
-    ag --hidden "$PATTERN" "$SEARCH_PATH"
+    if [ ${#EXCLUDE_CONTENT[@]} -gt 0 ]; then
+        ag --hidden --color --group "${AG_IGNORE_ARGS[@]}" "$PATTERN" "$SEARCH_PATH" | awk "$AWK_FILTER"
+    else
+        ag --hidden "${AG_IGNORE_ARGS[@]}" "$PATTERN" "$SEARCH_PATH"
+    fi
 fi
 
