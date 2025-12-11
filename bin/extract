@@ -5,6 +5,7 @@ if [ -f "${1}" ] ; then
     case "${1}" in
         *.tar.bz2) tar xvjf "${1}" ;;
         *.tar.gz) tar xvzf "${1}" ;;
+        *.tar.xz) tar xvJf "${1}" ;;
         *.bz2) bunzip2 "${1}" ;;
         *.rar) rar x "${1}" ;;
         *.gz) gunzip "${1}" ;;
@@ -14,6 +15,15 @@ if [ -f "${1}" ] ; then
         *.zip) unzip "${1}" ;;
         *.Z) uncompress "${1}" ;;
         *.7z) 7z x "${1}" ;;
+        *.xz) unxz "${1}" ;;
+        *.exe) 7z x "${1}" ;;
+        *.msi) 7z x "${1}" ;;
+        *.pkg) 7z x "${1}" ;;
+        *.deb) w x "${1}" ;;
+        *.rpm) rpm2cpio "${1}" | cpio -idmv ;;
+        *.dmg) 7z x "${1}" ;;
+        *.iso) 7z x "${1}" ;;
+        *.cab) cabextract "${1}" ;;
         *) echo "don't know '${1}'..." ;;
     esac
 elif ! test "${1}" || [[ "${1}" == "--help" ]] || [[ "${1}" == "-h" ]]; then
