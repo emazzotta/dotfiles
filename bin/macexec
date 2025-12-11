@@ -1,0 +1,49 @@
+#!/bin/bash
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${YELLOW}macOS Quarantine Attribute Removal Tool${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "This will remove quarantine attributes from all files in:"
+echo -e "${BLUE}$(pwd)${NC}"
+echo ""
+
+if [[ "$OSTYPE" != "darwin"* ]]; then
+    echo -e "${RED}✗ Error: This script is designed for macOS only${NC}"
+    exit 1
+fi
+
+if ! command -v xattr &> /dev/null; then
+    echo -e "${RED}✗ Error: xattr command not found${NC}"
+    exit 1
+fi
+
+echo -e "${YELLOW}⚙ Removing extended attributes...${NC}"
+echo ""
+
+if xattr -cr . 2>&1; then
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -eq 0 ]; then
+        echo -e "${GREEN}✓ Successfully removed quarantine attributes${NC}"
+        echo -e "${GREEN}✓ Files in this folder can now be executed without warnings${NC}"
+    else
+        echo -e "${RED}✗ Command completed with warnings (exit code: $EXIT_CODE)${NC}"
+    fi
+else
+    EXIT_CODE=$?
+    echo -e "${RED}✗ Failed to remove attributes (exit code: $EXIT_CODE)${NC}"
+    echo -e "${RED}  You may need elevated permissions. Try running with sudo.${NC}"
+    exit $EXIT_CODE
+fi
+
+echo ""
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+read -n 1 -s -r -p "Press any key to exit..."
+echo ""
+
