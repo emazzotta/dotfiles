@@ -1,0 +1,334 @@
+#!/usr/bin/env python3
+
+import sys
+import time
+import subprocess
+import argparse
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Optional
+from enum import Enum
+from random import randint
+
+VERSION = "1.0.0"
+
+
+class Direction(Enum):
+    PULL = "pull"
+    PUSH = "push"
+
+
+class Color(Enum):
+    RED = "\033[0;31m"
+    GREEN = "\033[0;32m"
+    YELLOW = "\033[1;33m"
+    BLUE = "\033[0;34m"
+    RESET = "\033[0m"
+
+
+@dataclass(frozen=True)
+class SyncConfig:
+    remote: str
+    local: Path
+    direction: Direction
+    use_sudo: bool
+    dry_run: bool
+    max_retries: int
+    initial_wait: int
+    max_wait: int
+    timeout: int
+    bwlimit: Optional[int]
+    verbose: bool
+
+
+class Logger:
+    @staticmethod
+    def _timestamp() -> str:
+        return time.strftime("%Y-%m-%d %H:%M:%S")
+
+    @staticmethod
+    def _colorize(message: str, color: Color) -> str:
+        return f"{color.value}{message}{Color.RESET.value}"
+
+    def log(self, message: str) -> None:
+        timestamp = self._colorize(f"[{self._timestamp()}]", Color.GREEN)
+        print(f"{timestamp} {message}")
+
+    def error(self, message: str) -> None:
+        timestamp = self._colorize(f"[{self._timestamp()}] ERROR:", Color.RED)
+        print(f"{timestamp} {message}", file=sys.stderr)
+
+    def warn(self, message: str) -> None:
+        timestamp = self._colorize(f"[{self._timestamp()}] WARN:", Color.YELLOW)
+        print(f"{timestamp} {message}")
+
+    def info(self, message: str) -> None:
+        timestamp = self._colorize(f"[{self._timestamp()}] INFO:", Color.BLUE)
+        print(f"{timestamp} {message}")
+
+
+class RsyncCommandBuilder:
+    def __init__(self, config: SyncConfig):
+        self.config = config
+
+    def build(self) -> list[str]:
+        cmd = [
+            "rsync",
+            "-a",
+            "--partial",
+            "--partial-dir=.rsync-partial",
+            f"--timeout={self.config.timeout}",
+            "-e",
+            "ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o ConnectTimeout=30 -o BatchMode=yes",
+            "--compress",
+            "--delete-after",
+        ]
+
+        if self.config.use_sudo:
+            cmd.extend(["--rsync-path=sudo rsync"])
+
+        if self.config.dry_run:
+            cmd.append("--dry-run")
+
+        if self.config.bwlimit:
+            cmd.append(f"--bwlimit={self.config.bwlimit}")
+
+        if self.config.verbose:
+            cmd.extend(["--progress", "--stats"])
+
+        source, destination = self._determine_paths()
+        cmd.extend([source, str(destination)])
+
+        return cmd
+
+    def _determine_paths(self) -> tuple[str, str]:
+        if self.config.direction == Direction.PULL:
+            return (self.config.remote, str(self.config.local))
+        return (str(self.config.local), self.config.remote)
+
+
+class RetryStrategy:
+    def __init__(self, initial_wait: int, max_wait: int):
+        self.initial_wait = initial_wait
+        self.max_wait = max_wait
+        self.current_wait = initial_wait
+
+    def calculate_next_wait(self) -> int:
+        jitter = randint(0, 4)
+        total_wait = self.current_wait + jitter
+
+        if total_wait > self.max_wait:
+            total_wait = self.max_wait
+
+        self.current_wait *= 2
+        if self.current_wait > self.max_wait:
+            self.current_wait = self.max_wait
+
+        return total_wait
+
+
+class RobustRsync:
+    def __init__(self, config: SyncConfig):
+        self.config = config
+        self.logger = Logger()
+        self.builder = RsyncCommandBuilder(config)
+
+    def execute(self) -> int:
+        self._print_header()
+
+        retry_strategy = RetryStrategy(
+            self.config.initial_wait,
+            self.config.max_wait
+        )
+
+        for attempt in range(1, self.config.max_retries + 1):
+            self.logger.log(f"Attempt {attempt} of {self.config.max_retries}")
+
+            cmd = self.builder.build()
+            result = subprocess.run(cmd, capture_output=False)
+
+            if result.returncode == 0:
+                self.logger.log(f"✓ Sync completed successfully on attempt {attempt}")
+                return 0
+
+            self.logger.error(f"Rsync failed with exit code {result.returncode}")
+
+            if attempt == self.config.max_retries:
+                self.logger.error("Maximum retries reached. Giving up.")
+                return 1
+
+            wait_time = retry_strategy.calculate_next_wait()
+            self.logger.warn(f"Waiting {wait_time}s before retry...")
+            time.sleep(wait_time)
+
+        self.logger.error("Sync failed after all retries")
+        return 1
+
+    def _print_header(self) -> None:
+        self.logger.log(f"Robust Rsync v{VERSION}")
+
+        action = "Pulling from" if self.config.direction == Direction.PULL else "Pushing to"
+        source, dest = self.builder._determine_paths()
+        self.logger.log(f"{action}: {source} -> {dest}")
+
+        self.logger.log(
+            f"Sudo: {self.config.use_sudo} | "
+            f"Retries: {self.config.max_retries} | "
+            f"Timeout: {self.config.timeout}s"
+        )
+
+        if self.config.bwlimit:
+            self.logger.log(f"Bandwidth limit: {self.config.bwlimit} KB/s")
+
+        if self.config.dry_run:
+            self.logger.info("DRY RUN MODE - No files will be transferred")
+
+
+def create_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="robust-rsync",
+        description="Robust Rsync - Resilient file synchronization with automatic retries",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+examples:
+  Pull from remote to current directory:
+    %(prog)s --remote user@server:/opt/data
+
+  Pull to specific local directory:
+    %(prog)s --remote user@server:/opt/data --local /backup
+
+  Push local directory to remote:
+    %(prog)s --remote user@server:/opt/data --local /backup --push
+
+  Sync without sudo:
+    %(prog)s --remote user@server:/home/user/data --no-sudo
+
+  Dry run to preview:
+    %(prog)s --remote user@server:/opt/data --dry-run
+
+  Limit bandwidth to 5MB/s:
+    %(prog)s --remote user@server:/opt/data --bwlimit 5000
+
+features:
+  - Automatic retry with exponential backoff
+  - Resume interrupted transfers
+  - Connection keepalive to prevent timeouts
+  - Compression to reduce bandwidth
+  - Progress tracking
+"""
+    )
+
+    parser.add_argument(
+        "--remote",
+        required=True,
+        help="Remote location (e.g., user@host:/path/to/dir)"
+    )
+
+    parser.add_argument(
+        "--local",
+        type=Path,
+        default=Path.cwd(),
+        help="Local directory (default: current directory)"
+    )
+
+    parser.add_argument(
+        "--push",
+        action="store_true",
+        help="Push local to remote (default: pull remote to local)"
+    )
+
+    parser.add_argument(
+        "--no-sudo",
+        action="store_true",
+        help="Don't use sudo on remote side (default: uses sudo)"
+    )
+
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be transferred without doing it"
+    )
+
+    parser.add_argument(
+        "--bwlimit",
+        type=int,
+        metavar="RATE",
+        help="Limit bandwidth in KB/s (e.g., 5000 for 5MB/s)"
+    )
+
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=10,
+        metavar="N",
+        help="Maximum retry attempts (default: 10)"
+    )
+
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        metavar="SECONDS",
+        help="I/O timeout in seconds (default: 300)"
+    )
+
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show detailed rsync output"
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {VERSION}"
+    )
+
+    return parser
+
+
+def validate_config(args: argparse.Namespace) -> Optional[str]:
+    if not args.local.is_dir():
+        return f"Local directory does not exist: {args.local}"
+
+    if args.retries < 1:
+        return "Retries must be at least 1"
+
+    if args.timeout < 1:
+        return "Timeout must be at least 1 second"
+
+    if args.bwlimit is not None and args.bwlimit < 1:
+        return "Bandwidth limit must be positive"
+
+    return None
+
+
+def main() -> int:
+    parser = create_parser()
+    args = parser.parse_args()
+
+    error = validate_config(args)
+    if error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+
+    config = SyncConfig(
+        remote=args.remote,
+        local=args.local,
+        direction=Direction.PUSH if args.push else Direction.PULL,
+        use_sudo=not args.no_sudo,
+        dry_run=args.dry_run,
+        max_retries=args.retries,
+        initial_wait=5,
+        max_wait=300,
+        timeout=args.timeout,
+        bwlimit=args.bwlimit,
+        verbose=args.verbose,
+    )
+
+    rsync = RobustRsync(config)
+    return rsync.execute()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
