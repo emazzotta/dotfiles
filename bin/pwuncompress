@@ -2,36 +2,84 @@
 
 set -euo pipefail
 
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+RESET='\033[0m'
+
+timestamp() {
+    date +'%Y-%m-%d %H:%M:%S'
+}
+
+log() {
+    echo -e "${GREEN}[$(timestamp)]${RESET} $*"
+}
+
+error() {
+    echo -e "${RED}[$(timestamp)] ERROR:${RESET} $*" >&2
+}
+
+warn() {
+    echo -e "${YELLOW}[$(timestamp)] WARN:${RESET} $*"
+}
+
+info() {
+    echo -e "${BLUE}[$(timestamp)] INFO:${RESET} $*"
+}
+
+success() {
+    echo -e "${GREEN}[$(timestamp)] ✓${RESET} $*"
+}
+
+show_usage() {
+    echo "Usage: $(basename "$0") <archive-file>"
+    echo "Extracts password-protected archive to \$DESKDIR using \$PASSWORD_ZIPS"
+    echo ""
+    echo "Environment variables required:"
+    echo "  DESKDIR       - Destination directory for extraction"
+    echo "  PASSWORD_ZIPS - Password for the archive"
+    echo "  GLOBAL_ENV_FILE (optional) - File to source for environment variables"
+}
+
 if [ $# -eq 0 ]; then
-    echo "Usage: $(basename "$0") <archive-file>" >&2
-    echo "Extracts password-protected archive to \$DESKDIR using \$PASSWORD_ZIPS" >&2
+    show_usage
     exit 1
 fi
 
 ARCHIVE="$1"
 
 if [ ! -f "$ARCHIVE" ]; then
-    echo "Error: Archive not found: $ARCHIVE" >&2
+    error "Archive not found: $ARCHIVE"
     exit 1
 fi
 
 if ! command -v 7z &> /dev/null; then
-    echo "Error: 7z command not found. Please install p7zip" >&2
+    error "7z command not found. Please install p7zip"
     exit 1
 fi
 
 if [ -n "${GLOBAL_ENV_FILE:-}" ] && [ -f "$GLOBAL_ENV_FILE" ]; then
+    info "Loading environment from $GLOBAL_ENV_FILE"
     source "$GLOBAL_ENV_FILE"
 fi
 
 if [ -z "${DESKDIR:-}" ]; then
-    echo "Error: DESKDIR environment variable not set" >&2
+    error "DESKDIR environment variable not set"
     exit 1
 fi
 
 if [ -z "${PASSWORD_ZIPS:-}" ]; then
-    echo "Error: PASSWORD_ZIPS environment variable not set" >&2
+    error "PASSWORD_ZIPS environment variable not set"
     exit 1
 fi
 
-7z x "$ARCHIVE" -o"$DESKDIR" -p"$PASSWORD_ZIPS"
+log "Extracting archive: $ARCHIVE"
+log "Destination: $DESKDIR"
+
+if 7z x "$ARCHIVE" -o"$DESKDIR" -p"$PASSWORD_ZIPS"; then
+    success "Archive extracted successfully"
+else
+    error "Extraction failed"
+    exit 1
+fi

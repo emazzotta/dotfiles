@@ -1,110 +1,207 @@
-#!/bin/bash
+#!/usr/bin/env python3
 
-FILE_REGEX=""
-PATTERN=""
-FILE_GIVEN=false
-SEARCH_PATH="."
-EXCLUDE_PATTERNS=()
-EXCLUDE_CONTENT=()
+import sys
+import argparse
+import subprocess
+from pathlib import Path
+from typing import Optional
 
-while [[ "$#" -gt 0 ]]; do
-    case "$1" in
-        -r|--file-regex)
-            FILE_REGEX="$2"
-            FILE_GIVEN=true
-            shift
-            ;;
-        -p|--path)
-            SEARCH_PATH="$2"
-            shift
-            ;;
-        -e|--exclude)
-            EXCLUDE_PATTERNS+=("$2")
-            shift
-            ;;
-        -x|--exclude-content)
-            EXCLUDE_CONTENT+=("$2")
-            shift
-            ;;
-        -h|--help)
-            PATTERN=""
-            shift
-            ;;
-        *)
-            if [ -z "$PATTERN" ]; then
-                PATTERN="$1"
-            else
-                PATTERN="$PATTERN $1"
-            fi
-            ;;
-    esac
-    shift
-done
+try:
+    from scriptlog import Logger
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from scriptlog import Logger
 
-if [ -z "$PATTERN" ]; then
-    echo "usage: $(basename "${0}") [-r <filename regex>] [-p <path>] [-e <exclude path>] [-x <exclude content>] <pattern>"
-    echo "  -e/--exclude        : exclude file paths (can be specified multiple times)"
-    echo "  -x/--exclude-content: exclude lines containing pattern (can be specified multiple times)"
-    exit 1
-fi
+logger = Logger(use_timestamps=False)
 
-echo "Searching for files and content matching pattern: '$PATTERN'"
 
-AG_IGNORE_ARGS=()
-for exclude in "${EXCLUDE_PATTERNS[@]}"; do
-    AG_IGNORE_ARGS+=(--ignore "$exclude")
-done
+def find_files_by_name(pattern: str, search_path: str, excludes: list[str]) -> None:
+    cmd = ["find", search_path, "-type", "f", "-iname", f"*{pattern}*"]
 
-FIND_PRUNE_ARGS=()
-for exclude in "${EXCLUDE_PATTERNS[@]}"; do
-    FIND_PRUNE_ARGS+=(-not -path "*$exclude*")
-done
+    for exclude in excludes:
+        cmd.extend(["-not", "-path", f"*{exclude}*"])
 
-build_filter_awk() {
-    if [ ${#EXCLUDE_CONTENT[@]} -eq 0 ]; then
-        echo "1"
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        if result.stdout.strip():
+            print(result.stdout, end='')
+        else:
+            logger.info("No files found matching filename pattern")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"find command failed: {e}")
+    except FileNotFoundError:
+        logger.error("find command not found")
+
+
+def search_content(
+    pattern: str,
+    search_path: str,
+    file_regex: Optional[str],
+    excludes: list[str],
+    exclude_content: list[str]
+) -> None:
+    if not _check_ag_available():
         return
-    fi
 
-    local awk_script="/"
-    local first=true
-    for exclude in "${EXCLUDE_CONTENT[@]}"; do
-        if [ "$first" = true ]; then
-            awk_script="${exclude}"
-            first=false
-        else
-            awk_script="${awk_script}|${exclude}"
-        fi
-    done
-    awk_script="/${awk_script}/ {next} {print}"
-    echo "$awk_script"
-}
+    if file_regex:
+        _search_content_in_matching_files(pattern, search_path, file_regex, excludes, exclude_content)
+    else:
+        _search_content_all_files(pattern, search_path, excludes, exclude_content)
 
-AWK_FILTER=$(build_filter_awk)
 
-if [ "$FILE_GIVEN" = true ]; then
-    echo "Files matching the filename pattern:"
-    echo
-    find "$SEARCH_PATH" -type f -iname "*$FILE_REGEX*" "${FIND_PRUNE_ARGS[@]}" -print
-    echo
-    echo "Content matches within files matching the filename pattern:"
-    echo
-    if [ ${#EXCLUDE_CONTENT[@]} -gt 0 ]; then
-        find "$SEARCH_PATH" -type f -iname "*$FILE_REGEX*" "${FIND_PRUNE_ARGS[@]}" -exec ag --hidden --color --group "$PATTERN" '{}' + | awk "$AWK_FILTER"
-    else
-        find "$SEARCH_PATH" -type f -iname "*$FILE_REGEX*" "${FIND_PRUNE_ARGS[@]}" -exec ag --hidden "$PATTERN" '{}' +
-    fi
-else
-    echo "Files matching the filename pattern:"
-    echo
-    find "$SEARCH_PATH" -type f -iname "*$PATTERN*" "${FIND_PRUNE_ARGS[@]}" -print
-    echo
-    echo "Content matches within all files:"
-    echo
-    if [ ${#EXCLUDE_CONTENT[@]} -gt 0 ]; then
-        ag --hidden --color --group "${AG_IGNORE_ARGS[@]}" "$PATTERN" "$SEARCH_PATH" | awk "$AWK_FILTER"
-    else
-        ag --hidden "${AG_IGNORE_ARGS[@]}" "$PATTERN" "$SEARCH_PATH"
-    fi
-fi
+def _check_ag_available() -> bool:
+    try:
+        subprocess.run(["ag", "--version"], capture_output=True, check=True)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        logger.error("ag (The Silver Searcher) not found. Please install it.")
+        return False
 
+
+def _search_content_in_matching_files(
+    pattern: str,
+    search_path: str,
+    file_regex: str,
+    excludes: list[str],
+    exclude_content: list[str]
+) -> None:
+    find_cmd = ["find", search_path, "-type", "f", "-iname", f"*{file_regex}*"]
+
+    for exclude in excludes:
+        find_cmd.extend(["-not", "-path", f"*{exclude}*"])
+
+    try:
+        find_result = subprocess.run(find_cmd, capture_output=True, text=True, check=True)
+        files = find_result.stdout.strip().split('\n')
+
+        if not files or not files[0]:
+            logger.info("No files found matching filename pattern")
+            return
+
+        for file_path in files:
+            if not file_path:
+                continue
+            _search_in_file(pattern, file_path, exclude_content)
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"find command failed: {e}")
+
+
+def _search_content_all_files(
+    pattern: str,
+    search_path: str,
+    excludes: list[str],
+    exclude_content: list[str]
+) -> None:
+    ag_cmd = ["ag", "--hidden", "--color", "--group", pattern, search_path]
+
+    for exclude in excludes:
+        ag_cmd.extend(["--ignore", exclude])
+
+    try:
+        result = subprocess.run(ag_cmd, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            output = _filter_output(result.stdout, exclude_content)
+            if output:
+                print(output, end='')
+            else:
+                logger.info("No content matches found (after filtering)")
+        elif result.returncode == 1:
+            logger.info("No content matches found")
+        else:
+            logger.error(f"ag command failed with exit code {result.returncode}")
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"ag command failed: {e}")
+
+
+def _search_in_file(pattern: str, file_path: str, exclude_content: list[str]) -> None:
+    ag_cmd = ["ag", "--hidden", "--color", "--group", pattern, file_path]
+
+    try:
+        result = subprocess.run(ag_cmd, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            output = _filter_output(result.stdout, exclude_content)
+            if output:
+                print(output, end='')
+        elif result.returncode != 1:
+            logger.error(f"ag command failed for {file_path}")
+
+    except subprocess.CalledProcessError:
+        pass
+
+
+def _filter_output(output: str, exclude_patterns: list[str]) -> str:
+    if not exclude_patterns:
+        return output
+
+    lines = output.split('\n')
+    filtered_lines = []
+
+    for line in lines:
+        if not any(pattern in line for pattern in exclude_patterns):
+            filtered_lines.append(line)
+
+    return '\n'.join(filtered_lines)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="ags",
+        description="Search for files by name and content using ag and find",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
+    parser.add_argument(
+        'pattern',
+        help="Pattern to search for in filenames and content"
+    )
+
+    parser.add_argument(
+        '-r', '--file-regex',
+        metavar='REGEX',
+        help="Search only in files matching this filename pattern"
+    )
+
+    parser.add_argument(
+        '-p', '--path',
+        default='.',
+        help="Path to search in (default: current directory)"
+    )
+
+    parser.add_argument(
+        '-e', '--exclude',
+        action='append',
+        default=[],
+        metavar='PATTERN',
+        help="Exclude paths matching pattern (can be specified multiple times)"
+    )
+
+    parser.add_argument(
+        '-x', '--exclude-content',
+        action='append',
+        default=[],
+        metavar='PATTERN',
+        help="Exclude lines containing pattern (can be specified multiple times)"
+    )
+
+    args = parser.parse_args()
+
+    print(f"Searching for files and content matching pattern: '{args.pattern}'\n")
+
+    print("Files matching the filename pattern:")
+    print()
+    find_files_by_name(args.pattern if not args.file_regex else args.file_regex, args.path, args.exclude)
+
+    print()
+    print("Content matches:")
+    print()
+    search_content(args.pattern, args.path, args.file_regex, args.exclude, args.exclude_content)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

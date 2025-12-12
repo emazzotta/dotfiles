@@ -10,20 +10,18 @@ from typing import Optional
 from enum import Enum
 from random import randint
 
-VERSION = "1.0.0"
+try:
+    from scriptlog import Logger
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from scriptlog import Logger
+
+VERSION = "3.0.0"
 
 
 class Direction(Enum):
     PULL = "pull"
     PUSH = "push"
-
-
-class Color(Enum):
-    RED = "\033[0;31m"
-    GREEN = "\033[0;32m"
-    YELLOW = "\033[1;33m"
-    BLUE = "\033[0;34m"
-    RESET = "\033[0m"
 
 
 @dataclass(frozen=True)
@@ -39,32 +37,6 @@ class SyncConfig:
     timeout: int
     bwlimit: Optional[int]
     verbose: bool
-
-
-class Logger:
-    @staticmethod
-    def _timestamp() -> str:
-        return time.strftime("%Y-%m-%d %H:%M:%S")
-
-    @staticmethod
-    def _colorize(message: str, color: Color) -> str:
-        return f"{color.value}{message}{Color.RESET.value}"
-
-    def log(self, message: str) -> None:
-        timestamp = self._colorize(f"[{self._timestamp()}]", Color.GREEN)
-        print(f"{timestamp} {message}")
-
-    def error(self, message: str) -> None:
-        timestamp = self._colorize(f"[{self._timestamp()}] ERROR:", Color.RED)
-        print(f"{timestamp} {message}", file=sys.stderr)
-
-    def warn(self, message: str) -> None:
-        timestamp = self._colorize(f"[{self._timestamp()}] WARN:", Color.YELLOW)
-        print(f"{timestamp} {message}")
-
-    def info(self, message: str) -> None:
-        timestamp = self._colorize(f"[{self._timestamp()}] INFO:", Color.BLUE)
-        print(f"{timestamp} {message}")
 
 
 class RsyncCommandBuilder:
@@ -148,7 +120,7 @@ class RobustRsync:
             result = subprocess.run(cmd, capture_output=False)
 
             if result.returncode == 0:
-                self.logger.log(f"✓ Sync completed successfully on attempt {attempt}")
+                self.logger.success(f"Sync completed successfully on attempt {attempt}")
                 return 0
 
             self.logger.error(f"Rsync failed with exit code {result.returncode}")
