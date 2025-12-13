@@ -1,18 +1,21 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/shelllog.sh"
+
 quality=28
 codec=h264
 remove=no
 just_preview_compatible=no
 
 function print_help() {
-    echo "usage: $(basename "${0}") <video_file>"
-    echo
-    echo "options:"
-    echo "  -c, --codec                 Codec can be one ofh264, h265 or av1, default: ${codec}"
-    echo "  -q, --quality               Quality, the lower, the better the quality, default: ${quality}"
-    echo "  --just-preview-compatible   Just convert with ffmpeg so that macOS preview can use this file"
-    echo "  --rm-original               Remove the original file once the conversion is done"
+    log "usage: $(basename "${0}") <video_file>"
+    log
+    log "options:"
+    log "  -c, --codec                 Codec can be one ofh264, h265 or av1, default: ${codec}"
+    log "  -q, --quality               Quality, the lower, the better the quality, default: ${quality}"
+    log "  --just-preview-compatible   Just convert with ffmpeg so that macOS preview can use this file"
+    log "  --rm-original               Remove the original file once the conversion is done"
 }
 
 for i in "$@"; do
@@ -40,7 +43,7 @@ for i in "$@"; do
       shift
       ;;
     -*|--*)
-      echo "Unknown option $i"
+      error "Unknown option $i"
       print_help
       exit 1
       ;;
@@ -54,25 +57,25 @@ if [[ ! -n "${1}" ]]; then
     exit 1
 fi
 
-echo
-echo "options:"
-echo
-echo "quality [${quality}]"
-echo "codec [${codec}]"
-echo "remove original: [${remove}]"
-echo "just preview compatible: [${just_preview_compatible}] (ignoring quality and codec)"
+log
+log "options:"
+log
+log "quality [${quality}]"
+log "codec [${codec}]"
+log "remove original: [${remove}]"
+log "just preview compatible: [${just_preview_compatible}] (ignoring quality and codec)"
 
 input_file="${1}"
 output_file="${input_file%.*}_compressed.mp4"
 
 if test -f "${output_file}"; then
-    echo "File ${input_file} has already been compressed"
+    warn "File ${input_file} has already been compressed"
     exit 1
 fi
 
-echo
-echo "converting '${input_file}' to '${output_file}'"
-echo
+log
+log "converting '${input_file}' to '${output_file}'"
+log
 
 if [[ "${just_preview_compatible}" == "yes" ]]; then
     ffmpeg -i "${input_file}" -vcodec libx264 "${output_file}" 
@@ -88,11 +91,11 @@ else
             ffmpeg -i "${input_file}" -c:v libaom-av1 -crf "${quality}" -b:v 0 -strict experimental "${output_file}"
         ;;
         *)
-            echo "invalid codec '${codec}'"
+            error "invalid codec '${codec}'"
             exit 1
         ;;
     esac
 fi
 
 
-[[ "${remove}" == "yes" ]] && test -f "${output_file}" && rm "${input_file}" && echo "removed input file '${input_file}'"
+[[ "${remove}" == "yes" ]] && test -f "${output_file}" && rm "${input_file}" && log "removed input file '${input_file}'"

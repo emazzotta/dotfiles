@@ -1,9 +1,12 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/shelllog.sh"
+
 if test "${2}"; then
     name="${1}"
     shift
     gs -q -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -sOutputFile=${name} ${@}
 else
-    echo "usage: $(basename "${0}") <output filename> <inputfile> [inputfiles]"
+    log "usage: $(basename "${0}") <output filename> <inputfile> [inputfiles]"
 fi

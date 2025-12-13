@@ -1,9 +1,12 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/shelllog.sh"
+
 if test "${1}"; then
     input_file="${1}"
     output_file="${input_file%.*}.mp3"
-    ffmpeg -i "${input_file}" -vn "${output_file}" # Explicitly drop video
+    ffmpeg -i "${input_file}" -vn "${output_file}"
 else
-    echo "usage: $(basename "${0}") <video_file>"
+    log "usage: $(basename "${0}") <video_file>"
 fi

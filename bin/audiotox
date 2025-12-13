@@ -4,6 +4,9 @@ import subprocess
 from pathlib import Path
 from glob import glob
 import sys
+from scriptlog import Logger
+
+logger = Logger()
 
 AUDIO_CODECS = {
     "mp3": "libmp3lame",
@@ -42,7 +45,8 @@ def get_output_path(input_file: Path, fmt: str, output_dir: Path | None) -> Path
     if output_path.exists():
         response = input(f"File exists: {output_path}\nOverwrite? [y/N/a] (N=add _converted, a=abort): ").lower()
         if response == 'a':
-            sys.exit("Aborted")
+            logger.error("Aborted")
+            sys.exit(1)
         elif response != 'y':
             counter = ""
             while True:
@@ -61,7 +65,7 @@ def get_output_path(input_file: Path, fmt: str, output_dir: Path | None) -> Path
 def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_original: bool) -> Path | None:
     codec = AUDIO_CODECS.get(fmt)
     if not codec:
-        print(f"Unsupported format: {fmt}")
+        logger.error(f"Unsupported format: {fmt}")
         return None
 
     output_file = get_output_path(input_file, fmt, output_dir)
@@ -74,12 +78,12 @@ def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_orig
 
     try:
         subprocess.run(cmd, check=True, capture_output=True)
-        print(f"Converted: {input_file} -> {output_file}")
+        logger.success(f"Converted: {input_file} -> {output_file}")
         if delete_original:
             input_file.unlink(missing_ok=True)
         return output_file
     except subprocess.CalledProcessError:
-        print(f"Failed: {input_file}")
+        logger.error(f"Failed: {input_file}")
         return None
 
 
@@ -92,7 +96,7 @@ def list_inputs(path: Path) -> list[Path]:
             files.extend(Path(p) for p in glob(str(path / f"**/*.{ext}"), recursive=True))
             files.extend(Path(p) for p in glob(str(path / f"**/*.{ext.upper()}"), recursive=True))
         return sorted(set(files))
-    print(f"Input not found: {path}")
+    logger.error(f"Input not found: {path}")
     sys.exit(1)
 
 
@@ -112,7 +116,7 @@ def main():
 
     inputs = list_inputs(src)
     if not inputs:
-        print("No audio files found")
+        logger.error("No audio files found")
         sys.exit(1)
 
     results = []
@@ -122,7 +126,7 @@ def main():
             results.append(result)
 
     if results:
-        print(f"\nConverted {len(results)} file(s)")
+        logger.log(f"\nConverted {len(results)} file(s)")
 
 
 if __name__ == "__main__":

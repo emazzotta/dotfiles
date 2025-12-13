@@ -1,48 +1,51 @@
 #!/usr/bin/env python3
 
 import argparse
-import os
 import subprocess
 import sys
-from glob import glob
+from pathlib import Path
+
+from scriptlog import Logger
+
+logger = Logger()
 
 
-def convert_image(input_file, output_format, output_path, delete_original):
-    filename, _ = os.path.splitext(os.path.basename(input_file))
+def convert_image(input_file: Path, output_format: str, output_path: Path | None, delete_original: bool) -> Path | None:
+    filename = input_file.stem
     if output_path:
-        output_file = os.path.join(output_path, f"{filename}.{output_format}")
+        output_file = output_path / f"{filename}.{output_format}"
     else:
-        output_file = f"./{filename}.{output_format}"
+        output_file = Path.cwd() / f"{filename}.{output_format}"
 
-    if os.path.exists(output_file):
-        print(f"Output file '{output_file}' already exists, skipping...")
-        return
+    if output_file.exists():
+        logger.warn(f"Output file '{output_file}' already exists, skipping...")
+        return None
 
-    command = ["magick", input_file, output_file]
+    command = ["magick", str(input_file), str(output_file)]
     result = subprocess.run(command, check=True)
 
     if result.returncode != 0:
-        print(f"Error: Conversion failed for '{input_file}'")
+        logger.error(f"Conversion failed for '{input_file}'")
         sys.exit(1)
 
     if delete_original:
-        os.remove(input_file)
-        print(f"Original file '{input_file}' deleted.")
+        input_file.unlink()
+        logger.log(f"Original file '{input_file}' deleted.")
 
     return output_file
 
 
-def get_image_files(directory):
+def find_image_files(directory: Path) -> list[Path]:
     image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.gif', '*.bmp', '*.tiff', '*.webp', '*.svg', '*.heic']
     image_extensions = image_extensions + [x.upper() for x in image_extensions]
-    print(image_extensions)
+    logger.log(str(image_extensions))
     image_files = []
     for extension in image_extensions:
-        image_files.extend(glob(os.path.join(directory, '**', extension), recursive=True))
+        image_files.extend(directory.glob(f'**/{extension}'))
     return image_files
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Convert image files.')
     parser.add_argument('-i', '--input', required=True, help='The image file or directory of image files to convert.')
     parser.add_argument('-f', '--format', required=True, dest='output_format',
@@ -51,18 +54,25 @@ def main():
     parser.add_argument('-o', '--output-path', help='Path where to save the converted file(s).')
     args = parser.parse_args()
 
-    if os.path.isfile(args.input):
-        input_files = [args.input]
-    elif os.path.isdir(args.input):
-        input_files = get_image_files(args.input)
+    input_path = Path(args.input)
+    output_path = Path(args.output_path) if args.output_path else None
+
+    if input_path.is_file():
+        input_files = [input_path]
+    elif input_path.is_dir():
+        input_files = find_image_files(input_path)
     else:
-        print(f"Error: Input '{args.input}' not found!")
+        logger.error(f"Input '{args.input}' not found!")
         sys.exit(1)
 
     converted_files = []
     for input_file in input_files:
-        converted_files.append(convert_image(input_file, args.output_format, args.output_path, args.delete))
-    print('\n'.join([f"Conversion complete: '{x}'" for x in converted_files if x]))
+        result = convert_image(input_file, args.output_format, output_path, args.delete)
+        if result:
+            converted_files.append(result)
+
+    for converted_file in converted_files:
+        logger.success(f"Conversion complete: '{converted_file}'")
 
 
 if __name__ == "__main__":

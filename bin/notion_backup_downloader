@@ -7,6 +7,9 @@ import sys
 import time
 
 import requests
+from scriptlog import Logger
+
+logger = Logger()
 
 TZ = os.getenv("TZ", "Europe/Zurich")
 NOTION_API = os.getenv('NOTION_API', 'https://www.notion.so/api/v3')
@@ -30,7 +33,7 @@ def post_request(endpoint, params):
 
 def create_export():
     task_id = post_request("enqueueTask", ENQUEUE_TASK_PARAM).get("taskId")
-    print(f"Enqueued task {task_id}")
+    logger.log(f"Enqueued task {task_id}")
 
     while True:
         time.sleep(2)
@@ -41,27 +44,26 @@ def create_export():
             break
         print(f'\rPages exported: {task.get("status").get("pagesExported")}', end="")
 
-    # Was removed from API: task.get("status").get("exportURL")
     if task.get("state") != "success":
-        print(f"\nExport creation failed!")
+        logger.error("Export creation failed!")
         return
 
-    print(f"\nExport created! Download it!")
+    logger.success("Export created! Download it!")
 
 
 def download_export(export_url, target_path):
-    print(f"Export URL: {export_url}")
-    print(f"Download path: {DOWNLOAD_PATH}")
+    logger.log(f"Export URL: {export_url}")
+    logger.log(f"Download path: {DOWNLOAD_PATH}")
     subprocess.run(["open", "-a", "Arc", export_url])
 
     exported_files = glob.glob(f"{DOWNLOAD_PATH}/*[Ee]xport*.zip")
     while not exported_files:
         time.sleep(1)
         exported_files = glob.glob(f"{DOWNLOAD_PATH}/*[Ee]xport*.zip")
-        print("Waiting for download to complete...")
+        logger.log("Waiting for download to complete...")
 
     export_file = max(exported_files, key=os.path.getctime)
-    print(f"Moving {export_file} to {target_path}")
+    logger.log(f"Moving {export_file} to {target_path}")
     os.rename(export_file, target_path)
     return target_path
 
@@ -92,7 +94,7 @@ ENQUEUE_TASK_PARAM = {
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Must pass expected filename")
+        logger.error("Must pass expected filename")
         sys.exit(1)
 
     target_filename = sys.argv[1]
@@ -101,12 +103,11 @@ if __name__ == "__main__":
     if not exported_files:
         create_export()
         wait_for_manual_download()
-        # downloaded_file = download_export(created_export_url, target_filename)
     else:
         downloaded_file = max(exported_files, key=os.path.getctime)
-        print(f"Found existing export file: {downloaded_file}")
+        logger.log(f"Found existing export file: {downloaded_file}")
         if NOTION_EXPORT_PATH:
             new_path = os.path.join(DOWNLOAD_PATH, NOTION_EXPORT_PATH)
             os.rename(downloaded_file, new_path)
             downloaded_file = new_path
-            print(f"Renamed to {downloaded_file}")
+            logger.log(f"Renamed to {downloaded_file}")

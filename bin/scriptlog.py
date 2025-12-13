@@ -54,8 +54,8 @@ class Logger:
         print(output)
 
     def info(self, message: str) -> None:
-        timestamp = self._colorize(self._timestamp(), Color.BLUE) if self._timestamp() else ""
-        prefix = self._colorize("INFO:", Color.BLUE)
+        timestamp = self._colorize(self._timestamp(), Color.GREEN) if self._timestamp() else ""
+        prefix = self._colorize("INFO:", Color.CYAN)
         output = f"{timestamp} {prefix} {message}" if timestamp else f"{prefix} {message}"
         print(output)
 

@@ -1,11 +1,12 @@
 #!/bin/bash
 
 set -e
+source "$(dirname "${0}")/shelllog.sh"
 
 if test "${1}"; then
     parameters="${@}"
     python -c "import urllib.parse;print(urllib.parse.unquote('${parameters}'))"
 else
-    echo "usage: $(basename "${0}") <string to decode>"
+    log "usage: $(basename "${0}") <string to decode>"
 fi
 

@@ -3,12 +3,13 @@
 set -e
 
 source "$GLOBAL_ENV_FILE"
+source "$(dirname "${BASH_SOURCE[0]}")/shelllog.sh"
 
 usage() {
-    echo "usage: $(basename "${0}") [-c compression_level] [-p password] <file1> [file2 ...]"
-    echo "Optional parameters:"
-    echo "  -c  Compression level (0-9). Default is 5 (normal)."
-    echo "  -p  Password for the archive. Default is value from \$PASSWORD_ZIPS."
+    log "usage: $(basename "${0}") [-c compression_level] [-p password] <file1> [file2 ...]"
+    log "Optional parameters:"
+    log "  -c  Compression level (0-9). Default is 5 (normal)."
+    log "  -p  Password for the archive. Default is value from \$PASSWORD_ZIPS."
     exit 1
 }
 
@@ -20,7 +21,7 @@ while getopts ":c:p:" opt; do
         c)
             COMPRESSION_LEVEL=$OPTARG
             if ! [[ $COMPRESSION_LEVEL =~ ^[0-9]$ ]]; then
-                echo "Error: Compression level must be a number between 0 and 9."
+                error "Compression level must be a number between 0 and 9."
                 exit 1
             fi
             ;;
@@ -28,11 +29,11 @@ while getopts ":c:p:" opt; do
             PASSWORD=$OPTARG
             ;;
         \?)
-            echo "Invalid option: -$OPTARG"
+            error "Invalid option: -$OPTARG"
             usage
             ;;
         :)
-            echo "Option -$OPTARG requires an argument."
+            error "Option -$OPTARG requires an argument."
             usage
             ;;
     esac
@@ -49,6 +50,6 @@ else
     ARCHIVE_NAME="$(basename "$(dirname "$1")").7z"
 fi
 
-echo "Archive creation in progress, please wait... (compression level $COMPRESSION_LEVEL)"
+log "Archive creation in progress, please wait... (compression level $COMPRESSION_LEVEL)"
 7z a -mx=$COMPRESSION_LEVEL -p"$PASSWORD" -mhe=on "$ARCHIVE_NAME" "$@"
-echo "Archive $ARCHIVE_NAME created successfully with compression level $COMPRESSION_LEVEL!"
+success "Archive $ARCHIVE_NAME created successfully with compression level $COMPRESSION_LEVEL!"

@@ -1,11 +1,12 @@
 #!/bin/bash
 
-# Ask for user confirmation and read the first JSON string from clipboard
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/shelllog.sh"
+
 echo "Please copy the first JSON string to the clipboard, then press any key to continue..."
 read -rn 1 -s
 json1=$(pbpaste | sed "s/, …//g" | jq '.')
 
-# Ask for user confirmation and read the second JSON string from clipboard
 echo "Please copy the second JSON string to the clipboard, then press any key to continue..."
 read -rn 1 -s
 json2=$(pbpaste | sed "s/, …//g" | jq '.')
@@ -14,4 +15,3 @@ echo "$json1" > /tmp/tmp1.json
 echo "$json2" > /tmp/tmp2.json
 diff /tmp/tmp1.json /tmp/tmp2.json
 rm /tmp/tmp1.json /tmp/tmp2.json
-

@@ -3,6 +3,9 @@
 import os
 import sys
 import xml.etree.ElementTree as ET
+from scriptlog import Logger
+
+logger = Logger()
 
 
 def process_xml(input_path, output_path):
@@ -48,15 +51,15 @@ def process_xml(input_path, output_path):
 def main():
     if len(sys.argv) < 2:
         script_name = os.path.basename(sys.argv[0])
-        print("Error: You need to pass the path to the input XML file as an argument.")
-        print(f"Usage: {script_name} input.xml")
-        sys.exit(1)  # Exit with an error status
+        logger.error("You need to pass the path to the input XML file as an argument.")
+        logger.log(f"Usage: {script_name} input.xml")
+        sys.exit(1)
 
     input_path = sys.argv[1]
-    output_dir = os.path.dirname(input_path)  # Get the directory of the input file
-    output_path = os.path.join(output_dir, "rekordbox.processed.xml")  # Create output path in the same directory
+    output_dir = os.path.dirname(input_path)
+    output_path = os.path.join(output_dir, "rekordbox.processed.xml")
     process_xml(input_path, output_path)
-    print(f"Processing complete. Output file saved as '{output_path}'.")
+    logger.success(f"Processing complete. Output file saved as '{output_path}'.")
 
 
 if __name__ == "__main__":

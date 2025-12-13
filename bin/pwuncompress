@@ -2,44 +2,24 @@
 
 set -euo pipefail
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-RESET='\033[0m'
-
-timestamp() {
-    date +'%Y-%m-%d %H:%M:%S'
-}
-
-log() {
-    echo -e "${GREEN}[$(timestamp)]${RESET} $*"
-}
-
-error() {
-    echo -e "${RED}[$(timestamp)] ERROR:${RESET} $*" >&2
-}
-
-warn() {
-    echo -e "${YELLOW}[$(timestamp)] WARN:${RESET} $*"
-}
-
-info() {
-    echo -e "${BLUE}[$(timestamp)] INFO:${RESET} $*"
-}
-
-success() {
-    echo -e "${GREEN}[$(timestamp)] ✓${RESET} $*"
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/shelllog.sh"
 
 show_usage() {
-    echo "Usage: $(basename "$0") <archive-file>"
-    echo "Extracts password-protected archive to \$DESKDIR using \$PASSWORD_ZIPS"
-    echo ""
-    echo "Environment variables required:"
-    echo "  DESKDIR       - Destination directory for extraction"
-    echo "  PASSWORD_ZIPS - Password for the archive"
-    echo "  GLOBAL_ENV_FILE (optional) - File to source for environment variables"
+    cat << EOF
+Usage: $(basename "$0") <archive-file>
+
+Extracts password-protected archive to \$DESKDIR using \$PASSWORD_ZIPS
+
+Environment variables required:
+  DESKDIR         - Destination directory for extraction
+  PASSWORD_ZIPS   - Password for the archive
+  GLOBAL_ENV_FILE - (optional) File to source for environment variables
+
+Examples:
+  $(basename "$0") archive.7z
+  $(basename "$0") /path/to/archive.7z
+EOF
 }
 
 if [ $# -eq 0 ]; then

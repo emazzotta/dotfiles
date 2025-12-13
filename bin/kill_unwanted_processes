@@ -1,5 +1,8 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/shelllog.sh"
+
 PATTERNS=(
   "ACCFinderSync"
   "Adobe Crash Processor"
@@ -16,7 +19,7 @@ PATTERNS=(
 for pattern in "${PATTERNS[@]}"; do
   pids=$(pgrep -f "$pattern")
   if [[ -n "$pids" ]]; then
-    echo "🔪 Killing processes matching: $pattern"
+    log "Killing processes matching: $pattern"
     echo "$pids" | xargs kill -9
   fi
 done
@@ -26,4 +29,4 @@ if [ -e "$UPDATE_APP"  ]; then
         sudo mv "$UPDATE_APP" "$UPDATE_APP.disabled"
 fi
 
-echo "✅ Done killing unwanted processes."
+success "Done killing unwanted processes."

@@ -2,10 +2,12 @@
 
 set -e
 
+source "$(dirname "${BASH_SOURCE[0]}")/shelllog.sh"
+
 if test "${1}"; then
     output_file="${1%.*}.pdf"
-    echo "Converting to ${output_file}"...
+    log "Converting to ${output_file}..."
     magick "${1}" "${output_file}"
 else
-    echo "usage: $(basename "${0}") <input_file>"
+    log "usage: $(basename "${0}") <input_file>"
 fi

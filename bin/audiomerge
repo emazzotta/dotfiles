@@ -2,19 +2,21 @@
 
 set -e
 
+source "$(dirname "$0")/shelllog.sh"
+
 output_filename="merged"
 output_format="wav"
 
 show_help() {
-    echo "Merge multiple audio files into a single audio file and convert it to the specified format."
-    echo
-    echo "Usage: $(basename $0) [-o <output_filename>] [-f <format>] <audio files...>"
-    echo
-    echo "Options:"
-    echo "  -o, --output FILENAME    Specify the output file name (default is 'merged.wav')."
-    echo "  -f, --format FORMAT      Specify the audio format (e.g., mp3, ogg) after merging."
-    echo
-    echo "<audio files...>    Space-separated list of audio files to merge."
+    log "Merge multiple audio files into a single audio file and convert it to the specified format."
+    log ""
+    log "Usage: $(basename $0) [-o <output_filename>] [-f <format>] <audio files...>"
+    log ""
+    log "Options:"
+    log "  -o, --output FILENAME    Specify the output file name (default is 'merged.wav')."
+    log "  -f, --format FORMAT      Specify the audio format (e.g., mp3, ogg) after merging."
+    log ""
+    log "<audio files...>    Space-separated list of audio files to merge."
 }
 
 while [[ $# -gt 0 ]]; do
@@ -41,7 +43,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ $# -eq 0 ]; then
-    echo "Error: No audio files specified."
+    error "No audio files specified."
     show_help
     exit 1
 fi
@@ -51,7 +53,7 @@ TEMP_DIR="$(mktemp -d)"
 
 for file in "$@"; do
     if [ ! -f "$file" ]; then
-        echo "Error: File '$file' not found."
+        error "File '$file' not found."
         rm -f "$TEMP_FILE"
         rm -rf "$TEMP_DIR"
         exit 1
@@ -63,8 +65,7 @@ done
 
 full_filename_temp="${output_filename}.wav"
 ffmpeg -y -f concat -safe 0 -i "$TEMP_FILE" -c copy "$full_filename_temp"
-echo
-echo "Audio files have been merged into '$full_filename_temp'."
+success "Audio files have been merged into '$full_filename_temp'."
 
 rm -f "$TEMP_FILE"
 rm -rf "$TEMP_DIR"

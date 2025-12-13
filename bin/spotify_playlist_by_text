@@ -3,6 +3,9 @@
 import os
 import sys
 import time
+from scriptlog import Logger
+
+logger = Logger()
 
 missing_modules = []
 try:
@@ -20,7 +23,7 @@ PLAYLIST_NAME = "My Shazam Tracks"
 
 MISSING_ENV_VARS = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
 if MISSING_ENV_VARS or missing_modules:
-    print("envify && av")
+    logger.error("envify && av")
     sys.exit(1)
 
 scope = 'playlist-modify-private playlist-read-private'
@@ -62,7 +65,7 @@ def add_tracks_to_playlist(playlist_id, track_file):
                     if e.http_status == 429:
                         rate_limited = True
                         delay = int(e.headers['Retry-After'])
-                        print(f"Rate limiting occurred. Retrying in {delay} seconds...")
+                        logger.warn(f"Rate limiting occurred. Retrying in {delay} seconds...")
                         time.sleep(delay + 1)
                         result = None
                     else:
@@ -77,7 +80,7 @@ def add_tracks_to_playlist(playlist_id, track_file):
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         script_name = os.path.basename(__file__)
-        print(f"Usage: {script_name} <path_to_track_file>")
+        logger.log(f"Usage: {script_name} <path_to_track_file>")
         sys.exit(1)
 
     track_file = sys.argv[1]
@@ -86,8 +89,8 @@ if __name__ == '__main__':
     tracks_not_found, rate_limited_occurred = add_tracks_to_playlist(playlist_id, track_file)
 
     if tracks_not_found:
-        print("The following tracks were not found on Spotify:", tracks_not_found)
+        logger.warn(f"The following tracks were not found on Spotify: {tracks_not_found}")
     if rate_limited_occurred:
-        print("Rate limiting was encountered during the operation.")
+        logger.warn("Rate limiting was encountered during the operation.")
     else:
-        print("All track operations completed.")
+        logger.success("All track operations completed.")

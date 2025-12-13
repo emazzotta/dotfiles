@@ -1,7 +1,10 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/shelllog.sh"
+
 if [ -f "${1}" ] ; then
-    echo "archive to decompress: ${name}"
+    log "archive to decompress: ${1}"
     case "${1}" in
         *.tar.bz2) tar xvjf "${1}" ;;
         *.tar.gz) tar xvzf "${1}" ;;
@@ -24,12 +27,12 @@ if [ -f "${1}" ] ; then
         *.dmg) 7z x "${1}" ;;
         *.iso) 7z x "${1}" ;;
         *.cab) cabextract "${1}" ;;
-        *) echo "don't know '${1}'..." ;;
+        *) error "don't know '${1}'..." ;;
     esac
 elif ! test "${1}" || [[ "${1}" == "--help" ]] || [[ "${1}" == "-h" ]]; then
-    echo "usage: $(basename "${0}") <file>"
-    echo "help :  -h, --help"
+    log "usage: $(basename "${0}") <file>"
+    log "help :  -h, --help"
 else
-    echo "'${1}' is not a valid file/option!"
-    echo "usage: $(basename "${0}")"
+    error "'${1}' is not a valid file/option!"
+    log "usage: $(basename "${0}")"
 fi

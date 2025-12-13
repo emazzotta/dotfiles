@@ -1,10 +1,41 @@
 #!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/shelllog.sh"
+
 DEFAULT_COMPRESSION_LEVEL=${DEFAULT_COMPRESSION_LEVEL:-5}
 
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") <folder>.extension
+       $(basename "$0") <name>.extension <file/folder> [file/folder] ...
+
+Creates compressed archive from files/folders
+
+Arguments:
+    <folder>.extension  - Create archive from folder with same base name
+    <name>.extension    - Create archive with custom name from specified files/folders
+
+Supported extensions:
+    tar.bz2, tar.gz, bz2, rar, gz, tar, tbz2, tgz, zip, 7z
+
+Environment variables:
+    DEFAULT_COMPRESSION_LEVEL - Compression level for 7z (default: 5)
+
+Examples:
+    $(basename "$0") myproject.tar.gz
+    $(basename "$0") backup.7z file1.txt file2.txt folder/
+    $(basename "$0") archive.zip *.pdf documents/
+
+Options:
+    -h, --help  - Show this help message
+EOF
+}
+
 if ! test "${1}" || [[ "${1}" == "--help" ]] || [[ "${1}" == "-h" ]]; then
-    echo "usage: $(basename "${0}") <folder>.extension"
-    echo "usage: $(basename "${0}") <name>.extension <file/folder> [file/folder] ..."
-    echo "help : -h, --help"
+    show_usage
     exit 1
 fi
 
@@ -18,11 +49,9 @@ else
     compressee=("$@")
 fi
 
-echo "Archive to create: ${name}"
-echo "Archive contents: ${compressee[*]}"
-echo "Compression level (if applicable): ${DEFAULT_COMPRESSION_LEVEL}"
-echo
-echo "=============================================="
+log "Archive to create: ${name}"
+log "Archive contents: ${compressee[*]}"
+log "Compression level (if applicable): ${DEFAULT_COMPRESSION_LEVEL}"
 echo
 
 case "${extension}" in
@@ -36,5 +65,17 @@ case "${extension}" in
     *tgz) tar cvzf "${name}" "${compressee[@]}" ;;
     *zip) zip -r "${name}" "${compressee[@]}" ;;
     *7z) 7z a -mx="$DEFAULT_COMPRESSION_LEVEL" "${name}" "${compressee[@]}" ;;
-    *) echo "don't know '${extension}'..." ;;
+    *)
+        error "Unknown extension: '${extension}'"
+        exit 1
+        ;;
 esac
+
+exit_code=$?
+
+if [ $exit_code -eq 0 ]; then
+    success "Archive created successfully: ${name}"
+else
+    error "Archive creation failed"
+    exit $exit_code
+fi
