@@ -1,102 +1,873 @@
-#!/bin/bash
+#!/usr/bin/env python3
 
-display_disks() {
-    echo "Available disks:"
-    diskutil list
-}
+import argparse
+import os
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Final, Optional
 
-backup_disk() {
-    mode="Backup"
 
-    echo
-    echo "==> [${mode} Mode] selected."
-    echo
+class Color:
+    RED: Final = '\033[0;31m'
+    GREEN: Final = '\033[0;32m'
+    YELLOW: Final = '\033[1;33m'
+    CYAN: Final = '\033[0;36m'
+    RESET: Final = '\033[0m'
 
-    local disk="$1"
-    local img_path="$2"
 
-    if [ -z "$disk" ]; then
-        display_disks
-        echo "Enter the disk identifier to backup (e.g., disk2):"
-        read disk
-    fi
+def timestamp() -> str:
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    if [ -z "$img_path" ]; then
-        default_path="$HOME/Desktop/backup.img"
-        echo "Enter the path for the output img file or press Enter to use the default [$default_path]:"
-        read img_path
-        img_path=${img_path:-$default_path}
-    fi
 
-    echo "Starting backup..."
-    sudo dd if=/dev/r$disk of="$img_path" bs=4m status=progress && sync && echo "${mode} completed."
-}
+def log(message: str) -> None:
+    print(f"{Color.GREEN}[{timestamp()}]{Color.RESET} {message}")
 
-restore_disk() {
-    mode="Restore"
 
-    echo
-    echo "==> [${mode} Mode] selected."
-    echo
+def error(message: str) -> None:
+    print(f"{Color.RED}[{timestamp()}] ERROR:{Color.RESET} {message}", file=sys.stderr)
 
-    local disk="$1"
-    local img_path="$2"
 
-    if [ -z "$disk" ]; then
-        display_disks
-        echo "Enter the disk identifier to restore (e.g., disk2):"
-        read disk
-    fi
+def warn(message: str) -> None:
+    print(f"{Color.YELLOW}[{timestamp()}] WARN:{Color.RESET} {message}")
 
-    if [ -z "$img_path" ]; then
-        default_path="$HOME/Desktop/backup.img"
-        echo "Enter the path of the img file to restore from or press Enter to use the default [$default_path]:"
-        read img_path
-        img_path=${img_path:-$default_path}
-    fi
 
-    echo "Starting restore..."
-    sudo dd of=/dev/r$disk if="$img_path" bs=4m status=progress && sync && echo "${mode} completed."
-}
+def info(message: str) -> None:
+    print(f"{Color.GREEN}[{timestamp()}]{Color.RESET} {Color.CYAN}INFO:{Color.RESET} {message}")
 
-print_help() {
-    echo "Usage: $(basename $0) [option] [disk identifier] [img path]"
-    echo "Options:"
-    echo "  1   Backup disk to IMG"
-    echo "  2   Restore disk from IMG"
-    echo "  3   Exit"
-    echo "  -h, --help   Display this help message"
-    echo ""
-    echo "Examples:"
-    echo "  $(basename $0) 1 disk2 /path/to/backup.img   Backup disk2 to specified image file"
-    echo "  $(basename $0) 2 disk2 /path/to/backup.img   Restore disk2 from specified image file"
-    echo "  $(basename $0) --help   Display usage information"
-}
 
-if [ "$#" -eq 0 ]; then
-    print_help
-    echo
-    read -p "Enter option: " choice
-else
-    choice="$1"
-fi
+def success(message: str) -> None:
+    print(f"{Color.GREEN}[{timestamp()}] ✓{Color.RESET} {message}")
 
-case $choice in
-    1)
-        backup_disk $2 $3
-        ;;
-    2)
-        restore_disk $2 $3
-        ;;
-    3)
-        exit 0
-        ;;
-    -h|--help)
-        print_help
-        ;;
-    *)
-        echo "Invalid option."
-        print_help
-        exit 0
-        ;;
-esac
+
+class DmgFormat(Enum):
+    COMPRESSED = "UDZO"
+    RAW = "UDRW"
+    READONLY = "UDRO"
+
+    @staticmethod
+    def parse(value: str) -> 'DmgFormat':
+        mapping = {
+            'compressed': DmgFormat.COMPRESSED,
+            'UDZO': DmgFormat.COMPRESSED,
+            'raw': DmgFormat.RAW,
+            'UDRW': DmgFormat.RAW,
+            'readonly': DmgFormat.READONLY,
+            'UDRO': DmgFormat.READONLY,
+        }
+        format_obj = mapping.get(value)
+        if not format_obj:
+            error(f"Invalid format: {value}")
+            error("Valid formats: compressed, raw, readonly")
+            sys.exit(1)
+        return format_obj
+
+    def description(self) -> str:
+        descriptions = {
+            DmgFormat.COMPRESSED: "compressed (UDZO)",
+            DmgFormat.RAW: "read/write (UDRW)",
+            DmgFormat.READONLY: "read-only compressed (UDRO)",
+        }
+        return descriptions[self]
+
+
+def check_dependencies(require_rsync: bool = False) -> None:
+    missing_commands = []
+
+    base_commands = ['dd', 'diskutil', 'df']
+    if require_rsync:
+        base_commands.append('rsync')
+
+    for cmd in base_commands:
+        if not command_exists(cmd):
+            missing_commands.append(cmd)
+
+    if missing_commands:
+        error(f"Missing required commands: {', '.join(missing_commands)}")
+        sys.exit(1)
+
+
+def check_hdiutil_available() -> bool:
+    if not command_exists('hdiutil'):
+        error("hdiutil command not found. DMG creation requires macOS.")
+        return False
+    return True
+
+
+def command_exists(command: str) -> bool:
+    try:
+        subprocess.run(
+            ['command', '-v', command],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def display_disks() -> None:
+    info("Available disks:")
+    subprocess.run(['diskutil', 'list'])
+
+
+def display_volumes() -> None:
+    info("Mounted volumes:")
+    volumes_path = Path('/Volumes')
+    if volumes_path.exists():
+        try:
+            volumes = [v.name for v in volumes_path.iterdir() if v.is_dir()]
+            if volumes:
+                for volume in volumes:
+                    print(f"  {volume}")
+            else:
+                log("No volumes found in /Volumes/")
+        except PermissionError:
+            log("No volumes found in /Volumes/")
+    else:
+        log("No volumes found in /Volumes/")
+    print()
+    info("You can also use 'diskutil list' to see all disks and volumes")
+
+
+def find_disk_for_volume(input_str: str) -> Optional[str]:
+    disk_pattern = re.compile(r'^disk\d+s?\d*$')
+    if disk_pattern.match(input_str):
+        info(f"Input recognized as disk identifier: {input_str}")
+        return input_str
+
+    dev_pattern = re.compile(r'^/dev/(r?)disk(\d+s?\d*)$')
+    match = dev_pattern.match(input_str)
+    if match:
+        disk_identifier = f"disk{match.group(2)}"
+        info(f"Input recognized as device path: {input_str} -> {disk_identifier}")
+        return disk_identifier
+
+    volume_path = Path(input_str)
+    if not volume_path.exists():
+        error(f"Volume path not found: {input_str}")
+        return None
+
+    info(f"Input recognized as volume path: {input_str}")
+
+    device = find_device_from_diskutil(input_str)
+    if not device:
+        device = find_device_from_df(input_str)
+
+    if not device:
+        error(f"Could not find disk identifier for volume: {input_str}")
+        error("Is the volume mounted?")
+        return None
+
+    disk_identifier = device.replace('/dev/', '').replace('r', '', 1)
+    info(f"Resolved volume to disk identifier: {disk_identifier}")
+    return disk_identifier
+
+
+def find_device_from_diskutil(volume: str) -> Optional[str]:
+    try:
+        result = subprocess.run(
+            ['diskutil', 'info', volume],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if 'Device Node:' in line:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        return parts[2]
+    except Exception:
+        pass
+    return None
+
+
+def find_device_from_df(volume: str) -> Optional[str]:
+    try:
+        result = subprocess.run(
+            ['df', volume],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().splitlines()
+            if len(lines) >= 2:
+                parts = lines[1].split()
+                if parts:
+                    return parts[0]
+    except Exception:
+        pass
+    return None
+
+
+def show_disk_info(disk: str) -> None:
+    info(f"Disk information for /dev/{disk}:")
+    try:
+        result = subprocess.run(
+            ['diskutil', 'info', disk],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if any(term in line for term in
+                       ['Device Node', 'Disk Size', 'Volume Name', 'Mount Point', 'File System']):
+                    print(f"  {line.strip()}")
+        else:
+            warn("Could not retrieve detailed disk info")
+            subprocess.run(['diskutil', 'list', disk], check=False)
+    except Exception:
+        warn("Could not retrieve detailed disk info")
+        log(f"Disk: {disk}")
+    print()
+
+
+def format_bytes(bytes_count: int) -> str:
+    try:
+        result = subprocess.run(
+            ['numfmt', '--to=iec', str(bytes_count)],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        gb = bytes_count / 1_000_000_000
+        return f"{gb:.1f} GB"
+
+
+def backup_disk(disk_input: str, img_path: Optional[str]) -> None:
+    log("==> [Backup Mode] selected")
+    print()
+
+    disk = find_disk_for_volume(disk_input)
+    if not disk:
+        sys.exit(1)
+    print()
+
+    show_disk_info(disk)
+
+    if not img_path:
+        img_path = str(Path.home() / "Desktop" / "backup.img")
+        info(f"Using default output path: {img_path}")
+
+    disk_size = find_disk_size(disk)
+
+    info(f"Starting backup of /dev/r{disk} to {img_path}")
+    info(f"Disk size: {disk_size}")
+    log("This may take several minutes depending on disk size...")
+
+    start_time = time.time()
+
+    try:
+        subprocess.run(
+            ['sudo', 'dd', f'if=/dev/r{disk}', f'of={img_path}', 'bs=4m', 'status=progress'],
+            check=True
+        )
+        subprocess.run(['sync'], check=True)
+    except subprocess.CalledProcessError as e:
+        error(f"Backup failed: {e}")
+        sys.exit(1)
+
+    end_time = time.time()
+    duration = int(end_time - start_time)
+
+    file_size = find_file_size(img_path)
+
+    success(f"Backup completed: {img_path}")
+    if file_size:
+        info(f"File size: {format_bytes(file_size)}")
+    info(f"Time elapsed: {duration}s")
+
+
+def restore_disk(disk_input: str, img_path: str) -> None:
+    log("==> [Restore Mode] selected")
+    print()
+
+    disk = find_disk_for_volume(disk_input)
+    if not disk:
+        sys.exit(1)
+    print()
+
+    show_disk_info(disk)
+
+    img_file = Path(img_path)
+    if not img_file.exists():
+        error(f"Image file not found: {img_path}")
+        sys.exit(1)
+
+    img_size = find_file_size(img_path)
+    disk_size = find_disk_size(disk)
+
+    info(f"Image file: {img_path}")
+    if img_size:
+        info(f"Image size: {format_bytes(img_size)}")
+    info(f"Target disk size: {disk_size}")
+    print()
+
+    warn(f"WARNING: This will OVERWRITE all data on /dev/r{disk}")
+    confirm = input("Are you sure you want to continue? (yes/no): ").strip()
+    if confirm != "yes":
+        info("Restore cancelled")
+        sys.exit(0)
+
+    info(f"Starting restore from {img_path} to /dev/r{disk}")
+    log("This may take several minutes depending on image size...")
+
+    start_time = time.time()
+
+    try:
+        subprocess.run(
+            ['sudo', 'dd', f'of=/dev/r{disk}', f'if={img_path}', 'bs=4m', 'status=progress'],
+            check=True
+        )
+        subprocess.run(['sync'], check=True)
+    except subprocess.CalledProcessError as e:
+        error(f"Restore failed: {e}")
+        sys.exit(1)
+
+    end_time = time.time()
+    duration = int(end_time - start_time)
+
+    success("Restore completed")
+    info(f"Time elapsed: {duration}s")
+
+
+def find_disk_size(disk: str) -> str:
+    try:
+        result = subprocess.run(
+            ['diskutil', 'info', disk],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if 'Disk Size:' in line:
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        return f"{parts[2]} {parts[3]}"
+    except Exception:
+        pass
+    return "unknown"
+
+
+def find_file_size(file_path: str) -> Optional[int]:
+    try:
+        return Path(file_path).stat().st_size
+    except Exception:
+        return None
+
+
+def validate_volume(volume: str) -> None:
+    volume_path = Path(volume)
+
+    if not volume_path.exists():
+        error(f"Volume not found: {volume}")
+        sys.exit(1)
+
+    if not os.access(volume, os.R_OK):
+        error(f"Volume not readable: {volume}")
+        sys.exit(1)
+
+
+def is_mounted_volume(volume: str) -> bool:
+    return volume.startswith('/Volumes/')
+
+
+def find_device_for_volume(volume: str) -> Optional[str]:
+    try:
+        result = subprocess.run(
+            ['df', volume],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().splitlines()
+            if len(lines) >= 2:
+                parts = lines[1].split()
+                if parts:
+                    return parts[0]
+    except Exception:
+        pass
+
+    error(f"Could not find device for volume: {volume}")
+    return None
+
+
+def extract_volume_name(volume: str) -> str:
+    name = Path(volume).name
+    name = name.replace(' ', '_')
+    name = name.replace('/', '_')
+    return name
+
+
+def find_volume_size(volume: str) -> str:
+    if is_mounted_volume(volume):
+        device = find_device_for_volume(volume)
+        if device:
+            try:
+                result = subprocess.run(
+                    ['diskutil', 'info', device],
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        if 'Total Space' in line:
+                            parts = line.split()
+                            if parts:
+                                return parts[-1]
+            except Exception:
+                pass
+
+    try:
+        result = subprocess.run(
+            ['du', '-sh', volume],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.returncode == 0:
+            parts = result.stdout.split()
+            if parts:
+                return parts[0]
+    except Exception:
+        pass
+
+    return "unknown"
+
+
+def convert_size_to_bytes(size: str) -> int:
+    pattern = re.compile(r'^([0-9.]+)([KMGT])B?$')
+    match = pattern.match(size)
+
+    if match:
+        num = float(match.group(1))
+        unit = match.group(2)
+
+        multipliers = {
+            'K': 1_000,
+            'M': 1_000_000,
+            'G': 1_000_000_000,
+            'T': 1_000_000_000_000,
+        }
+
+        return int(num * multipliers[unit])
+
+    return int(''.join(c for c in size if c.isdigit()) or '0')
+
+
+def check_disk_space(volume: str, dmg_format: DmgFormat) -> bool:
+    volume_size_str = find_volume_size(volume)
+    info(f"Source volume size: {volume_size_str}")
+
+    try:
+        result = subprocess.run(
+            ['df', '-k', '.'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        lines = result.stdout.strip().splitlines()
+        if len(lines) >= 2:
+            parts = lines[1].split()
+            available_space = int(parts[3]) * 1024
+        else:
+            error("Could not determine available disk space")
+            return False
+    except Exception as e:
+        error(f"Could not determine available disk space: {e}")
+        return False
+
+    size_multiplier = 2 if dmg_format == DmgFormat.RAW else 1
+
+    estimated_size = convert_size_to_bytes(volume_size_str) * size_multiplier
+
+    available_formatted = format_bytes(available_space)
+    estimated_formatted = format_bytes(estimated_size)
+
+    info(f"Available disk space: {available_formatted}")
+    info(f"Estimated image size: {estimated_formatted} (format: {dmg_format.value})")
+
+    if available_space < estimated_size:
+        error("Insufficient disk space!")
+        error(f"Need: {estimated_formatted}")
+        error(f"Have: {available_formatted}")
+        error("Try using a format that saves space (e.g., compressed)")
+        return False
+
+    warn_threshold = estimated_size + (estimated_size // 5)
+    if available_space < warn_threshold:
+        warn("Disk space is tight. Consider using the compressed format.")
+
+    return True
+
+
+def create_dmg_image(volume: str, volume_name: str, dmg_format: DmgFormat) -> None:
+    output_image = f"{volume_name}.dmg"
+
+    if Path(output_image).exists():
+        error(f"Output file already exists: {output_image}")
+        sys.exit(1)
+
+    log(f"Creating DMG image: {output_image}")
+    info(f"Source volume: {volume}")
+    info(f"Image format: {dmg_format.description()}")
+
+    if is_mounted_volume(volume):
+        device = find_device_for_volume(volume)
+        if not device:
+            sys.exit(1)
+
+        log(f"Device detected: {device}")
+        try:
+            subprocess.run(
+                [
+                    'hdiutil', 'create',
+                    '-volname', volume_name,
+                    '-srcdevice', device,
+                    '-ov',
+                    '-format', dmg_format.value,
+                    output_image
+                ],
+                check=True
+            )
+        except subprocess.CalledProcessError as e:
+            error(f"Failed to create DMG: {e}")
+            sys.exit(1)
+    else:
+        log("Imaging folder as disk image")
+        try:
+            subprocess.run(
+                [
+                    'hdiutil', 'create',
+                    '-volname', volume_name,
+                    '-srcfolder', volume,
+                    '-ov',
+                    '-format', dmg_format.value,
+                    output_image
+                ],
+                check=True
+            )
+        except subprocess.CalledProcessError as e:
+            error(f"Failed to create DMG: {e}")
+            sys.exit(1)
+
+    file_size = find_file_size(output_image)
+
+    success(f"Image created successfully: {output_image}")
+    if file_size:
+        info(f"File size: {format_bytes(file_size)}")
+
+
+def create_dmg_from_volume(volume: str, format_str: Optional[str], output_file: Optional[str]) -> None:
+    log("==> [Create DMG] selected")
+    print()
+
+    if not check_hdiutil_available():
+        sys.exit(1)
+
+    if format_str:
+        dmg_format = DmgFormat.parse(format_str)
+    else:
+        dmg_format = DmgFormat.COMPRESSED
+
+    validate_volume(volume)
+    if not check_disk_space(volume, dmg_format):
+        sys.exit(1)
+
+    if output_file:
+        volume_name = output_file.removesuffix('.dmg')
+    else:
+        volume_name = extract_volume_name(volume)
+
+    create_dmg_image(volume, volume_name, dmg_format)
+
+
+def calculate_directory_size(path: Path) -> tuple[int, int]:
+    total_size = 0
+    file_count = 0
+
+    for item in path.rglob('*'):
+        if item.is_file():
+            try:
+                total_size += item.stat().st_size
+                file_count += 1
+            except (PermissionError, FileNotFoundError):
+                pass
+
+    return total_size, file_count
+
+
+def sync_content_with_rsync(source: str, destination: str, delete_flag: bool) -> None:
+    log("==> [Sync Content with rsync] selected")
+    print()
+
+    source_path = Path(source)
+    if not source_path.exists():
+        error(f"Source path does not exist: {source}")
+        sys.exit(1)
+
+    if not os.access(source, os.R_OK):
+        error(f"Source path is not readable: {source}")
+        sys.exit(1)
+
+    dest_path = Path(destination)
+
+    info(f"Source: {source}")
+    info(f"Destination: {destination}")
+    print()
+
+    if dest_path.exists():
+        if not dest_path.is_dir():
+            error(f"Destination exists but is not a directory: {destination}")
+            sys.exit(1)
+
+        try:
+            dest_contents = list(dest_path.iterdir())
+            if dest_contents:
+                warn(f"Destination directory is not empty ({len(dest_contents)} items)")
+                confirm = input("Continue? (yes/no): ").strip()
+                if confirm != "yes":
+                    info("Operation cancelled")
+                    sys.exit(0)
+        except PermissionError:
+            error(f"Cannot read destination directory: {destination}")
+            sys.exit(1)
+    else:
+        info(f"Creating destination directory: {destination}")
+        try:
+            dest_path.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            error(f"Failed to create destination directory: {e}")
+            sys.exit(1)
+
+    info("Calculating source size...")
+    source_size, file_count = calculate_directory_size(source_path)
+
+    info(f"Source contains {file_count} files ({format_bytes(source_size)})")
+    print()
+
+    if delete_flag:
+        warn("--delete flag enabled: files in destination not in source will be DELETED")
+        print()
+
+    confirm = input("Start rsync? (yes/no): ").strip()
+    if confirm != "yes":
+        info("Operation cancelled")
+        sys.exit(0)
+
+    print()
+    log("Starting rsync...")
+    info(f"From: {source}")
+    info(f"To: {destination}")
+    print()
+
+    start_time = time.time()
+
+    rsync_command = ['rsync', '-avP']
+
+    if delete_flag:
+        rsync_command.append('--delete')
+
+    source_with_slash = str(source_path) + '/' if source_path.is_dir() else str(source_path)
+    rsync_command.extend([source_with_slash, str(dest_path)])
+
+    try:
+        subprocess.run(rsync_command, check=True)
+    except subprocess.CalledProcessError as e:
+        error(f"rsync failed: {e}")
+        sys.exit(1)
+
+    end_time = time.time()
+    duration = int(end_time - start_time)
+
+    print()
+    success("Sync completed")
+    info(f"Time elapsed: {duration}s ({duration // 60}m {duration % 60}s)")
+    info(f"Destination: {destination}")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog='backup_restore_util',
+        description='Unified disk/volume imaging and sync utility for macOS',
+        epilog="""
+WHEN TO USE EACH METHOD:
+
+  backup/restore (dd) - Full disk imaging:
+    - Creates exact bit-for-bit copy of entire disk
+    - Includes empty space, partition table, boot sector
+    - Use when you need bootable clones or exact disk copies
+    - Slower for sparse volumes (lots of empty space)
+    - Image size = disk size (regardless of data)
+
+  dmg (hdiutil) - Compressed DMG creation:
+    - Creates compressed archive of volume contents
+    - macOS-specific format with compression
+    - Best for archiving and distribution
+    - Can be mounted as read-only disk image
+    - Smaller files than dd for same data
+
+  sync (rsync) - Content-only sync:
+    - Copies only actual files, not empty space
+    - Much faster for sparse volumes
+    - Incremental updates (only changed files)
+    - Can sync to/from any directory
+    - Use for regular backups of file content
+    - NOT bootable, NOT exact disk copy
+
+INPUT FLEXIBILITY:
+  - backup/restore commands accept EITHER disk identifiers OR volume paths:
+    * Disk identifier: disk2, disk3s1 (shown in 'diskutil list')
+    * Volume path: /Volumes/FLIPPER_SD (shown in 'ls /Volumes/')
+    The script will automatically convert volume paths to disk identifiers
+
+  - dmg/sync commands use VOLUME/DIRECTORY PATHS (e.g., /Volumes/FLIPPER_SD)
+    These are mounted filesystem paths shown in 'ls /Volumes/'
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
+    subparsers = parser.add_subparsers(dest='command', help='Available commands', required=True)
+
+    backup_parser = subparsers.add_parser(
+        'backup',
+        help='Backup disk to raw IMG using dd',
+        description='Creates a bit-for-bit backup of an entire disk to a raw IMG file using dd',
+        epilog="""
+Examples:
+  backup_restore_util backup disk2
+  backup_restore_util backup disk2 /path/to/backup.img
+  backup_restore_util backup /Volumes/FLIPPER_SD
+  backup_restore_util backup /Volumes/FLIPPER_SD flipper.img
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    backup_parser.add_argument(
+        'disk_or_volume',
+        help='Disk identifier (e.g., disk2) or volume path (e.g., /Volumes/FLIPPER_SD)'
+    )
+    backup_parser.add_argument(
+        'output_image',
+        nargs='?',
+        help='Output IMG file path (default: ~/Desktop/backup.img)'
+    )
+
+    restore_parser = subparsers.add_parser(
+        'restore',
+        help='Restore disk from raw IMG using dd',
+        description='Restores a disk from a raw IMG file created with dd (OVERWRITES all data on target disk)',
+        epilog="""
+Examples:
+  backup_restore_util restore disk2 /path/to/backup.img
+  backup_restore_util restore /Volumes/FLIPPER_SD flipper.img
+
+WARNING: This will OVERWRITE all data on the target disk!
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    restore_parser.add_argument(
+        'disk_or_volume',
+        help='Disk identifier (e.g., disk2) or volume path (e.g., /Volumes/FLIPPER_SD)'
+    )
+    restore_parser.add_argument(
+        'input_image',
+        help='Input IMG file path to restore from'
+    )
+
+    dmg_parser = subparsers.add_parser(
+        'dmg',
+        help='Create DMG from volume using hdiutil',
+        description='Creates a macOS DMG image from a volume using hdiutil',
+        epilog="""
+Examples:
+  backup_restore_util dmg /Volumes/FLIPPER_SD
+  backup_restore_util dmg /Volumes/FLIPPER_SD --format compressed
+  backup_restore_util dmg /Volumes/FLIPPER_SD --format raw --output mybackup.dmg
+
+Format options:
+  compressed - Default, saves disk space (UDZO)
+  raw        - Maximum compatibility, large file (UDRW)
+  readonly   - Read-only compressed (UDRO)
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    dmg_parser.add_argument(
+        'volume',
+        help='Volume path (e.g., /Volumes/FLIPPER_SD) or directory path'
+    )
+    dmg_parser.add_argument(
+        '--format', '-f',
+        choices=['compressed', 'raw', 'readonly'],
+        default='compressed',
+        help='DMG format (default: compressed)'
+    )
+    dmg_parser.add_argument(
+        '--output', '-o',
+        help='Output filename (default: derived from volume name)'
+    )
+
+    sync_parser = subparsers.add_parser(
+        'sync',
+        help='Sync content using rsync',
+        description='Synchronizes directory contents using rsync (copies files only, not entire disk)',
+        epilog="""
+Examples:
+  backup_restore_util sync /Volumes/FLIPPER_SD ~/backup/
+  backup_restore_util sync /Volumes/FLIPPER_SD ~/backup/ --delete
+  backup_restore_util sync /path/to/source /path/to/dest
+
+The --delete flag removes files in destination that don't exist in source.
+Use with caution!
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    sync_parser.add_argument(
+        'source',
+        help='Source path (volume or directory)'
+    )
+    sync_parser.add_argument(
+        'destination',
+        help='Destination directory path'
+    )
+    sync_parser.add_argument(
+        '--delete',
+        action='store_true',
+        help='Remove files in destination not in source (use with caution!)'
+    )
+
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if args.command == 'backup':
+        check_dependencies()
+        backup_disk(args.disk_or_volume, args.output_image)
+    elif args.command == 'restore':
+        check_dependencies()
+        restore_disk(args.disk_or_volume, args.input_image)
+    elif args.command == 'dmg':
+        check_dependencies()
+        create_dmg_from_volume(args.volume, args.format, args.output)
+    elif args.command == 'sync':
+        check_dependencies(require_rsync=True)
+        sync_content_with_rsync(args.source, args.destination, args.delete)
+
+
+if __name__ == '__main__':
+    main()

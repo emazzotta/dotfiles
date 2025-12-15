@@ -34,7 +34,7 @@ Options:
 EOF
 }
 
-if ! test "${1}" || [[ "${1}" == "--help" ]] || [[ "${1}" == "-h" ]]; then
+if [ $# -eq 0 ] || [[ "${1:-}" == "--help" ]] || [[ "${1:-}" == "-h" ]]; then
     show_usage
     exit 1
 fi
@@ -42,7 +42,7 @@ fi
 name="${1}"
 extension="${1##*.}"
 
-if ! test "${2}"; then
+if [ $# -eq 1 ]; then
     compressee=("${1%.*}")
 else
     shift
