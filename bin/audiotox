@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import subprocess
+import time
 from pathlib import Path
 from glob import glob
 import sys
@@ -62,7 +63,15 @@ def get_output_path(input_file: Path, fmt: str, output_dir: Path | None) -> Path
     return output_path
 
 
-def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_original: bool) -> Path | None:
+def format_time(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes = int(seconds // 60)
+    secs = int(seconds % 60)
+    return f"{minutes}m {secs}s"
+
+
+def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_original: bool, file_num: int, total_files: int) -> Path | None:
     codec = AUDIO_CODECS.get(fmt)
     if not codec:
         logger.error(f"Unsupported format: {fmt}")
@@ -76,14 +85,21 @@ def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_orig
               "-c:a", codec,
           ] + EXTRA_ARGS.get(fmt, []) + ["-y", str(output_file)]
 
+    logger.log(f"\n[{file_num}/{total_files}] Converting: {input_file.name} -> {output_file.name}")
+    print()
+
+    start_time = time.time()
     try:
-        subprocess.run(cmd, check=True, capture_output=True)
-        logger.success(f"Converted: {input_file} -> {output_file}")
+        subprocess.run(cmd, check=True)
+        elapsed = time.time() - start_time
+        print()
+        logger.success(f"Converted in {format_time(elapsed)}: {input_file.name} -> {output_file.name}")
         if delete_original:
             input_file.unlink(missing_ok=True)
         return output_file
-    except subprocess.CalledProcessError:
-        logger.error(f"Failed: {input_file}")
+    except subprocess.CalledProcessError as e:
+        print()
+        logger.error(f"Failed: {input_file.name}")
         return None
 
 
@@ -103,8 +119,8 @@ def list_inputs(path: Path) -> list[Path]:
 def main():
     p = argparse.ArgumentParser(description="Convert audio files")
     p.add_argument("-i", "--input", required=True, help="Audio file or directory")
-    p.add_argument("-f", "--format", required=True, dest="fmt",
-                   choices=AUDIO_CODECS.keys(), help="Output format")
+    p.add_argument("-f", "--format", dest="fmt", default="mp3",
+                   choices=AUDIO_CODECS.keys(), help="Output format (default: mp3)")
     p.add_argument("-o", "--output-path", help="Output directory")
     p.add_argument("-d", "--delete", action="store_true", help="Delete original after conversion")
     args = p.parse_args()
@@ -119,14 +135,21 @@ def main():
         logger.error("No audio files found")
         sys.exit(1)
 
+    logger.log(f"Found {len(inputs)} audio file(s) to convert")
+
     results = []
-    for f in inputs:
-        result = convert_one(f, args.fmt, out_dir, args.delete)
+    failed = 0
+    batch_start_time = time.time()
+    for idx, f in enumerate(inputs, 1):
+        result = convert_one(f, args.fmt, out_dir, args.delete, idx, len(inputs))
         if result:
             results.append(result)
+        else:
+            failed += 1
 
-    if results:
-        logger.log(f"\nConverted {len(results)} file(s)")
+    batch_elapsed = time.time() - batch_start_time
+    print()
+    logger.log(f"Summary: {len(results)} succeeded, {failed} failed, {len(inputs)} total in {format_time(batch_elapsed)}")
 
 
 if __name__ == "__main__":
