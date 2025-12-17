@@ -9,6 +9,13 @@ $ErrorActionPreference = "Stop"
 
 $SKIP_COMPILE = $Fast -or $f
 $QUICK_COMPILE = $Quick -or $q
+
+$MVN_CMD = (where.exe mvn | Select-Object -First 1)
+if (-not $MVN_CMD) {
+    Write-Error "Maven (mvn) not found in PATH. Please install Maven or add it to your PATH."
+    exit 1
+}
+
 $MAVEN_SETTINGS = "\\Mac\Home\Projects\private\dotfiles\maven\.m2\settings.xml"
 $env:MAVEN_OPTS = '-Djava.awt.headless=false -Dlog4j2.rootLevel=INFO' # SET LOG LEVEL HERE
 
@@ -63,14 +70,14 @@ git pull
 
 if ($QUICK_COMPILE) {
     Write-Host "⚡ Quick incremental compile (no clean)..." -ForegroundColor Yellow
-    mvn -s $MAVEN_SETTINGS compile -DskipTests
+    . $MVN_CMD -s $MAVEN_SETTINGS compile -DskipTests
 } elseif (-not $SKIP_COMPILE) {
     Write-Host "🔨 Full clean compile..." -ForegroundColor Cyan
-    mvn -s $MAVEN_SETTINGS clean compile -DskipTests
+    . $MVN_CMD -s $MAVEN_SETTINGS clean compile -DskipTests
 } else {
     Write-Host "⏭️  Skipping compilation entirely" -ForegroundColor Magenta
 }
 
 Write-Host "▶️  Starting Leonardo application..." -ForegroundColor Green
 Change-Dir $RESOURCES_DIR
-mvn -s $MAVEN_SETTINGS -f "$LEONARDO_DIR\pom.xml" exec:java -pl leonardo-leonardo "-Dexec.mainClass=$MAIN_CLASS"
+. $MVN_CMD -s $MAVEN_SETTINGS -f "$LEONARDO_DIR\pom.xml" exec:java -pl leonardo-leonardo "-Dexec.mainClass=$MAIN_CLASS"
