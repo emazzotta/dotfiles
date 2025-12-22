@@ -50,7 +50,7 @@
   "python.defaultInterpreterPath": "/Users/emanuelemazzotta/.venv/python-3-venv/bin/python",
   "explorer.confirmDelete": false,
   "yaml.schemas": {
-    "/Users/emanuelemazzotta/.vscode/extensions/continue.continue-1.0.19-darwin-arm64/config-yaml-schema.json": [
+    "file:///Users/emanuelemazzotta/.vscode/extensions/continue.continue-1.2.11-darwin-arm64/config-yaml-schema.json": [
       ".continue/**/*.yaml"
     ]
   }

@@ -62,6 +62,7 @@ brew "npm"
 brew "nsis"
 brew "nvm"
 brew "oh-my-posh" # Shell Theme
+brew "ollama"
 brew "openconnect"
 brew "openvpn"
 brew "pandoc"
