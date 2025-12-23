@@ -1,6 +1,6 @@
 #!/bin/bash
 
-HOST="devserver.leonardo.local"
+HOST="iserver.leonardo.local"
 MAX_TRIES=2
 
 is_host_reachable() {

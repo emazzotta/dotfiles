@@ -103,15 +103,6 @@ function Sync-ProfileAndModules {
     } -ArgumentList $SourceProfilePath, $DestProfilePath
 }
 
-function Connect-Devserver-VM {
-    $DotfilesProfilePath = "\\Mac\Home\Projects\private\dotfiles\powershell\.config\powershell\Microsoft.PowerShell_profile.ps1"
-    $CustomProfilePath = "C:\Users\administrator.LEONARDO\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
-
-    $session = New-PSSession -HostName devserver.leonardo.local -UserName "administrator" -SSHTransport -Port 2222
-    Sync-ProfileAndModules -Session $session -SourceProfilePath $DotfilesProfilePath -DestProfilePath $CustomProfilePath
-    Enter-PSSession -Session $session
-}
-
 function Connect-Devhost-VM {
     $DotfilesProfilePath = "\\Mac\Home\Projects\private\dotfiles\powershell\.config\powershell\Microsoft.PowerShell_profile.ps1"
     $CustomProfilePath = "C:\Users\Administrator\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
