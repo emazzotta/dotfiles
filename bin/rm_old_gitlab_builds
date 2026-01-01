@@ -10,8 +10,8 @@ DRY_RUN=false
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
 
 if [[ ! -d "$BUILDS_DIR" ]]; then
-    echo "Directory $BUILDS_DIR does not exist"
-    exit 1
+    echo "Directory $BUILDS_DIR does not exist, skipping..."
+    exit 0
 fi
 
 echo "Searching for folders older than 1 hour in $BUILDS_DIR..."
