@@ -1,13 +1,13 @@
 #!/bin/bash
 
 # Quick install (requires sudo for /usr/local/bin):
-# curl -fsSL https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/leonardo_utils_installer | sudo bash
+# curl -fsSL -H "Cache-Control: no-cache" https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/leonardo_utils_installer | sudo bash
 #
 # Install to custom directory:
-# curl -fsSL https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/leonardo_utils_installer | bash -s -- ~/bin
+# curl -fsSL -H "Cache-Control: no-cache" https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/leonardo_utils_installer | bash -s -- ~/bin
 #
 # Force override existing scripts:
-# curl -fsSL https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/leonardo_utils_installer | sudo bash -s -- /usr/local/bin --force
+# curl -fsSL -H "Cache-Control: no-cache" https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/leonardo_utils_installer | sudo bash -s -- /usr/local/bin --force
 
 set -euo pipefail
 
@@ -203,19 +203,41 @@ cleanup_temp_files() {
     fi
 }
 
-main() {
-    if [ $# -gt 1 ]; then
+parse_arguments() {
+    local args=()
+
+    for arg in "$@"; do
+        case "$arg" in
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            -f|--force)
+                FORCE_INSTALL=true
+                ;;
+            -*)
+                error "Unknown option: $arg"
+                show_usage
+                exit 1
+                ;;
+            *)
+                args+=("$arg")
+                ;;
+        esac
+    done
+
+    if [ ${#args[@]} -gt 1 ]; then
+        error "Too many arguments"
         show_usage
         exit 1
     fi
 
-    if [ $# -eq 1 ] && { [ "$1" = "-h" ] || [ "$1" = "--help" ]; }; then
-        show_usage
-        exit 0
-    fi
-
-    INSTALL_DIR="${1:-$DEFAULT_INSTALL_DIR}"
+    INSTALL_DIR="${args[0]:-$DEFAULT_INSTALL_DIR}"
     INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
+}
+
+main() {
+    parse_arguments "$@"
 
     trap cleanup_temp_files EXIT INT TERM
 
