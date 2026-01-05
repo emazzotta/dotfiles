@@ -1,6 +1,29 @@
 #!/bin/bash
 
-export AD_ACCOUNT="emanuele.mazzotta" # Change this to your account!
+export AD_ACCOUNT_KEYCHAIN_NAME="LeonardoActiveDirectoryUsername"
+
+get_keychain_value() {
+    local keychain_service=$1
+    local hint=$2
+    VALUE=$(security find-generic-password -a "$keychain_service" -s "$keychain_service" -w 2>/dev/null)
+    if [ -z "$VALUE" ]; then
+        add_value_to_keychain "$keychain_service" "$hint"
+        VALUE=$(get_keychain_value "$keychain_service" "$hint")
+    fi
+    echo "$VALUE"
+}
+
+add_value_to_keychain() {
+    local keychain_service=$1
+    local hint=$2
+    if ! security find-generic-password -a "$keychain_service" -s "$keychain_service" &>/dev/null; then
+        read -r -p "Enter $keychain_service${hint:+ ($hint)}: " VALUE
+        security add-generic-password -a "$keychain_service" -s "$keychain_service" -w "$VALUE"
+    fi
+}
+
+export AD_ACCOUNT
+AD_ACCOUNT="$(get_keychain_value "$AD_ACCOUNT_KEYCHAIN_NAME" "firstname.lastname")"
 export AD_PASSWORD_NAME="LeonardoActiveDirectory:$AD_ACCOUNT"
 
 export VPN_SHARED_SECRET_NAME="LeonardoVPNSecret"
