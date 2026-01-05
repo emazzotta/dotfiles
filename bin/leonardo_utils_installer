@@ -5,6 +5,9 @@
 #
 # Install to custom directory:
 # curl -fsSL https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/leonardo_utils_installer | bash -s -- ~/bin
+#
+# Force override existing scripts:
+# curl -fsSL https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/leonardo_utils_installer | sudo bash -s -- /usr/local/bin --force
 
 set -euo pipefail
 
@@ -23,6 +26,7 @@ YELLOW='\033[0;33m'
 RESET='\033[0m'
 
 INSTALL_DIR=""
+FORCE_INSTALL=false
 
 log() {
     echo -e "${GREEN}[$(date +'%H:%M:%S')]${RESET} $*"
@@ -38,9 +42,13 @@ warn() {
 
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") [INSTALL_DIR]
+Usage: $(basename "$0") [OPTIONS] [INSTALL_DIR]
 
 Downloads and installs Leonardo utility scripts from GitHub.
+
+Options:
+  -f, --force    Skip confirmation prompt for overriding existing scripts
+  -h, --help     Show this help message
 
 Arguments:
   INSTALL_DIR    Directory to install scripts (default: ${DEFAULT_INSTALL_DIR})
@@ -55,6 +63,9 @@ Examples:
   $(basename "$0")                    # Install to ${DEFAULT_INSTALL_DIR}
   $(basename "$0") /usr/local/bin     # Install to /usr/local/bin
   $(basename "$0") ~/bin              # Install to ~/bin
+  $(basename "$0") --force            # Force override existing scripts
+  $(basename "$0") --force ~/bin      # Force install to ~/bin
+  $(basename "$0") ~/bin --force      # Same as above
 EOF
 }
 
@@ -117,6 +128,11 @@ check_existing_scripts() {
         echo "  - $script"
     done
     echo
+
+    if [ "$FORCE_INSTALL" = true ]; then
+        log "Force flag enabled, proceeding with override..."
+        return 0
+    fi
 
     if [ -t 0 ] && [ -t 1 ]; then
         printf "Some scripts already exist. Override? [y/N] "
