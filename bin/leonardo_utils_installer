@@ -74,8 +74,11 @@ validate_install_dir() {
     local install_dir="$1"
 
     if [ ! -d "$install_dir" ]; then
-        error "Directory does not exist: $install_dir"
-        exit 1
+        log "Creating directory: $install_dir"
+        if ! mkdir -p "$install_dir"; then
+            error "Failed to create directory: $install_dir"
+            exit 1
+        fi
     fi
 
     if [ ! -w "$install_dir" ]; then
@@ -92,6 +95,44 @@ check_path_warning() {
         warn "Directory not in PATH: $install_dir"
         warn "Add to your shell profile: export PATH=\"\${PATH}:${install_dir}\""
     fi
+}
+
+check_existing_scripts() {
+    local install_dir="$1"
+    local existing_scripts=()
+
+    for script in "${SCRIPTS[@]}"; do
+        if [ -f "${install_dir}/${script}" ]; then
+            existing_scripts+=("$script")
+        fi
+    done
+
+    if [ ${#existing_scripts[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    warn "Found ${#existing_scripts[@]} existing script(s):"
+    for script in "${existing_scripts[@]}"; do
+        echo "  - $script"
+    done
+    echo
+
+    if [ -t 0 ]; then
+        read -r -p "Some scripts already exist. Override? [y/N] " response
+    else
+        response=""
+    fi
+
+    case "${response,,}" in
+        y|yes)
+            log "Proceeding with override..."
+            return 0
+            ;;
+        *)
+            log "Installation cancelled by user"
+            exit 0
+            ;;
+    esac
 }
 
 download_script() {
@@ -158,6 +199,7 @@ main() {
 
     check_dependencies
     validate_install_dir "$INSTALL_DIR"
+    check_existing_scripts "$INSTALL_DIR"
 
     local failed_scripts=()
 
