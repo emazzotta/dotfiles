@@ -123,8 +123,8 @@ check_existing_scripts() {
         response=""
     fi
 
-    case "${response,,}" in
-        y|yes)
+    case "$response" in
+        y|Y|yes|Yes|YES)
             log "Proceeding with override..."
             return 0
             ;;
