@@ -100,6 +100,7 @@ check_path_warning() {
 check_existing_scripts() {
     local install_dir="$1"
     local existing_scripts=()
+    local response
 
     for script in "${SCRIPTS[@]}"; do
         if [ -f "${install_dir}/${script}" ]; then
@@ -117,8 +118,12 @@ check_existing_scripts() {
     done
     echo
 
-    if [ -t 0 ]; then
-        read -r -p "Some scripts already exist. Override? [y/N] " response
+    if [ -t 0 ] && [ -t 1 ]; then
+        printf "Some scripts already exist. Override? [y/N] "
+        read -r response || response=""
+        response="${response:-}"
+        response="${response#"${response%%[![:space:]]*}"}"
+        response="${response%"${response##*[![:space:]]}"}"
     else
         response=""
     fi
@@ -129,7 +134,11 @@ check_existing_scripts() {
             return 0
             ;;
         *)
-            log "Installation cancelled by user"
+            if [ -t 0 ] && [ -t 1 ]; then
+                log "Installation cancelled by user"
+            else
+                log "Installation cancelled (non-interactive mode)"
+            fi
             exit 0
             ;;
     esac
