@@ -12,19 +12,21 @@ LEONARDO_DIR="$LEONARDO_PROJECTS/leonardo"
 cd "$LEONARDO_DIR"
 echo "📁 Running from: $LEONARDO_DIR"
 
+MVN_COMMON_FLAGS="-Prun-leonardo -s ops/maven_settings.xml -pl leonardo-leonardo"
+
 MODE="normal"
 [ "${1:-}" = "-f" ] || [ "${1:-}" = "--fast" ] && MODE="fast"
 [ "${1:-}" = "-q" ] || [ "${1:-}" = "--quick" ] && MODE="quick"
 
 case "$MODE" in
   fast)
-    CMD="mvn exec:exec -s ops/maven_settings.xml -pl leonardo-leonardo"
+    CMD="mvn exec:exec $MVN_COMMON_FLAGS"
     ;;
   quick)
-    CMD="mvn compile exec:exec -s ops/maven_settings.xml -pl leonardo-leonardo"
+    CMD="mvn compile exec:exec $MVN_COMMON_FLAGS"
     ;;
   *)
-    CMD="mvn clean compile exec:exec -s ops/maven_settings.xml -pl leonardo-leonardo"
+    CMD="mvn clean compile exec:exec $MVN_COMMON_FLAGS"
     ;;
 esac
 

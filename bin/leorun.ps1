@@ -38,19 +38,21 @@ if (-not (Test-Path "$LEONARDO_DIR/ops/maven_settings.xml") -and -not (Test-Path
 Set-Location $LEONARDO_DIR
 Write-Host "📁 Running from: $LEONARDO_DIR"
 
+$MvnCommonFlags = "-Prun-leonardo -s ops/maven_settings.xml -pl leonardo-leonardo"
+
 $Mode = "normal"
 if ($Fast -or $f) { $Mode = "fast" }
 elseif ($Quick -or $q) { $Mode = "quick" }
 
 switch ($Mode) {
     "fast" {
-        $Cmd = "mvn exec:exec -s ops/maven_settings.xml -pl leonardo-leonardo"
+        $Cmd = "mvn exec:exec $MvnCommonFlags"
     }
     "quick" {
-        $Cmd = "mvn compile exec:exec -s ops/maven_settings.xml -pl leonardo-leonardo"
+        $Cmd = "mvn compile exec:exec $MvnCommonFlags"
     }
     default {
-        $Cmd = "mvn clean compile exec:exec -s ops/maven_settings.xml -pl leonardo-leonardo"
+        $Cmd = "mvn clean compile exec:exec $MvnCommonFlags"
     }
 }
 
