@@ -1,4 +1,4 @@
-﻿param(
+param(
     [switch]$Fast,
     [switch]$f,
     [switch]$Quick,
@@ -7,78 +7,52 @@
 
 $ErrorActionPreference = "Stop"
 
-$SKIP_COMPILE = $Fast -or $f
-$QUICK_COMPILE = $Quick -or $q
-
-$MVN_CMD = (where.exe mvn 2>$null | Where-Object { $_ -match '\.cmd$|\.exe$' } | Select-Object -First 1)
-if (-not $MVN_CMD) {
-    Write-Error "Maven (mvn) not found in PATH. Please install Maven or add it to your PATH."
-    exit 1
-}
-Write-Host "✓ Maven: $MVN_CMD" -ForegroundColor Green
-
-$MAVEN_SETTINGS = "\\Mac\Home\Projects\private\dotfiles\maven\.m2\settings.xml"
-$env:MAVEN_OPTS = '-Djava.awt.headless=false -Dlog4j2.rootLevel=INFO' # SET LOG LEVEL HERE
-
-$env:LEONARDO_PROJECTS = "C:\Users\emanuelemazzotta\ProjectsWindows"
-$LEONARDO_DIR = "$env:LEONARDO_PROJECTS\leonardo"
-$RESOURCES_DIR = "$env:LEONARDO_PROJECTS\leonardo\leonardo-resources"
-$MAIN_CLASS = "ifactory.leonardo.model.LeonardoApplication"
-$SOURCE_LEONARDO_DIR = "\\Mac\Home\Projects\leo-productions\leonardo"
-
-function Change-Dir($Path) {
-    Write-Host "📁 Changing to: $Path" -ForegroundColor Cyan
-    Set-Location $Path
-}
-
 $isSSH = $env:SSH_CONNECTION -or $env:SSH_CLIENT
-
 if ($isSSH) {
-    Write-Host "🔗 SSH detected - launching in Windows GUI session via Task Scheduler..." -ForegroundColor Yellow
-
     $scriptPath = $MyInvocation.MyCommand.Path
-    $fastArg = if ($SKIP_COMPILE) { "-Fast" } elseif ($QUICK_COMPILE) { "-Quick" } else { "" }
-    $command = "Set-Location '$PSScriptRoot'; & '$scriptPath' $fastArg"
+    $arguments = ""
+    if ($Fast -or $f) {
+        $arguments = "-Fast"
+    }
+    elseif ($Quick -or $q) {
+        $arguments = "-Quick"
+    }
 
-    $action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -Command `"$command`""
-    $principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Highest
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances Parallel
-
-    Register-ScheduledTask -TaskName "LeonardoGUI" -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+    $action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" $arguments"
+    $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
+    Register-ScheduledTask -TaskName "LeonardoGUI" -Action $action -Principal $principal -Force | Out-Null
     Start-ScheduledTask -TaskName "LeonardoGUI"
-    Write-Host "✅ Task started. GUI will appear in Parallels window." -ForegroundColor Green
-
     Start-Sleep -Seconds 3
-    Unregister-ScheduledTask -TaskName "LeonardoGUI" -Confirm:$false -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName "LeonardoGUI" -Confirm:$false
     exit 0
 }
 
-Write-Host "🚀 Starting Leonardo build and run..." -ForegroundColor Green
-Write-Host "📂 Work directory: $env:LEONARDO_PROJECTS"
-Write-Host "☕ Main class: $MAIN_CLASS"
-Write-Host ""
+$env:LEONARDO_PROJECTS = "C:\Users\emanuelemazzotta\ProjectsWindows"
+$LEONARDO_DIR = "$env:LEONARDO_PROJECTS\leonardo"
 
-Write-Host "🔍 Detecting branch from source repository..." -ForegroundColor Cyan
-Push-Location $SOURCE_LEONARDO_DIR
-$sourceBranch = git rev-parse --abbrev-ref HEAD
-Pop-Location
-Write-Host "📌 Source branch: $sourceBranch" -ForegroundColor Green
-
-Change-Dir $LEONARDO_DIR
-Write-Host "🔄 Checking out branch: $sourceBranch" -ForegroundColor Cyan
-git checkout $sourceBranch
-git pull
-
-if ($QUICK_COMPILE) {
-    Write-Host "⚡ Quick incremental compile (no clean)..." -ForegroundColor Yellow
-    & $MVN_CMD -s $MAVEN_SETTINGS compile -DskipTests
-} elseif (-not $SKIP_COMPILE) {
-    Write-Host "🔨 Full clean compile..." -ForegroundColor Cyan
-    & $MVN_CMD -s $MAVEN_SETTINGS clean compile -DskipTests
-} else {
-    Write-Host "⏭️  Skipping compilation entirely" -ForegroundColor Magenta
+if (-not (Test-Path "$LEONARDO_DIR/ops/maven_settings.xml") -and -not (Test-Path "$LEONARDO_DIR/pom.xml")) {
+    Write-Error "Not in leonardo project root (missing ops/maven_settings.xml or pom.xml)"
+    exit 1
 }
 
-Write-Host "▶️  Starting Leonardo application..." -ForegroundColor Green
-Change-Dir $RESOURCES_DIR
-& $MVN_CMD -s $MAVEN_SETTINGS -f "$LEONARDO_DIR\pom.xml" exec:java -pl leonardo-leonardo "-Dexec.mainClass=$MAIN_CLASS"
+Set-Location $LEONARDO_DIR
+Write-Host "📁 Running from: $LEONARDO_DIR"
+
+$Mode = "normal"
+if ($Fast -or $f) { $Mode = "fast" }
+elseif ($Quick -or $q) { $Mode = "quick" }
+
+switch ($Mode) {
+    "fast" {
+        $Cmd = "mvn exec:exec -s ops/maven_settings.xml -pl leonardo-leonardo"
+    }
+    "quick" {
+        $Cmd = "mvn compile exec:exec -s ops/maven_settings.xml -pl leonardo-leonardo"
+    }
+    default {
+        $Cmd = "mvn clean compile exec:exec -s ops/maven_settings.xml -pl leonardo-leonardo"
+    }
+}
+
+Write-Host "➤ $Cmd" -ForegroundColor DarkGray
+Invoke-Expression $Cmd

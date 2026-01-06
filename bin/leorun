@@ -1,35 +1,32 @@
 #!/bin/bash
-set -e
-
-SKIP_COMPILE=false
-if [ "$1" == "--fast" ] || [ "$1" == "-f" ]; then
-    SKIP_COMPILE=true
-fi
+set -euo pipefail
 
 export LEONARDO_PROJECTS="$HOME/Projects/leo-productions"
-export JAVA_LIBRARY_PATH="$LEONARDO_PROJECTS/leonardo/leonardo-leonardo/target/natives.mac"
 LEONARDO_DIR="$LEONARDO_PROJECTS/leonardo"
-RESOURCES_DIR="$LEONARDO_PROJECTS/leonardo/leonardo-resources"
-MAIN_CLASS="ifactory.leonardo.model.LeonardoApplication"
-change_dir() {
-    echo "📁 Changing to: $1"
-    cd "$1"
+
+[ ! -f "$LEONARDO_DIR/ops/maven_settings.xml" ] && [ ! -f "$LEONARDO_DIR/pom.xml" ] && {
+    echo "Error: Not in leonardo project root (missing ops/maven_settings.xml or pom.xml)" >&2
+    exit 1
 }
-echo "🚀 Starting Leonardo build and run..."
-echo "📂 Work directory: $LEONARDO_PROJECTS"
-echo "🔗 JAVA_LIBRARY_PATH=$JAVA_LIBRARY_PATH"
-echo "☕ Main class: $MAIN_CLASS"
-echo ""
 
-if [ "$SKIP_COMPILE" = false ]; then
-    echo "🔨 Building Leonardo..."
-    change_dir "$LEONARDO_DIR"
-    mvn clean compile -DskipTests
-else
-    echo "⚡ Skipping compilation (fast mode)"
-    change_dir "$LEONARDO_DIR"
-fi
+cd "$LEONARDO_DIR"
+echo "📁 Running from: $LEONARDO_DIR"
 
-echo "▶️  Starting Leonardo application..."
-change_dir "$RESOURCES_DIR"
-mvn -f "$LEONARDO_DIR/pom.xml" exec:java -pl leonardo-leonardo -Dexec.mainClass="$MAIN_CLASS" -Dlog4j2.rootLevel=INFO
+MODE="normal"
+[ "${1:-}" = "-f" ] || [ "${1:-}" = "--fast" ] && MODE="fast"
+[ "${1:-}" = "-q" ] || [ "${1:-}" = "--quick" ] && MODE="quick"
+
+case "$MODE" in
+  fast)
+    CMD="mvn exec:exec -s ops/maven_settings.xml -pl leonardo-leonardo"
+    ;;
+  quick)
+    CMD="mvn compile exec:exec -s ops/maven_settings.xml -pl leonardo-leonardo"
+    ;;
+  *)
+    CMD="mvn clean compile exec:exec -s ops/maven_settings.xml -pl leonardo-leonardo"
+    ;;
+esac
+
+echo "➤ $CMD"
+$CMD
