@@ -116,7 +116,7 @@ function Connect-Parallels-VM {
     $DotfilesProfilePath = "\\Mac\Home\Projects\private\dotfiles\powershell\.config\powershell\Microsoft.PowerShell_profile.ps1"
     $CustomProfilePath = "C:\Users\emanuelemazzotta\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
 
-    $session = New-PSSession -HostName 10.211.55.3 -UserName "emanuelemazzotta" -SSHTransport -Port 22
+    $session = New-PSSession -HostName "EMANUELE-PARALLELS.local" -UserName "emanuelemazzotta" -SSHTransport -Port 22
     Sync-ProfileAndModules -Session $session -SourceProfilePath $DotfilesProfilePath -DestProfilePath $CustomProfilePath
     Enter-PSSession -Session $session
 }
