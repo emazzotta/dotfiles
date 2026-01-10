@@ -122,9 +122,23 @@ if [ -n "$INSTALL_PROJECTS" ]; then
                 exit 1
             fi
             echo "   ✓ Branch checked out"
+
+            echo "   ⬇️  Pulling latest changes..."
+            if ! git pull; then
+                echo "   ❌ Failed to pull latest changes" >&2
+                exit 1
+            fi
+            echo "   ✓ Latest changes pulled"
         else
             current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
             echo "   ℹ️  Using current branch: $current_branch"
+
+            echo "   ⬇️  Pulling latest changes..."
+            if ! git pull; then
+                echo "   ❌ Failed to pull latest changes" >&2
+                exit 1
+            fi
+            echo "   ✓ Latest changes pulled"
         fi
 
         echo "   🔨 Building with Maven..."

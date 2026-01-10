@@ -1,38 +1,66 @@
-﻿param(
-    [switch]$Fast,
-    [switch]$f,
-    [switch]$Quick,
-    [switch]$q,
-    [string]$Install = "",
-    [string]$i = "",
-    [switch]$Help,
-    [switch]$h
-)
+﻿param()
+
+# Manual argument parsing to support both PowerShell (-) and Unix (--) style
+$Fast = $false
+$Quick = $false
+$Help = $false
+$Install = ""
+
+$i = 0
+while ($i -lt $args.Count) {
+    $arg = $args[$i]
+    switch -Regex ($arg) {
+        '^(-f|--fast)$'      { $Fast = $true }
+        '^(-q|--quick)$'     { $Quick = $true }
+        '^(-h|--help)$'      { $Help = $true }
+        '^(-i|--install)$'   {
+            if ($i + 1 -lt $args.Count) {
+                $Install = $args[$i + 1]
+                $i++
+            }
+        }
+        '^-Fast$'    { $Fast = $true }
+        '^-Quick$'   { $Quick = $true }
+        '^-Help$'    { $Help = $true }
+        '^-Install$' {
+            if ($i + 1 -lt $args.Count) {
+                $Install = $args[$i + 1]
+                $i++
+            }
+        }
+    }
+    $i++
+}
 
 function Show-Help {
     Write-Host @"
 Usage: leorun [OPTIONS]
 
-Run Leonardo with Maven
+Run Leonardo with Maven (PowerShell version)
+
+NOTE: Supports both PowerShell-style (-) and Unix-style (--) parameters
 
 OPTIONS:
-    -Fast, -f               Fast mode (exec only, skip clean and compile)
-    -Quick, -q              Quick mode (skip clean, compile + exec)
-    -Install, -i PROJECTS   Install dependencies before running Leonardo
-                           Format: project1,project2[branch],project3
-                           Example: -Install updater,license-manager[develop]
-    -Help, -h              Show this help message
+    -Fast, -f, --fast               Fast mode (exec only, skip clean and compile)
+    -Quick, -q, --quick             Quick mode (skip clean, compile + exec)
+    -Install, -i, --install PROJECTS Install dependencies before running Leonardo
+                                    Format: project1,project2[branch],project3
+                                    NOTE: Quote the argument when using brackets
+    -Help, -h, --help              Show this help message
 
-EXAMPLES:
-    leorun                                    Run in normal mode (clean + compile + exec)
-    leorun -Fast                              Run in fast mode
-    leorun -Install updater,license-manager  Install dependencies then run
-    leorun -i updater[feature-branch] -Fast  Install with specific branch, then run fast
+EXAMPLES (both styles work):
+    leorun                                        Run in normal mode (clean + compile + exec)
+    leorun -Fast                                  Run in fast mode (PowerShell style)
+    leorun --fast                                 Run in fast mode (Unix style)
+    leorun -Install updater,license-manager       Install dependencies (PowerShell style)
+    leorun --install "updater[main],license"      Install dependencies (Unix style)
+    leorun -i "updater[feature-branch]" -Fast     Install with branch, then fast mode
+    leorun --install "updater[main]" --fast       Same using Unix style
 
 "@
 }
 
-if ($Help -or $h) {
+if ($Help) {
     Show-Help
     exit 0
 }
@@ -80,11 +108,11 @@ if ($isSSH) {
     }
 
     $arguments = @()
-    if ($Fast -or $f) {
+    if ($Fast) {
         $arguments += "-Fast"
         Write-Host "   Mode: Fast" -ForegroundColor DarkGray
     }
-    elseif ($Quick -or $q) {
+    elseif ($Quick) {
         $arguments += "-Quick"
         Write-Host "   Mode: Quick" -ForegroundColor DarkGray
     }
@@ -92,11 +120,10 @@ if ($isSSH) {
         Write-Host "   Mode: Normal (full build)" -ForegroundColor DarkGray
     }
 
-    $installParam = if ($Install) { $Install } else { $i }
-    if ($installParam) {
+    if ($Install) {
         $arguments += "-Install"
-        $arguments += "`"$installParam`""
-        Write-Host "   Install: $installParam" -ForegroundColor DarkGray
+        $arguments += "`"$Install`""
+        Write-Host "   Install: $Install" -ForegroundColor DarkGray
     }
 
     $argumentString = $arguments -join " "
@@ -223,8 +250,7 @@ Write-Host "✓ Project structure validated" -ForegroundColor Green
 Set-Location $LEONARDO_DIR
 Write-Host "📁 Working directory: $LEONARDO_DIR" -ForegroundColor Cyan
 
-$installParam = if ($Install) { $Install } else { $i }
-if ($installParam) {
+if ($Install) {
     Write-Host ""
     Write-Host "📦 Processing install dependencies..." -ForegroundColor Cyan
 
@@ -238,7 +264,7 @@ if ($installParam) {
     Write-Host "   Base git URL: $baseGitUrl" -ForegroundColor DarkGray
 
     $projectsDir = Split-Path -Parent $LEONARDO_DIR
-    $installProjects = $installParam -split ','
+    $installProjects = $Install -split ','
 
     foreach ($projectSpec in $installProjects) {
         $projectSpec = $projectSpec.Trim()
@@ -291,6 +317,14 @@ if ($installParam) {
                     exit 1
                 }
                 Write-Host "   ✓ Branch checked out" -ForegroundColor Green
+
+                Write-Host "   ⬇️  Pulling latest changes..." -ForegroundColor Cyan
+                git pull
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "   ❌ Failed to pull latest changes" -ForegroundColor Red
+                    exit 1
+                }
+                Write-Host "   ✓ Latest changes pulled" -ForegroundColor Green
             }
             catch {
                 Write-Host "   ❌ Error checking out branch: $($_.Exception.Message)" -ForegroundColor Red
@@ -300,6 +334,14 @@ if ($installParam) {
         else {
             $currentBranch = git rev-parse --abbrev-ref HEAD 2>$null
             Write-Host "   ℹ️  Using current branch: $currentBranch" -ForegroundColor DarkGray
+
+            Write-Host "   ⬇️  Pulling latest changes..." -ForegroundColor Cyan
+            git pull
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "   ❌ Failed to pull latest changes" -ForegroundColor Red
+                exit 1
+            }
+            Write-Host "   ✓ Latest changes pulled" -ForegroundColor Green
         }
 
         Write-Host "   🔨 Building with Maven..." -ForegroundColor Cyan
@@ -328,8 +370,8 @@ if ($installParam) {
 $MvnCommonFlags = "-Prun-leonardo -s ops/maven_settings.xml -pl leonardo-leonardo"
 
 $Mode = "normal"
-if ($Fast -or $f) { $Mode = "fast" }
-elseif ($Quick -or $q) { $Mode = "quick" }
+if ($Fast) { $Mode = "fast" }
+elseif ($Quick) { $Mode = "quick" }
 
 Write-Host ""
 Write-Host "🚀 Preparing Maven execution..." -ForegroundColor Cyan
