@@ -122,7 +122,44 @@ function Connect-Parallels-VM {
 }
 
 function Connect-LeonardoVPN {
+    param(
+        [switch]$Disconnect,
+        [switch]$Status
+    )
 
+    $VpnName = "LeonardoVPN"
+
+    $connection = Get-VpnConnection -Name $VpnName -ErrorAction SilentlyContinue
+    if (-not $connection) {
+        Write-Host "VPN '$VpnName' not found" -ForegroundColor Red
+        return
+    }
+
+    $state = $connection.ConnectionStatus
+
+    if ($Status) {
+        Write-Host "VPN Status: $state" -ForegroundColor $(if ($state -eq "Connected") { "Green" } else { "Yellow" })
+        return
+    }
+
+    if ($Disconnect) {
+        if ($state -eq "Disconnected") {
+            Write-Host "$VpnName is already disconnected — skipping." -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host "Disconnecting from $VpnName..." -ForegroundColor Yellow
+        Start-InGUI rasphone -h $VpnName
+        return
+    }
+
+    if ($state -eq "Connected") {
+        Write-Host "$VpnName is already connected — skipping." -ForegroundColor Green
+        return
+    }
+
+    Write-Host "Connecting to $VpnName..." -ForegroundColor Cyan
+    Start-InGUI rasphone -d $VpnName
 }
 
 function Set-Up-SSH-Access {
