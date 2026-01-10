@@ -85,21 +85,30 @@ if ($isSSH) {
         Start-ScheduledTask -TaskName "LeonardoGUI"
         Write-Host "✓ Scheduled task started" -ForegroundColor Green
 
-        Write-Host "⏳ Waiting 5 seconds for task to execute..." -ForegroundColor DarkGray
-        Start-Sleep -Seconds 5
+        Write-Host "⏳ Waiting 1 seconds for task to execute..." -ForegroundColor DarkGray
+        Start-Sleep -Seconds 1
 
         Write-Host "🔍 Checking task execution status..." -ForegroundColor Cyan
         try {
             $taskInfo = Get-ScheduledTaskInfo -TaskName "LeonardoGUI" 2>$null
             if ($taskInfo) {
                 Write-Host "   Last run time: $($taskInfo.LastRunTime)" -ForegroundColor DarkGray
-                Write-Host "   Last result: $($taskInfo.LastTaskResult) $(if ($taskInfo.LastTaskResult -eq 0) { '(Success)' } else { '(Error)' })" -ForegroundColor $(if ($taskInfo.LastTaskResult -eq 0) { 'Green' } else { 'Red' })
 
-                if ($taskInfo.LastTaskResult -ne 0) {
+                $resultCode = $taskInfo.LastTaskResult
+                $isRunning = $resultCode -eq 267009 -or $resultCode -eq 0x41301
+                $isSuccess = $resultCode -eq 0
+
+                if ($isSuccess) {
+                    Write-Host "   Status: ✓ Completed successfully" -ForegroundColor Green
+                }
+                elseif ($isRunning) {
+                    Write-Host "   Status: ▶️  Currently running (0x$($resultCode.ToString('X')))" -ForegroundColor Green
+                    Write-Host "   This is normal - Maven builds can take several minutes" -ForegroundColor DarkGray
+                }
+                else {
+                    Write-Host "   Status: ❌ Error (code: 0x$($resultCode.ToString('X')))" -ForegroundColor Red
                     Write-Host "" -ForegroundColor Yellow
-                    Write-Host "⚠️  Task returned error code: 0x$($taskInfo.LastTaskResult.ToString('X'))" -ForegroundColor Yellow
                     Write-Host "   Common causes:" -ForegroundColor DarkGray
-                    Write-Host "   - Network path access denied (if UNC path)" -ForegroundColor DarkGray
                     Write-Host "   - Script execution policy blocked" -ForegroundColor DarkGray
                     Write-Host "   - Maven/Java not found in PATH" -ForegroundColor DarkGray
                     Write-Host "" -ForegroundColor Yellow

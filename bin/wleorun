@@ -7,6 +7,16 @@ for arg in "$@"; do
     args="$args $arg"
 done
 
-vmup 2>/dev/null || echo "vmup done..."
-ssh wlocal "pwsh -Command \"\\\\Mac\\Home\\Projects\\private\\dotfiles\\bin\\leorun.ps1$args\"" >/dev/null 2>&1 &
-echo "✅ Leonardo starting in background (PID: $!)"
+echo "🔄 Ensuring VM is running..."
+vmup 2>/dev/null || echo "   ✓ VM already up"
+
+echo ""
+echo "🚀 Launching Leonardo on Windows VM..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+ssh wlocal "pwsh -Command \"\\\\Mac\\Home\\Projects\\private\\dotfiles\\bin\\leorun.ps1$args\""
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ Leonardo launch complete"
