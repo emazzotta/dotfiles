@@ -19,5 +19,3 @@ function Navigate-MacHome {
 function Navigate-PowerShellModules {
     Set-Location "$env:USERPROFILE\Documents\WindowsPowerShell"
 }
-
-Set-Alias -Name psm -Value Navigate-PowerShellModules
