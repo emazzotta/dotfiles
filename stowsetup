@@ -1,15 +1,5 @@
 #!/bin/bash
 
-backup_file() {
-    local file=$1
-    [[ -f "$file" ]] && mv "$file" "$file.bak"
-}
-
-backup_file ~/.bash_profile
-backup_file ~/.bashrc
-backup_file ~/.sdkman/etc/config
-backup_file ~/.zshrc
-
 DIR=$(dirname "$0")
 VS_CODE_DIR="${HOME}/Library/Application Support/Code/User"
 ZSH_THEME_DIR="${HOME}/.zprezto/modules/prompt/functions/"
@@ -17,7 +7,6 @@ mkdir -p "${ZSH_THEME_DIR}"
 mkdir -p "${VS_CODE_DIR}"
 
 stow -d "${DIR}" -t "${HOME}" bash
-stow -d "${DIR}" -t "${HOME}" emacs
 stow -d "${DIR}" -t "${HOME}" git
 stow -d "${DIR}" -t "${HOME}" gpg
 stow -d "${DIR}" -t "${HOME}" karabiner
@@ -28,7 +17,6 @@ stow -d "${DIR}" -t "${HOME}" powershell
 stow -d "${DIR}" -t "${HOME}" sdkman
 stow -d "${DIR}" -t "${HOME}" ssh
 stow -d "${DIR}" -t "${HOME}" sshrc
-stow -d "${DIR}" -t "${HOME}" subversion
 stow -d "${DIR}" -t "${HOME}" tmux
 stow -d "${DIR}" -t "${HOME}" vim
 stow -d "${DIR}" -t "${HOME}" zsh
