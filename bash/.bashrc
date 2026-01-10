@@ -303,19 +303,7 @@ alias zep='vi $HOME/.zpreztorc'
 alias zh='vi $HISTFILE'
 ### FUNCTIONS ###
 find_java_sdk() {
-    input_version="$*"
-    matched_version=$(sdk list java |
-      grep "installed" |
-      fzf --filter="$input_version" |
-      head -n 1 |
-      awk -F'|' '{print $NF}' |
-      sed 's/^ *//;s/ *$//')
-
-    if [ ! -n "$matched_version" ]; then
-        exit 1
-    fi
-
-    echo "$matched_version"
+  sdk list java 2>/dev/null | grep -E "installed|local" | fzf --filter="$*" | head -n 1 | awk -F'|' '{gsub(/^ +| +$/, "", $NF); print $NF}'
 }
 j() {
     if [ $# -eq 0 ]; then
