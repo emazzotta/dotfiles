@@ -1,8 +1,61 @@
 #!/bin/bash
 set -euo pipefail
 
+show_help() {
+    cat <<EOF
+Usage: leorun [OPTIONS]
+
+Run Leonardo with Maven
+
+OPTIONS:
+    -f, --fast              Fast mode (exec only, skip clean and compile)
+    -q, --quick             Quick mode (skip clean, compile + exec)
+    -i, --install PROJECTS  Install dependencies before running Leonardo
+                           Format: project1,project2[branch],project3
+                           NOTE: Quote the argument when using branches (shell glob)
+    -h, --help             Show this help message
+
+EXAMPLES:
+    leorun                                       Run in normal mode (clean + compile + exec)
+    leorun -f                                    Run in fast mode
+    leorun -i updater,license-manager            Install dependencies then run
+    leorun -i "updater[feature-branch]" -f       Install with specific branch (quoted!)
+    leorun --install "updater[main],license"     Multiple projects, one with branch
+
+EOF
+}
+
 export LEONARDO_PROJECTS="$HOME/Projects/leo-productions"
 LEONARDO_DIR="$LEONARDO_PROJECTS/leonardo"
+
+INSTALL_PROJECTS=""
+MODE="normal"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -f|--fast)
+            MODE="fast"
+            shift
+            ;;
+        -q|--quick)
+            MODE="quick"
+            shift
+            ;;
+        -i|--install)
+            INSTALL_PROJECTS="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            show_help
+            exit 1
+            ;;
+    esac
+done
 
 [ ! -f "$LEONARDO_DIR/ops/maven_settings.xml" ] && [ ! -f "$LEONARDO_DIR/pom.xml" ] && {
     echo "Error: Not in leonardo project root (missing ops/maven_settings.xml or pom.xml)" >&2
@@ -12,11 +65,85 @@ LEONARDO_DIR="$LEONARDO_PROJECTS/leonardo"
 cd "$LEONARDO_DIR"
 echo "📁 Running from: $LEONARDO_DIR"
 
-MVN_COMMON_FLAGS="-Prun-leonardo -s ops/maven_settings.xml -pl leonardo-leonardo"
+if [ -n "$INSTALL_PROJECTS" ]; then
+    echo ""
+    echo "📦 Processing install dependencies..."
 
-MODE="normal"
-[ "${1:-}" = "-f" ] || [ "${1:-}" = "--fast" ] && MODE="fast"
-[ "${1:-}" = "-q" ] || [ "${1:-}" = "--quick" ] && MODE="quick"
+    GIT_REMOTE_URL=$(git remote get-url origin 2>/dev/null)
+    if [ -z "$GIT_REMOTE_URL" ]; then
+        echo "❌ Failed to get git remote origin from leonardo project" >&2
+        exit 1
+    fi
+
+    BASE_GIT_URL=$(echo "$GIT_REMOTE_URL" | sed 's|/leonardo\(\.git\)\?$||')
+    echo "   Base git URL: $BASE_GIT_URL"
+
+    PROJECTS_DIR=$(dirname "$LEONARDO_DIR")
+
+    IFS=',' read -ra PROJECTS <<< "$INSTALL_PROJECTS"
+    for project_spec in "${PROJECTS[@]}"; do
+        project_spec=$(echo "$project_spec" | xargs)
+
+        project_name="$project_spec"
+        branch_name=""
+
+        if [[ "$project_spec" =~ ^(.+)\[(.+)\]$ ]]; then
+            project_name="${BASH_REMATCH[1]}"
+            branch_name="${BASH_REMATCH[2]}"
+        fi
+
+        echo ""
+        echo "📦 Processing: $project_name"
+
+        project_path="$PROJECTS_DIR/$project_name"
+
+        if [ ! -d "$project_path" ]; then
+            echo "   ⚠️  Project not found, cloning..."
+            clone_url="$BASE_GIT_URL/$project_name.git"
+            echo "   Clone URL: $clone_url"
+
+            cd "$PROJECTS_DIR"
+            if ! git clone "$clone_url"; then
+                echo "   ❌ Failed to clone $project_name" >&2
+                exit 1
+            fi
+            echo "   ✓ Cloned successfully"
+        else
+            echo "   ✓ Project exists"
+        fi
+
+        cd "$project_path"
+
+        if [ -n "$branch_name" ]; then
+            echo "   🔀 Checking out branch: $branch_name"
+            git fetch origin
+            if ! git checkout "$branch_name"; then
+                echo "   ❌ Failed to checkout branch $branch_name" >&2
+                exit 1
+            fi
+            echo "   ✓ Branch checked out"
+        else
+            current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+            echo "   ℹ️  Using current branch: $current_branch"
+        fi
+
+        echo "   🔨 Building with Maven..."
+        build_cmd="mvn clean install -DskipTests -s ops/maven_settings.xml"
+        echo "   Command: $build_cmd"
+
+        if ! $build_cmd; then
+            echo "   ❌ Maven build failed for $project_name" >&2
+            exit 1
+        fi
+        echo "   ✓ Build completed successfully"
+    done
+
+    cd "$LEONARDO_DIR"
+    echo ""
+    echo "✓ All install dependencies processed"
+fi
+
+MVN_COMMON_FLAGS="-Prun-leonardo -s ops/maven_settings.xml -pl leonardo-leonardo"
 
 case "$MODE" in
   fast)

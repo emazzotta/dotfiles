@@ -2,8 +2,40 @@
     [switch]$Fast,
     [switch]$f,
     [switch]$Quick,
-    [switch]$q
+    [switch]$q,
+    [string]$Install = "",
+    [string]$i = "",
+    [switch]$Help,
+    [switch]$h
 )
+
+function Show-Help {
+    Write-Host @"
+Usage: leorun [OPTIONS]
+
+Run Leonardo with Maven
+
+OPTIONS:
+    -Fast, -f               Fast mode (exec only, skip clean and compile)
+    -Quick, -q              Quick mode (skip clean, compile + exec)
+    -Install, -i PROJECTS   Install dependencies before running Leonardo
+                           Format: project1,project2[branch],project3
+                           Example: -Install updater,license-manager[develop]
+    -Help, -h              Show this help message
+
+EXAMPLES:
+    leorun                                    Run in normal mode (clean + compile + exec)
+    leorun -Fast                              Run in fast mode
+    leorun -Install updater,license-manager  Install dependencies then run
+    leorun -i updater[feature-branch] -Fast  Install with specific branch, then run fast
+
+"@
+}
+
+if ($Help -or $h) {
+    Show-Help
+    exit 0
+}
 
 $logFile = "$env:TEMP\leorun.log"
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -47,26 +79,35 @@ if ($isSSH) {
         }
     }
 
-    $arguments = ""
+    $arguments = @()
     if ($Fast -or $f) {
-        $arguments = "-Fast"
+        $arguments += "-Fast"
         Write-Host "   Mode: Fast" -ForegroundColor DarkGray
     }
     elseif ($Quick -or $q) {
-        $arguments = "-Quick"
+        $arguments += "-Quick"
         Write-Host "   Mode: Quick" -ForegroundColor DarkGray
     }
     else {
         Write-Host "   Mode: Normal (full build)" -ForegroundColor DarkGray
     }
 
-    $pwshCommand = "pwsh.exe -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" $arguments"
+    $installParam = if ($Install) { $Install } else { $i }
+    if ($installParam) {
+        $arguments += "-Install"
+        $arguments += "`"$installParam`""
+        Write-Host "   Install: $installParam" -ForegroundColor DarkGray
+    }
+
+    $argumentString = $arguments -join " "
+
+    $pwshCommand = "pwsh.exe -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" $argumentString"
     Write-Host "   Command: $pwshCommand" -ForegroundColor DarkGray
 
     try {
         Write-Host "📋 Creating scheduled task 'LeonardoGUI'..." -ForegroundColor Cyan
 
-        $action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-ExecutionPolicy Bypass -File `"$scriptPath`" $arguments"
+        $action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-ExecutionPolicy Bypass -File `"$scriptPath`" $argumentString"
         $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
 
         $settings = New-ScheduledTaskSettingsSet `
@@ -181,6 +222,108 @@ Write-Host "✓ Project structure validated" -ForegroundColor Green
 
 Set-Location $LEONARDO_DIR
 Write-Host "📁 Working directory: $LEONARDO_DIR" -ForegroundColor Cyan
+
+$installParam = if ($Install) { $Install } else { $i }
+if ($installParam) {
+    Write-Host ""
+    Write-Host "📦 Processing install dependencies..." -ForegroundColor Cyan
+
+    $gitRemoteUrl = git remote get-url origin 2>$null
+    if (-not $gitRemoteUrl) {
+        Write-Host "❌ Failed to get git remote origin from leonardo project" -ForegroundColor Red
+        exit 1
+    }
+
+    $baseGitUrl = $gitRemoteUrl -replace '/leonardo(\.git)?$', ''
+    Write-Host "   Base git URL: $baseGitUrl" -ForegroundColor DarkGray
+
+    $projectsDir = Split-Path -Parent $LEONARDO_DIR
+    $installProjects = $installParam -split ','
+
+    foreach ($projectSpec in $installProjects) {
+        $projectSpec = $projectSpec.Trim()
+
+        $projectName = $projectSpec
+        $branchName = $null
+
+        if ($projectSpec -match '^(.+?)\[(.+?)\]$') {
+            $projectName = $Matches[1]
+            $branchName = $Matches[2]
+        }
+
+        Write-Host ""
+        Write-Host "📦 Processing: $projectName" -ForegroundColor Cyan
+
+        $projectPath = Join-Path $projectsDir $projectName
+
+        if (-not (Test-Path $projectPath)) {
+            Write-Host "   ⚠️  Project not found, cloning..." -ForegroundColor Yellow
+            $cloneUrl = "$baseGitUrl/$projectName.git"
+            Write-Host "   Clone URL: $cloneUrl" -ForegroundColor DarkGray
+
+            try {
+                Set-Location $projectsDir
+                git clone $cloneUrl
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "   ❌ Failed to clone $projectName" -ForegroundColor Red
+                    exit 1
+                }
+                Write-Host "   ✓ Cloned successfully" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "   ❌ Error cloning: $($_.Exception.Message)" -ForegroundColor Red
+                exit 1
+            }
+        }
+        else {
+            Write-Host "   ✓ Project exists" -ForegroundColor Green
+        }
+
+        Set-Location $projectPath
+
+        if ($branchName) {
+            Write-Host "   🔀 Checking out branch: $branchName" -ForegroundColor Cyan
+            try {
+                git fetch origin
+                git checkout $branchName
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "   ❌ Failed to checkout branch $branchName" -ForegroundColor Red
+                    exit 1
+                }
+                Write-Host "   ✓ Branch checked out" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "   ❌ Error checking out branch: $($_.Exception.Message)" -ForegroundColor Red
+                exit 1
+            }
+        }
+        else {
+            $currentBranch = git rev-parse --abbrev-ref HEAD 2>$null
+            Write-Host "   ℹ️  Using current branch: $currentBranch" -ForegroundColor DarkGray
+        }
+
+        Write-Host "   🔨 Building with Maven..." -ForegroundColor Cyan
+        $buildCmd = "mvn clean install -DskipTests -s ops/maven_settings.xml"
+        Write-Host "   Command: $buildCmd" -ForegroundColor DarkGray
+
+        try {
+            Invoke-Expression $buildCmd
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "   ❌ Maven build failed for $projectName" -ForegroundColor Red
+                exit 1
+            }
+            Write-Host "   ✓ Build completed successfully" -ForegroundColor Green
+        }
+        catch {
+            Write-Host "   ❌ Error during build: $($_.Exception.Message)" -ForegroundColor Red
+            exit 1
+        }
+    }
+
+    Set-Location $LEONARDO_DIR
+    Write-Host ""
+    Write-Host "✓ All install dependencies processed" -ForegroundColor Green
+}
 
 $MvnCommonFlags = "-Prun-leonardo -s ops/maven_settings.xml -pl leonardo-leonardo"
 
