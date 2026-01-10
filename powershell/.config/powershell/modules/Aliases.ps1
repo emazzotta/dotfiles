@@ -4,7 +4,7 @@ Set-Alias -Name gui -Value Start-InGUI
 Set-Alias -Name ll -Value Get-LongListing
 Set-Alias -Name mac -Value Navigate-MacHome
 Set-Alias -Name psm -Value Navigate-PowerShellModules
-Set-Alias -Name rp1 -Value Reload-PowerShellModules
+Set-Alias -Name rp1 -Value Reload-Profile
 Set-Alias -Name rr -Value Remove-ReadOnly
 Set-Alias -Name rsems -Value Restore-EmsCache
 Set-Alias -Name vpn -Value Connect-LeonardoVPN
