@@ -28,7 +28,3 @@ function Start-InGUI {
     Start-Sleep 2
     Unregister-ScheduledTask -TaskName "StartInGUI" -Confirm:$false
 }
-
-function leorun {
-    & \\Mac\Home\Projects\private\dotfiles\bin\leorun.ps1 @args
-}

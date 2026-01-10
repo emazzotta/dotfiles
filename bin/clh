@@ -3,6 +3,5 @@
 COMPOSE_FILE="$HOME/Projects/private/opencode/docker-compose.yml"
 
 docker compose -f "$COMPOSE_FILE" run --remove-orphans --rm \
-  --name opencode-claude-here \
   -v "$PWD:/workspace/code" \
   opencode claude "$@"
