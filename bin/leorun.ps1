@@ -26,10 +26,11 @@ Write-Host "   SSH_CLIENT: $env:SSH_CLIENT" -ForegroundColor DarkGray
 "$timestamp -    SSH_CLIENT: $env:SSH_CLIENT" | Out-File -FilePath $logFile -Append
 
 if ($isSSH) {
-    Write-Host "✓ SSH session detected - will create scheduled task to run in interactive session" -ForegroundColor Yellow
+    Write-Log "✓ SSH session detected - will create scheduled task to run in interactive session"
 
     $scriptPath = $MyInvocation.MyCommand.Path
     Write-Host "   Original script path: $scriptPath" -ForegroundColor DarkGray
+    "$timestamp -    Original script path: $scriptPath" | Out-File -FilePath $logFile -Append
 
     $isNetworkPath = $scriptPath -match "^\\\\[^\\]+"
     if ($isNetworkPath) {
@@ -123,6 +124,10 @@ if ($isSSH) {
         Write-Host "" -ForegroundColor Green
         Write-Host "✓ Leonardo should now be starting in an interactive session on your desktop" -ForegroundColor Green
         Write-Host "  Check Task Manager or look for the Leonardo GUI window" -ForegroundColor Yellow
+        Write-Host "" -ForegroundColor Cyan
+        Write-Host "📝 Diagnostic log available at:" -ForegroundColor Cyan
+        Write-Host "   $logFile" -ForegroundColor Yellow
+        Write-Host "   View with: cat $logFile" -ForegroundColor DarkGray
         exit 0
     }
     catch {
@@ -138,11 +143,11 @@ if ($isSSH) {
     }
 }
 else {
-    Write-Host "✓ Running directly (not via SSH)" -ForegroundColor Green
+    Write-Log "✓ Running directly (not via SSH) - proceeding with normal execution"
 }
 
 Write-Host ""
-Write-Host "🔧 Initializing Leonardo environment..." -ForegroundColor Cyan
+Write-Log "🔧 Initializing Leonardo environment..."
 
 $env:LEONARDO_PROJECTS = "C:\Users\emanuelemazzotta\ProjectsWindows"
 $LEONARDO_DIR = "$env:LEONARDO_PROJECTS\leonardo"
@@ -194,18 +199,27 @@ switch ($Mode) {
 }
 
 Write-Host ""
-Write-Host "▶️  Executing: $Cmd" -ForegroundColor Green
+Write-Log "▶️  Executing: $Cmd"
 Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkGray
 Write-Host ""
 
-Invoke-Expression $Cmd
+try {
+    Invoke-Expression $Cmd
+    $exitCode = $LASTEXITCODE
+}
+catch {
+    $exitCode = 1
+    $errorMsg = $_.Exception.Message
+    Write-Log "❌ Exception during Maven execution: $errorMsg"
+}
 
-$exitCode = $LASTEXITCODE
 Write-Host ""
 Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkGray
 if ($exitCode -eq 0) {
-    Write-Host "✓ Maven execution completed successfully" -ForegroundColor Green
+    Write-Log "✓ Maven execution completed successfully"
 } else {
-    Write-Host "❌ Maven execution failed with exit code: $exitCode" -ForegroundColor Red
+    Write-Log "❌ Maven execution failed with exit code: $exitCode"
 }
+
+Write-Log "--- Script completed, exiting with code $exitCode ---"
 exit $exitCode
