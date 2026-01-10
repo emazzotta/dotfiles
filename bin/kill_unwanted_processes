@@ -25,8 +25,13 @@ for pattern in "${PATTERNS[@]}"; do
 done
 
 UPDATE_APP="/Library/Application Support/Microsoft/MAU2.0/Microsoft AutoUpdate.app/Contents/MacOS/Microsoft Update Assistant.app"
-if [ -e "$UPDATE_APP"  ]; then
-        sudo mv "$UPDATE_APP" "$UPDATE_APP.disabled"
+if [ -e "$UPDATE_APP" ]; then
+    sudo mv "$UPDATE_APP" "$UPDATE_APP.disabled"
+fi
+
+ONEDRIVE_APP="/Applications/OneDrive.app"
+if [ -e "$ONEDRIVE_APP" ]; then
+    sudo rm -rf $ONEDRIVE_APP
 fi
 
 success "Done killing unwanted processes."
