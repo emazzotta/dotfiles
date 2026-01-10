@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -euo pipefail
+
+if [ -f "Makefile" ]; then
+    exec make "$@"
+elif [ -f "pom.xml" ]; then
+    exec mvn "$@"
+else
+    echo "Error: No build file found (Makefile or pom.xml)" >&2
+    exit 1
+fi

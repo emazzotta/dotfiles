@@ -34,8 +34,7 @@ alias ep='vi ${HOME}/.bashrc;rp'
 alias ev='vi .env'
 alias l='clear'
 alias ll='ls -lta'
-alias m='make'
-alias mc='make clean'
+alias mc='m clean'
 alias rp='clear;source ${HOME}/.bashrc'
 alias rr='rm -rf'
 alias sconf='vi ${HOME}/.ssh/config'
@@ -59,6 +58,17 @@ else
   echo "🌐 Generic host: ${CURRENT_USER}@${CURRENT_IP} → 📦  default config"
   echo ""
 fi
+
+m() {
+  if [ -f "Makefile" ]; then
+    make "$@"
+  elif [ -f "pom.xml" ]; then
+    mvn "$@"
+  else
+    echo "Error: No build file found (Makefile or pom.xml)" >&2
+    return 1
+  fi
+}
 
 dc() {
   (cd "${DOCKER_COMPOSE_DIR:-.}" && docker compose "$@")
