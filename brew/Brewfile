@@ -114,7 +114,6 @@ cask "font-hack-nerd-font"
 cask "google-chrome" # lighthouse
 cask "google-drive"
 cask "gpg-suite"
-cask "hammerspoon"
 cask "intellij-idea"
 cask "iterm2"
 cask "karabiner-elements"
