@@ -1,4 +1,4 @@
-function Sync-ProfileAndModules {
+﻿function Sync-ProfileAndModules {
     param(
         [Parameter(Mandatory=$true)]
         [System.Management.Automation.Runspaces.PSSession]$Session,

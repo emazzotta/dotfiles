@@ -1,4 +1,4 @@
-function Get-LongListing {
+﻿function Get-LongListing {
     Get-ChildItem -Path . -Force | Sort-Object LastWriteTime -Descending | Format-Table -AutoSize
 }
 

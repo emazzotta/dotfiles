@@ -1,4 +1,4 @@
-$script:MavenCommand = Get-Command mvn -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+﻿$script:MavenCommand = Get-Command mvn -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 
 function mvn {
     if ($script:MavenCommand) {

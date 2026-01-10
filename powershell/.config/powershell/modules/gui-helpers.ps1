@@ -1,4 +1,4 @@
-function Remove-ReadOnly {
+﻿function Remove-ReadOnly {
     param([Parameter(Mandatory=$true)][string]$Path)
     Set-ItemProperty $Path -Name IsReadOnly -Value $false
     Remove-Item $Path -Force

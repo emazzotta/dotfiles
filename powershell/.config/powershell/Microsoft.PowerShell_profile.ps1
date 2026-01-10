@@ -1,4 +1,4 @@
-$profileDir = if ($PROFILE) {
+﻿$profileDir = if ($PROFILE) {
     Split-Path -Parent $PROFILE
 } else {
     Split-Path -Parent $PSCommandPath
