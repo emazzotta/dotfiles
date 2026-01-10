@@ -1,32 +1,65 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 KEEPALIVE_MINUTES=30
 KEEPALIVE_SECONDS=$((KEEPALIVE_MINUTES * 60))
 MIN_REMAINING_SECONDS=600
+MIN_REMAINING_MINUTES=$((MIN_REMAINING_SECONDS / 60))
 
 PID_FILE="/tmp/vmup_fileexplorer.pid"
 TIMESTAMP_FILE="/tmp/vmup_timestamp"
 
 should_restart=false
 
-# Check if File Explorer is running (check for WinAppHelper process)
-if ! pgrep -f "File Explorer.app" > /dev/null 2>&1; then
+is_file_explorer_running() {
+    pgrep -f "File Explorer.app" > /dev/null 2>&1
+}
+
+get_remaining_time() {
+    local start_time="$1"
+    local current_time
+    local elapsed
+    current_time=$(date +%s)
+    elapsed=$((current_time - start_time))
+    echo $((KEEPALIVE_SECONDS - elapsed))
+}
+
+cleanup_old_timer() {
+    if [ -f "$PID_FILE" ]; then
+        local old_pid
+        old_pid=$(cat "$PID_FILE")
+        kill "$old_pid" 2>/dev/null || true
+    fi
+}
+
+hide_file_explorer() {
+    osascript <<'EOF' 2>/dev/null
+tell application "System Events"
+    set visible of process "File Explorer" to false
+end tell
+EOF
+}
+
+start_keepalive_timer() {
+    date +%s > "$TIMESTAMP_FILE"
+    (sleep "$KEEPALIVE_SECONDS" && osascript -e 'quit app "File Explorer"' 2>/dev/null && rm -f "$TIMESTAMP_FILE" 2>/dev/null) &
+    echo $! > "$PID_FILE"
+}
+
+if ! is_file_explorer_running; then
     should_restart=true
     echo "🔄 File Explorer not running"
 elif [ -f "$PID_FILE" ] && [ -f "$TIMESTAMP_FILE" ]; then
-    OLD_PID=$(cat "$PID_FILE")
-    if kill -0 "$OLD_PID" 2>/dev/null; then
+    old_pid=$(cat "$PID_FILE")
+    if kill -0 "$old_pid" 2>/dev/null; then
         start_time=$(cat "$TIMESTAMP_FILE")
-        current_time=$(date +%s)
-        elapsed=$((current_time - start_time))
-        remaining=$((KEEPALIVE_SECONDS - elapsed))
+        remaining=$(get_remaining_time "$start_time")
         remaining_mins=$((remaining / 60))
 
-        if [ $remaining -le $MIN_REMAINING_SECONDS ]; then
+        if [ "$remaining" -le "$MIN_REMAINING_SECONDS" ]; then
             should_restart=true
-            echo "🔄 Less than 10 mins remaining (${remaining_mins} mins)"
+            echo "🔄 Less than ${MIN_REMAINING_MINUTES} mins remaining (${remaining_mins} mins)"
         else
             echo "✅ VM already active (${remaining_mins} mins remaining)"
             exit 0
@@ -40,26 +73,21 @@ else
 fi
 
 if [ "$should_restart" = true ]; then
-    # Clean up old timer if exists
-    if [ -f "$PID_FILE" ]; then
-        OLD_PID=$(cat "$PID_FILE")
-        kill "$OLD_PID" 2>/dev/null || true
+    cleanup_old_timer
+
+    file_explorer=$(find "$HOME/Applications (Parallels)" -name "File Explorer.app" -type d | head -n 1)
+
+    if [ -z "$file_explorer" ]; then
+        echo "❌ Error: File Explorer.app not found" >&2
+        exit 1
     fi
 
-    FILE_EXPLORER=$(find "$HOME/Applications (Parallels)" -name "File Explorer.app" -type d | head -n 1)
-    open "$FILE_EXPLORER"
+    open "$file_explorer"
     echo "⏳ Waiting for VM to be ready..."
     sleep 1
 
-    osascript <<EOF 2>/dev/null
-tell application "System Events"
-    set visible of process "File Explorer" to false
-end tell
-EOF
-
-    date +%s > "$TIMESTAMP_FILE"
-    (sleep $KEEPALIVE_SECONDS && osascript -e 'quit app "File Explorer"' 2>/dev/null && rm -f "$TIMESTAMP_FILE" 2>/dev/null) &
-    echo $! > "$PID_FILE"
+    hide_file_explorer
+    start_keepalive_timer
 
     echo "✅ VM active (File Explorer hidden, will close in ${KEEPALIVE_MINUTES} mins)"
 fi

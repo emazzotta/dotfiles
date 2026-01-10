@@ -12,11 +12,5 @@ vmup 2>/dev/null || echo "   ✓ VM already up"
 
 echo ""
 echo "🚀 Launching Leonardo on Windows VM..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-
 ssh wlocal "pwsh -Command \"\\\\Mac\\Home\\Projects\\private\\dotfiles\\bin\\leorun.ps1$args\""
-
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "✅ Leonardo launch complete"
