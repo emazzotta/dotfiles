@@ -1,0 +1,9 @@
+#!/bin/bash
+
+set -euo pipefail
+
+if [ $# -eq 0 ]; then
+    git restore --staged .
+else
+    git restore --staged "$@"
+fi
