@@ -13,7 +13,32 @@ exit_or_return() {
     fi
 }
 
+ensure_keychain_unlocked() {
+    local keychain="$HOME/Library/Keychains/login.keychain-db"
+
+    if security find-generic-password -a "keychain-test-$RANDOM" -s "keychain-test" &>/dev/null || [ $? -eq 44 ]; then
+        return 0
+    fi
+
+    if [ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}" ]; then
+        echo "Keychain is locked. Please enter your login password to unlock it." >&2
+
+        if ! security unlock-keychain "$keychain"; then
+            echo "Error: Failed to unlock keychain. Cannot access credentials in SSH session." >&2
+            exit_or_return 1
+        fi
+
+        echo "Keychain unlocked successfully." >&2
+        return 0
+    fi
+
+    echo "Error: Keychain appears to be locked but not in SSH session. Please unlock keychain manually." >&2
+    exit_or_return 1
+}
+
 export AD_ACCOUNT_KEYCHAIN_NAME="LeonardoActiveDirectoryUsername"
+
+ensure_keychain_unlocked
 
 get_keychain_value() {
     local keychain_service=$1
