@@ -2,11 +2,7 @@
 
 # Quick install (requires sudo for /usr/local/bin):
 # curl -fsSL -H "Cache-Control: no-cache, no-store" https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/leonardo_utils_installer | sudo bash
-#
-# Install to custom directory:
-# curl -fsSL -H "Cache-Control: no-cache, no-store" https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/leonardo_utils_installer | bash -s -- ~/bin
-#
-# Force override existing scripts:
+# or with --force override
 # curl -fsSL -H "Cache-Control: no-cache, no-store" https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/leonardo_utils_installer | sudo bash -s -- /usr/local/bin --force
 
 set -euo pipefail
