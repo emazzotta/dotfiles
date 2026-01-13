@@ -8,7 +8,7 @@ is_host_reachable() {
     return $?
 }
 
-leonardo_account
+source leonardo_account
 
 if is_host_reachable; then
   leonardo_vpn_toggle --disable

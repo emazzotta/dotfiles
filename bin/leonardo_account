@@ -4,6 +4,15 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     set -euo pipefail
 fi
 
+exit_or_return() {
+    local exit_code=$1
+    if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+        exit "$exit_code"
+    else
+        return "$exit_code"
+    fi
+}
+
 export AD_ACCOUNT_KEYCHAIN_NAME="LeonardoActiveDirectoryUsername"
 
 get_keychain_value() {
@@ -19,7 +28,7 @@ get_keychain_value() {
 
         if [ -z "$value" ]; then
             echo "Error: Failed to retrieve $keychain_service from keychain" >&2
-            exit 1
+            exit_or_return 1
         fi
     fi
 
@@ -36,12 +45,12 @@ add_value_to_keychain() {
 
         if [ -z "$value" ]; then
             echo "Error: No value provided for $keychain_service" >&2
-            exit 1
+            exit_or_return 1
         fi
 
         if ! security add-generic-password -a "$keychain_service" -s "$keychain_service" -w "$value"; then
             echo "Error: Failed to add $keychain_service to keychain" >&2
-            exit 1
+            exit_or_return 1
         fi
     fi
 }
@@ -72,7 +81,7 @@ get_keychain_password() {
 
         if [ -z "$password" ]; then
             echo "Error: Failed to retrieve password for $keychain_password_name from keychain" >&2
-            exit 1
+            exit_or_return 1
         fi
     fi
 
@@ -90,12 +99,12 @@ add_password_to_keychain() {
 
         if [ -z "$password" ]; then
             echo "Error: No password provided for $keychain_password_name" >&2
-            exit 1
+            exit_or_return 1
         fi
 
         if ! security add-generic-password -a "$keychain_account" -s "$keychain_password_name" -w "$password"; then
             echo "Error: Failed to add password for $keychain_password_name to keychain" >&2
-            exit 1
+            exit_or_return 1
         fi
     fi
 }
