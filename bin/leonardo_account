@@ -40,21 +40,27 @@ export AD_ACCOUNT_KEYCHAIN_NAME="LeonardoActiveDirectoryUsername"
 
 ensure_keychain_unlocked
 
+ensure_credentials_exist() {
+    local credentials=(
+        "$AD_ACCOUNT_KEYCHAIN_NAME:firstname.lastname"
+    )
+
+    for credential in "${credentials[@]}"; do
+        local keychain_service="${credential%%:*}"
+        local hint="${credential#*:}"
+        add_value_to_keychain "$keychain_service" "$hint"
+    done
+}
+
 get_keychain_value() {
     local keychain_service=$1
-    local hint=$2
     local value
 
     value=$(security find-generic-password -a "$keychain_service" -s "$keychain_service" -w 2>/dev/null || true)
 
     if [ -z "$value" ]; then
-        add_value_to_keychain "$keychain_service" "$hint"
-        value=$(security find-generic-password -a "$keychain_service" -s "$keychain_service" -w 2>/dev/null || true)
-
-        if [ -z "$value" ]; then
-            echo "Error: Failed to retrieve $keychain_service from keychain" >&2
-            exit_or_return 1
-        fi
+        echo "Error: Failed to retrieve $keychain_service from keychain" >&2
+        exit_or_return 1
     fi
 
     echo "$value"
@@ -80,8 +86,10 @@ add_value_to_keychain() {
     fi
 }
 
+ensure_credentials_exist
+
 export AD_ACCOUNT
-AD_ACCOUNT="$(get_keychain_value "$AD_ACCOUNT_KEYCHAIN_NAME" "firstname.lastname")"
+AD_ACCOUNT="$(get_keychain_value "$AD_ACCOUNT_KEYCHAIN_NAME")"
 export AD_PASSWORD_NAME="LeonardoActiveDirectory:$AD_ACCOUNT"
 
 export VPN_SHARED_SECRET_NAME="LeonardoVPNSecret"
@@ -93,6 +101,11 @@ export NETWORK_DRIVE_MOUNT_POINT="$HOME/$NETWORK_DRIVE_FOLDER"
 
 export VM_DRIVE_MOUNT_POINT="smb://admin@192.168.5.7:4445/Devserver-Windows-VM"
 
+ensure_passwords_exist() {
+    add_password_to_keychain "$AD_ACCOUNT" "$AD_PASSWORD_NAME"
+    add_password_to_keychain "$VPN_SHARED_SECRET_NAME" "VPN:$VPN_SHARED_SECRET_NAME"
+}
+
 get_keychain_password() {
     local keychain_account=$1
     local keychain_password_name=$2
@@ -101,13 +114,8 @@ get_keychain_password() {
     password=$(security find-generic-password -a "$keychain_account" -s "$keychain_password_name" -w 2>/dev/null || true)
 
     if [ -z "$password" ]; then
-        add_password_to_keychain "$keychain_account" "$keychain_password_name"
-        password=$(security find-generic-password -a "$keychain_account" -s "$keychain_password_name" -w 2>/dev/null || true)
-
-        if [ -z "$password" ]; then
-            echo "Error: Failed to retrieve password for $keychain_password_name from keychain" >&2
-            exit_or_return 1
-        fi
+        echo "Error: Failed to retrieve password for $keychain_password_name from keychain" >&2
+        exit_or_return 1
     fi
 
     echo "$password"
@@ -133,6 +141,8 @@ add_password_to_keychain() {
         fi
     fi
 }
+
+ensure_passwords_exist
 
 AD_PASSWORD="$(get_keychain_password "$AD_ACCOUNT" "$AD_PASSWORD_NAME")"
 export AD_PASSWORD
