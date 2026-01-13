@@ -16,7 +16,7 @@ exit_or_return() {
 ensure_keychain_unlocked() {
     local keychain="$HOME/Library/Keychains/login.keychain-db"
 
-    if security find-generic-password -a "keychain-test-$RANDOM" -s "keychain-test" &>/dev/null || [ $? -eq 44 ]; then
+    if security show-keychain-info "$keychain" &>/dev/null; then
         return 0
     fi
 
