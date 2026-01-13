@@ -1,24 +1,48 @@
 #!/bin/bash
 
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    set -euo pipefail
+fi
+
 export AD_ACCOUNT_KEYCHAIN_NAME="LeonardoActiveDirectoryUsername"
 
 get_keychain_value() {
     local keychain_service=$1
     local hint=$2
-    VALUE=$(security find-generic-password -a "$keychain_service" -s "$keychain_service" -w 2>/dev/null)
-    if [ -z "$VALUE" ]; then
+    local value
+
+    value=$(security find-generic-password -a "$keychain_service" -s "$keychain_service" -w 2>/dev/null || true)
+
+    if [ -z "$value" ]; then
         add_value_to_keychain "$keychain_service" "$hint"
-        VALUE=$(get_keychain_value "$keychain_service" "$hint")
+        value=$(security find-generic-password -a "$keychain_service" -s "$keychain_service" -w 2>/dev/null || true)
+
+        if [ -z "$value" ]; then
+            echo "Error: Failed to retrieve $keychain_service from keychain" >&2
+            exit 1
+        fi
     fi
-    echo "$VALUE"
+
+    echo "$value"
 }
 
 add_value_to_keychain() {
     local keychain_service=$1
     local hint=$2
+    local value
+
     if ! security find-generic-password -a "$keychain_service" -s "$keychain_service" &>/dev/null; then
-        read -r -p "Enter $keychain_service${hint:+ ($hint)}: " VALUE
-        security add-generic-password -a "$keychain_service" -s "$keychain_service" -w "$VALUE"
+        read -r -p "Enter $keychain_service${hint:+ ($hint)}: " value
+
+        if [ -z "$value" ]; then
+            echo "Error: No value provided for $keychain_service" >&2
+            exit 1
+        fi
+
+        if ! security add-generic-password -a "$keychain_service" -s "$keychain_service" -w "$value"; then
+            echo "Error: Failed to add $keychain_service to keychain" >&2
+            exit 1
+        fi
     fi
 }
 
@@ -38,23 +62,41 @@ export VM_DRIVE_MOUNT_POINT="smb://admin@192.168.5.7:4445/Devserver-Windows-VM"
 get_keychain_password() {
     local keychain_account=$1
     local keychain_password_name=$2
-    PASSWORD=$(security find-generic-password -a "$keychain_account" -s "$keychain_password_name" -w 2>/dev/null)
-    if [ -z "$PASSWORD" ]; then
+    local password
+
+    password=$(security find-generic-password -a "$keychain_account" -s "$keychain_password_name" -w 2>/dev/null || true)
+
+    if [ -z "$password" ]; then
         add_password_to_keychain "$keychain_account" "$keychain_password_name"
-        PASSWORD=$(get_keychain_password "$keychain_account" "$keychain_password_name")
+        password=$(security find-generic-password -a "$keychain_account" -s "$keychain_password_name" -w 2>/dev/null || true)
+
+        if [ -z "$password" ]; then
+            echo "Error: Failed to retrieve password for $keychain_password_name from keychain" >&2
+            exit 1
+        fi
     fi
-    echo "$PASSWORD"
+
+    echo "$password"
 }
 
 add_password_to_keychain() {
     local keychain_account=$1
     local keychain_password_name=$2
+    local password
+
     if ! security find-generic-password -a "$keychain_account" -s "$keychain_password_name" &>/dev/null; then
-        read -s -r -p "Enter password for $keychain_password_name: " PASSWORD
+        read -s -r -p "Enter password for $keychain_password_name: " password
         echo
-        security add-generic-password -a "$keychain_account" -s "$keychain_password_name" -w "$PASSWORD"
-    else
-        echo "Password already exists in the Keychain. No need to add it."
+
+        if [ -z "$password" ]; then
+            echo "Error: No password provided for $keychain_password_name" >&2
+            exit 1
+        fi
+
+        if ! security add-generic-password -a "$keychain_account" -s "$keychain_password_name" -w "$password"; then
+            echo "Error: Failed to add password for $keychain_password_name to keychain" >&2
+            exit 1
+        fi
     fi
 }
 
