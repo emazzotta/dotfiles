@@ -8,6 +8,13 @@
     }
 }
 
+function Exit-Session {
+    if (Get-PSSession -ErrorAction SilentlyContinue) {
+        Exit-PSSession
+    }
+    exit
+}
+
 function leorun {
     & \\Mac\Home\Projects\private\dotfiles\bin\leorun.ps1 @args
 }

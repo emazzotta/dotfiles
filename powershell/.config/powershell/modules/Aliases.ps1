@@ -1,5 +1,5 @@
 ﻿Set-Alias -Name bkems -Value Backup-EmsCache
-Set-Alias -Name e -Value Exit-PSSession
+Set-Alias -Name e -Value Exit-Session
 Set-Alias -Name gui -Value Start-InGUI
 Set-Alias -Name ll -Value Get-LongListing
 Set-Alias -Name mac -Value Navigate-MacHome
