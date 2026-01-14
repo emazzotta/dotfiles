@@ -41,21 +41,19 @@ alias sconf='vi ${HOME}/.ssh/config'
 alias vdc='vi docker-compose.yml'
 alias y='yarn'
 
-CUSTOM_USER="developer"
-CUSTOM_IP="192.168.5.8"
+CUSTOM_IP=("192.168.5.8" "194.124.233.45")
 
-CURRENT_USER="$(whoami)"
 CURRENT_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || ip addr show 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -n1 || ipconfig getifaddr en0 2>/dev/null)"
 
-if [[ "$CURRENT_USER" == "$CUSTOM_USER" ]] && [[ "$CURRENT_IP" == "$CUSTOM_IP" ]]; then
+if [[ " ${CUSTOM_IP[*]} " =~ " ${CURRENT_IP} " ]]; then
   echo ""
-  echo "⚡️ Recognized host: ${CURRENT_USER}@${CURRENT_IP} → ⚙️  custom env loaded"
+  echo "⚡️ Recognized host: $(whoami)@${CURRENT_IP} → ⚙️  custom env loaded"
   echo ""
   export DOCKER_COMPOSE_DIR=/opt/docker-data
   alias .f='cd ${DOCKER_COMPOSE_DIR}'
 else
   echo ""
-  echo "🌐 Generic host: ${CURRENT_USER}@${CURRENT_IP} → 📦  default config"
+  echo "🌐 Generic host: $(whoami)@${CURRENT_IP} → 📦  default config"
   echo ""
 fi
 
