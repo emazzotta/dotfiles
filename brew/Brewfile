@@ -65,6 +65,7 @@ brew "oh-my-posh" # Shell Theme
 brew "ollama"
 brew "openconnect"
 brew "openvpn"
+brew "oven-sh/bun/bun"
 brew "pandoc"
 brew "pdfgrep"
 brew "perl"
