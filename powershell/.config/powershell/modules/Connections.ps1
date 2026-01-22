@@ -158,6 +158,7 @@ function Connect-LeonardoVPN {
         return
     }
 
+    Set-DnsClientGlobalSetting -SuffixSearchList @("leonardo.local")
     Write-Host "Connecting to $VpnName..." -ForegroundColor Cyan
     Start-InGUI rasphone -d $VpnName
 }
