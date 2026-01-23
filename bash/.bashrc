@@ -153,6 +153,7 @@ alias etm='vi $HOME/.tmux.conf.local'
 alias etmg='vi $HOME/.tmux.conf'
 alias ev='vi .env'
 alias evscode="vi ${DOTFILESPATH}/vscode/settings.json"
+alias f='envify && open "$FOCUS_TRACK"'
 alias find-gitlab-pages='find . -name ".git" -type d -exec bash -c '\''repo=$(dirname "{}"); [ -d "$repo/ops/gitlab-pages"  ] && echo "✓ $repo"'\'' \;'
 alias find_duplicate='find . -type f -maxdepth 4 -exec basename {} \; | sort -rn | uniq -d | while read dup; do find . -type f -maxdepth 4 -name "$dup"; done'
 alias g='source repo'
