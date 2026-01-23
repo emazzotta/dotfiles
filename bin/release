@@ -1,0 +1,281 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly SCRIPT_NAME="$(basename "$0")"
+readonly MAX_DEPTH=3
+
+show_usage() {
+    cat << EOF
+Usage: $SCRIPT_NAME <project1> [project2] [project3] ...
+
+Release Maven projects by creating and pushing git tags based on pom.xml versions.
+
+Arguments:
+    project1, project2, ...    Project directory names to release
+
+Example:
+    $SCRIPT_NAME my-service auth-service
+EOF
+}
+
+validate_arguments() {
+    if [ $# -eq 0 ]; then
+        echo "Error: No project names provided" >&2
+        show_usage
+        exit 1
+    fi
+}
+
+check_required_commands() {
+    local missing=()
+    for cmd in find git; do
+        command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "Error: Missing required commands: ${missing[*]}" >&2
+        exit 1
+    fi
+}
+
+find_project_directory() {
+    local project_name="$1"
+    local search_path="${2:-.}"
+
+    find "$search_path" -maxdepth "$MAX_DEPTH" -type d -name "$project_name" 2>/dev/null | head -n 1
+}
+
+extract_version_from_pom() {
+    local pom_file="$1"
+
+    if [ ! -f "$pom_file" ]; then
+        return 1
+    fi
+
+    local version
+    version=$(grep -m 1 "<version>" "$pom_file" | sed 's/.*<version>\(.*\)<\/version>.*/\1/' | tr -d '[:space:]')
+
+    if [ -z "$version" ]; then
+        return 1
+    fi
+
+    echo "$version"
+}
+
+strip_snapshot_suffix() {
+    local version="$1"
+    echo "$version" | sed 's/-SNAPSHOT$//'
+}
+
+validate_version_format() {
+    local version="$1"
+    if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        return 1
+    fi
+    return 0
+}
+
+check_git_repository() {
+    local project_dir="$1"
+
+    if ! git -C "$project_dir" rev-parse --git-dir >/dev/null 2>&1; then
+        echo "Error: $project_dir is not a git repository" >&2
+        return 1
+    fi
+    return 0
+}
+
+check_head_has_tag() {
+    local project_dir="$1"
+
+    git -C "$project_dir" describe --exact-match HEAD 2>/dev/null || true
+}
+
+create_git_tag() {
+    local project_dir="$1"
+    local tag="$2"
+
+    if git -C "$project_dir" tag -l "$tag" | grep -q "^${tag}$"; then
+        echo "Warning: Tag $tag already exists in repository, skipping" >&2
+        return 1
+    fi
+
+    git -C "$project_dir" tag "$tag"
+}
+
+push_git_tag() {
+    local project_dir="$1"
+    local tag="$2"
+
+    git -C "$project_dir" push origin "$tag"
+}
+
+process_project() {
+    local project_name="$1"
+    local project_dir
+
+    echo "Processing $project_name..."
+
+    project_dir=$(find_project_directory "$project_name")
+
+    if [ -z "$project_dir" ]; then
+        echo "Error: Project directory not found: $project_name" >&2
+        echo "FAILED:$project_name:Project directory not found"
+        return 0
+    fi
+
+    local pom_file="${project_dir}/pom.xml"
+    if [ ! -f "$pom_file" ]; then
+        echo "Error: pom.xml not found in $project_dir" >&2
+        echo "FAILED:$project_name:pom.xml not found"
+        return 0
+    fi
+
+    local version
+    if ! version=$(extract_version_from_pom "$pom_file"); then
+        echo "Error: Failed to extract version from $pom_file" >&2
+        echo "FAILED:$project_name:Failed to extract version"
+        return 0
+    fi
+
+    local clean_version
+    clean_version=$(strip_snapshot_suffix "$version")
+
+    if ! validate_version_format "$clean_version"; then
+        echo "Error: Invalid version format: $clean_version (expected semver like 1.2.3)" >&2
+        echo "FAILED:$project_name:Invalid version format: $clean_version"
+        return 0
+    fi
+
+    if ! check_git_repository "$project_dir"; then
+        echo "FAILED:$project_name:Not a git repository"
+        return 0
+    fi
+
+    echo "  Found version: $version -> $clean_version"
+
+    local existing_tag
+    existing_tag=$(check_head_has_tag "$project_dir")
+
+    if [ -n "$existing_tag" ]; then
+        echo "  Skipping: HEAD already tagged as $existing_tag"
+        echo "SKIPPED:$project_name:HEAD already tagged as $existing_tag"
+        return 0
+    fi
+
+    if ! create_git_tag "$project_dir" "$clean_version"; then
+        echo "FAILED:$project_name:Tag $clean_version already exists in repository"
+        return 0
+    fi
+
+    echo "  Created tag: $clean_version"
+
+    if ! push_git_tag "$project_dir" "$clean_version"; then
+        echo "Error: Failed to push tag $clean_version" >&2
+        echo "FAILED:$project_name:Failed to push tag $clean_version"
+        return 0
+    fi
+
+    echo "  Pushed tag: $clean_version"
+    echo "  Success: $project_name released as $clean_version"
+
+    echo "SUCCESS:$project_name:$clean_version"
+}
+
+display_summary() {
+    local -a released=()
+    local -a skipped=()
+    local -a failed=()
+
+    for result in "$@"; do
+        local status="${result%%:*}"
+        local rest="${result#*:}"
+        local project="${rest%%:*}"
+        local info="${rest#*:}"
+
+        case "$status" in
+            SUCCESS)
+                released+=("$project:$info")
+                ;;
+            SKIPPED)
+                skipped+=("$project:$info")
+                ;;
+            FAILED)
+                failed+=("$project:$info")
+                ;;
+        esac
+    done
+
+    echo ""
+    echo "========================================"
+    echo "Release Summary"
+    echo "========================================"
+
+    if [ ${#released[@]} -gt 0 ]; then
+        echo ""
+        echo "Successfully released projects:"
+        for entry in "${released[@]}"; do
+            local project="${entry%%:*}"
+            local version="${entry#*:}"
+            echo "  - $project (v$version)"
+        done
+    fi
+
+    if [ ${#skipped[@]} -gt 0 ]; then
+        echo ""
+        echo "Skipped projects:"
+        for entry in "${skipped[@]}"; do
+            local project="${entry%%:*}"
+            local reason="${entry#*:}"
+            echo "  - $project: $reason"
+        done
+    fi
+
+    if [ ${#failed[@]} -gt 0 ]; then
+        echo ""
+        echo "Failed projects:"
+        for entry in "${failed[@]}"; do
+            local project="${entry%%:*}"
+            local reason="${entry#*:}"
+            echo "  - $project: $reason"
+        done
+    fi
+
+    echo ""
+    echo "Total: ${#released[@]} released, ${#skipped[@]} skipped, ${#failed[@]} failed"
+
+    if [ ${#released[@]} -eq 0 ]; then
+        return 1
+    fi
+}
+
+main() {
+    validate_arguments "$@"
+    check_required_commands
+
+    local -a results=()
+
+    for project_name in "$@"; do
+        if result=$(process_project "$project_name"); then
+            if [ -n "$result" ]; then
+                results+=("$result")
+            fi
+        fi
+        echo ""
+    done
+
+    if [ ${#results[@]} -eq 0 ]; then
+        echo ""
+        echo "========================================"
+        echo "Release Summary"
+        echo "========================================"
+        echo ""
+        echo "No projects were processed."
+        exit 1
+    else
+        display_summary "${results[@]}"
+        exit_code=$?
+        exit $exit_code
+    fi
+}
+
+main "$@"
