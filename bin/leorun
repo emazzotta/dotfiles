@@ -142,10 +142,9 @@ if [ -n "$INSTALL_PROJECTS" ]; then
         fi
 
         echo "   🔨 Building with Maven..."
-        build_cmd="mvn clean install -DskipTests -s ops/maven_settings.xml"
-        echo "   Command: $build_cmd"
+        echo "   Command: mvn clean install -DskipTests -s ops/maven_settings.xml"
 
-        if ! $build_cmd; then
+        if ! mvn clean install -DskipTests -s ops/maven_settings.xml; then
             echo "   ❌ Maven build failed for $project_name" >&2
             exit 1
         fi
@@ -157,19 +156,20 @@ if [ -n "$INSTALL_PROJECTS" ]; then
     echo "✓ All install dependencies processed"
 fi
 
-MVN_COMMON_FLAGS="-Prun-leonardo -s ops/maven_settings.xml"
+MVN_SETTINGS_FLAG="-s ops/maven_settings.xml"
+MVN_RUN_CMD="mvn exec:exec -Prun-leonardo -DskipTests $MVN_SETTINGS_FLAG -pl leonardo-leonardo"
 
 case "$MODE" in
   fast)
-    CMD="mvn exec:exec $MVN_COMMON_FLAGS"
+    echo "➤ $MVN_RUN_CMD"
+    eval "$MVN_RUN_CMD"
     ;;
   quick)
-    CMD="mvn compile exec:exec $MVN_COMMON_FLAGS"
+    echo "➤ mvn $MVN_SETTINGS_FLAG -DskipTests compile && $MVN_RUN_CMD"
+    eval "mvn $MVN_SETTINGS_FLAG -DskipTests compile && $MVN_RUN_CMD"
     ;;
   *)
-    CMD="mvn clean compile exec:exec $MVN_COMMON_FLAGS"
+    echo "➤ mvn $MVN_SETTINGS_FLAG -DskipTests clean install && $MVN_RUN_CMD"
+    eval "mvn $MVN_SETTINGS_FLAG -DskipTests clean install && $MVN_RUN_CMD"
     ;;
 esac
-
-echo "➤ $CMD"
-$CMD

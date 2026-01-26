@@ -367,7 +367,8 @@ if ($Install) {
     Write-Host "✓ All install dependencies processed" -ForegroundColor Green
 }
 
-$MvnCommonFlags = "-Prun-leonardo -s ops/maven_settings.xml"
+$MvnSettingsFlag = "-s ops/maven_settings.xml"
+$MvnRunCmd = "mvn exec:exec -Prun-leonardo -DskipTests $MvnSettingsFlag -pl leonardo-leonardo"
 
 $Mode = "normal"
 if ($Fast) { $Mode = "fast" }
@@ -379,16 +380,16 @@ Write-Host "   Mode: $Mode" -ForegroundColor Yellow
 
 switch ($Mode) {
     "fast" {
-        Write-Host "   Skip: clean, compile (exec only)" -ForegroundColor DarkGray
-        $Cmd = "mvn exec:exec $MvnCommonFlags"
+        Write-Host "   Skip: clean, install (exec only)" -ForegroundColor DarkGray
+        $Cmd = $MvnRunCmd
     }
     "quick" {
         Write-Host "   Skip: clean (compile + exec)" -ForegroundColor DarkGray
-        $Cmd = "mvn compile exec:exec $MvnCommonFlags"
+        $Cmd = "mvn $MvnSettingsFlag -DskipTests compile && $MvnRunCmd"
     }
     default {
-        Write-Host "   Full build: clean + compile + exec" -ForegroundColor DarkGray
-        $Cmd = "mvn clean compile exec:exec $MvnCommonFlags"
+        Write-Host "   Full build: clean + install + exec" -ForegroundColor DarkGray
+        $Cmd = "mvn $MvnSettingsFlag -DskipTests clean install && $MvnRunCmd"
     }
 }
 
