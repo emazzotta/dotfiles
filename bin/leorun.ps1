@@ -367,7 +367,7 @@ if ($Install) {
     Write-Host "✓ All install dependencies processed" -ForegroundColor Green
 }
 
-$MvnCommonFlags = "-Prun-leonardo -s ops/maven_settings.xml -pl leonardo-leonardo"
+$MvnCommonFlags = "-Prun-leonardo -s ops/maven_settings.xml"
 
 $Mode = "normal"
 if ($Fast) { $Mode = "fast" }

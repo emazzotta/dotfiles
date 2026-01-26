@@ -157,7 +157,7 @@ if [ -n "$INSTALL_PROJECTS" ]; then
     echo "✓ All install dependencies processed"
 fi
 
-MVN_COMMON_FLAGS="-Prun-leonardo -s ops/maven_settings.xml -pl leonardo-leonardo"
+MVN_COMMON_FLAGS="-Prun-leonardo -s ops/maven_settings.xml"
 
 case "$MODE" in
   fast)
