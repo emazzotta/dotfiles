@@ -250,6 +250,57 @@ Write-Host "✓ Project structure validated" -ForegroundColor Green
 Set-Location $LEONARDO_DIR
 Write-Host "📁 Working directory: $LEONARDO_DIR" -ForegroundColor Cyan
 
+Write-Host ""
+Write-Host "🔄 Syncing with Mac leonardo branch..." -ForegroundColor Cyan
+$macLeonardoPath = "\\Mac\Home\Projects\leo-productions\leonardo"
+
+try {
+    Push-Location $macLeonardoPath
+    $macBranch = git rev-parse --abbrev-ref HEAD 2>$null
+    Pop-Location
+
+    if ($macBranch) {
+        Write-Host "   Mac branch: $macBranch" -ForegroundColor DarkGray
+
+        Set-Location $LEONARDO_DIR
+        $currentBranch = git rev-parse --abbrev-ref HEAD 2>$null
+
+        if ($currentBranch -ne $macBranch) {
+            Write-Host "   Current Windows branch: $currentBranch" -ForegroundColor DarkGray
+            Write-Host "   🔀 Checking out branch: $macBranch" -ForegroundColor Cyan
+
+            git fetch origin
+            git checkout $macBranch
+
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "   ✓ Branch checked out" -ForegroundColor Green
+            }
+            else {
+                Write-Host "   ⚠️  Failed to checkout branch $macBranch" -ForegroundColor Yellow
+            }
+        }
+        else {
+            Write-Host "   ✓ Already on branch: $macBranch" -ForegroundColor Green
+        }
+
+        Write-Host "   ⬇️  Pulling latest changes..." -ForegroundColor Cyan
+        git pull
+
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "   ✓ Latest changes pulled" -ForegroundColor Green
+        }
+        else {
+            Write-Host "   ⚠️  Failed to pull latest changes" -ForegroundColor Yellow
+        }
+    }
+    else {
+        Write-Host "   ⚠️  Could not determine Mac branch" -ForegroundColor Yellow
+    }
+}
+catch {
+    Write-Host "   ⚠️  Could not access Mac leonardo path: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 if ($Install) {
     Write-Host ""
     Write-Host "📦 Processing install dependencies..." -ForegroundColor Cyan
