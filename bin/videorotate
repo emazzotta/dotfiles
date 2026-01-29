@@ -1,11 +1,85 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
-if test "${2}"; then
-    extension=${1#*.}
-    name="${1%%.*}"
-    ffmpeg -i "${1}" -map_metadata 0 -metadata:s:v rotate="${2}" -codec copy "${name}_rotated.${extension}"
-else
-    echo "usage: $(basename "${0}") <file_name> <rotation [90,-90,180,...]>"
-fi
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") <file_name> <rotation>
+
+Rotation values:
+  90, 270    - Rotate 90° clockwise or counter-clockwise (uses transpose filter)
+  -90        - Same as 270
+  180        - Rotate 180° (uses transpose filter)
+  <angle>    - Arbitrary angle in degrees (uses rotate filter)
+
+Examples:
+  $(basename "$0") video.mp4 90
+  $(basename "$0") video.mp4 -90
+  $(basename "$0") video.mp4 180
+EOF
+}
+
+validate_arguments() {
+    if [ $# -lt 2 ]; then
+        echo "Error: Missing arguments" >&2
+        show_usage
+        exit 1
+    fi
+
+    if [ ! -f "$1" ]; then
+        echo "Error: File not found: $1" >&2
+        exit 1
+    fi
+}
+
+build_video_filter() {
+    local rotation="$1"
+    local filter=""
+
+    case "$rotation" in
+        90)
+            filter="transpose=1"
+            ;;
+        -90|270)
+            filter="transpose=2"
+            ;;
+        180)
+            filter="transpose=1,transpose=1"
+            ;;
+        *)
+            local radians
+            radians=$(awk "BEGIN {print $rotation * 3.14159265359 / 180}")
+            filter="rotate=${radians}:c=black:ow='iw':oh='ih'"
+            ;;
+    esac
+
+    echo "$filter"
+}
+
+rotate_video() {
+    local input="$1"
+    local rotation="$2"
+    local extension="${input##*.}"
+    local name="${input%.*}"
+    local output="${name}_rotated.${extension}"
+    local video_filter
+
+    video_filter=$(build_video_filter "$rotation")
+
+    ffmpeg -i "$input" \
+        -vf "$video_filter" \
+        -c:v libx264 -preset medium -crf 23 \
+        -c:a copy \
+        -map_metadata 0 \
+        -metadata:s:v:0 rotate=0 \
+        "$output"
+
+    echo "Rotated video saved to: $output"
+}
+
+main() {
+    validate_arguments "$@"
+    rotate_video "$1" "$2"
+}
+
+main "$@"
