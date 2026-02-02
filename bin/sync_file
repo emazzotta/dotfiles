@@ -1,0 +1,145 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[0;33m'
+readonly RESET='\033[0m'
+
+log() {
+    echo -e "${GREEN}[INFO]${RESET} $*"
+}
+
+error() {
+    echo -e "${RED}[ERROR]${RESET} $*" >&2
+}
+
+warn() {
+    echo -e "${YELLOW}[WARN]${RESET} $*"
+}
+
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") <source_file>
+
+Synchronizes a file across multiple project directories.
+
+Arguments:
+  source_file    Path to source file (e.g., leonardo/ops/scripts/gitlab/build_variables.sh)
+
+Example:
+  $(basename "$0") leonardo/ops/scripts/gitlab/build_variables.sh
+
+This finds and updates all files matching the relative path pattern:
+  */ops/scripts/gitlab/build_variables.sh
+EOF
+}
+
+validate_source_file() {
+    local source="$1"
+
+    if [ -z "$source" ]; then
+        error "No source file provided"
+        show_usage
+        exit 1
+    fi
+
+    if [ ! -f "$source" ]; then
+        error "Source file does not exist: $source"
+        exit 1
+    fi
+
+    if [ ! -r "$source" ]; then
+        error "Source file is not readable: $source"
+        exit 1
+    fi
+}
+
+extract_relative_path() {
+    local source="$1"
+    local relative_path
+
+    relative_path="${source#*/}"
+
+    if [ "$relative_path" = "$source" ]; then
+        error "Source file must contain at least one directory separator"
+        error "Expected format: project/path/to/file.sh"
+        exit 1
+    fi
+
+    echo "$relative_path"
+}
+
+find_matching_files() {
+    local relative_path="$1"
+    local source="$2"
+    local -a matching_files=()
+
+    while IFS= read -r -d '' file; do
+        local canonical_file canonical_source
+        canonical_file=$(readlink -f "$file")
+        canonical_source=$(readlink -f "$source")
+
+        if [ "$canonical_file" != "$canonical_source" ]; then
+            matching_files+=("$file")
+        fi
+    done < <(find . -maxdepth 7 -type f -path "*/$relative_path" -print0 2>/dev/null)
+
+    printf '%s\n' "${matching_files[@]}"
+}
+
+sync_files() {
+    local source="$1"
+    local relative_path="$2"
+    local updated_count=0
+    local failed_count=0
+
+    log "Searching for files matching: */$relative_path"
+    log "Source: $source"
+    echo
+
+    local -a target_files
+    while IFS= read -r line; do
+        target_files+=("$line")
+    done < <(find_matching_files "$relative_path" "$source")
+
+    if [ ${#target_files[@]} -eq 0 ]; then
+        warn "No matching files found"
+        return 0
+    fi
+
+    log "Found ${#target_files[@]} matching file(s)"
+    echo
+
+    for target in "${target_files[@]}"; do
+        if cp "$source" "$target"; then
+            log "Updated: $target"
+            ((updated_count++))
+        else
+            error "Failed to update: $target"
+            ((failed_count++))
+        fi
+    done
+
+    echo
+    log "Summary: $updated_count file(s) updated, $failed_count file(s) failed"
+
+    return "$failed_count"
+}
+
+main() {
+    if [ $# -eq 0 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+        show_usage
+        exit 0
+    fi
+
+    local source="$1"
+    local relative_path
+
+    validate_source_file "$source"
+    relative_path=$(extract_relative_path "$source")
+
+    sync_files "$source" "$relative_path"
+}
+
+main "$@"
