@@ -1,0 +1,500 @@
+#!/usr/bin/env python3
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from html.parser import HTMLParser
+from pathlib import Path
+from typing import Final
+import argparse
+import logging
+import re
+import sys
+
+
+BACKUP_SUFFIX: Final = ".backup"
+DEFAULT_TARGET_DIR: Final = "../help/src/main/resources/de/"
+HEAD_ELEMENTS: Final = frozenset({"title", "meta", "link", "style", "script", "base"})
+VOID_ELEMENTS: Final = frozenset({"meta", "link", "base"})
+CHARSET_PATTERN: Final = re.compile(r'charset=([^;"\s]+)', re.IGNORECASE)
+
+
+class ProcessingStatus(Enum):
+    FIXED = auto()
+    SKIPPED = auto()
+    FAILED = auto()
+
+
+@dataclass
+class ProcessingResult:
+    status: ProcessingStatus
+    message: str = ""
+
+
+@dataclass
+class ProcessingSummary:
+    total: int = 0
+    fixed: int = 0
+    skipped: int = 0
+    failed: int = 0
+    failed_files: list[str] = field(default_factory=list)
+
+
+@dataclass
+class HTMLToken:
+    tag: str
+    attrs: list[tuple[str, str | None]]
+    content: str = ""
+    start_pos: int = 0
+    end_pos: int = 0
+
+
+@dataclass
+class CharsetInfo:
+    has_charset: bool = False
+    charset_normalized: bool = False
+
+
+class HTMLAnalyzer(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.in_body = False
+        self.in_head = False
+        self.has_head = False
+        self.misplaced_in_body: list[HTMLToken] = []
+        self.current_collecting: HTMLToken | None = None
+        self.charset_info = CharsetInfo()
+
+    def find_charset_in_meta(self, attrs: list[tuple[str, str | None]]) -> bool:
+        for key, value in attrs:
+            if key.lower() == "charset":
+                return True
+            if key.lower() == "content" and value:
+                match = CHARSET_PATTERN.search(value)
+                if match:
+                    return True
+        return False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "head":
+            self.in_head = True
+            self.has_head = True
+        elif tag == "body":
+            self.in_body = True
+            self.in_head = False
+
+        if tag == "meta" and self.find_charset_in_meta(attrs):
+            self.charset_info.has_charset = True
+
+        if self.in_body and tag in HEAD_ELEMENTS:
+            pos = self.getpos()
+            token = HTMLToken(
+                tag=tag, attrs=attrs, start_pos=pos[0] * 10000 + pos[1]
+            )
+            if tag in VOID_ELEMENTS:
+                self.misplaced_in_body.append(token)
+            else:
+                self.current_collecting = token
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "head":
+            self.in_head = False
+        elif tag == "body":
+            self.in_body = False
+
+        if self.current_collecting and tag == self.current_collecting.tag:
+            pos = self.getpos()
+            self.current_collecting.end_pos = pos[0] * 10000 + pos[1]
+            self.misplaced_in_body.append(self.current_collecting)
+            self.current_collecting = None
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "meta" and self.find_charset_in_meta(attrs):
+            self.charset_info.has_charset = True
+
+        if self.in_body and tag in HEAD_ELEMENTS:
+            pos = self.getpos()
+            self.misplaced_in_body.append(
+                HTMLToken(tag=tag, attrs=attrs, start_pos=pos[0] * 10000 + pos[1])
+            )
+
+    def handle_data(self, data: str) -> None:
+        if self.current_collecting:
+            self.current_collecting.content += data
+
+
+class HTMLFixer(HTMLParser):
+    def __init__(self, misplaced_tokens: list[HTMLToken], charset_info: CharsetInfo, has_head: bool) -> None:
+        super().__init__()
+        self.misplaced_tokens = misplaced_tokens
+        self.charset_info = charset_info
+        self.has_head = has_head
+        self.output: list[str] = []
+        self.in_body = False
+        self.in_head = False
+        self.head_closed = False
+        self.head_elements_injected = False
+        self.skip_depth = 0
+        self.skip_tags: set[str] = set()
+        self.misplaced_positions: set[int] = {t.start_pos for t in misplaced_tokens}
+        self.charset_added = False
+
+    def normalize_charset_in_attrs(self, attrs: list[tuple[str, str | None]]) -> list[tuple[str, str | None]]:
+        normalized_attrs = []
+        for key, value in attrs:
+            if key.lower() == "charset":
+                if value and value.upper() != "UTF-8":
+                    self.charset_info.charset_normalized = True
+                    normalized_attrs.append((key, "UTF-8"))
+                else:
+                    normalized_attrs.append((key, value))
+            elif key.lower() == "content" and value:
+                match = CHARSET_PATTERN.search(value)
+                if match:
+                    original_charset = match.group(1)
+                    if original_charset.upper() != "UTF-8":
+                        self.charset_info.charset_normalized = True
+                        new_value = CHARSET_PATTERN.sub("charset=UTF-8", value)
+                        normalized_attrs.append((key, new_value))
+                    else:
+                        normalized_attrs.append((key, value))
+                else:
+                    normalized_attrs.append((key, value))
+            else:
+                normalized_attrs.append((key, value))
+        return normalized_attrs
+
+    def format_attrs(self, attrs: list[tuple[str, str | None]]) -> str:
+        if not attrs:
+            return ""
+        parts = []
+        for key, value in attrs:
+            if value is None:
+                parts.append(key)
+            else:
+                parts.append(f'{key}="{value}"')
+        return " " + " ".join(parts)
+
+    def inject_misplaced_elements(self) -> None:
+        if not self.charset_info.has_charset and not self.charset_added:
+            self.output.append('<meta charset="UTF-8">\n')
+            self.charset_added = True
+
+        for token in self.misplaced_tokens:
+            attrs = self.format_attrs(token.attrs)
+            if token.tag in VOID_ELEMENTS:
+                self.output.append(f"<{token.tag}{attrs}>\n")
+            else:
+                self.output.append(f"<{token.tag}{attrs}>{token.content}</{token.tag}>\n")
+
+    def inject_head_elements(self) -> None:
+        if self.head_elements_injected:
+            return
+
+        if not self.in_head:
+            self.output.append("<head>\n")
+            self.in_head = True
+
+        self.inject_misplaced_elements()
+
+        if not self.head_closed:
+            self.output.append("</head>\n")
+            self.in_head = False
+            self.head_closed = True
+
+        self.head_elements_injected = True
+
+    def should_skip_current_tag(self, tag: str) -> bool:
+        if not self.in_body:
+            return False
+        pos = self.getpos()
+        current_pos = pos[0] * 10000 + pos[1]
+        return current_pos in self.misplaced_positions and tag in HEAD_ELEMENTS
+
+    def handle_decl(self, decl: str) -> None:
+        self.output.append(f"<!{decl}>\n")
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self.skip_depth > 0:
+            self.skip_depth += 1
+            return
+
+        if self.should_skip_current_tag(tag):
+            self.skip_depth = 1
+            self.skip_tags.add(tag)
+            return
+
+        if tag == "meta":
+            attrs = self.normalize_charset_in_attrs(attrs)
+
+        if tag == "html":
+            self.output.append(f"<{tag}{self.format_attrs(attrs)}>\n")
+            if not self.has_head:
+                self.inject_head_elements()
+        elif tag == "head":
+            self.in_head = True
+            self.output.append(f"<{tag}{self.format_attrs(attrs)}>\n")
+            self.inject_misplaced_elements()
+            self.head_elements_injected = True
+        elif tag == "body":
+            if not self.head_elements_injected:
+                self.inject_head_elements()
+            self.in_body = True
+            self.output.append(f"<{tag}{self.format_attrs(attrs)}>\n")
+        else:
+            self.output.append(f"<{tag}{self.format_attrs(attrs)}>")
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.skip_depth > 0:
+            if tag in self.skip_tags:
+                self.skip_depth -= 1
+                if self.skip_depth == 0:
+                    self.skip_tags.discard(tag)
+            return
+
+        if tag == "head":
+            self.in_head = False
+            self.head_closed = True
+        elif tag == "body":
+            self.in_body = False
+
+        self.output.append(f"</{tag}>")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self.skip_depth > 0:
+            return
+
+        if self.should_skip_current_tag(tag):
+            return
+
+        if tag == "meta":
+            attrs = self.normalize_charset_in_attrs(attrs)
+
+        self.output.append(f"<{tag}{self.format_attrs(attrs)}>")
+
+    def handle_data(self, data: str) -> None:
+        if self.skip_depth == 0:
+            self.output.append(data)
+
+    def handle_comment(self, data: str) -> None:
+        if self.skip_depth == 0:
+            self.output.append(f"<!--{data}-->")
+
+    def build_result(self) -> str:
+        return "".join(self.output)
+
+
+def setup_logging(verbose: bool) -> None:
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        format="[%(asctime)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        level=level,
+    )
+
+
+def validate_directory(directory: Path) -> None:
+    if not directory.exists():
+        raise FileNotFoundError(f"Directory not found: {directory}")
+    if not directory.is_dir():
+        raise NotADirectoryError(f"Not a directory: {directory}")
+
+
+def find_html_files(directory: Path) -> list[Path]:
+    return sorted(directory.rglob("*.html"))
+
+
+def analyze_html(content: str) -> tuple[list[HTMLToken], CharsetInfo, bool]:
+    analyzer = HTMLAnalyzer()
+    analyzer.feed(content)
+    return analyzer.misplaced_in_body, analyzer.charset_info, analyzer.has_head
+
+
+def fix_html_structure(content: str, misplaced_tokens: list[HTMLToken], charset_info: CharsetInfo, has_head: bool) -> str:
+    fixer = HTMLFixer(misplaced_tokens, charset_info, has_head)
+    fixer.feed(content)
+    return fixer.build_result()
+
+
+def create_backup(file_path: Path) -> Path:
+    backup_path = Path(str(file_path) + BACKUP_SUFFIX)
+
+    if backup_path.exists():
+        raise FileExistsError(f"Backup already exists: {backup_path}")
+
+    backup_path.write_bytes(file_path.read_bytes())
+    logging.debug(f"Created backup: {backup_path}")
+
+    return backup_path
+
+
+def restore_from_backup(file_path: Path, backup_path: Path) -> None:
+    logging.warning(f"Restoring from backup: {backup_path}")
+    file_path.write_bytes(backup_path.read_bytes())
+
+
+def remove_backup(backup_path: Path) -> None:
+    backup_path.unlink()
+    logging.debug(f"Deleted backup: {backup_path}")
+
+
+def process_file(file_path: Path, dry_run: bool) -> ProcessingResult:
+    logging.debug(f"Processing: {file_path}")
+
+    try:
+        original_content = file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return ProcessingResult(
+            ProcessingStatus.FAILED, "Failed to read as UTF-8"
+        )
+    except Exception as e:
+        return ProcessingResult(ProcessingStatus.FAILED, f"Read error: {e}")
+
+    try:
+        misplaced_tokens, charset_info, has_head = analyze_html(original_content)
+    except Exception as e:
+        return ProcessingResult(ProcessingStatus.FAILED, f"Parse error: {e}")
+
+    needs_fix = bool(misplaced_tokens) or not charset_info.has_charset
+
+    if not needs_fix:
+        logging.debug(f"No changes needed: {file_path}")
+        return ProcessingResult(ProcessingStatus.SKIPPED, "No changes needed")
+
+    if dry_run:
+        changes = []
+        if misplaced_tokens:
+            changes.append("misplaced elements")
+        if not charset_info.has_charset:
+            changes.append("add charset")
+        logging.info(f"[DRY RUN] Would fix ({', '.join(changes)}): {file_path}")
+        return ProcessingResult(ProcessingStatus.FIXED, "Would be fixed")
+
+    backup_path = None
+    try:
+        backup_path = create_backup(file_path)
+
+        fixed_content = fix_html_structure(original_content, misplaced_tokens, charset_info, has_head)
+
+        temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+        temp_path.write_text(fixed_content, encoding="utf-8")
+
+        temp_path.replace(file_path)
+
+        remove_backup(backup_path)
+
+        changes = []
+        if misplaced_tokens:
+            changes.append("misplaced elements")
+        if charset_info.charset_normalized:
+            changes.append("normalized charset to UTF-8")
+        if not charset_info.has_charset:
+            changes.append("added charset UTF-8")
+
+        logging.info(f"Fixed ({', '.join(changes)}): {file_path}")
+        return ProcessingResult(ProcessingStatus.FIXED, "Successfully fixed")
+
+    except Exception as e:
+        if backup_path and backup_path.exists():
+            restore_from_backup(file_path, backup_path)
+        return ProcessingResult(ProcessingStatus.FAILED, f"Processing error: {e}")
+
+
+def process_directory(directory: Path, dry_run: bool) -> ProcessingSummary:
+    summary = ProcessingSummary()
+
+    html_files = find_html_files(directory)
+
+    for file_path in html_files:
+        summary.total += 1
+        result = process_file(file_path, dry_run)
+
+        if result.status == ProcessingStatus.FIXED:
+            summary.fixed += 1
+        elif result.status == ProcessingStatus.SKIPPED:
+            summary.skipped += 1
+        elif result.status == ProcessingStatus.FAILED:
+            summary.failed += 1
+            summary.failed_files.append(str(file_path))
+            logging.error(f"Failed: {file_path} - {result.message}")
+
+    return summary
+
+
+def print_summary(summary: ProcessingSummary, dry_run: bool) -> None:
+    print()
+    logging.info("Summary:")
+    logging.info(f"  Total files: {summary.total}")
+
+    if dry_run:
+        logging.info(f"  Would fix: {summary.fixed}")
+        logging.info(f"  Would skip: {summary.skipped}")
+        logging.info("  [DRY RUN] No changes made")
+    else:
+        logging.info(f"  Fixed: {summary.fixed}")
+        logging.info(f"  Skipped: {summary.skipped}")
+        logging.info(f"  Failed: {summary.failed}")
+
+    if summary.failed_files:
+        logging.info("  Failed files:")
+        for failed_file in summary.failed_files:
+            logging.info(f"    - {failed_file}")
+
+
+def build_argument_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Fix HTML files by moving misplaced head elements into the <head> tag",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s
+  %(prog)s --dry-run
+  %(prog)s --dir /path/to/html/files
+  %(prog)s -n -v --dir ../help/src/main/resources/de
+        """,
+    )
+
+    parser.add_argument(
+        "-d",
+        "--dir",
+        type=Path,
+        default=Path(DEFAULT_TARGET_DIR),
+        help=f"Target directory (default: {DEFAULT_TARGET_DIR})",
+    )
+    parser.add_argument(
+        "-n",
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without making changes",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Show detailed processing information"
+    )
+
+    return parser
+
+
+def main() -> int:
+    parser = build_argument_parser()
+    args = parser.parse_args()
+
+    setup_logging(args.verbose)
+
+    if args.dry_run:
+        logging.info("Running in DRY RUN mode")
+
+    try:
+        validate_directory(args.dir)
+    except (FileNotFoundError, NotADirectoryError, PermissionError) as e:
+        logging.error(str(e))
+        return 1
+
+    logging.info(f"Scanning directory: {args.dir}")
+    summary = process_directory(args.dir, args.dry_run)
+
+    print_summary(summary, args.dry_run)
+    logging.info("Done")
+
+    return 0 if summary.failed == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
