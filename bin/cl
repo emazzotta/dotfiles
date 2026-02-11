@@ -1,170 +1,134 @@
-#!/bin/bash
-set -euo pipefail
+#!/usr/bin/env python3
 
-COMPOSE_FILE="$HOME/Projects/private/opencode/docker-compose.yml"
-PROJECT_NAME="opencode"
-CONTAINER_NAME="opencode-$(date +%s)-$$"
+import argparse
+import os
+import subprocess
+import sys
+from pathlib import Path
+from time import time
+from typing import Final, Sequence
 
-show_usage() {
-    cat << 'EOF'
-Usage: cl [OPTIONS] [CLAUDE_ARGS...]
 
-Options:
-  -f, --file FILE    Mount specific file(s) instead of entire PWD
-                     Can be specified multiple times
+COMPOSE_FILE: Final = Path.home() / "Projects" / "private" / "opencode" / "docker-compose.yml"
+PROJECT_NAME: Final = "opencode"
 
+
+def create_container_name() -> str:
+    return f"opencode-{int(time())}-{os.getpid()}"
+
+
+def validate_file_readable(file_path: Path) -> None:
+    if not file_path.exists():
+        print(f"Error: File not found: {file_path}", file=sys.stderr)
+        sys.exit(1)
+    if not file_path.is_file():
+        print(f"Error: Not a file: {file_path}", file=sys.stderr)
+        sys.exit(1)
+    if not os.access(file_path, os.R_OK):
+        print(f"Error: File not readable: {file_path}", file=sys.stderr)
+        sys.exit(1)
+
+
+def resolve_absolute_path(file_path: str) -> Path:
+    path = Path(file_path)
+    return path.resolve()
+
+
+def calculate_relative_path(absolute_path: Path, pwd: Path) -> Path:
+    try:
+        return absolute_path.relative_to(pwd)
+    except ValueError:
+        print(f"Error: File must be within PWD: {absolute_path}", file=sys.stderr)
+        sys.exit(1)
+
+
+def build_volume_arguments(file_paths: Sequence[str], pwd: Path) -> list[str]:
+    if not file_paths:
+        return ["-v", f"{pwd}:/workspace/code"]
+
+    volume_args: list[str] = []
+    for file_path in file_paths:
+        absolute_path = resolve_absolute_path(file_path)
+        validate_file_readable(absolute_path)
+        relative_path = calculate_relative_path(absolute_path, pwd)
+        volume_args.extend(["-v", f"{absolute_path}:/workspace/code/{relative_path}:ro"])
+
+    return volume_args
+
+
+def execute_docker_compose(
+    volume_args: list[str],
+    claude_args: list[str],
+    container_name: str,
+) -> None:
+    command = [
+        "docker",
+        "compose",
+        "-f",
+        str(COMPOSE_FILE),
+        "-p",
+        PROJECT_NAME,
+        "run",
+        "--remove-orphans",
+        "--rm",
+        "--name",
+        container_name,
+        *volume_args,
+        "opencode",
+        "claude",
+        *claude_args,
+    ]
+
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError as e:
+        sys.exit(e.returncode)
+    except FileNotFoundError:
+        print("Error: docker command not found", file=sys.stderr)
+        sys.exit(1)
+
+
+def parse_arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="cl",
+        description="Run Claude in Docker container with file mounts",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
 Examples:
   cl "explain this codebase"              # Mount entire PWD
   cl -f script.sh "review this file"      # Mount only script.sh
   cl -f file1.txt -f file2.py "compare"   # Mount multiple files
-EOF
-}
+        """,
+    )
 
-validate_file_exists() {
-    local file="$1"
-    if [ ! -f "$file" ]; then
-        echo "Error: File not found: $file" >&2
-        return 1
-    fi
-    if [ ! -r "$file" ]; then
-        echo "Error: File not readable: $file" >&2
-        return 1
-    fi
-}
+    parser.add_argument(
+        "-f",
+        "--file",
+        action="append",
+        dest="files",
+        metavar="FILE",
+        help="Mount specific file(s) instead of entire PWD (can be specified multiple times)",
+    )
 
-resolve_absolute_path() {
-    local file="$1"
-    if [[ "$file" = /* ]]; then
-        echo "$file"
-    else
-        echo "$PWD/$file"
-    fi
-}
+    parser.add_argument(
+        "claude_args",
+        nargs="*",
+        help="Arguments to pass to Claude",
+    )
 
-calculate_relative_path() {
-    local absolute_path="$1"
-    local pwd_path="$PWD"
+    return parser.parse_args()
 
-    if [[ "$absolute_path" == "$pwd_path"* ]]; then
-        echo "${absolute_path#$pwd_path/}"
-    else
-        echo "Error: File must be within PWD: $absolute_path" >&2
-        return 1
-    fi
-}
 
-parse_arguments() {
-    local files=()
-    local claude_args=()
+def main() -> None:
+    args = parse_arguments()
+    pwd = Path.cwd()
 
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            -h|--help)
-                show_usage
-                exit 0
-                ;;
-            -f|--file)
-                if [ $# -lt 2 ]; then
-                    echo "Error: $1 requires a file argument" >&2
-                    show_usage
-                    exit 1
-                fi
-                files+=("$2")
-                shift 2
-                ;;
-            *)
-                claude_args+=("$1")
-                shift
-                ;;
-        esac
-    done
+    file_paths: list[str] = args.files if args.files else []
+    volume_args = build_volume_arguments(file_paths, pwd)
+    container_name = create_container_name()
 
-    echo "${#files[@]}"
-    printf '%s\n' "${files[@]}"
-    if [ ${#claude_args[@]} -gt 0 ]; then
-        printf '%s\n' "${claude_args[@]}"
-    fi
-}
+    execute_docker_compose(volume_args, args.claude_args, container_name)
 
-build_volume_mounts() {
-    local file_count="$1"
-    shift
-    local volume_args=()
 
-    if [ "$file_count" -eq 0 ]; then
-        volume_args+=("-v" "$PWD:/workspace/code")
-    else
-        for ((i=0; i<file_count; i++)); do
-            local file="$1"
-            shift
-
-            local absolute_path
-            absolute_path=$(resolve_absolute_path "$file")
-
-            validate_file_exists "$absolute_path" || exit 1
-
-            local relative_path
-            relative_path=$(calculate_relative_path "$absolute_path") || exit 1
-
-            volume_args+=("-v" "$absolute_path:/workspace/code/$relative_path:ro")
-        done
-    fi
-
-    printf '%s\n' "${volume_args[@]}"
-}
-
-main() {
-    local parse_output
-    parse_output=$(parse_arguments "$@")
-
-    local line_num=0
-    local file_count=0
-    local -a files=()
-    local -a claude_args=()
-    local parsing_files=true
-
-    while IFS= read -r line; do
-        if [ $line_num -eq 0 ]; then
-            file_count=$line
-        elif [ $line_num -le "$file_count" ]; then
-            files+=("$line")
-        else
-            if [ -n "$line" ]; then
-                claude_args+=("$line")
-            fi
-        fi
-        ((line_num++))
-    done <<< "$parse_output"
-
-    local volume_args
-    if [ "$file_count" -eq 0 ]; then
-        volume_args=("-v" "$PWD:/workspace/code")
-    else
-        volume_args=()
-        for file in "${files[@]}"; do
-            local absolute_path
-            absolute_path=$(resolve_absolute_path "$file")
-
-            validate_file_exists "$absolute_path" || exit 1
-
-            local relative_path
-            relative_path=$(calculate_relative_path "$absolute_path") || exit 1
-
-            volume_args+=("-v" "$absolute_path:/workspace/code/$relative_path:ro")
-        done
-    fi
-
-    if [ ${#claude_args[@]} -gt 0 ]; then
-        docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" run --remove-orphans --rm \
-            --name "$CONTAINER_NAME" \
-            "${volume_args[@]}" \
-            opencode claude "${claude_args[@]}"
-    else
-        docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" run --remove-orphans --rm \
-            --name "$CONTAINER_NAME" \
-            "${volume_args[@]}" \
-            opencode claude
-    fi
-}
-
-main "$@"
+if __name__ == "__main__":
+    main()
