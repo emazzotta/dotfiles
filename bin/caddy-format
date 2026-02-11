@@ -1,0 +1,32 @@
+#!/bin/bash
+set -euo pipefail
+
+check_docker() {
+    if ! command -v docker &>/dev/null; then
+        echo "Error: docker is not installed or not in PATH" >&2
+        exit 127
+    fi
+}
+
+check_caddyfile() {
+    if [ ! -f "Caddyfile" ]; then
+        echo "Error: Caddyfile not found in current directory" >&2
+        exit 1
+    fi
+}
+
+format_caddyfile() {
+    docker run --rm \
+        -v "$PWD:/workspace" \
+        -w /workspace \
+        caddy:latest \
+        /bin/sh -c 'caddy fmt --overwrite'
+}
+
+main() {
+    check_docker
+    check_caddyfile
+    format_caddyfile
+}
+
+main "$@"
