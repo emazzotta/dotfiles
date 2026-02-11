@@ -1,0 +1,55 @@
+#!/bin/sh
+set -eu
+
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") <container1> [container2 ...]
+
+Inspect one or more Docker containers and display their configuration.
+
+Examples:
+  $(basename "$0") nginx
+  $(basename "$0") nginx postgres redis
+EOF
+}
+
+validate_docker() {
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "Error: docker command not found" >&2
+        exit 1
+    fi
+}
+
+inspect_container() {
+    local container="$1"
+
+    if ! docker inspect "$container" >/dev/null 2>&1; then
+        echo "Error: Container '$container' not found or not accessible" >&2
+        return 1
+    fi
+
+    docker inspect --format='Container: {{.Name}}
+Image: {{.Config.Image}}
+Ports: {{range $p, $conf := .NetworkSettings.Ports}}{{$p}}->{{(index $conf 0).HostPort}} {{end}}
+Env: {{range .Config.Env}}
+  - {{.}}{{end}}
+Volumes: {{range .Mounts}}
+  - {{.Source}}:{{.Destination}}{{if .Mode}}:{{.Mode}}{{end}}{{end}}
+Network: {{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}
+---' "$container"
+}
+
+main() {
+    if [ $# -eq 0 ]; then
+        show_usage
+        exit 1
+    fi
+
+    validate_docker
+
+    for container in "$@"; do
+        inspect_container "$container" || continue
+    done
+}
+
+main "$@"
