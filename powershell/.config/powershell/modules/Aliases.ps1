@@ -7,6 +7,7 @@ Set-Alias -Name psm -Value Navigate-PowerShellModules
 Set-Alias -Name rp1 -Value Reload-Profile
 Set-Alias -Name rr -Value Remove-ReadOnly
 Set-Alias -Name rsems -Value Restore-EmsCache
+Set-Alias -Name vi -Value vim
 Set-Alias -Name vpn -Value Connect-LeonardoVPN
 Set-Alias -Name wh -Value Connect-Devhost-VM
 Set-Alias -Name whost -Value Connect-Devhost-VM
