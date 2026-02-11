@@ -1,9 +1,170 @@
 #!/bin/bash
+set -euo pipefail
+
 COMPOSE_FILE="$HOME/Projects/private/opencode/docker-compose.yml"
 PROJECT_NAME="opencode"
 CONTAINER_NAME="opencode-$(date +%s)-$$"
 
-docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" run --remove-orphans --rm \
-  --name "$CONTAINER_NAME" \
-  -v "$PWD:/workspace/code" \
-  opencode claude "$@"
+show_usage() {
+    cat << 'EOF'
+Usage: cl [OPTIONS] [CLAUDE_ARGS...]
+
+Options:
+  -f, --file FILE    Mount specific file(s) instead of entire PWD
+                     Can be specified multiple times
+
+Examples:
+  cl "explain this codebase"              # Mount entire PWD
+  cl -f script.sh "review this file"      # Mount only script.sh
+  cl -f file1.txt -f file2.py "compare"   # Mount multiple files
+EOF
+}
+
+validate_file_exists() {
+    local file="$1"
+    if [ ! -f "$file" ]; then
+        echo "Error: File not found: $file" >&2
+        return 1
+    fi
+    if [ ! -r "$file" ]; then
+        echo "Error: File not readable: $file" >&2
+        return 1
+    fi
+}
+
+resolve_absolute_path() {
+    local file="$1"
+    if [[ "$file" = /* ]]; then
+        echo "$file"
+    else
+        echo "$PWD/$file"
+    fi
+}
+
+calculate_relative_path() {
+    local absolute_path="$1"
+    local pwd_path="$PWD"
+
+    if [[ "$absolute_path" == "$pwd_path"* ]]; then
+        echo "${absolute_path#$pwd_path/}"
+    else
+        echo "Error: File must be within PWD: $absolute_path" >&2
+        return 1
+    fi
+}
+
+parse_arguments() {
+    local files=()
+    local claude_args=()
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            -f|--file)
+                if [ $# -lt 2 ]; then
+                    echo "Error: $1 requires a file argument" >&2
+                    show_usage
+                    exit 1
+                fi
+                files+=("$2")
+                shift 2
+                ;;
+            *)
+                claude_args+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    echo "${#files[@]}"
+    printf '%s\n' "${files[@]}"
+    if [ ${#claude_args[@]} -gt 0 ]; then
+        printf '%s\n' "${claude_args[@]}"
+    fi
+}
+
+build_volume_mounts() {
+    local file_count="$1"
+    shift
+    local volume_args=()
+
+    if [ "$file_count" -eq 0 ]; then
+        volume_args+=("-v" "$PWD:/workspace/code")
+    else
+        for ((i=0; i<file_count; i++)); do
+            local file="$1"
+            shift
+
+            local absolute_path
+            absolute_path=$(resolve_absolute_path "$file")
+
+            validate_file_exists "$absolute_path" || exit 1
+
+            local relative_path
+            relative_path=$(calculate_relative_path "$absolute_path") || exit 1
+
+            volume_args+=("-v" "$absolute_path:/workspace/code/$relative_path:ro")
+        done
+    fi
+
+    printf '%s\n' "${volume_args[@]}"
+}
+
+main() {
+    local parse_output
+    parse_output=$(parse_arguments "$@")
+
+    local line_num=0
+    local file_count=0
+    local -a files=()
+    local -a claude_args=()
+    local parsing_files=true
+
+    while IFS= read -r line; do
+        if [ $line_num -eq 0 ]; then
+            file_count=$line
+        elif [ $line_num -le "$file_count" ]; then
+            files+=("$line")
+        else
+            if [ -n "$line" ]; then
+                claude_args+=("$line")
+            fi
+        fi
+        ((line_num++))
+    done <<< "$parse_output"
+
+    local volume_args
+    if [ "$file_count" -eq 0 ]; then
+        volume_args=("-v" "$PWD:/workspace/code")
+    else
+        volume_args=()
+        for file in "${files[@]}"; do
+            local absolute_path
+            absolute_path=$(resolve_absolute_path "$file")
+
+            validate_file_exists "$absolute_path" || exit 1
+
+            local relative_path
+            relative_path=$(calculate_relative_path "$absolute_path") || exit 1
+
+            volume_args+=("-v" "$absolute_path:/workspace/code/$relative_path:ro")
+        done
+    fi
+
+    if [ ${#claude_args[@]} -gt 0 ]; then
+        docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" run --remove-orphans --rm \
+            --name "$CONTAINER_NAME" \
+            "${volume_args[@]}" \
+            opencode claude "${claude_args[@]}"
+    else
+        docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" run --remove-orphans --rm \
+            --name "$CONTAINER_NAME" \
+            "${volume_args[@]}" \
+            opencode claude
+    fi
+}
+
+main "$@"
