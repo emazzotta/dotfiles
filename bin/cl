@@ -51,7 +51,7 @@ def build_volume_arguments(file_paths: Sequence[str], pwd: Path) -> list[str]:
         absolute_path = resolve_absolute_path(file_path)
         validate_file_readable(absolute_path)
         relative_path = calculate_relative_path(absolute_path, pwd)
-        volume_args.extend(["-v", f"{absolute_path}:/workspace/code/{relative_path}:ro"])
+        volume_args.extend(["-v", f"{absolute_path}:/workspace/code/{relative_path}"])
 
     return volume_args
 
@@ -98,6 +98,8 @@ Examples:
   cl "explain this codebase"              # Mount entire PWD
   cl -f script.sh "review this file"      # Mount only script.sh
   cl -f file1.txt -f file2.py "compare"   # Mount multiple files
+  cl -r "continue work"                   # Resume session (interactive selector)
+  cl -r <session-id> "continue work"      # Resume specific session
         """,
     )
 
@@ -108,6 +110,15 @@ Examples:
         dest="files",
         metavar="FILE",
         help="Mount specific file(s) instead of entire PWD (can be specified multiple times)",
+    )
+
+    parser.add_argument(
+        "-r",
+        "--resume",
+        nargs="?",
+        const=True,
+        metavar="SESSION_ID",
+        help="Resume a previous Claude session (optionally specify session ID)",
     )
 
     parser.add_argument(
@@ -127,7 +138,13 @@ def main() -> None:
     volume_args = build_volume_arguments(file_paths, pwd)
     container_name = create_container_name()
 
-    execute_docker_compose(volume_args, args.claude_args, container_name)
+    claude_args = list(args.claude_args)
+    if args.resume:
+        claude_args.insert(0, "--resume")
+        if args.resume is not True:
+            claude_args.insert(1, args.resume)
+
+    execute_docker_compose(volume_args, claude_args, container_name)
 
 
 if __name__ == "__main__":
