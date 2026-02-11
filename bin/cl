@@ -1,8 +1,9 @@
 #!/bin/bash
 COMPOSE_FILE="$HOME/Projects/private/opencode/docker-compose.yml"
-SESSION_ID="opencode-$(date +%s)-$$"
+PROJECT_NAME="opencode"
+CONTAINER_NAME="opencode-$(date +%s)-$$"
 
-docker compose -f "$COMPOSE_FILE" -p "$SESSION_ID" run --remove-orphans --rm \
-  --name "$SESSION_ID" \
+docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" run --remove-orphans --rm \
+  --name "$CONTAINER_NAME" \
   -v "$PWD:/workspace/code" \
   opencode claude "$@"
