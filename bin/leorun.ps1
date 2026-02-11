@@ -436,11 +436,11 @@ switch ($Mode) {
     }
     "quick" {
         Write-Host "   Skip: clean (compile + exec)" -ForegroundColor DarkGray
-        $Cmd = "mvn $MvnSettingsFlag -DskipTests compile && $MvnRunCmd"
+        $Cmd = "mvn $MvnSettingsFlag -DskipTests compile; if (`$LASTEXITCODE -eq 0) { $MvnRunCmd }"
     }
     default {
         Write-Host "   Full build: clean + install + exec" -ForegroundColor DarkGray
-        $Cmd = "mvn $MvnSettingsFlag -DskipTests clean install && $MvnRunCmd"
+        $Cmd = "mvn $MvnSettingsFlag -DskipTests clean install; if (`$LASTEXITCODE -eq 0) { $MvnRunCmd }"
     }
 }
 
