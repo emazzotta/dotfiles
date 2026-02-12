@@ -1,0 +1,55 @@
+#!/bin/bash
+set -euo pipefail
+
+input=$(cat)
+
+total_in=$(echo "$input" | jq '.context_window.total_input_tokens')
+total_out=$(echo "$input" | jq '.context_window.total_output_tokens')
+size=$(echo "$input" | jq '.context_window.context_window_size')
+
+usage=$(echo "$input" | jq '.context_window.current_usage')
+if [ "$usage" != "null" ]; then
+    cache_create=$(echo "$usage" | jq '.cache_creation_input_tokens')
+    cache_read=$(echo "$usage" | jq '.cache_read_input_tokens')
+else
+    cache_create=0
+    cache_read=0
+fi
+
+get_model_display_name() {
+    local model_id=$1
+    case "$model_id" in
+        *"sonnet-4-5"*) echo "Sonnet 4.5" ;;
+        *"opus-4-5"*) echo "Opus 4.5" ;;
+        *"sonnet-3-5"*) echo "Sonnet 3.5" ;;
+        *"opus-3"*) echo "Opus 3" ;;
+        *) echo "$model_id" | sed 's/claude-//' | sed 's/-20[0-9]\{6\}//' ;;
+    esac
+}
+
+create_progress_bar() {
+    local percentage=$1
+    local bar_length=10
+    local filled=$((percentage * bar_length / 100))
+    local empty=$((bar_length - filled))
+
+    printf '█%.0s' $(seq 1 $filled)
+    printf '░%.0s' $(seq 1 $empty)
+}
+
+model_id=$(echo "$input" | jq -r '.model.id')
+model=$(get_model_display_name "$model_id")
+
+context_tokens=$((total_in + total_out + cache_create + cache_read))
+session_tokens=$((total_out + cache_create + cache_read))
+
+ctx_pct=$(awk "BEGIN {printf \"%.0f\", ($context_tokens * 100) / $size}")
+ctx_bar=$(create_progress_bar $ctx_pct)
+
+session_pct=$(awk "BEGIN {printf \"%.0f\", ($session_tokens * 100) / $size}")
+if [ $session_pct -gt 100 ]; then
+    session_pct=100
+fi
+session_bar=$(create_progress_bar $session_pct)
+
+printf '%s | Context: %s %d%% | Session: %s %d%%' "$model" "$ctx_bar" "$ctx_pct" "$session_bar" "$session_pct"

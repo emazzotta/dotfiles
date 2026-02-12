@@ -36,6 +36,8 @@ def main() -> None:
     else:
         volume_args = []
         for file_path in files:
+            if not file_path.startswith('./') and not file_path.startswith('/'):
+                file_path = f"./{file_path}"
             absolute_path = (Path(file_path) if Path(file_path).is_absolute() else pwd / file_path).resolve()
             if not absolute_path.exists():
                 print(f"Error: File not found: {file_path}", file=sys.stderr)
@@ -45,7 +47,8 @@ def main() -> None:
             except ValueError:
                 print(f"Error: File must be within PWD: {file_path}", file=sys.stderr)
                 sys.exit(1)
-            volume_args.extend(["-v", f"{absolute_path}:/workspace/code/{relative_path}"])
+            host_path = pwd / relative_path
+            volume_args.extend(["-v", f"{host_path}:/workspace/code/{relative_path}"])
 
     claude_args = ["--resume"] if resume else []
     container_name = f"opencode-{int(time())}"
