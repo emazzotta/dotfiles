@@ -1,150 +1,69 @@
 #!/usr/bin/env python3
 
-import argparse
-import os
-import subprocess
 import sys
 from pathlib import Path
+from subprocess import run
 from time import time
-from typing import Final, Sequence
 
 
-COMPOSE_FILE: Final = Path.home() / "Projects" / "private" / "opencode" / "docker-compose.yml"
-PROJECT_NAME: Final = "opencode"
+COMPOSE_FILE = Path.home() / "Projects" / "private" / "opencode" / "docker-compose.yml"
 
 
-def create_container_name() -> str:
-    return f"opencode-{int(time())}-{os.getpid()}"
+def main() -> None:
+    pwd = Path.cwd()
+    files: list[str] = []
+    resume = False
 
+    args = sys.argv[1:]
+    i = 0
+    while i < len(args):
+        if args[i] in ("-f", "--file"):
+            if i + 1 >= len(args):
+                print("Error: -f/--file requires a file path", file=sys.stderr)
+                sys.exit(1)
+            files.append(args[i + 1])
+            i += 2
+        elif args[i] in ("-r", "--resume"):
+            resume = True
+            i += 1
+        else:
+            print(f"Error: Unknown argument: {args[i]}", file=sys.stderr)
+            print("Usage: cl [-f FILE]... [-r]", file=sys.stderr)
+            sys.exit(1)
 
-def validate_file_readable(file_path: Path) -> None:
-    if not file_path.exists():
-        print(f"Error: File not found: {file_path}", file=sys.stderr)
-        sys.exit(1)
-    if not file_path.is_file():
-        print(f"Error: Not a file: {file_path}", file=sys.stderr)
-        sys.exit(1)
-    if not os.access(file_path, os.R_OK):
-        print(f"Error: File not readable: {file_path}", file=sys.stderr)
-        sys.exit(1)
+    if not files:
+        volume_args = ["-v", f"{pwd}:/workspace/code"]
+    else:
+        volume_args = []
+        for file_path in files:
+            absolute_path = (Path(file_path) if Path(file_path).is_absolute() else pwd / file_path).resolve()
+            if not absolute_path.exists():
+                print(f"Error: File not found: {file_path}", file=sys.stderr)
+                sys.exit(1)
+            try:
+                relative_path = absolute_path.relative_to(pwd)
+            except ValueError:
+                print(f"Error: File must be within PWD: {file_path}", file=sys.stderr)
+                sys.exit(1)
+            volume_args.extend(["-v", f"{absolute_path}:/workspace/code/{relative_path}"])
 
+    claude_args = ["--resume"] if resume else []
+    container_name = f"opencode-{int(time())}"
 
-def resolve_absolute_path(file_path: str) -> Path:
-    path = Path(file_path)
-    return path.resolve()
-
-
-def calculate_relative_path(absolute_path: Path, pwd: Path) -> Path:
-    try:
-        return absolute_path.relative_to(pwd)
-    except ValueError:
-        print(f"Error: File must be within PWD: {absolute_path}", file=sys.stderr)
-        sys.exit(1)
-
-
-def build_volume_arguments(file_paths: Sequence[str], pwd: Path) -> list[str]:
-    if not file_paths:
-        return ["-v", f"{pwd}:/workspace/code"]
-
-    volume_args: list[str] = []
-    for file_path in file_paths:
-        absolute_path = resolve_absolute_path(file_path)
-        validate_file_readable(absolute_path)
-        relative_path = calculate_relative_path(absolute_path, pwd)
-        volume_args.extend(["-v", f"{absolute_path}:/workspace/code/{relative_path}"])
-
-    return volume_args
-
-
-def execute_docker_compose(
-    volume_args: list[str],
-    claude_args: list[str],
-    container_name: str,
-) -> None:
     command = [
-        "docker",
-        "compose",
-        "-f",
-        str(COMPOSE_FILE),
-        "-p",
-        PROJECT_NAME,
-        "run",
-        "--remove-orphans",
-        "--rm",
-        "--name",
-        container_name,
+        "docker", "compose",
+        "-f", str(COMPOSE_FILE),
+        "-p", "opencode",
+        "run", "--remove-orphans", "--rm",
+        "--name", container_name,
         *volume_args,
         "opencode",
         "claude",
         *claude_args,
     ]
 
-    try:
-        subprocess.run(command, check=True)
-    except subprocess.CalledProcessError as e:
-        sys.exit(e.returncode)
-    except FileNotFoundError:
-        print("Error: docker command not found", file=sys.stderr)
-        sys.exit(1)
-
-
-def parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="cl",
-        description="Run Claude in Docker container with file mounts",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  cl "explain this codebase"              # Mount entire PWD
-  cl -f script.sh "review this file"      # Mount only script.sh
-  cl -f file1.txt -f file2.py "compare"   # Mount multiple files
-  cl -r "continue work"                   # Resume session (interactive selector)
-  cl -r <session-id> "continue work"      # Resume specific session
-        """,
-    )
-
-    parser.add_argument(
-        "-f",
-        "--file",
-        action="append",
-        dest="files",
-        metavar="FILE",
-        help="Mount specific file(s) instead of entire PWD (can be specified multiple times)",
-    )
-
-    parser.add_argument(
-        "-r",
-        "--resume",
-        nargs="?",
-        const=True,
-        metavar="SESSION_ID",
-        help="Resume a previous Claude session (optionally specify session ID)",
-    )
-
-    parser.add_argument(
-        "claude_args",
-        nargs="*",
-        help="Arguments to pass to Claude",
-    )
-
-    return parser.parse_args()
-
-
-def main() -> None:
-    args = parse_arguments()
-    pwd = Path.cwd()
-
-    file_paths: list[str] = args.files if args.files else []
-    volume_args = build_volume_arguments(file_paths, pwd)
-    container_name = create_container_name()
-
-    claude_args = list(args.claude_args)
-    if args.resume:
-        claude_args.insert(0, "--resume")
-        if args.resume is not True:
-            claude_args.insert(1, args.resume)
-
-    execute_docker_compose(volume_args, claude_args, container_name)
+    result = run(command)
+    sys.exit(result.returncode)
 
 
 if __name__ == "__main__":
