@@ -6,19 +6,20 @@ ZSH_THEME_DIR="${HOME}/.zprezto/modules/prompt/functions/"
 mkdir -p "${ZSH_THEME_DIR}"
 mkdir -p "${VS_CODE_DIR}"
 
-stow -d "${DIR}" -t "${HOME}" bash
-stow -d "${DIR}" -t "${HOME}" git
-stow -d "${DIR}" -t "${HOME}" gpg
-stow -d "${DIR}" -t "${HOME}" karabiner
-stow -d "${DIR}" -t "${HOME}" kerberos
-stow -d "${DIR}" -t "${HOME}" lftp
-stow -d "${DIR}" -t "${HOME}" maven
-stow -d "${DIR}" -t "${HOME}" powershell
-stow -d "${DIR}" -t "${HOME}" sdkman
-stow -d "${DIR}" -t "${HOME}" ssh
-stow -d "${DIR}" -t "${HOME}" sshrc
-stow -d "${DIR}" -t "${HOME}" tmux
-stow -d "${DIR}" -t "${HOME}" vim
-stow -d "${DIR}" -t "${HOME}" zsh
-stow -d "${DIR}" -t "${ZSH_THEME_DIR}" zsh_theme
-stow -d "${DIR}" -t "${VS_CODE_DIR}" vscode
+stow -d "${DIR:-.}" -t "${HOME}" bash
+stow -d "${DIR:-.}" -t "${HOME}" claude
+stow -d "${DIR:-.}" -t "${HOME}" git
+stow -d "${DIR:-.}" -t "${HOME}" gpg
+stow -d "${DIR:-.}" -t "${HOME}" karabiner
+stow -d "${DIR:-.}" -t "${HOME}" kerberos
+stow -d "${DIR:-.}" -t "${HOME}" lftp
+stow -d "${DIR:-.}" -t "${HOME}" maven
+stow -d "${DIR:-.}" -t "${HOME}" powershell
+stow -d "${DIR:-.}" -t "${HOME}" sdkman
+stow -d "${DIR:-.}" -t "${HOME}" ssh
+stow -d "${DIR:-.}" -t "${HOME}" sshrc
+stow -d "${DIR:-.}" -t "${HOME}" tmux
+stow -d "${DIR:-.}" -t "${HOME}" vim
+stow -d "${DIR:-.}" -t "${HOME}" zsh
+stow -d "${DIR:-.}" -t "${ZSH_THEME_DIR}" zsh_theme
+stow -d "${DIR:-.}" -t "${VS_CODE_DIR}" vscode

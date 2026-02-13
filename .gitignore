@@ -1,6 +1,7 @@
 **/.gnupg/**
 **/.m2/**
 **/.ssh/**
+**/ccline/**
 **/karabiner/**
 *.dat
 *.db
@@ -23,5 +24,6 @@ dotfiles/
 !**/.gnupg/gpg.conf
 !**/.m2/settings.template.xml
 !**/.ssh/config
+!**/ccline/config.toml
+!**/ccline/models.toml
 !**/karabiner/karabiner.json
-

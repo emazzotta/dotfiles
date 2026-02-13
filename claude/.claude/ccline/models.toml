@@ -1,0 +1,30 @@
+# CCometixLine Model Configuration
+# This file defines model display names and context limits for different LLM models
+# File location: ~/.claude/ccline/models.toml
+#
+# Claude models are automatically recognized (Sonnet, Opus, Haiku) with
+# version extraction. You only need to add entries here for overrides or
+# third-party models.
+
+models = []
+context_modifiers = []
+
+# Model configurations (simple substring matching)
+# Each [[models]] section defines a model pattern and its properties
+# These take priority over built-in Claude model recognition
+
+# Example:
+# [[models]]
+# pattern = "my-model"
+# display_name = "My Model"
+# context_limit = 128000
+
+# Context modifiers override context limits and append suffix to display names
+# They are matched independently, enabling composition:
+#   model "Opus 4" + modifier " 1M" = "Opus 4 1M"
+
+# Example:
+# [[context_modifiers]]
+# pattern = "[1m]"
+# display_suffix = " 1M"
+# context_limit = 1000000
