@@ -86,7 +86,7 @@ echo "Setting up dotfiles"
 run_if_exists ./stowsetup && source "$HOME/.bashrc"
 
 echo "Installing Node packages"
-npm install -g eslint vue yarn
+npm install -g eslint vue yarn @cometix/ccline
 
 echo "Setting up terminal"
 clone_if_missing "$HOME/.tmux" "https://github.com/gpakosz/.tmux.git"
