@@ -26,4 +26,5 @@ dotfiles/
 !**/.ssh/config
 !**/ccline/config.toml
 !**/ccline/models.toml
+!**/ccline/themes
 !**/karabiner/karabiner.json
