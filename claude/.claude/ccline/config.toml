@@ -25,7 +25,7 @@ text_bold = false
 
 [[segments]]
 id = "directory"
-enabled = true
+enabled = false
 
 [segments.icon]
 plain = "📁"
