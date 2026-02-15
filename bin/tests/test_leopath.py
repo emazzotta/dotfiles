@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 import pytest
 import sys
-import os
+from pathlib import Path
+from types import ModuleType
 
-from ..leopath import normalize_path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+leopath_path = Path(__file__).parent.parent / "leopath"
+leopath = ModuleType("leopath")
+with open(leopath_path) as f:
+    exec(f.read(), leopath.__dict__)
+
+normalize_path = leopath.normalize_path
 
 TEST_CASES = [
     pytest.param(

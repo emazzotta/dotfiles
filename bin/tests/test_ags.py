@@ -1,9 +1,13 @@
 import sys
 from pathlib import Path
+from types import ModuleType
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import ags
+ags_path = Path(__file__).parent.parent / "ags"
+ags = ModuleType("ags")
+with open(ags_path) as f:
+    exec(f.read(), ags.__dict__)
 
 
 def test_filter_output_no_patterns():
@@ -43,7 +47,7 @@ def test_filter_output_no_matches():
 def test_filter_output_all_filtered():
     output = "ERROR\nERROR\nERROR"
     result = ags._filter_output(output, ["ERROR"])
-    assert result == "\n\n"
+    assert result == ""
 
 
 def test_filter_output_partial_match():

@@ -1,11 +1,15 @@
-import sys
 import hashlib
+import sys
 import tempfile
 from pathlib import Path
+from types import ModuleType
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import hashify
+hashify_path = Path(__file__).parent.parent / "hashify"
+hashify = ModuleType("hashify")
+with open(hashify_path) as f:
+    exec(f.read(), hashify.__dict__)
 
 
 def test_hash_data_sha256():
