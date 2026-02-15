@@ -7,11 +7,7 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 
-try:
-    from scriptlog import Logger
-except ImportError:
-    sys.path.insert(0, str(Path(__file__).parent))
-    from scriptlog import Logger
+from scriptlog import Logger
 
 logger = Logger(use_timestamps=False)
 
@@ -100,13 +96,6 @@ def get_parent_folder(path: str) -> str:
     return os.path.dirname(path)
 
 
-def run_tests() -> None:
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    test_file = os.path.join(script_dir, 'tests', 'leopath_tests.py')
-    result = subprocess.run([sys.executable, '-m', 'pytest', test_file, '-v'], capture_output=False, text=True)
-    sys.exit(result.returncode)
-
-
 def read_from_stdin() -> str:
     print("Paste the path and press Enter:")
     return input().strip()
@@ -115,7 +104,6 @@ def read_from_stdin() -> str:
 def print_usage(script_name: str) -> None:
     print(f"Usage: {script_name} <path>")
     print(f"       {script_name} -           (read path from stdin/paste)")
-    print(f"       {script_name} check       (run tests)")
     print()
     print("Examples:")
     print(f"  {script_name} 'K:\\Daten\\path\\to\\file.leon'")
@@ -159,9 +147,6 @@ def process_path(input_path: str) -> None:
 
 def main() -> int:
     script_name = os.path.basename(sys.argv[0])
-
-    if len(sys.argv) >= 2 and sys.argv[1] == 'check':
-        run_tests()
 
     if len(sys.argv) < 2:
         print_usage(script_name)
