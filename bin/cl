@@ -52,6 +52,17 @@ def build_volume_args_for_files(files: list[str], pwd: Path) -> list[str]:
     return volume_args
 
 
+def validate_path_exists(path_str: str) -> Path:
+    path = Path(path_str).resolve()
+    if not path.exists():
+        print(f"Error: Path does not exist: {path_str}", file=sys.stderr)
+        sys.exit(1)
+    if not path.is_dir():
+        print(f"Error: Path is not a directory: {path_str}", file=sys.stderr)
+        sys.exit(1)
+    return path
+
+
 def build_volume_args(files: list[str], pwd: Path) -> list[str]:
     if not files:
         return build_volume_args_for_pwd(pwd)
@@ -60,6 +71,7 @@ def build_volume_args(files: list[str], pwd: Path) -> list[str]:
 
 def main() -> None:
     pwd = Path.cwd()
+    custom_path: Path | None = None
     files: list[str] = []
     resume = False
 
@@ -72,15 +84,25 @@ def main() -> None:
                 sys.exit(1)
             files.append(args[i + 1])
             i += 2
+        elif args[i] in ("-p", "--path"):
+            if i + 1 >= len(args):
+                print("Error: -p/--path requires a path argument", file=sys.stderr)
+                sys.exit(1)
+            if custom_path is not None:
+                print("Error: -p/--path can only be specified once", file=sys.stderr)
+                sys.exit(1)
+            custom_path = validate_path_exists(args[i + 1])
+            i += 2
         elif args[i] in ("-r", "--resume"):
             resume = True
             i += 1
         else:
             print(f"Error: Unknown argument: {args[i]}", file=sys.stderr)
-            print("Usage: cl [-f FILE]... [-r]", file=sys.stderr)
+            print("Usage: cl [-f FILE]... [-p PATH] [-r]", file=sys.stderr)
             sys.exit(1)
 
-    volume_args = build_volume_args(files, pwd)
+    mount_path = custom_path if custom_path is not None else pwd
+    volume_args = build_volume_args(files, mount_path)
 
     claude_args = ["--resume"] if resume else []
     container_name = f"opencode-{int(time())}"
