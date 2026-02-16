@@ -7,7 +7,17 @@ info "Checking for unfinished git work."
 dir="${WDIR}"
 test "${1}" && dir="${1}"
 
+ignore_dirs=("dev")
+
 find "${dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
+    skip=false
+    for pattern in "${ignore_dirs[@]}"; do
+        if [[ "${dir}" =~ (^|/)${pattern}$ ]]; then
+            skip=true
+            break
+        fi
+    done
+    [[ "${skip}" == true ]] && continue
     if [ -d "${dir}/.git" ]; then
         current_branch=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
         echo -n "."
