@@ -27,14 +27,16 @@ def validate_file_in_pwd(absolute_path: Path, pwd: Path, original_path: str) -> 
         sys.exit(1)
 
 
-def build_volume_args(files: list[str], pwd: Path) -> list[str]:
-    if not files:
+def build_volume_args(files: list[str], paths: list[Path], pwd: Path) -> list[str]:
+    if not files and not paths:
         return ["-v", f"{pwd}:/workspace/code"]
 
     volume_args: list[str] = []
+    for path in paths:
+        volume_args.extend(["-v", f"{path}:/workspace/code/{path.name}"])
     for file_path in files:
-        path = Path(file_path)
-        absolute_path = path.resolve() if path.is_absolute() else (pwd / file_path).resolve()
+        p = Path(file_path)
+        absolute_path = p.resolve() if p.is_absolute() else (pwd / file_path).resolve()
         if not absolute_path.exists():
             print(f"Error: File not found: {file_path}", file=sys.stderr)
             sys.exit(1)
@@ -46,14 +48,13 @@ def build_volume_args(files: list[str], pwd: Path) -> list[str]:
 def main() -> None:
     pwd = Path.cwd()
 
-    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH] [CLAUDE_ARGS...]")
+    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [CLAUDE_ARGS...]")
     parser.add_argument("-f", "--file", dest="files", action="append", default=[], metavar="FILE")
-    parser.add_argument("-p", "--path", dest="path", type=parse_path, default=None, metavar="PATH")
+    parser.add_argument("-p", "--path", dest="paths", action="append", type=parse_path, default=[], metavar="PATH")
 
     args, claude_args = parser.parse_known_args()
 
-    mount_path = args.path if args.path is not None else pwd
-    volume_args = build_volume_args(args.files, mount_path)
+    volume_args = build_volume_args(args.files, args.paths, pwd)
     container_name = f"opencode-{int(time())}"
 
     command = [

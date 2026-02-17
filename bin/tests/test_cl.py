@@ -76,11 +76,11 @@ def test_validate_file_in_pwd_outside_exits(tmp_path):
     assert exc_info.value.code == 1
 
 
-def test_build_volume_args_no_files(tmp_path):
+def test_build_volume_args_no_args(tmp_path):
     pwd = tmp_path / "workspace"
     pwd.mkdir()
 
-    result = build_volume_args([], pwd)
+    result = build_volume_args([], [], pwd)
     assert result == ["-v", f"{pwd}:/workspace/code"]
 
 
@@ -92,7 +92,7 @@ def test_build_volume_args_with_files(tmp_path):
     file1.write_text("content1")
     file2.write_text("content2")
 
-    result = build_volume_args(["file1.txt", "file2.txt"], pwd)
+    result = build_volume_args(["file1.txt", "file2.txt"], [], pwd)
     expected = [
         "-v", f"{pwd / 'file1.txt'}:/workspace/code/file1.txt",
         "-v", f"{pwd / 'file2.txt'}:/workspace/code/file2.txt",
@@ -113,7 +113,7 @@ def test_build_volume_args_with_nested_paths(file_path, expected_container_path,
     full_path.parent.mkdir(parents=True, exist_ok=True)
     full_path.write_text("content")
 
-    result = build_volume_args([file_path], pwd)
+    result = build_volume_args([file_path], [], pwd)
     assert result == ["-v", f"{pwd / expected_container_path}:/workspace/code/{expected_container_path}"]
 
 
@@ -123,7 +123,7 @@ def test_build_volume_args_absolute_path(tmp_path):
     test_file = pwd / "file.txt"
     test_file.write_text("content")
 
-    result = build_volume_args([str(test_file)], pwd)
+    result = build_volume_args([str(test_file)], [], pwd)
     assert result == ["-v", f"{pwd / 'file.txt'}:/workspace/code/file.txt"]
 
 
@@ -132,7 +132,7 @@ def test_build_volume_args_nonexistent_file_exits(tmp_path):
     pwd.mkdir()
 
     with pytest.raises(SystemExit) as exc_info:
-        build_volume_args(["missing.txt"], pwd)
+        build_volume_args(["missing.txt"], [], pwd)
     assert exc_info.value.code == 1
 
 
@@ -143,8 +143,50 @@ def test_build_volume_args_outside_pwd_exits(tmp_path):
     outside_file.write_text("content")
 
     with pytest.raises(SystemExit) as exc_info:
-        build_volume_args(["../outside.txt"], pwd)
+        build_volume_args(["../outside.txt"], [], pwd)
     assert exc_info.value.code == 1
+
+
+def test_build_volume_args_single_path(tmp_path):
+    pwd = tmp_path / "workspace"
+    pwd.mkdir()
+    path_a = tmp_path / "project_a"
+    path_a.mkdir()
+
+    result = build_volume_args([], [path_a], pwd)
+    assert result == ["-v", f"{path_a}:/workspace/code/{path_a.name}"]
+
+
+def test_build_volume_args_multiple_paths(tmp_path):
+    pwd = tmp_path / "workspace"
+    pwd.mkdir()
+    path_a = tmp_path / "project_a"
+    path_a.mkdir()
+    path_b = tmp_path / "project_b"
+    path_b.mkdir()
+
+    result = build_volume_args([], [path_a, path_b], pwd)
+    expected = [
+        "-v", f"{path_a}:/workspace/code/{path_a.name}",
+        "-v", f"{path_b}:/workspace/code/{path_b.name}",
+    ]
+    assert result == expected
+
+
+def test_build_volume_args_mixed_files_and_paths(tmp_path):
+    pwd = tmp_path / "workspace"
+    pwd.mkdir()
+    path_a = tmp_path / "project_a"
+    path_a.mkdir()
+    test_file = pwd / "file.txt"
+    test_file.write_text("content")
+
+    result = build_volume_args(["file.txt"], [path_a], pwd)
+    expected = [
+        "-v", f"{path_a}:/workspace/code/{path_a.name}",
+        "-v", f"{test_file}:/workspace/code/file.txt",
+    ]
+    assert result == expected
 
 
 def test_main_with_custom_path_only(tmp_path, monkeypatch):
@@ -163,7 +205,7 @@ def test_main_with_custom_path_only(tmp_path, monkeypatch):
         cl.main()
     assert exc_info.value.code == 0
 
-    volume_arg = f"{custom_dir}:/workspace/code"
+    volume_arg = f"{custom_dir}:/workspace/code/{custom_dir.name}"
     assert volume_arg in captured_command[0]
 
 
@@ -173,6 +215,7 @@ def test_main_with_custom_path_and_files(tmp_path, monkeypatch):
     test_file = custom_dir / "file.txt"
     test_file.write_text("content")
 
+    monkeypatch.chdir(custom_dir)
     monkeypatch.setattr(sys, "argv", ["cl", "-p", str(custom_dir), "-f", "file.txt"])
 
     captured_command = []
@@ -185,8 +228,10 @@ def test_main_with_custom_path_and_files(tmp_path, monkeypatch):
         cl.main()
     assert exc_info.value.code == 0
 
-    volume_arg = f"{test_file}:/workspace/code/file.txt"
-    assert volume_arg in captured_command[0]
+    path_volume_arg = f"{custom_dir}:/workspace/code/{custom_dir.name}"
+    file_volume_arg = f"{test_file}:/workspace/code/file.txt"
+    assert path_volume_arg in captured_command[0]
+    assert file_volume_arg in captured_command[0]
 
 
 def test_main_custom_path_nonexistent_exits(tmp_path, monkeypatch):
@@ -212,7 +257,7 @@ def test_main_custom_path_with_files_relative_to_custom(tmp_path, monkeypatch):
     pwd.mkdir()
     custom_dir = tmp_path / "custom"
     custom_dir.mkdir()
-    subdir = custom_dir / "subdir"
+    subdir = pwd / "subdir"
     subdir.mkdir()
     test_file = subdir / "file.txt"
     test_file.write_text("content")
@@ -234,20 +279,42 @@ def test_main_custom_path_with_files_relative_to_custom(tmp_path, monkeypatch):
     assert volume_arg in captured_command[0]
 
 
-def test_main_custom_path_with_files_outside_custom_exits(tmp_path, monkeypatch):
+def test_main_custom_path_with_files_outside_cwd_exits(tmp_path, monkeypatch):
     pwd = tmp_path / "pwd"
     pwd.mkdir()
-    pwd_file = pwd / "file.txt"
-    pwd_file.write_text("content")
     custom_dir = tmp_path / "custom"
     custom_dir.mkdir()
+    outside_file = tmp_path / "outside.txt"
+    outside_file.write_text("content")
 
     monkeypatch.chdir(pwd)
-    monkeypatch.setattr(sys, "argv", ["cl", "-p", str(custom_dir), "-f", "file.txt"])
+    monkeypatch.setattr(sys, "argv", ["cl", "-p", str(custom_dir), "-f", "../outside.txt"])
 
     with pytest.raises(SystemExit) as exc_info:
         cl.main()
     assert exc_info.value.code == 1
+
+
+def test_main_with_multiple_paths(tmp_path, monkeypatch):
+    dir1 = tmp_path / "dir1"
+    dir1.mkdir()
+    dir2 = tmp_path / "dir2"
+    dir2.mkdir()
+
+    monkeypatch.setattr(sys, "argv", ["cl", "-p", str(dir1), "-p", str(dir2)])
+
+    captured_command = []
+    def mock_run(cmd):
+        captured_command.append(cmd)
+        return type('obj', (), {'returncode': 0})()
+    monkeypatch.setattr(cl, "run", mock_run)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cl.main()
+    assert exc_info.value.code == 0
+
+    assert f"{dir1}:/workspace/code/dir1" in captured_command[0]
+    assert f"{dir2}:/workspace/code/dir2" in captured_command[0]
 
 
 def test_main_passthrough_args_included_in_command(tmp_path, monkeypatch):
