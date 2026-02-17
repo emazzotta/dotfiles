@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import sys
 from pathlib import Path
 from subprocess import run
@@ -9,23 +10,13 @@ from time import time
 COMPOSE_FILE = Path.home() / "Projects" / "private" / "opencode" / "docker-compose.yml"
 
 
-def normalize_file_path(file_path: str) -> str:
-    if not file_path.startswith('./') and not file_path.startswith('/'):
-        return f"./{file_path}"
-    return file_path
-
-
-def resolve_absolute_path(file_path: str, pwd: Path) -> Path:
-    path = Path(file_path)
-    if path.is_absolute():
-        return path.resolve()
-    return (pwd / file_path).resolve()
-
-
-def validate_file_exists(absolute_path: Path, original_path: str) -> None:
-    if not absolute_path.exists():
-        print(f"Error: File not found: {original_path}", file=sys.stderr)
-        sys.exit(1)
+def parse_path(path_str: str) -> Path:
+    path = Path(path_str).resolve()
+    if not path.exists():
+        raise argparse.ArgumentTypeError(f"Path does not exist: {path_str}")
+    if not path.is_dir():
+        raise argparse.ArgumentTypeError(f"Path is not a directory: {path_str}")
+    return path
 
 
 def validate_file_in_pwd(absolute_path: Path, pwd: Path, original_path: str) -> Path:
@@ -36,75 +27,33 @@ def validate_file_in_pwd(absolute_path: Path, pwd: Path, original_path: str) -> 
         sys.exit(1)
 
 
-def build_volume_args_for_pwd(pwd: Path) -> list[str]:
-    return ["-v", f"{pwd}:/workspace/code"]
-
-
-def build_volume_args_for_files(files: list[str], pwd: Path) -> list[str]:
-    volume_args: list[str] = []
-    for file_path in files:
-        normalized_path = normalize_file_path(file_path)
-        absolute_path = resolve_absolute_path(normalized_path, pwd)
-        validate_file_exists(absolute_path, file_path)
-        relative_path = validate_file_in_pwd(absolute_path, pwd, file_path)
-        host_path = pwd / relative_path
-        volume_args.extend(["-v", f"{host_path}:/workspace/code/{relative_path}"])
-    return volume_args
-
-
-def validate_path_exists(path_str: str) -> Path:
-    path = Path(path_str).resolve()
-    if not path.exists():
-        print(f"Error: Path does not exist: {path_str}", file=sys.stderr)
-        sys.exit(1)
-    if not path.is_dir():
-        print(f"Error: Path is not a directory: {path_str}", file=sys.stderr)
-        sys.exit(1)
-    return path
-
-
 def build_volume_args(files: list[str], pwd: Path) -> list[str]:
     if not files:
-        return build_volume_args_for_pwd(pwd)
-    return build_volume_args_for_files(files, pwd)
+        return ["-v", f"{pwd}:/workspace/code"]
+
+    volume_args: list[str] = []
+    for file_path in files:
+        path = Path(file_path)
+        absolute_path = path.resolve() if path.is_absolute() else (pwd / file_path).resolve()
+        if not absolute_path.exists():
+            print(f"Error: File not found: {file_path}", file=sys.stderr)
+            sys.exit(1)
+        relative_path = validate_file_in_pwd(absolute_path, pwd, file_path)
+        volume_args.extend(["-v", f"{pwd / relative_path}:/workspace/code/{relative_path}"])
+    return volume_args
 
 
 def main() -> None:
     pwd = Path.cwd()
-    custom_path: Path | None = None
-    files: list[str] = []
-    resume = False
 
-    args = sys.argv[1:]
-    i = 0
-    while i < len(args):
-        if args[i] in ("-f", "--file"):
-            if i + 1 >= len(args):
-                print("Error: -f/--file requires a file path", file=sys.stderr)
-                sys.exit(1)
-            files.append(args[i + 1])
-            i += 2
-        elif args[i] in ("-p", "--path"):
-            if i + 1 >= len(args):
-                print("Error: -p/--path requires a path argument", file=sys.stderr)
-                sys.exit(1)
-            if custom_path is not None:
-                print("Error: -p/--path can only be specified once", file=sys.stderr)
-                sys.exit(1)
-            custom_path = validate_path_exists(args[i + 1])
-            i += 2
-        elif args[i] in ("-r", "--resume"):
-            resume = True
-            i += 1
-        else:
-            print(f"Error: Unknown argument: {args[i]}", file=sys.stderr)
-            print("Usage: cl [-f FILE]... [-p PATH] [-r]", file=sys.stderr)
-            sys.exit(1)
+    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH] [CLAUDE_ARGS...]")
+    parser.add_argument("-f", "--file", dest="files", action="append", default=[], metavar="FILE")
+    parser.add_argument("-p", "--path", dest="path", type=parse_path, default=None, metavar="PATH")
 
-    mount_path = custom_path if custom_path is not None else pwd
-    volume_args = build_volume_args(files, mount_path)
+    args, claude_args = parser.parse_known_args()
 
-    claude_args = ["--resume"] if resume else []
+    mount_path = args.path if args.path is not None else pwd
+    volume_args = build_volume_args(args.files, mount_path)
     container_name = f"opencode-{int(time())}"
 
     command = [

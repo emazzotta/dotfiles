@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import ModuleType
+import argparse
 import sys
 import pytest
 
@@ -10,67 +11,41 @@ cl = ModuleType("cl")
 with open(cl_path) as f:
     exec(f.read(), cl.__dict__)
 
-normalize_file_path = cl.normalize_file_path
-resolve_absolute_path = cl.resolve_absolute_path
-validate_file_exists = cl.validate_file_exists
+parse_path = cl.parse_path
 validate_file_in_pwd = cl.validate_file_in_pwd
-validate_path_exists = cl.validate_path_exists
-build_volume_args_for_pwd = cl.build_volume_args_for_pwd
-build_volume_args_for_files = cl.build_volume_args_for_files
 build_volume_args = cl.build_volume_args
 
 
-@pytest.mark.parametrize("input_path,expected", [
-    ("file.txt", "./file.txt"),
-    ("subdir/file.txt", "./subdir/file.txt"),
-    ("./file.txt", "./file.txt"),
-    ("/absolute/path/file.txt", "/absolute/path/file.txt"),
-])
-def test_normalize_file_path(input_path, expected):
-    assert normalize_file_path(input_path) == expected
+def test_parse_path_success(tmp_path):
+    test_dir = tmp_path / "testdir"
+    test_dir.mkdir()
+
+    result = parse_path(str(test_dir))
+    assert result == test_dir.resolve()
 
 
-@pytest.mark.parametrize("file_path,expected_relative", [
-    ("./file.txt", "file.txt"),
-    ("./subdir/file.txt", "subdir/file.txt"),
-    ("./subdir/../file.txt", "file.txt"),
-])
-def test_resolve_absolute_path(file_path, expected_relative, tmp_path):
-    pwd = tmp_path / "workspace"
-    pwd.mkdir()
-    if "subdir" in file_path:
-        (pwd / "subdir").mkdir()
+def test_parse_path_nonexistent_raises(tmp_path):
+    nonexistent = tmp_path / "nonexistent"
 
-    result = resolve_absolute_path(file_path, pwd)
-    assert result == pwd / expected_relative
+    with pytest.raises(argparse.ArgumentTypeError):
+        parse_path(str(nonexistent))
 
 
-def test_resolve_absolute_path_with_absolute_input(tmp_path):
-    pwd = tmp_path / "workspace"
-    pwd.mkdir()
-    absolute_input = tmp_path / "other" / "file.txt"
-
-    result = resolve_absolute_path(str(absolute_input), pwd)
-    assert result == absolute_input
-
-
-def test_validate_file_exists_success(tmp_path):
+def test_parse_path_file_raises(tmp_path):
     test_file = tmp_path / "file.txt"
     test_file.write_text("content")
-    validate_file_exists(test_file, "file.txt")
+
+    with pytest.raises(argparse.ArgumentTypeError):
+        parse_path(str(test_file))
 
 
-def test_validate_file_exists_with_directory(tmp_path):
-    test_dir = tmp_path / "dir"
+def test_parse_path_resolves_relative(tmp_path, monkeypatch):
+    test_dir = tmp_path / "testdir"
     test_dir.mkdir()
-    validate_file_exists(test_dir, "dir")
+    monkeypatch.chdir(tmp_path)
 
-
-def test_validate_file_exists_nonexistent_exits(tmp_path):
-    test_file = tmp_path / "missing.txt"
-    with pytest.raises(SystemExit) as exc_info:
-        validate_file_exists(test_file, "missing.txt")
-    assert exc_info.value.code == 1
+    result = parse_path("testdir")
+    assert result == test_dir
 
 
 @pytest.mark.parametrize("relative_path", [
@@ -101,94 +76,6 @@ def test_validate_file_in_pwd_outside_exits(tmp_path):
     assert exc_info.value.code == 1
 
 
-@pytest.mark.parametrize("pwd_path", [
-    "workspace",
-    "/home/user/project",
-])
-def test_build_volume_args_for_pwd(pwd_path, tmp_path):
-    if pwd_path.startswith("/"):
-        pwd = Path(pwd_path)
-    else:
-        pwd = tmp_path / pwd_path
-        pwd.mkdir()
-
-    result = build_volume_args_for_pwd(pwd)
-    assert result == ["-v", f"{pwd}:/workspace/code"]
-
-
-def test_build_volume_args_for_files_single(tmp_path):
-    pwd = tmp_path / "workspace"
-    pwd.mkdir()
-    test_file = pwd / "file.txt"
-    test_file.write_text("content")
-
-    result = build_volume_args_for_files(["file.txt"], pwd)
-    assert result == ["-v", f"{pwd / 'file.txt'}:/workspace/code/file.txt"]
-
-
-def test_build_volume_args_for_files_multiple(tmp_path):
-    pwd = tmp_path / "workspace"
-    pwd.mkdir()
-    file1 = pwd / "file1.txt"
-    file2 = pwd / "file2.txt"
-    file1.write_text("content1")
-    file2.write_text("content2")
-
-    result = build_volume_args_for_files(["file1.txt", "file2.txt"], pwd)
-    expected = [
-        "-v", f"{pwd / 'file1.txt'}:/workspace/code/file1.txt",
-        "-v", f"{pwd / 'file2.txt'}:/workspace/code/file2.txt",
-    ]
-    assert result == expected
-
-
-@pytest.mark.parametrize("file_path,expected_container_path", [
-    ("subdir/file.txt", "subdir/file.txt"),
-    ("./file.txt", "file.txt"),
-    ("a/b/c/file.txt", "a/b/c/file.txt"),
-])
-def test_build_volume_args_for_files_paths(file_path, expected_container_path, tmp_path):
-    pwd = tmp_path / "workspace"
-    pwd.mkdir()
-
-    full_path = pwd / expected_container_path
-    full_path.parent.mkdir(parents=True, exist_ok=True)
-    full_path.write_text("content")
-
-    result = build_volume_args_for_files([file_path], pwd)
-    assert result == ["-v", f"{pwd / expected_container_path}:/workspace/code/{expected_container_path}"]
-
-
-def test_build_volume_args_for_files_absolute_path(tmp_path):
-    pwd = tmp_path / "workspace"
-    pwd.mkdir()
-    test_file = pwd / "file.txt"
-    test_file.write_text("content")
-
-    result = build_volume_args_for_files([str(test_file)], pwd)
-    assert result == ["-v", f"{pwd / 'file.txt'}:/workspace/code/file.txt"]
-
-
-def test_build_volume_args_for_files_nonexistent_exits(tmp_path):
-    pwd = tmp_path / "workspace"
-    pwd.mkdir()
-
-    with pytest.raises(SystemExit) as exc_info:
-        build_volume_args_for_files(["missing.txt"], pwd)
-    assert exc_info.value.code == 1
-
-
-def test_build_volume_args_for_files_outside_pwd_exits(tmp_path):
-    pwd = tmp_path / "workspace"
-    pwd.mkdir()
-    outside_file = tmp_path / "outside.txt"
-    outside_file.write_text("content")
-
-    with pytest.raises(SystemExit) as exc_info:
-        build_volume_args_for_files(["../outside.txt"], pwd)
-    assert exc_info.value.code == 1
-
-
 def test_build_volume_args_no_files(tmp_path):
     pwd = tmp_path / "workspace"
     pwd.mkdir()
@@ -213,46 +100,58 @@ def test_build_volume_args_with_files(tmp_path):
     assert result == expected
 
 
-def test_validate_path_exists_success(tmp_path):
-    test_dir = tmp_path / "testdir"
-    test_dir.mkdir()
+@pytest.mark.parametrize("file_path,expected_container_path", [
+    ("subdir/file.txt", "subdir/file.txt"),
+    ("./file.txt", "file.txt"),
+    ("a/b/c/file.txt", "a/b/c/file.txt"),
+])
+def test_build_volume_args_with_nested_paths(file_path, expected_container_path, tmp_path):
+    pwd = tmp_path / "workspace"
+    pwd.mkdir()
 
-    result = validate_path_exists(str(test_dir))
-    assert result == test_dir.resolve()
+    full_path = pwd / expected_container_path
+    full_path.parent.mkdir(parents=True, exist_ok=True)
+    full_path.write_text("content")
+
+    result = build_volume_args([file_path], pwd)
+    assert result == ["-v", f"{pwd / expected_container_path}:/workspace/code/{expected_container_path}"]
 
 
-def test_validate_path_exists_nonexistent_exits(tmp_path):
-    nonexistent = tmp_path / "nonexistent"
-
-    with pytest.raises(SystemExit) as exc_info:
-        validate_path_exists(str(nonexistent))
-    assert exc_info.value.code == 1
-
-
-def test_validate_path_exists_file_exits(tmp_path):
-    test_file = tmp_path / "file.txt"
+def test_build_volume_args_absolute_path(tmp_path):
+    pwd = tmp_path / "workspace"
+    pwd.mkdir()
+    test_file = pwd / "file.txt"
     test_file.write_text("content")
 
+    result = build_volume_args([str(test_file)], pwd)
+    assert result == ["-v", f"{pwd / 'file.txt'}:/workspace/code/file.txt"]
+
+
+def test_build_volume_args_nonexistent_file_exits(tmp_path):
+    pwd = tmp_path / "workspace"
+    pwd.mkdir()
+
     with pytest.raises(SystemExit) as exc_info:
-        validate_path_exists(str(test_file))
+        build_volume_args(["missing.txt"], pwd)
     assert exc_info.value.code == 1
 
 
-def test_validate_path_exists_resolves_relative(tmp_path, monkeypatch):
-    test_dir = tmp_path / "testdir"
-    test_dir.mkdir()
-    monkeypatch.chdir(tmp_path)
+def test_build_volume_args_outside_pwd_exits(tmp_path):
+    pwd = tmp_path / "workspace"
+    pwd.mkdir()
+    outside_file = tmp_path / "outside.txt"
+    outside_file.write_text("content")
 
-    result = validate_path_exists("testdir")
-    assert result == test_dir
+    with pytest.raises(SystemExit) as exc_info:
+        build_volume_args(["../outside.txt"], pwd)
+    assert exc_info.value.code == 1
 
 
-def test_main_with_custom_path_only(tmp_path, monkeypatch, capsys):
+def test_main_with_custom_path_only(tmp_path, monkeypatch):
     custom_dir = tmp_path / "custom"
     custom_dir.mkdir()
 
     monkeypatch.setattr(sys, "argv", ["cl", "-p", str(custom_dir)])
-    monkeypatch.setattr(cl, "run", lambda cmd: type('obj', (), {'returncode': 0})())
 
     captured_command = []
     def mock_run(cmd):
@@ -297,18 +196,7 @@ def test_main_custom_path_nonexistent_exits(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit) as exc_info:
         cl.main()
-    assert exc_info.value.code == 1
-
-
-def test_main_custom_path_duplicate_exits(tmp_path, monkeypatch):
-    custom_dir = tmp_path / "custom"
-    custom_dir.mkdir()
-
-    monkeypatch.setattr(sys, "argv", ["cl", "-p", str(custom_dir), "-p", str(custom_dir)])
-
-    with pytest.raises(SystemExit) as exc_info:
-        cl.main()
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 2
 
 
 def test_main_custom_path_missing_argument_exits(monkeypatch):
@@ -316,7 +204,7 @@ def test_main_custom_path_missing_argument_exits(monkeypatch):
 
     with pytest.raises(SystemExit) as exc_info:
         cl.main()
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 2
 
 
 def test_main_custom_path_with_files_relative_to_custom(tmp_path, monkeypatch):
@@ -360,3 +248,19 @@ def test_main_custom_path_with_files_outside_custom_exits(tmp_path, monkeypatch)
     with pytest.raises(SystemExit) as exc_info:
         cl.main()
     assert exc_info.value.code == 1
+
+
+def test_main_passthrough_args_included_in_command(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["cl", "--resume"])
+
+    captured_command = []
+    def mock_run(cmd):
+        captured_command.append(cmd)
+        return type('obj', (), {'returncode': 0})()
+    monkeypatch.setattr(cl, "run", mock_run)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cl.main()
+    assert exc_info.value.code == 0
+
+    assert "--resume" in captured_command[0]
