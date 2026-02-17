@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+
+import argparse
+
+import bcrypt
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="bcrypt_hash", description="Generate bcrypt hash for a string")
+    parser.add_argument("string", help="String to hash")
+
+    args = parser.parse_args()
+
+    hashed = bcrypt.hashpw(args.string.encode(), bcrypt.gensalt())
+    print(hashed.decode())
+
+
+if __name__ == "__main__":
+    main()
