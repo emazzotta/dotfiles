@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import glob
 import sys
 from pathlib import Path
 from subprocess import run
@@ -35,21 +36,42 @@ def build_volume_args(files: list[str], paths: list[Path], pwd: Path) -> list[st
     for path in paths:
         volume_args.extend(["-v", f"{path}:/workspace/code/{path.name}"])
     for file_path in files:
-        p = Path(file_path)
-        absolute_path = p.resolve() if p.is_absolute() else (pwd / file_path).resolve()
-        if not absolute_path.exists():
-            print(f"Error: File not found: {file_path}", file=sys.stderr)
-            sys.exit(1)
-        relative_path = validate_file_in_pwd(absolute_path, pwd, file_path)
-        volume_args.extend(["-v", f"{pwd / relative_path}:/workspace/code/{relative_path}"])
+        volume_args.extend(resolve_file_volume_args(file_path, pwd))
     return volume_args
+
+
+def resolve_file_volume_args(file_path: str, pwd: Path) -> list[str]:
+    if any(c in file_path for c in ("*", "?", "[")):
+        return expand_glob_volume_args(file_path, pwd)
+    return single_file_volume_args(file_path, pwd)
+
+
+def expand_glob_volume_args(pattern: str, pwd: Path) -> list[str]:
+    matches = glob.glob(pattern, root_dir=pwd)
+    if not matches:
+        print(f"Error: No files matched pattern: {pattern}", file=sys.stderr)
+        sys.exit(1)
+    volume_args: list[str] = []
+    for match in matches:
+        volume_args.extend(single_file_volume_args(match, pwd))
+    return volume_args
+
+
+def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
+    p = Path(file_path)
+    absolute_path = p.resolve() if p.is_absolute() else (pwd / file_path).resolve()
+    if not absolute_path.exists():
+        print(f"Error: File not found: {file_path}", file=sys.stderr)
+        sys.exit(1)
+    relative_path = validate_file_in_pwd(absolute_path, pwd, file_path)
+    return ["-v", f"{pwd / relative_path}:/workspace/code/{relative_path}"]
 
 
 def main() -> None:
     pwd = Path.cwd()
 
     parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [CLAUDE_ARGS...]")
-    parser.add_argument("-f", "--file", dest="files", action="append", default=[], metavar="FILE")
+    parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
     parser.add_argument("-p", "--path", dest="paths", action="append", type=parse_path, default=[], metavar="PATH")
 
     args, claude_args = parser.parse_known_args()
