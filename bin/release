@@ -68,7 +68,7 @@ strip_snapshot_suffix() {
 
 validate_version_format() {
     local version="$1"
-    if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
         return 1
     fi
     return 0
