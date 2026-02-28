@@ -10,13 +10,13 @@ import time
 from collections.abc import Iterator
 from typing import Final
 
-RESOLVE_TIMEOUT: Final = 1
+RESOLVE_TIMEOUT_MS: Final = 500
 
 HOSTS: Final[dict[str, tuple[str, ...]]] = {
     "ci-macmini": ("ci-macmini.machines.leonardo.local", "Mac-mini-von-Andreas.local", "192.168.5.28"),
 }
 
-_PING_TIMEOUT_FLAG: Final = ["-W", str(RESOLVE_TIMEOUT * 1000)] if platform.system() == "Darwin" else ["-W", str(RESOLVE_TIMEOUT)]
+_PING_TIMEOUT_FLAG: Final = ["-W", str(RESOLVE_TIMEOUT_MS)] if platform.system() == "Darwin" else ["-W", str(RESOLVE_TIMEOUT_MS // 1000)]
 
 
 def try_host(hostname: str) -> str | None:
@@ -47,7 +47,7 @@ def fetch_first_reachable(hostnames: tuple[str, ...]) -> str | None:
     results: queue.Queue[str | None] = queue.Queue()
     for hostname in hostnames:
         threading.Thread(target=lambda h=hostname: results.put(try_host(h)), daemon=True).start()
-    return next((ip for ip in enforce_timeout(results, len(hostnames), RESOLVE_TIMEOUT) if ip), None)
+    return next((ip for ip in enforce_timeout(results, len(hostnames), RESOLVE_TIMEOUT_MS / 1000) if ip), None)
 
 
 def resolve(short_name: str) -> str:
