@@ -9,10 +9,11 @@ set -euo pipefail
 
 readonly BASE_URL="https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin"
 readonly SCRIPTS=(
+    "host-resolver"
     "leonardo_account"
+    "leonardo_drive"
     "leonardo_start"
     "leonardo_vpn_toggle"
-    "leonardo_drive"
 )
 readonly DEFAULT_INSTALL_DIR="/usr/local/bin"
 
@@ -23,6 +24,7 @@ RESET='\033[0m'
 
 INSTALL_DIR=""
 FORCE_INSTALL=false
+UNINSTALL=false
 
 log() {
     echo -e "${GREEN}[$(date +'%H:%M:%S')]${RESET} $*"
@@ -43,11 +45,12 @@ Usage: $(basename "$0") [OPTIONS] [INSTALL_DIR]
 Downloads and installs Leonardo utility scripts from GitHub.
 
 Options:
-  -f, --force    Skip confirmation prompt for overriding existing scripts
-  -h, --help     Show this help message
+  -f, --force      Skip confirmation prompt for overriding existing scripts
+  -u, --uninstall  Remove installed scripts from INSTALL_DIR
+  -h, --help       Show this help message
 
 Arguments:
-  INSTALL_DIR    Directory to install scripts (default: ${DEFAULT_INSTALL_DIR})
+  INSTALL_DIR    Directory to install/uninstall scripts (default: ${DEFAULT_INSTALL_DIR})
 
 Scripts installed:
   - leonardo_account
@@ -56,12 +59,14 @@ Scripts installed:
   - leonardo_drive
 
 Examples:
-  $(basename "$0")                    # Install to ${DEFAULT_INSTALL_DIR}
-  $(basename "$0") /usr/local/bin     # Install to /usr/local/bin
-  $(basename "$0") ~/bin              # Install to ~/bin
-  $(basename "$0") --force            # Force override existing scripts
-  $(basename "$0") --force ~/bin      # Force install to ~/bin
-  $(basename "$0") ~/bin --force      # Same as above
+  $(basename "$0")                        Install to ${DEFAULT_INSTALL_DIR}
+  $(basename "$0") /usr/local/bin         Install to /usr/local/bin
+  $(basename "$0") ~/bin                  Install to ~/bin
+  $(basename "$0") --force                Force override existing scripts
+  $(basename "$0") --force ~/bin          Force install to ~/bin
+  $(basename "$0") ~/bin --force          Same as above
+  $(basename "$0") --uninstall            Uninstall from ${DEFAULT_INSTALL_DIR}
+  $(basename "$0") --uninstall ~/bin      Uninstall from ~/bin
 EOF
 }
 
@@ -195,8 +200,26 @@ install_script() {
 
 cleanup_temp_files() {
     if [ -n "${INSTALL_DIR}" ] && [ -d "$INSTALL_DIR" ]; then
-        rm -f "$INSTALL_DIR"/.leonardo_*.tmp
+        rm -f "$INSTALL_DIR"/.*.tmp
     fi
+}
+
+uninstall_scripts() {
+    local install_dir="$1"
+
+    log "Uninstalling scripts from $install_dir..."
+
+    for script in "${SCRIPTS[@]}"; do
+        local target="${install_dir}/${script}"
+        if [ -f "$target" ]; then
+            log "Removing $script..."
+            /bin/rm -f "$target"
+        else
+            warn "Not found, skipping: $script"
+        fi
+    done
+
+    log "Uninstall complete."
 }
 
 parse_arguments() {
@@ -210,6 +233,9 @@ parse_arguments() {
                 ;;
             -f|--force)
                 FORCE_INSTALL=true
+                ;;
+            -u|--uninstall)
+                UNINSTALL=true
                 ;;
             -*)
                 error "Unknown option: $arg"
@@ -239,6 +265,11 @@ main() {
 
     log "Leonardo Utils Installer"
     log "========================"
+
+    if [ "$UNINSTALL" = true ]; then
+        uninstall_scripts "$INSTALL_DIR"
+        exit 0
+    fi
 
     check_dependencies
     validate_install_dir "$INSTALL_DIR"

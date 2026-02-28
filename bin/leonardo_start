@@ -6,13 +6,8 @@ source leonardo_account
 STATUS_HOST="updates.leonardo.local"
 
 is_network_up() {
-    if command -v host-resolver > /dev/null 2>&1; then
-        [ "$(host-resolver "$STATUS_HOST" --timeout "$1" 2>/dev/null)" != "127.0.0.1" ]
-    else
-        ping -c 1 -W "$1" "$STATUS_HOST" > /dev/null 2>&1
-    fi
+    [ "$(host-resolver "$STATUS_HOST" --timeout "$1" 2>/dev/null)" != "127.0.0.1" ]
 }
-
 
 if is_network_up 250; then
     leonardo_vpn_toggle --disable
