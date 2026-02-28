@@ -10,7 +10,7 @@ import time
 from collections.abc import Iterator
 from typing import Final
 
-RESOLVE_TIMEOUT_MS: Final = 500
+RESOLVE_TIMEOUT_MS: Final = 150
 
 HOSTS: Final[dict[str, tuple[str, ...]]] = {
     "ci-macmini": ("ci-macmini.machines.leonardo.local", "Mac-mini-von-Andreas.local", "192.168.5.28"),
@@ -31,8 +31,8 @@ def try_host(hostname: str) -> str | None:
         return None
 
 
-def enforce_timeout(q: queue.Queue[str | None], count: int, timeout: float) -> Iterator[str | None]:
-    deadline = time.monotonic() + timeout
+def enforce_timeout(q: queue.Queue[str | None], count: int, timeout_ms: float) -> Iterator[str | None]:
+    deadline = time.monotonic() + timeout_ms / 1000
     for _ in range(count):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -47,7 +47,7 @@ def fetch_first_reachable(hostnames: tuple[str, ...]) -> str | None:
     results: queue.Queue[str | None] = queue.Queue()
     for hostname in hostnames:
         threading.Thread(target=lambda h=hostname: results.put(try_host(h)), daemon=True).start()
-    return next((ip for ip in enforce_timeout(results, len(hostnames), RESOLVE_TIMEOUT_MS / 1000) if ip), None)
+    return next((ip for ip in enforce_timeout(results, len(hostnames), RESOLVE_TIMEOUT_MS) if ip), None)
 
 
 def resolve(short_name: str) -> str:
