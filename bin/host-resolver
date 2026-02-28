@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+import socket
+import sys
+from typing import Final
+
+HOSTS: Final[dict[str, tuple[str, str]]] = {
+    "ci-macmini": ("ci-macmini.machines.leonardo.local", "Mac-mini-von-Andreas.local", "192.168.5.28"),
+}
+
+
+def resolve(short_name: str) -> str:
+    if short_name not in HOSTS:
+        print(f"Unknown host: {short_name}", file=sys.stderr)
+        sys.exit(1)
+
+    dns_hostname, fallback_ip = HOSTS[short_name]
+    try:
+        return socket.gethostbyname(dns_hostname)
+    except socket.gaierror:
+        return fallback_ip
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        print(f"Usage: {sys.argv[0]} <host-short-name>", file=sys.stderr)
+        sys.exit(1)
+
+    print(resolve(sys.argv[1]))
+
+
+if __name__ == "__main__":
+    main()
