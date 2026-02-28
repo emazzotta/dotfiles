@@ -1,18 +1,20 @@
 #!/bin/bash
+set -euo pipefail
 
 source leonardo_account
 
-HOST="iserver.leonardo.local"
+STATUS_HOST="updates.leonardo.local"
 
-is_host_reachable() {
+is_network_up() {
     if command -v host-resolver > /dev/null 2>&1; then
-        [ "$(host-resolver "$HOST" --timeout "$1" 2>/dev/null)" != "127.0.0.1" ]
+        [ "$(host-resolver "$STATUS_HOST" --timeout "$1" 2>/dev/null)" != "127.0.0.1" ]
     else
-        ping -c 1 -W "$1" "$HOST" > /dev/null 2>&1
+        ping -c 1 -W "$1" "$STATUS_HOST" > /dev/null 2>&1
     fi
 }
 
-if is_host_reachable 250; then
+
+if is_network_up 250; then
     leonardo_vpn_toggle --disable
     exit 0
 fi
@@ -22,12 +24,12 @@ leonardo_vpn_toggle --enable
 echo "Checking if connection is established..."
 DEADLINE=$((SECONDS + 15))
 while [ $SECONDS -lt $DEADLINE ]; do
-    if is_host_reachable 250; then
+    if is_network_up 100; then
         echo "Leonardo network is reachable."
         leonardo_drive
         exit 0
     fi
 done
 
-echo "$HOST is not reachable."
+echo "$STATUS_HOST is not reachable."
 exit 1
