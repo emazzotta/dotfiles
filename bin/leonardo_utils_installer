@@ -111,23 +111,31 @@ check_path_warning() {
 
 check_existing_scripts() {
     local install_dir="$1"
-    local existing_scripts=()
+    local existing_count=0
     local response
 
     for script in "${SCRIPTS[@]}"; do
         if [ -f "${install_dir}/${script}" ]; then
-            existing_scripts+=("$script")
+            existing_count=$((existing_count + 1))
         fi
     done
 
-    if [ ${#existing_scripts[@]} -eq 0 ]; then
+    if [ "$existing_count" -eq 0 ]; then
         return 0
     fi
 
-    warn "Found ${#existing_scripts[@]} existing script(s):"
-    for script in "${existing_scripts[@]}"; do
-        echo "  - $script"
-    done
+    if [ "$existing_count" -lt "${#SCRIPTS[@]}" ]; then
+        warn "Some scripts already exist and will be skipped:"
+        for script in "${SCRIPTS[@]}"; do
+            if [ -f "${install_dir}/${script}" ]; then
+                echo "  - $script"
+            fi
+        done
+        echo
+        return 0
+    fi
+
+    warn "All scripts already exist in $install_dir"
     echo
 
     if [ "$FORCE_INSTALL" = true ]; then
@@ -136,7 +144,7 @@ check_existing_scripts() {
     fi
 
     if [ -t 0 ] && [ -t 1 ]; then
-        printf "Some scripts already exist. Override? [y/N] "
+        printf "All scripts already exist. Override? [y/N] "
         read -r response || response=""
         response="${response:-}"
         response="${response#"${response%%[![:space:]]*}"}"
@@ -182,7 +190,13 @@ download_script() {
 install_script() {
     local script_name="$1"
     local install_dir="$2"
+    local target="${install_dir}/${script_name}"
     local temp_file="${install_dir}/.${script_name}.tmp"
+
+    if [ -f "$target" ] && [ "$FORCE_INSTALL" = false ]; then
+        log "Skipping $script_name (already installed)"
+        return 0
+    fi
 
     log "Downloading $script_name..."
 
@@ -192,8 +206,8 @@ install_script() {
     fi
 
     log "Installing $script_name to $install_dir..."
-    mv "$temp_file" "${install_dir}/${script_name}"
-    chmod +x "${install_dir}/${script_name}"
+    /bin/mv "$temp_file" "$target"
+    chmod +x "$target"
 
     return 0
 }
@@ -276,9 +290,16 @@ main() {
     check_existing_scripts "$INSTALL_DIR"
 
     local failed_scripts=()
+    local installed_count=0
+    local skipped_count=0
 
     for script in "${SCRIPTS[@]}"; do
-        if ! install_script "$script" "$INSTALL_DIR"; then
+        if [ -f "${INSTALL_DIR}/${script}" ] && [ "$FORCE_INSTALL" = false ]; then
+            skipped_count=$((skipped_count + 1))
+            install_script "$script" "$INSTALL_DIR"
+        elif install_script "$script" "$INSTALL_DIR"; then
+            installed_count=$((installed_count + 1))
+        else
             failed_scripts+=("$script")
         fi
     done
@@ -293,7 +314,14 @@ main() {
         exit 1
     fi
 
-    log "Successfully installed ${#SCRIPTS[@]} scripts to $INSTALL_DIR"
+    if [ "$skipped_count" -gt 0 ] && [ "$installed_count" -gt 0 ]; then
+        log "Installed $installed_count script(s), skipped $skipped_count already-existing script(s) in $INSTALL_DIR"
+    elif [ "$skipped_count" -gt 0 ]; then
+        log "All scripts already installed in $INSTALL_DIR, nothing to do"
+    else
+        log "Successfully installed $installed_count script(s) to $INSTALL_DIR"
+    fi
+
     check_path_warning "$INSTALL_DIR"
 
     echo
