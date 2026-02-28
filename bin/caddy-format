@@ -9,24 +9,49 @@ check_docker() {
 }
 
 check_caddyfile() {
-    if [ ! -f "Caddyfile" ]; then
-        echo "Error: Caddyfile not found in current directory" >&2
+    local caddyfile="$1"
+    if [ ! -f "$caddyfile" ]; then
+        echo "Error: Caddyfile not found: $caddyfile" >&2
         exit 1
     fi
 }
 
 format_caddyfile() {
+    local caddyfile="$1"
+    local abs_path
+    abs_path=$(cd "$(dirname "$caddyfile")" && pwd)/$(basename "$caddyfile")
+    local dir
+    dir=$(dirname "$abs_path")
+    local filename
+    filename=$(basename "$abs_path")
+
+    echo "docker run --rm -v \"$dir:/workspace\" -w /workspace caddy:latest /bin/sh -c \"caddy fmt --overwrite $filename\"" >&2
+    echo "docker run --rm -v \"/opt/docker-data/caddy/config:/workspace\" -w /workspace caddy:latest /bin/sh -c \"caddy fmt --overwrite $filename\"" >&2
+
     docker run --rm \
-        -v "$PWD:/workspace" \
+        -v "$dir:/workspace" \
         -w /workspace \
         caddy:latest \
-        /bin/sh -c 'caddy fmt --overwrite'
+        /bin/sh -c "caddy fmt --overwrite $filename"
+
+    echo "Done formatting."
+}
+
+resolve_caddyfile() {
+    local arg="${1:-$PWD}"
+    if [ -d "$arg" ]; then
+        echo "$arg/Caddyfile"
+    else
+        echo "$arg"
+    fi
 }
 
 main() {
+    local caddyfile
+    caddyfile=$(resolve_caddyfile "${1:-}")
     check_docker
-    check_caddyfile
-    format_caddyfile
+    check_caddyfile "$caddyfile"
+    format_caddyfile "$caddyfile"
 }
 
 main "$@"
