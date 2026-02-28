@@ -5,10 +5,14 @@ source leonardo_account
 HOST="iserver.leonardo.local"
 
 is_host_reachable() {
-    ping -c 1 -W "$1" "$HOST" > /dev/null 2>&1
+    if command -v host-resolver > /dev/null 2>&1; then
+        [ "$(host-resolver "$HOST" --timeout "$1" 2>/dev/null)" != "127.0.0.1" ]
+    else
+        ping -c 1 -W "$1" "$HOST" > /dev/null 2>&1
+    fi
 }
 
-if is_host_reachable 200; then
+if is_host_reachable 250; then
     leonardo_vpn_toggle --disable
     exit 0
 fi
