@@ -19,11 +19,15 @@ fi
 
 leonardo_vpn_toggle --enable
 
-if is_host_reachable 3000; then
-    echo "Leonardo network is reachable."
-    leonardo_drive
-    exit 0
-fi
+echo "Checking if connection is established..."
+DEADLINE=$((SECONDS + 15))
+while [ $SECONDS -lt $DEADLINE ]; do
+    if is_host_reachable 250; then
+        echo "Leonardo network is reachable."
+        leonardo_drive
+        exit 0
+    fi
+done
 
 echo "$HOST is not reachable."
 exit 1
