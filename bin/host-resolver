@@ -25,7 +25,10 @@ def try_host(hostname: str) -> str | None:
             ["ping", "-c", "1"] + _PING_TIMEOUT_FLAG + [ip],
             capture_output=True,
         )
-        return ip if result.returncode == 0 else None
+        if result.returncode == 0:
+            print(f"Resolved {hostname} -> {ip}", file=sys.stderr)
+            return ip
+        return None
     except OSError:
         return None
 
