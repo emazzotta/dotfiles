@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+from scriptlog import Logger
+
+logger = Logger()
+
+IMAGE_EXTENSIONS: list[str] = ["jpg", "jpeg", "png", "webp", "tiff", "bmp", "heic"]
+JPEG_EXTENSIONS: frozenset[str] = frozenset(["jpg", "jpeg"])
+PNG_EXTENSIONS: frozenset[str] = frozenset(["png"])
+WEBP_EXTENSIONS: frozenset[str] = frozenset(["webp"])
+
+
+def fmt_size(size_bytes: int) -> str:
+    value = float(size_bytes)
+    for unit in ["B", "KB", "MB", "GB"]:
+        if value < 1024:
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TB"
+
+
+def build_magick_command(input_file: Path, output_file: Path, quality: int, scale: int) -> list[str]:
+    ext = input_file.suffix.lstrip(".").lower()
+    base = ["magick", str(input_file), "-strip", "-resize", f"{scale}%"]
+    if ext in PNG_EXTENSIONS:
+        return base + [
+            "-define", "png:compression-level=9",
+            "-define", "png:compression-filter=5",
+            "-define", "png:compression-strategy=1",
+            str(output_file),
+        ]
+    return base + ["-quality", str(quality), str(output_file)]
+
+
+def resolve_output_file(input_file: Path, output_path: Path | None, rm_original: bool) -> Path:
+    if output_path:
+        return output_path / input_file.name
+    if rm_original:
+        return input_file.parent / input_file.name
+    return input_file.parent / f"{input_file.stem}_compressed{input_file.suffix}"
+
+
+def compress_image(input_file: Path, quality: int, scale: int, output_path: Path | None, rm_original: bool) -> int | None:
+    output_file = resolve_output_file(input_file, output_path, rm_original)
+
+    if not rm_original and output_file.exists():
+        logger.warn(f"Output file '{output_file}' already exists, skipping...")
+        return None
+
+    original_size = input_file.stat().st_size
+
+    tmp_file = input_file.parent / f"{input_file.stem}_tmp_compress{input_file.suffix}"
+    command = build_magick_command(input_file, tmp_file, quality, scale)
+    result = subprocess.run(command, capture_output=True)
+    if result.returncode != 0:
+        logger.error(f"Compression failed for '{input_file}'")
+        if tmp_file.exists():
+            tmp_file.unlink()
+        sys.exit(1)
+
+    compressed_size = tmp_file.stat().st_size
+
+    if compressed_size >= original_size:
+        tmp_file.unlink()
+        logger.warn(f"'{input_file.name}' skipped (output {fmt_size(compressed_size)} >= original {fmt_size(original_size)})")
+        return None
+
+    if rm_original:
+        input_file.unlink()
+    tmp_file.rename(output_file)
+
+    savings = (1 - compressed_size / original_size) * 100
+    logger.success(f"'{input_file.name}' {fmt_size(original_size)} -> {fmt_size(compressed_size)} (saved {savings:.1f}%)")
+
+    return original_size - compressed_size
+
+
+def find_image_files(directory: Path) -> list[Path]:
+    extensions = IMAGE_EXTENSIONS + [e.upper() for e in IMAGE_EXTENSIONS]
+    files: list[Path] = []
+    for ext in extensions:
+        files.extend(directory.glob(f"**/*.{ext}"))
+    return files
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Compress image files using ImageMagick.")
+    parser.add_argument("-i", "--input", required=True, help="Image file or directory of image files to compress.")
+    parser.add_argument("-q", "--quality", type=int, default=82, help="Quality 1-100 (higher = better quality, less compression). Default: 82.")
+    parser.add_argument("-s", "--scale", type=int, default=50, help="Scale resolution as percentage of original (e.g. 50 = half size). Default: 50.")
+    parser.add_argument("--rm-original", action="store_true", help="Delete original file after compression.")
+    parser.add_argument("-o", "--output-path", help="Directory to save compressed files.")
+    args = parser.parse_args()
+
+    if not 1 <= args.quality <= 100:
+        logger.error("Quality must be between 1 and 100.")
+        sys.exit(1)
+
+    if not 1 <= args.scale <= 100:
+        logger.error("Scale must be between 1 and 100.")
+        sys.exit(1)
+
+    input_path = Path(args.input)
+    output_path = Path(args.output_path) if args.output_path else None
+
+    if output_path:
+        output_path.mkdir(parents=True, exist_ok=True)
+
+    if input_path.is_file():
+        input_files = [input_path]
+    elif input_path.is_dir():
+        input_files = find_image_files(input_path)
+    else:
+        logger.error(f"Input '{args.input}' not found!")
+        sys.exit(1)
+
+    if not input_files:
+        logger.warn("No image files found.")
+        sys.exit(0)
+
+    total_saved = 0
+    processed = 0
+
+    for input_file in input_files:
+        saved = compress_image(input_file, args.quality, args.scale, output_path, args.rm_original)
+        if saved is not None:
+            total_saved += saved
+            processed += 1
+
+    logger.log(f"Done: {processed} file(s) processed, total saved {fmt_size(total_saved)}")
+
+
+if __name__ == "__main__":
+    main()
