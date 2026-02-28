@@ -1,11 +1,50 @@
 #!/usr/bin/env python3
+
+import platform
+import queue
 import socket
+import subprocess
 import sys
+import threading
+import time
 from typing import Final
+
+RESOLVE_TIMEOUT: Final = 1
 
 HOSTS: Final[dict[str, tuple[str, ...]]] = {
     "ci-macmini": ("ci-macmini.machines.leonardo.local", "Mac-mini-von-Andreas.local", "192.168.5.28"),
 }
+
+_PING_TIMEOUT_FLAG: Final = ["-W", str(RESOLVE_TIMEOUT * 1000)] if platform.system() == "Darwin" else ["-W", str(RESOLVE_TIMEOUT)]
+
+
+def try_host(hostname: str) -> str | None:
+    try:
+        ip = socket.gethostbyname(hostname)
+        result = subprocess.run(
+            ["ping", "-c", "1"] + _PING_TIMEOUT_FLAG + [ip],
+            capture_output=True,
+        )
+        return ip if result.returncode == 0 else None
+    except OSError:
+        return None
+
+
+def first_reachable(hostnames: tuple[str, ...]) -> str | None:
+    results: queue.Queue[str | None] = queue.Queue()
+    for hostname in hostnames:
+        threading.Thread(target=lambda h=hostname: results.put(try_host(h)), daemon=True).start()
+    deadline = time.monotonic() + RESOLVE_TIMEOUT
+    for _ in hostnames:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            if ip := results.get(timeout=remaining):
+                return ip
+        except queue.Empty:
+            break
+    return None
 
 
 def resolve(short_name: str) -> str:
@@ -13,16 +52,11 @@ def resolve(short_name: str) -> str:
         print(f"Unknown host: {short_name}", file=sys.stderr)
         sys.exit(1)
 
-    entry = HOSTS[short_name]
-    dns_hostnames, fallback_ip = entry[:-1], entry[-1]
+    if ip := first_reachable(HOSTS[short_name]):
+        return ip
 
-    for hostname in dns_hostnames:
-        try:
-            return socket.gethostbyname(hostname)
-        except socket.gaierror:
-            continue
-
-    return fallback_ip
+    print(f"No reachable host found for {short_name}, falling back to 127.0.0.1", file=sys.stderr)
+    return "127.0.0.1"
 
 
 def main() -> None:
