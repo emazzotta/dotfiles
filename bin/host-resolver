@@ -3,7 +3,7 @@ import socket
 import sys
 from typing import Final
 
-HOSTS: Final[dict[str, tuple[str, str]]] = {
+HOSTS: Final[dict[str, tuple[str, ...]]] = {
     "ci-macmini": ("ci-macmini.machines.leonardo.local", "Mac-mini-von-Andreas.local", "192.168.5.28"),
 }
 
@@ -13,11 +13,16 @@ def resolve(short_name: str) -> str:
         print(f"Unknown host: {short_name}", file=sys.stderr)
         sys.exit(1)
 
-    dns_hostname, fallback_ip = HOSTS[short_name]
-    try:
-        return socket.gethostbyname(dns_hostname)
-    except socket.gaierror:
-        return fallback_ip
+    entry = HOSTS[short_name]
+    dns_hostnames, fallback_ip = entry[:-1], entry[-1]
+
+    for hostname in dns_hostnames:
+        try:
+            return socket.gethostbyname(hostname)
+        except socket.gaierror:
+            continue
+
+    return fallback_ip
 
 
 def main() -> None:
