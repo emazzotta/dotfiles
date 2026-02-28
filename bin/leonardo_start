@@ -3,32 +3,23 @@
 source leonardo_account
 
 HOST="iserver.leonardo.local"
-MAX_TRIES=2
 
 is_host_reachable() {
-    if command -v host-resolver > /dev/null 2>&1; then
-        local result
-        result=$(host-resolver "$HOST" --timeout 500 2>/dev/null)
-        [ "$result" != "127.0.0.1" ]
-    else
-        ping -c 1 "$HOST" > /dev/null 2>&1
-    fi
+    ping -c 1 -W "$1" "$HOST" > /dev/null 2>&1
 }
 
-if is_host_reachable; then
-  leonardo_vpn_toggle --disable
-else
-  leonardo_vpn_toggle --enable
+if is_host_reachable 200; then
+    leonardo_vpn_toggle --disable
+    exit 0
 fi
 
-for (( i=0; i<MAX_TRIES; i++ )); do
-    if is_host_reachable; then
-        echo "Leonardo network is reachable."
-        leonardo_drive
-        exit 0
-    fi
-    sleep 1
-done
+leonardo_vpn_toggle --enable
 
-echo "$HOST is not reachable after $MAX_TRIES attempts."
+if is_host_reachable 3000; then
+    echo "Leonardo network is reachable."
+    leonardo_drive
+    exit 0
+fi
+
+echo "$HOST is not reachable."
 exit 1
