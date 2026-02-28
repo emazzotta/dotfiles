@@ -303,7 +303,7 @@ def main() -> None:
     if args.dry_run:
         logger.log("Running in DRY RUN mode")
 
-    target_dir = args.dir.resolve()
+    target_dir = args.dir.resolve_hosts()
     validate_directory(target_dir, logger)
 
     logger.log(f"Scanning directory: {target_dir}")

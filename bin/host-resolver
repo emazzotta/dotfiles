@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import platform
 import queue
 import socket
@@ -10,19 +11,18 @@ import time
 from collections.abc import Iterator
 from typing import Final
 
-RESOLVE_TIMEOUT_MS: Final = 150
 
+RESOLVE_TIMEOUT_MS: Final = 150
+IS_DARWIN: Final = platform.system() == "Darwin"
 HOSTS: Final[dict[str, tuple[str, ...]]] = {
     "ci-macmini": ("ci-macmini.machines.leonardo.local", "Mac-mini-von-Andreas.local", "192.168.5.28"),
 }
 
-_PING_TIMEOUT_FLAG: Final = ["-W", str(RESOLVE_TIMEOUT_MS)] if platform.system() == "Darwin" else ["-W", str(RESOLVE_TIMEOUT_MS // 1000)]
-
-
-def try_host(hostname: str) -> str | None:
+def try_host(hostname: str, timeout_ms: float) -> str | None:
+    ping_flag = ["-W", str(int(timeout_ms) if IS_DARWIN else int(timeout_ms) // 1000)]
     try:
         ip = socket.gethostbyname(hostname)
-        result = subprocess.run(["ping", "-c", "1"] + _PING_TIMEOUT_FLAG + [ip], capture_output=True)
+        result = subprocess.run(["ping", "-c", "1"] + ping_flag + [ip], capture_output=True)
         if result.returncode == 0:
             print(f"Resolved {hostname} -> {ip}", file=sys.stderr)
             return ip
@@ -43,31 +43,27 @@ def enforce_timeout(q: queue.Queue[str | None], count: int, timeout_ms: float) -
             return
 
 
-def fetch_first_reachable(hostnames: tuple[str, ...]) -> str | None:
+def fetch_first_reachable(hostnames: tuple[str, ...], timeout_ms: float) -> str | None:
     results: queue.Queue[str | None] = queue.Queue()
     for hostname in hostnames:
-        threading.Thread(target=lambda h=hostname: results.put(try_host(h)), daemon=True).start()
-    return next((ip for ip in enforce_timeout(results, len(hostnames), RESOLVE_TIMEOUT_MS) if ip), None)
+        threading.Thread(target=lambda h=hostname: results.put(try_host(h, timeout_ms)), daemon=True).start()
+    return next((ip for ip in enforce_timeout(results, len(hostnames), timeout_ms) if ip), None)
 
 
-def resolve(short_name: str) -> str:
-    if short_name not in HOSTS:
-        print(f"Unknown host: {short_name}", file=sys.stderr)
-        sys.exit(1)
-
-    if ip := fetch_first_reachable(HOSTS[short_name]):
+def resolve_hosts(short_name: str, timeout_ms: float) -> str:
+    hostnames = HOSTS.get(short_name, (short_name,))
+    if ip := fetch_first_reachable(hostnames, timeout_ms):
         return ip
-
     print(f"No reachable host found for {short_name}, falling back to 127.0.0.1", file=sys.stderr)
     return "127.0.0.1"
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} <host-short-name>", file=sys.stderr)
-        sys.exit(1)
-
-    print(resolve(sys.argv[1]))
+    parser = argparse.ArgumentParser(description="Resolve a host short name to an IP address")
+    parser.add_argument("host", help="Short name (looked up in HOSTS) or a literal hostname/IP")
+    parser.add_argument("-t", "--timeout", type=float, default=RESOLVE_TIMEOUT_MS, metavar="MS", help=f"Timeout in milliseconds (default: {RESOLVE_TIMEOUT_MS})")
+    args = parser.parse_args()
+    print(resolve_hosts(args.host, args.timeout))
 
 
 if __name__ == "__main__":

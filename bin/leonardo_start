@@ -1,14 +1,19 @@
 #!/bin/bash
 
+source leonardo_account
+
 HOST="iserver.leonardo.local"
 MAX_TRIES=2
 
 is_host_reachable() {
-    ping -c 1 $HOST > /dev/null 2>&1
-    return $?
+    if command -v host-resolver > /dev/null 2>&1; then
+        local result
+        result=$(host-resolver "$HOST" --timeout 500 2>/dev/null)
+        [ "$result" != "127.0.0.1" ]
+    else
+        ping -c 1 "$HOST" > /dev/null 2>&1
+    fi
 }
-
-source leonardo_account
 
 if is_host_reachable; then
   leonardo_vpn_toggle --disable
