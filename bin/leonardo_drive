@@ -1,10 +1,21 @@
 #!/bin/bash
+set -euo pipefail
 
 source leonardo_account
 
-if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
-    echo "Network drive '$NETWORK_DRIVE_FOLDER' is already mounted"
-else
+show_usage() {
+    echo "Usage: $(basename "$0") [--mount | --unmount]"
+    echo ""
+    echo "  -m, --mount    Mount the network drive"
+    echo "  -u, --unmount  Unmount the network drive"
+}
+
+mount_drive() {
+    if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
+        echo "Network drive '$NETWORK_DRIVE_FOLDER' is already mounted"
+        return
+    fi
+
     if [ ! -d "$NETWORK_DRIVE_MOUNT_POINT" ]; then
         mkdir -p "$NETWORK_DRIVE_MOUNT_POINT"
     fi
@@ -22,4 +33,27 @@ else
     else
         echo "Failed to mount network drive '$NETWORK_DRIVE_FOLDER' at $NETWORK_DRIVE_MOUNT_POINT"
     fi
+}
+
+unmount_drive() {
+    if umount "$NETWORK_DRIVE_MOUNT_POINT"; then
+        echo "Network drive '$NETWORK_DRIVE_FOLDER' unmounted successfully"
+    else
+        echo "Failed to unmount network drive '$NETWORK_DRIVE_FOLDER' from $NETWORK_DRIVE_MOUNT_POINT"
+    fi
+}
+
+if [ $# -eq 0 ]; then
+    show_usage
+    exit 0
 fi
+
+case "$1" in
+    -m|--mount)   mount_drive ;;
+    -u|--unmount) unmount_drive ;;
+    *)
+        echo "Unknown parameter: $1" >&2
+        show_usage
+        exit 1
+        ;;
+esac

@@ -9,12 +9,17 @@ is_network_up() {
     [ "$(host-resolver "$STATUS_HOST" --timeout "$1" 2>/dev/null)" != "127.0.0.1" ]
 }
 
+mount_k_drive_on_network_up() {
+    if is_network_up 250; then
+        echo "Leonardo network is reachable."
+        leonardo_drive --mount
+        exit 0
+    fi
+}
+
 if is_network_up 250; then
     leonardo_vpn_toggle --disable
-    if is_network_up 250; then
-      echo "Leonardo network is reachable."
-      leonardo_drive
-    fi
+    mount_k_drive_on_network_up
     exit 0
 fi
 
@@ -23,11 +28,7 @@ leonardo_vpn_toggle --enable
 echo "Checking if connection is established..."
 DEADLINE=$((SECONDS + 15))
 while [ $SECONDS -lt $DEADLINE ]; do
-    if is_network_up 100; then
-        echo "Leonardo network is reachable."
-        leonardo_drive
-        exit 0
-    fi
+    mount_k_drive_on_network_up
 done
 
 echo "$STATUS_HOST is not reachable."
