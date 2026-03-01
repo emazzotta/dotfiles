@@ -1,31 +1,63 @@
 #!/bin/bash
+set -euo pipefail
 
-if [[ "$@" == "" ]]; then
-    ${0} -h
+show_internal_ip() {
+    if [ "$(uname -s)" = "Darwin" ]; then
+        ifconfig | grep -Eo 'inet ([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1'
+    else
+        ip -4 addr show scope global | grep -Eo 'inet ([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*'
+    fi
+}
+
+show_external_ip() {
+    curl -fSsL --ipv4 ifconfig.co 2>/dev/null || curl -fSsL --ipv4 ifconfig.me
+}
+
+update_script() {
+    echo "Updating..."
+    local tmp_file
+    tmp_file=$(mktemp)
+    curl -fsSL https://raw.githubusercontent.com/emazzotta/showip/master/install.sh -o "$tmp_file"
+    if [ ! -s "$tmp_file" ]; then
+        echo "Error: Downloaded install script is empty" >&2
+        rm -f "$tmp_file"
+        exit 1
+    fi
+    bash "$tmp_file"
+    rm -f "$tmp_file"
+}
+
+show_help() {
+    printf "Usage: %s [-e] [-i] [-u]\n" "$(basename "$0")"
+    printf "Help: Show external or internal IP address.\n"
+    printf "Options:\n"
+    printf "  -i, --internal    Show internal IP address.\n"
+    printf "  -e, --external    Show external IP address.\n"
+    printf "  -u, --update      Update this script.\n"
+}
+
+if [ $# -eq 0 ]; then
+    show_help
+    exit 0
 fi
-for i in "$@"
-do
-case $i in
-    -i|--internal)
-        ifconfig | grep -Eo 'inet (Adresse:|address:|addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1'
-    ;;
-    -e|--external)
-        curl -fSsL --ipv4 ifconfig.co
-    ;;
-    -u|--update)
-        echo "Updating..."
-        bash < <(curl -fsSL https://raw.githubusercontent.com/emazzotta/showip/master/install.sh)
-    ;;
-    -h|--help)
-        echo "Usage: $(basename ${0}) [-e] [-i] [-u]"
-        echo "Help: Show external or internal IP address."
-        echo "Options:"
-        echo "  -i, --internal    Show internal IP address." 
-        echo "  -e, --external    Show external IP address."
-        echo "  -u, --update      Update this script."
-    ;;
-    *)
-        echo -e "Unrecognized parameter: ${i}\nTry '$(basename ${0}) --help'"
-    ;;
-esac
+
+for i in "$@"; do
+    case $i in
+        -i|--internal)
+            show_internal_ip
+            ;;
+        -e|--external)
+            show_external_ip
+            ;;
+        -u|--update)
+            update_script
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        *)
+            printf "Unrecognized parameter: %s\nTry '%s --help'\n" "$i" "$(basename "$0")" >&2
+            exit 1
+            ;;
+    esac
 done
