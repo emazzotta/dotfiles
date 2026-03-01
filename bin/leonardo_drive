@@ -4,10 +4,11 @@ set -euo pipefail
 source leonardo_account
 
 show_usage() {
-    echo "Usage: $(basename "$0") [--mount | --unmount]"
+    echo "Usage: $(basename "$0") [--mount | --unmount | --status]"
     echo ""
     echo "  -m, --mount    Mount the network drive"
     echo "  -u, --unmount  Unmount the network drive"
+    echo "  -s, --status   Show whether the network drive is mounted"
 }
 
 mount_drive() {
@@ -20,18 +21,30 @@ mount_drive() {
         mkdir -p "$NETWORK_DRIVE_MOUNT_POINT"
     fi
 
-    expect -c "
+    AD_PASSWORD="$AD_PASSWORD" expect -c "
     log_user 0
     spawn mount_smbfs $NETWORK_DRIVE_FULL_URL $NETWORK_DRIVE_MOUNT_POINT
-    expect \"Password for $NETWORK_DRIVE_SERVER_IP:\"
-    send \"$AD_PASSWORD\r\"
-    expect eof
+    expect {
+        \"Password for $NETWORK_DRIVE_SERVER_IP:\" {
+            send \"\$env(AD_PASSWORD)\r\"
+            exp_continue
+        }
+        eof
+    }
     "
 
     if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
         echo "Network drive '$NETWORK_DRIVE_FOLDER' mounted at $NETWORK_DRIVE_MOUNT_POINT"
     else
         echo "Failed to mount network drive '$NETWORK_DRIVE_FOLDER' at $NETWORK_DRIVE_MOUNT_POINT"
+    fi
+}
+
+status_drive() {
+    if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
+        echo "Network drive '$NETWORK_DRIVE_FOLDER' is mounted at $NETWORK_DRIVE_MOUNT_POINT"
+    else
+        echo "Network drive '$NETWORK_DRIVE_FOLDER' is not mounted"
     fi
 }
 
@@ -51,6 +64,7 @@ fi
 case "$1" in
     -m|--mount)   mount_drive ;;
     -u|--unmount) unmount_drive ;;
+    -s|--status)  status_drive ;;
     *)
         echo "Unknown parameter: $1" >&2
         show_usage
