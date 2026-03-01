@@ -3,7 +3,6 @@ tap "jandedobbeleer/oh-my-posh"
 
 brew "adr-tools"
 brew "aria2"
-brew "asciinema"
 brew "awscli"
 brew "bash-completion"
 brew "clang-format"
