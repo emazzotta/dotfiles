@@ -3,7 +3,6 @@
 import argparse
 import platform
 import queue
-import socket
 import subprocess
 import sys
 import threading
@@ -11,12 +10,12 @@ import time
 from collections.abc import Iterator
 from typing import Final
 
-
 RESOLVE_TIMEOUT_MS: Final = 150
 IS_DARWIN: Final = platform.system() == "Darwin"
 HOSTS: Final[dict[str, tuple[str, ...]]] = {
     "ci-macmini": ("ci-macmini.machines.leonardo.local", "Mac-mini-von-Andreas.local"),
 }
+
 
 def resolve_ip(hostname: str, timeout_ms: float) -> str | None:
     try:
@@ -75,7 +74,8 @@ def resolve_hosts(short_name: str, timeout_ms: float) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Resolve a host short name to an IP address")
     parser.add_argument("host", help="Short name (looked up in HOSTS) or a literal hostname/IP")
-    parser.add_argument("-t", "--timeout", type=float, default=RESOLVE_TIMEOUT_MS, metavar="MS", help=f"Timeout in milliseconds (default: {RESOLVE_TIMEOUT_MS})")
+    parser.add_argument("-t", "--timeout", type=float, default=RESOLVE_TIMEOUT_MS, metavar="MS",
+                        help=f"Timeout in milliseconds (default: {RESOLVE_TIMEOUT_MS})")
     args = parser.parse_args()
     print(resolve_hosts(args.host, args.timeout))
 

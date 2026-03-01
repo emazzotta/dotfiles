@@ -1,11 +1,11 @@
 #!/bin/bash
 
 if command -v tput &> /dev/null; then
-    RESET="$(tput sgr0)"
-    GREEN="$(tput setaf 10)"
-    WHITE="$(tput setaf 15)"
-    CYAN="$(tput setaf 14)"
-    YELLOW="$(tput setaf 11)"
+    RESET="\[$(tput sgr0)\]"
+    GREEN="\[$(tput setaf 10)\]"
+    WHITE="\[$(tput setaf 15)\]"
+    CYAN="\[$(tput setaf 14)\]"
+    YELLOW="\[$(tput setaf 11)\]"
 else
     RESET="\[\033[0m\]"
     GREEN="\[\033[38;5;10m\]"
@@ -18,12 +18,12 @@ export EDITOR='vim'
 export PS1="${GREEN}\u@\h${WHITE} ${CYAN}\w ${YELLOW}\\$ ${RESET}"
 
 alias .1='cd ..'
-alias .2='.1;.1'
-alias .3='.2;.1'
-alias .4='.3;.1'
-alias .5='.4;.1'
+alias .2='cd ../..'
+alias .3='cd ../../..'
+alias .4='cd ../../../..'
+alias .5='cd ../../../../..'
 alias .d='cd ${HOME}/Desktop'
-alias .du='du -hsx * | sort -rh | head -10'
+alias .du='du -hsx * | sort -rn | head -10'
 alias .s='cd ${HOME}/.ssh'
 alias ce='crontab -e'
 alias cer='sudo crontab -e'
@@ -31,25 +31,57 @@ alias cl='crontab -l'
 alias clr='sudo crontab -l'
 alias dps='docker ps'
 alias e='exit'
-alias eak='vi ${HOME}/.ssh/authorized_keys'
-alias eh='vi ${HOME}/.bash_history'
-alias ekh='vi ${HOME}/.ssh/known_hosts'
-alias ep='vi ${HOME}/.bashrc;rp'
-alias ev='vi .env'
+alias eak='$EDITOR ${HOME}/.ssh/authorized_keys'
+alias eh='$EDITOR ${HOME}/.bash_history'
+alias ekh='$EDITOR ${HOME}/.ssh/known_hosts'
+alias ep='$EDITOR ${HOME}/.bashrc;rp'
+alias ev='$EDITOR .env'
 alias l='clear'
 alias ll='ls -lta'
 alias mc='m clean'
 alias rp='clear;source ${HOME}/.bashrc'
-alias rr='rm -rf'
-alias sconf='vi ${HOME}/.ssh/config'
-alias vdc='vi docker-compose.yml'
+alias sconf='$EDITOR ${HOME}/.ssh/config'
+alias vdc='$EDITOR docker-compose.yml'
 alias y='yarn'
 
-CUSTOM_IP=("192.168.5.8" "194.124.233.45")
+_ensure_host_resolver() {
+  command -v host-resolver &>/dev/null && return
+  local dir="${HOME}/.local/bin"
+  local bin="${dir}/host-resolver"
+  if [ ! -x "$bin" ]; then
+    mkdir -p "$dir"
+    if command -v curl &>/dev/null; then
+      curl -fsSL "https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/host-resolver" -o "$bin" || return 1
+    elif command -v wget &>/dev/null; then
+      wget -qO "$bin" "https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/host-resolver" || return 1
+    else
+      return 1
+    fi
+    chmod +x "$bin"
+  fi
+  export PATH="${dir}:${PATH}"
+}
 
-CURRENT_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || ip addr show 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -n1 || ipconfig getifaddr en0 2>/dev/null)"
+_ensure_host_resolver
+CUSTOM_IP=()
+for _h in "updates.leonardo.local" "updates.leonardo.ag"; do
+  _ip="$(host-resolver "$_h")"
+  [ -n "$_ip" ] && [ "$_ip" != "127.0.0.1" ] && CUSTOM_IP+=("$_ip")
+done
+unset _h _ip
 
-if [[ " ${CUSTOM_IP[*]} " =~ " ${CURRENT_IP} " ]]; then
+_detect_ip() {
+  local ip
+  ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  [ -n "$ip" ] && { echo "$ip"; return; }
+  ip="$(ip addr show 2>/dev/null | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | grep -v '^127\.' | head -n1)"
+  [ -n "$ip" ] && { echo "$ip"; return; }
+  ipconfig getifaddr en0 2>/dev/null
+}
+CURRENT_IP="$(_detect_ip)"
+
+_ip_pattern=" ${CURRENT_IP} "
+if [[ " ${CUSTOM_IP[*]} " =~ $_ip_pattern ]]; then
   echo ""
   echo "⚡️ Recognized host: $(whoami)@${CURRENT_IP} → ⚙️  custom env loaded"
   echo ""
