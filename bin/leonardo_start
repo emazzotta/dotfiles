@@ -13,6 +13,9 @@ mount_k_drive_on_network_up() {
     if is_network_up 250; then
         echo "Leonardo network is reachable."
         leonardo_drive --mount
+        if command -v tailscale-toggle-exit-node > /dev/null 2>&1; then
+            tailscale-toggle-exit-node
+        fi
         exit 0
     fi
 }

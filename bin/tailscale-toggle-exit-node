@@ -1,0 +1,39 @@
+#!/bin/bash
+
+set -euo pipefail
+
+EXIT_NODE_NAME="ubuntu-devserver"
+
+run_showip_if_available() {
+    if command -v showip > /dev/null 2>&1; then
+        echo "[IP] $(showip -e)"
+    fi
+}
+
+check_tailscale_connected() {
+    local state
+    state=$(tailscale status --json | jq -r '.BackendState')
+    if [ "$state" != "Running" ]; then
+        echo "Tailscale is not connected (state: $state)"
+        run_showip_if_available
+        exit 0
+    fi
+}
+
+active_exit_node() {
+    tailscale status --json | jq -r '.Peer[] | select(.ExitNode == true) | .HostName'
+}
+
+check_tailscale_connected
+
+current_node=$(active_exit_node)
+
+if [ -n "$current_node" ]; then
+    echo "[Toggle] Disabling exit node"
+    tailscale set --exit-node=
+else
+    echo "[Toggle] Enabling exit node: $EXIT_NODE_NAME"
+    tailscale set --exit-node="$EXIT_NODE_NAME"
+fi
+
+run_showip_if_available
