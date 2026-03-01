@@ -25,12 +25,15 @@ mount_k_drive_on_network_up() {
 disconnect() {
     local disconnected=false
 
+    leonardo_drive --unmount
+
     if command -v tailscale > /dev/null 2>&1; then
         local ts_state
         ts_state=$(tailscale status --json | jq -r '.BackendState')
         if [ "$ts_state" = "Running" ]; then
             tailscale set --exit-node=
             tailscale down
+            scutil --nc stop "Tailscale" 2>/dev/null || true
             printf "${RED}●${RESET} Tailscale disconnected\n"
             disconnected=true
         fi
@@ -49,7 +52,6 @@ disconnect() {
 
 if [ "${1:-}" = "--disconnect" ]; then
     disconnect
-    leonardo_drive --unmount
     exit 0
 fi
 
