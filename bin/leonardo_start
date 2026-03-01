@@ -11,7 +11,7 @@ is_network_up() {
 
 mount_k_drive_on_network_up() {
     if is_network_up 250; then
-        echo "Leonardo network is reachable."
+        printf "${GREEN}●${RESET} Leonardo network is reachable.\n"
         leonardo_drive --mount
         if command -v tailscale-toggle-exit-node > /dev/null 2>&1; then
             tailscale-toggle-exit-node
@@ -28,11 +28,11 @@ fi
 
 leonardo_vpn_toggle --enable
 
-echo "Checking if connection is established..."
+printf "${YELLOW}●${RESET} Checking if connection is established...\n"
 DEADLINE=$((SECONDS + 15))
 while [ $SECONDS -lt $DEADLINE ]; do
     mount_k_drive_on_network_up
 done
 
-echo "$STATUS_HOST is not reachable."
+printf "${RED}●${RESET} $STATUS_HOST is not reachable.\n"
 exit 1

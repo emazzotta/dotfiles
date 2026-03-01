@@ -13,7 +13,7 @@ show_usage() {
 
 mount_drive() {
     if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
-        echo "Network drive '$NETWORK_DRIVE_FOLDER' is already mounted"
+        printf "${GREEN}●${RESET} Network drive '$NETWORK_DRIVE_FOLDER' is already mounted\n"
         return
     fi
 
@@ -34,25 +34,25 @@ mount_drive() {
     "
 
     if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
-        echo "Network drive '$NETWORK_DRIVE_FOLDER' mounted at $NETWORK_DRIVE_MOUNT_POINT"
+        printf "${GREEN}●${RESET} Network drive '$NETWORK_DRIVE_FOLDER' mounted at $NETWORK_DRIVE_MOUNT_POINT\n"
     else
-        echo "Failed to mount network drive '$NETWORK_DRIVE_FOLDER' at $NETWORK_DRIVE_MOUNT_POINT"
+        printf "${RED}●${RESET} Failed to mount network drive '$NETWORK_DRIVE_FOLDER' at $NETWORK_DRIVE_MOUNT_POINT\n"
     fi
 }
 
 status_drive() {
     if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
-        echo "Network drive '$NETWORK_DRIVE_FOLDER' is mounted at $NETWORK_DRIVE_MOUNT_POINT"
+        printf "${GREEN}●${RESET} Network drive '$NETWORK_DRIVE_FOLDER' is mounted at $NETWORK_DRIVE_MOUNT_POINT\n"
     else
-        echo "Network drive '$NETWORK_DRIVE_FOLDER' is not mounted"
+        printf "${YELLOW}●${RESET} Network drive '$NETWORK_DRIVE_FOLDER' is not mounted\n"
     fi
 }
 
 unmount_drive() {
     if umount "$NETWORK_DRIVE_MOUNT_POINT"; then
-        echo "Network drive '$NETWORK_DRIVE_FOLDER' unmounted successfully"
+        printf "${GREEN}●${RESET} Network drive '$NETWORK_DRIVE_FOLDER' unmounted successfully\n"
     else
-        echo "Failed to unmount network drive '$NETWORK_DRIVE_FOLDER' from $NETWORK_DRIVE_MOUNT_POINT"
+        printf "${RED}●${RESET} Failed to unmount network drive '$NETWORK_DRIVE_FOLDER' from $NETWORK_DRIVE_MOUNT_POINT\n"
     fi
 }
 
@@ -66,7 +66,7 @@ case "$1" in
     -u|--unmount) unmount_drive ;;
     -s|--status)  status_drive ;;
     *)
-        echo "Unknown parameter: $1" >&2
+        printf "${RED}●${RESET} Unknown parameter: $1\n" >&2
         show_usage
         exit 1
         ;;

@@ -20,14 +20,14 @@ is_leonardo_vpn_connected() {
 
 create_vpn_config() {
     if ! command -v macosvpn >/dev/null 2>&1; then
-        echo "macosvpn is not installed. install via 'brew install macosvpn'"
+        printf "${RED}●${RESET} macosvpn is not installed. install via 'brew install macosvpn'\n"
         exit 1
     fi
-    echo "Creating VPN configuration with macosvpn..."
+    printf "${YELLOW}●${RESET} Creating VPN configuration with macosvpn...\n"
     if sudo macosvpn create --l2tp "$VPN_NAME" --endpoint "$SERVER_ADDRESS" --username "$AD_ACCOUNT" --password "$AD_PASSWORD" --sharedsecret "$VPN_SHARED_SECRET"; then
-        echo "$VPN_NAME VPN configuration created successfully."
+        printf "${GREEN}●${RESET} $VPN_NAME VPN configuration created successfully.\n"
     else
-        echo "Failed to create VPN configuration."
+        printf "${RED}●${RESET} Failed to create VPN configuration.\n"
         return 1
     fi
 }
@@ -38,19 +38,19 @@ connect_or_disconnect_vpn() {
           read -r -p "$VPN_NAME is connected. Disconnect? (y/N): " user_input
           case $user_input in
               [Yy])
-                  echo "Disconnecting $VPN_NAME..."
+                  printf "${YELLOW}●${RESET} Disconnecting $VPN_NAME...\n"
                   umount "$NETWORK_DRIVE_MOUNT_POINT" &> /dev/null
                   scutil --nc stop "$VPN_NAME"
                   ;;
               *)
-                  echo "No changes made. VPN remains connected."
+                  printf "${YELLOW}●${RESET} No changes made. VPN remains connected.\n"
                   ;;
           esac
       else
-          echo "$VPN_NAME is inactive"
+          printf "${YELLOW}●${RESET} $VPN_NAME is inactive\n"
       fi
     elif [ "$1" != "--disable" ]; then
-        echo "Connecting to $VPN_NAME..."
+        printf "${YELLOW}●${RESET} Connecting to $VPN_NAME...\n"
         scutil --nc start --secret "$VPN_SHARED_SECRET" "$VPN_NAME"
     fi
 }
