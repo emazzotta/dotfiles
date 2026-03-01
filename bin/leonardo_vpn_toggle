@@ -33,18 +33,22 @@ create_vpn_config() {
 }
 
 connect_or_disconnect_vpn() {
-    if is_leonardo_vpn_connected && [ "$1" != "--enable" ]; then
-        read -r -p "$VPN_NAME is connected. Disconnect? (y/N): " user_input
-        case $user_input in
-            [Yy])
-                echo "Disconnecting $VPN_NAME..."
-                umount "$NETWORK_DRIVE_MOUNT_POINT" &> /dev/null
-                scutil --nc stop "$VPN_NAME"
-                ;;
-            *)
-                echo "No changes made. VPN remains connected."
-                ;;
-        esac
+    if [ "$1" != "--enable" ]; then
+      if is_leonardo_vpn_connected; then
+          read -r -p "$VPN_NAME is connected. Disconnect? (y/N): " user_input
+          case $user_input in
+              [Yy])
+                  echo "Disconnecting $VPN_NAME..."
+                  umount "$NETWORK_DRIVE_MOUNT_POINT" &> /dev/null
+                  scutil --nc stop "$VPN_NAME"
+                  ;;
+              *)
+                  echo "No changes made. VPN remains connected."
+                  ;;
+          esac
+      else
+          echo "$VPN_NAME is inactive"
+      fi
     elif [ "$1" != "--disable" ]; then
         echo "Connecting to $VPN_NAME..."
         scutil --nc start --secret "$VPN_SHARED_SECRET" "$VPN_NAME"

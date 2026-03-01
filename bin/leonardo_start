@@ -11,6 +11,10 @@ is_network_up() {
 
 if is_network_up 250; then
     leonardo_vpn_toggle --disable
+    if is_network_up 250; then
+      echo "Leonardo network is reachable."
+      leonardo_drive
+    fi
     exit 0
 fi
 
