@@ -7,7 +7,6 @@ SERVER_ADDRESS="vpn.leonardo.ag"
 
 is_leonardo_vpn_configured() {
     scutil --nc list | grep -q "$VPN_NAME"
-    return $?
 }
 
 is_leonardo_vpn_connected() {
@@ -15,7 +14,6 @@ is_leonardo_vpn_connected() {
         create_vpn_config
     fi
     is_leonardo_vpn_configured && scutil --nc status "$VPN_NAME" | grep -qw "Connected"
-    return $?
 }
 
 create_vpn_config() {
@@ -32,27 +30,43 @@ create_vpn_config() {
     fi
 }
 
-connect_or_disconnect_vpn() {
-    if [ "$1" != "--enable" ]; then
-      if is_leonardo_vpn_connected; then
-          read -r -p "$VPN_NAME is connected. Disconnect? (y/N): " user_input
-          case $user_input in
-              [Yy])
-                  printf "${YELLOW}●${RESET} Disconnecting $VPN_NAME...\n"
-                  umount "$NETWORK_DRIVE_MOUNT_POINT" &> /dev/null
-                  scutil --nc stop "$VPN_NAME"
-                  ;;
-              *)
-                  printf "${YELLOW}●${RESET} No changes made. VPN remains connected.\n"
-                  ;;
-          esac
-      else
-          printf "${YELLOW}●${RESET} $VPN_NAME is inactive\n"
-      fi
-    elif [ "$1" != "--disable" ]; then
+connect_vpn() {
+    if is_leonardo_vpn_connected; then
+        printf "${YELLOW}●${RESET} $VPN_NAME is already connected\n"
+    else
         printf "${YELLOW}●${RESET} Connecting to $VPN_NAME...\n"
         scutil --nc start --secret "$VPN_SHARED_SECRET" "$VPN_NAME"
     fi
 }
 
-connect_or_disconnect_vpn "$1"
+disconnect_vpn() {
+    if ! is_leonardo_vpn_connected; then
+        return 1
+    fi
+    umount "$NETWORK_DRIVE_MOUNT_POINT" &>/dev/null || true
+    scutil --nc stop "$VPN_NAME"
+    printf "${RED}●${RESET} $VPN_NAME disconnected\n"
+}
+
+toggle_vpn() {
+    if is_leonardo_vpn_connected; then
+        read -r -p "$VPN_NAME is connected. Disconnect? (y/N): " user_input
+        case $user_input in
+            [Yy])
+                disconnect_vpn
+                return 1
+                ;;
+            *)
+                printf "${YELLOW}●${RESET} No changes made. VPN remains connected.\n"
+                ;;
+        esac
+    else
+        printf "${YELLOW}●${RESET} $VPN_NAME is inactive\n"
+    fi
+}
+
+case "${1:-}" in
+    --enable)  connect_vpn ;;
+    --disable) disconnect_vpn ;;
+    *)         toggle_vpn ;;
+esac

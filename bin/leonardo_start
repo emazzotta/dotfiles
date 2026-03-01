@@ -4,35 +4,66 @@ set -euo pipefail
 source leonardo_account
 
 STATUS_HOST="updates.leonardo.local"
+TIMEOUT_IN_MS=350
 
 is_network_up() {
     [ "$(host-resolver "$STATUS_HOST" --timeout "$1" 2>/dev/null)" != "127.0.0.1" ]
 }
 
 mount_k_drive_on_network_up() {
-    if is_network_up 250; then
+    if is_network_up $TIMEOUT_IN_MS; then
         printf "${GREEN}●${RESET} Leonardo network is reachable.\n"
         leonardo_drive --mount
         if command -v tailscale-toggle-exit-node > /dev/null 2>&1; then
             tailscale-toggle-exit-node
         fi
-        exit 0
+        return 0
+    fi
+    return 1
+}
+
+disconnect() {
+    local disconnected=false
+
+    if command -v tailscale > /dev/null 2>&1; then
+        local ts_state
+        ts_state=$(tailscale status --json | jq -r '.BackendState')
+        if [ "$ts_state" = "Running" ]; then
+            tailscale set --exit-node=
+            tailscale down
+            printf "${RED}●${RESET} Tailscale disconnected and exit node disabled\n"
+            disconnected=true
+        fi
+    fi
+
+    if leonardo_vpn_toggle --disable; then
+        disconnected=true
+    fi
+
+    if [ "$disconnected" = false ]; then
+        printf "${YELLOW}●${RESET} Nothing to disconnect\n"
     fi
 }
 
-if is_network_up 250; then
-    leonardo_vpn_toggle --disable
-    mount_k_drive_on_network_up
+if [ "${1:-}" = "--disconnect" ]; then
+    disconnect
     exit 0
 fi
 
-leonardo_vpn_toggle --enable
+if is_network_up $TIMEOUT_IN_MS; then
+    leonardo_vpn_toggle || exit 0
+    mount_k_drive_on_network_up && exit 0
+fi
 
-printf "${YELLOW}●${RESET} Checking if connection is established...\n"
-DEADLINE=$((SECONDS + 15))
-while [ $SECONDS -lt $DEADLINE ]; do
-    mount_k_drive_on_network_up
-done
+if ! is_network_up $TIMEOUT_IN_MS; then
+    leonardo_vpn_toggle --enable
+    printf "${YELLOW}●${RESET} Waiting for connection to be established...\n"
+    DEADLINE=$((SECONDS + 15))
+    while [ $SECONDS -lt $DEADLINE ]; do
+        mount_k_drive_on_network_up && exit 0
+    done
+fi
 
+leonardo_drive --unmount
 printf "${RED}●${RESET} $STATUS_HOST is not reachable.\n"
 exit 1
