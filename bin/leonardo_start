@@ -7,11 +7,11 @@ STATUS_HOST="updates.leonardo.local"
 TIMEOUT_IN_MS=350
 
 is_network_up() {
-    [ "$(host-resolver "$STATUS_HOST" --timeout "$1" 2>/dev/null)" != "127.0.0.1" ]
+    [ "$(host-resolver "$STATUS_HOST" --timeout $TIMEOUT_IN_MS 2>/dev/null)" != "127.0.0.1" ]
 }
 
 mount_k_drive_on_network_up() {
-    if is_network_up $TIMEOUT_IN_MS; then
+    if is_network_up; then
         printf "${GREEN}●${RESET} Leonardo network is reachable.\n"
         leonardo_drive --mount
         if command -v tailscale-toggle-exit-node > /dev/null 2>&1; then
@@ -55,14 +55,13 @@ if [ "${1:-}" = "--disconnect" ]; then
     exit 0
 fi
 
-if is_network_up $TIMEOUT_IN_MS; then
+if is_network_up; then
     leonardo_vpn_toggle || exit 0
     mount_k_drive_on_network_up && exit 0
 fi
 
-if ! is_network_up $TIMEOUT_IN_MS; then
+if ! is_network_up; then
     leonardo_vpn_toggle --enable
-    printf "${YELLOW}●${RESET} Waiting for connection to be established...\n"
     DEADLINE=$((SECONDS + 15))
     while [ $SECONDS -lt $DEADLINE ]; do
         mount_k_drive_on_network_up && exit 0
