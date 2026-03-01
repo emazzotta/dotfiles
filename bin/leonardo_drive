@@ -49,7 +49,10 @@ status_drive() {
 }
 
 unmount_drive() {
-    if umount "$NETWORK_DRIVE_MOUNT_POINT"; then
+    if ! mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
+        return
+    fi
+    if umount "$NETWORK_DRIVE_MOUNT_POINT" > /dev/null 2>&1; then
         printf "${GREEN}●${RESET} Network drive '$NETWORK_DRIVE_FOLDER' unmounted successfully\n"
     else
         printf "${RED}●${RESET} Failed to unmount network drive '$NETWORK_DRIVE_FOLDER' from $NETWORK_DRIVE_MOUNT_POINT\n"

@@ -31,7 +31,7 @@ disconnect() {
         if [ "$ts_state" = "Running" ]; then
             tailscale set --exit-node=
             tailscale down
-            printf "${RED}●${RESET} Tailscale disconnected and exit node disabled\n"
+            printf "${RED}●${RESET} Tailscale disconnected\n"
             disconnected=true
         fi
     fi
@@ -40,6 +40,8 @@ disconnect() {
         disconnected=true
     fi
 
+    scutil --nc stop "Tailscale" 2>/dev/null || true
+
     if [ "$disconnected" = false ]; then
         printf "${YELLOW}●${RESET} Nothing to disconnect\n"
     fi
@@ -47,6 +49,7 @@ disconnect() {
 
 if [ "${1:-}" = "--disconnect" ]; then
     disconnect
+    leonardo_drive --unmount
     exit 0
 fi
 
