@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+docker compose -f "${HOME}/Projects/private/tldr/docker-compose.yml" run --rm tldr "$@"
