@@ -1,7 +1,8 @@
+**/.claude/**
+**/.claude.json
 **/.gnupg/**
 **/.m2/**
 **/.ssh/**
-**/ccline/**
 **/karabiner/**
 *.dat
 *.db
@@ -27,4 +28,5 @@ dotfiles/
 !**/ccline/config.toml
 !**/ccline/models.toml
 !**/ccline/themes
+!**/.claude/settings.json
 !**/karabiner/karabiner.json
