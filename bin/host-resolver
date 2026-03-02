@@ -13,7 +13,7 @@ from typing import Final
 RESOLVE_TIMEOUT_MS: Final = 150
 IS_DARWIN: Final = platform.system() == "Darwin"
 HOSTS: Final[dict[str, tuple[str, ...]]] = {
-    "ci-macmini": ("ci-macmini.machines.leonardo.local", "Mac-mini-von-Andreas.local"),
+    "ci-macmini": ("ci-macmini.dyn.leonardo.local", "Mac-mini-von-Andreas.local"),
 }
 
 
