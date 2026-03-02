@@ -21,5 +21,6 @@ stow -d "${DIR:-.}" -t "${HOME}" sshrc
 stow -d "${DIR:-.}" -t "${HOME}" tmux
 stow -d "${DIR:-.}" -t "${HOME}" vim
 stow -d "${DIR:-.}" -t "${HOME}" zsh
+sudo stow -d "${DIR:-.}" -t "/etc/resolver" dns-resolver
 stow -d "${DIR:-.}" -t "${ZSH_THEME_DIR}" zsh_theme
 stow -d "${DIR:-.}" -t "${VS_CODE_DIR}" vscode
