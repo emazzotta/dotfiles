@@ -74,6 +74,16 @@ TEST_CASES = [
         'K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon',
         id='complex_path_with_special_chars'
     ),
+    pytest.param(
+        leopath.HOME_DATEN + '/subfolder/file.leon',
+        'K:\\Daten\\subfolder\\file.leon',
+        id='unix_home_daten_path'
+    ),
+    pytest.param(
+        leopath.HOME_DATEN,
+        'K:\\Daten',
+        id='unix_home_daten_root'
+    ),
 ]
 
 

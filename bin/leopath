@@ -45,9 +45,17 @@ def extract_from_daten(path: str) -> str:
     return f'K:\\{daten_part}'
 
 
+def unix_to_windows_path(path: str) -> str:
+    relative = path[len(HOME_DATEN):].lstrip('/')
+    return f'K:\\Daten\\{relative}' if relative else 'K:\\Daten'
+
+
 def normalize_path(path: str) -> str:
     if is_file_url(path):
         path = parse_file_url(path)
+
+    if path.startswith(HOME_DATEN):
+        path = unix_to_windows_path(path)
 
     path = normalize_slashes(path)
     path = remove_leading_slashes(path)
@@ -101,17 +109,6 @@ def read_from_stdin() -> str:
     return input().strip()
 
 
-def print_usage(script_name: str) -> None:
-    print(f"Usage: {script_name} <path>")
-    print(f"       {script_name} -           (read path from stdin/paste)")
-    print()
-    print("Examples:")
-    print(f"  {script_name} 'K:\\Daten\\path\\to\\file.leon'")
-    print(f"  {script_name} 'file:///Users/name/Daten/file.pdf'")
-    print(f"  {script_name} -")
-    print()
-    print("Note: Supports file:// URLs with automatic URL decoding")
-
 
 def prompt_user_action(mac_path: str, windows_path: str) -> None:
     path_type = "folder" if is_folder(mac_path) else "file"
@@ -149,10 +146,8 @@ def main() -> int:
     script_name = os.path.basename(sys.argv[0])
 
     if len(sys.argv) < 2:
-        print_usage(script_name)
-        return 1
-
-    if sys.argv[1] == '-':
+        input_path = os.getcwd()
+    elif sys.argv[1] == '-':
         if not sys.stdin.isatty():
             input_path = sys.stdin.read().strip()
         else:
