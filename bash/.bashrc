@@ -134,6 +134,7 @@ alias dive='docker run -ti --rm  -v /var/run/docker.sock:/var/run/docker.sock wa
 alias dload='aria2c'
 alias dnscheck='dig @1.1.1.1 ns +short'
 alias dnsflush='sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder'
+alias dnsshow='scutil --dns'
 alias docker_prune='docker system prune -a -f --volumes'
 alias dps='docker ps'
 alias dv='deactivate'
