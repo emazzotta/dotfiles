@@ -331,3 +331,38 @@ def test_main_passthrough_args_included_in_command(tmp_path, monkeypatch):
     assert exc_info.value.code == 0
 
     assert "--resume" in captured_command[0]
+
+
+def test_main_skip_flag_prepends_dangerously_skip_permissions(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["cl", "-s"])
+
+    captured_command = []
+    def mock_run(cmd):
+        captured_command.append(cmd)
+        return type('obj', (), {'returncode': 0})()
+    monkeypatch.setattr(cl, "run", mock_run)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cl.main()
+    assert exc_info.value.code == 0
+
+    command = captured_command[0]
+    claude_index = command.index("claude")
+    assert "--dangerously-skip-permissions" in command
+    assert command.index("--dangerously-skip-permissions") > claude_index
+
+
+def test_main_without_skip_flag_omits_dangerously_skip_permissions(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["cl"])
+
+    captured_command = []
+    def mock_run(cmd):
+        captured_command.append(cmd)
+        return type('obj', (), {'returncode': 0})()
+    monkeypatch.setattr(cl, "run", mock_run)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cl.main()
+    assert exc_info.value.code == 0
+
+    assert "--dangerously-skip-permissions" not in captured_command[0]

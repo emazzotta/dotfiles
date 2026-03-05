@@ -70,14 +70,16 @@ def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
 def main() -> None:
     pwd = Path.cwd()
 
-    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [CLAUDE_ARGS...]")
+    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-s] [CLAUDE_ARGS...]")
     parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
     parser.add_argument("-p", "--path", dest="paths", action="append", type=parse_path, default=[], metavar="PATH")
+    parser.add_argument("-s", "--skip", action="store_true", default=False)
 
     args, claude_args = parser.parse_known_args()
 
     volume_args = build_volume_args(args.files, args.paths, pwd)
     container_name = f"opencode-{int(time())}"
+    skip_args = ["--dangerously-skip-permissions"] if args.skip else []
 
     command = [
         "docker", "compose",
@@ -88,6 +90,7 @@ def main() -> None:
         *volume_args,
         "opencode",
         "claude",
+        *skip_args,
         *claude_args,
     ]
 
