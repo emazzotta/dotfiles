@@ -1,324 +1,409 @@
-#!/bin/bash
-set -euo pipefail
+#!/usr/bin/env python3
+from __future__ import annotations
 
-JIRA_URL="https://leonardo-productions.atlassian.net"
-JIRA_EMAIL="emanuele.mazzotta@leonardo.ag"
-DEFAULT_PROJECT="LEO"
-DEFAULT_TYPE="Task"
-DEFAULT_FIX_VERSION="25.3.0"
-SPRINT_FIELD="customfield_10020"
-BOARD_ID="11"
-ACCOUNT_ID="712020:ee7ed959-0679-4e8c-aa1c-ed33c9327198"
-DEFAULT_STATUS="READY FOR DEV"
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from base64 import b64encode
+from concurrent.futures import ThreadPoolExecutor
 
-error() {
-    gum style --foreground 196 "Error: $*" >&2
-    exit 1
-}
+JIRA_URL = "https://leonardo-productions.atlassian.net"
+DEFAULT_PROJECT = "LEO"
+DEFAULT_TYPE = "Task"
+DEFAULT_FIX_VERSION = "25.3.0"
+SPRINT_FIELD = "customfield_10020"
+BOARD_ID = "11"
+ACCOUNT_ID = "712020:ee7ed959-0679-4e8c-aa1c-ed33c9327198"
+DEFAULT_STATUS = "READY FOR DEV"
+ISSUE_TYPES = ["Task", "Story", "Bug", "Epic", "Sub-task"]
 
-warn() {
-    gum style --foreground 214 "Warning: $*" >&2
-}
 
-check_deps() {
-    local missing=()
-    for cmd in gum curl jq; do
-        command -v "$cmd" &>/dev/null || missing+=("$cmd")
-    done
-    if [ ${#missing[@]} -gt 0 ]; then
-        echo "Missing required tools: ${missing[*]}" >&2
-        echo "" >&2
-        for cmd in "${missing[@]}"; do
-            case "$cmd" in
-                gum)  echo "  brew install gum" >&2 ;;
-                curl) echo "  brew install curl" >&2 ;;
-                jq)   echo "  brew install jq" >&2 ;;
-            esac
-        done
-        exit 1
-    fi
-    if [ -z "${JIRA_TOKEN:-}" ]; then
-        echo "JIRA_TOKEN environment variable is not set." >&2
-        echo "Add to your shell profile: export JIRA_TOKEN=\"your-api-token\"" >&2
-        echo "Get a token at: https://id.atlassian.com/manage-profile/security/api-tokens" >&2
-        exit 1
-    fi
-}
+# ── Jira API ──────────────────────────────────────────────────────────────────
 
-jira_get() {
-    local path="$1"
-    local response
-    response=$(curl -sf \
-        -u "${JIRA_EMAIL}:${JIRA_TOKEN}" \
-        -H "Accept: application/json" \
-        "${JIRA_URL}/rest/${path}") || error "API request failed: GET ${path}"
-    echo "$response"
-}
+def build_auth_header() -> str:
+    email = os.environ.get("JIRA_EMAIL", "")
+    token = os.environ.get("JIRA_TOKEN", "")
+    return f"Basic {b64encode(f'{email}:{token}'.encode()).decode()}"
 
-fetch_board_id() {
-    local result board_id
-    result=$(jira_get "agile/1.0/board?projectKeyOrId=${DEFAULT_PROJECT}&type=scrum")
-    board_id=$(echo "$result" | jq -r '.values[0].id // empty')
-    [ -n "$board_id" ] || error "No scrum board found for project ${DEFAULT_PROJECT}"
-    echo "$board_id"
-}
 
-fetch_versions() {
-    local versions
-    versions=$(jira_get "api/3/project/${DEFAULT_PROJECT}/versions" \
-        | jq -r '[.[] | select(.released==false)] | reverse | .[].name')
-    [ -n "$versions" ] || error "No unreleased versions found for project ${DEFAULT_PROJECT}"
-    echo "$versions"
-}
+def extract_error(result: dict) -> str:
+    messages = result.get("errorMessages", [])
+    errors = list(result.get("errors", {}).values())
+    return ", ".join(messages + errors) or str(result)
 
-fetch_sprints() {
-    local board_id="$1"
-    local active future
-    active=$(jira_get "agile/1.0/board/${board_id}/sprint?state=active" | jq -r '.values[].name' 2>/dev/null || true)
-    future=$(jira_get "agile/1.0/board/${board_id}/sprint?state=future" | jq -r '.values[].name' 2>/dev/null || true)
-    [ -n "$active" ] || [ -n "$future" ] || error "No active or future sprints found for board ${board_id}"
-    if [ -n "$active" ]; then printf '%s\n' "$active"; fi
-    if [ -n "$future" ]; then printf '%s\n' "$future"; fi
-}
 
-fetch_sprint_id() {
-    local board_id="$1" sprint_name="$2"
-    local result sprint_id
-    result=$(jira_get "agile/1.0/board/${board_id}/sprint?state=active&maxResults=50")
-    sprint_id=$(echo "$result" | jq -r --arg name "$sprint_name" '.values[] | select(.name==$name) | .id // empty')
-    if [ -z "$sprint_id" ]; then
-        result=$(jira_get "agile/1.0/board/${board_id}/sprint?state=future&maxResults=50")
-        sprint_id=$(echo "$result" | jq -r --arg name "$sprint_name" '.values[] | select(.name==$name) | .id // empty')
-    fi
-    [ -n "$sprint_id" ] || error "Could not find sprint ID for: ${sprint_name}"
-    echo "$sprint_id"
-}
+def jira_request(method: str, path: str, data: dict | None = None) -> dict:
+    url = f"{JIRA_URL}/rest/{path}"
+    body = json.dumps(data).encode() if data is not None else None
+    req = urllib.request.Request(
+        url, data=body, method=method,
+        headers={"Authorization": build_auth_header(), "Accept": "application/json", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            raw = resp.read()
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as exc:
+        raw = exc.read()
+        try:
+            detail = extract_error(json.loads(raw))
+        except Exception:
+            detail = raw.decode()
+        print(f"Error: {method} {path}: {detail}", file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as exc:
+        print(f"Error: {method} {path}: {exc.reason}", file=sys.stderr)
+        sys.exit(1)
 
-fetch_account_id() {
-    local id
-    id=$(jira_get "api/3/myself" | jq -r '.accountId // empty')
-    [ -n "$id" ] || error "Could not fetch your Jira account ID"
-    echo "$id"
-}
 
-transition_issue() {
-    local key="$1" status_name="$2"
-    local transitions transition_id
-    transitions=$(jira_get "api/3/issue/${key}/transitions")
-    transition_id=$(echo "$transitions" | jq -r --arg name "$status_name" \
-        '.transitions[] | select(.name | ascii_downcase == ($name | ascii_downcase)) | .id // empty' | head -1)
-    if [ -z "$transition_id" ]; then
-        warn "Transition '${status_name}' not found — ticket left in default status"
+def fetch_board_id() -> str:
+    result = jira_request("GET", f"agile/1.0/board?projectKeyOrId={DEFAULT_PROJECT}&type=scrum")
+    values = result.get("values", [])
+    if not values:
+        print(f"Error: No scrum board found for {DEFAULT_PROJECT}", file=sys.stderr)
+        sys.exit(1)
+    return str(values[0]["id"])
+
+
+def fetch_versions() -> list[str]:
+    result = jira_request("GET", f"api/3/project/{DEFAULT_PROJECT}/versions")
+    unreleased = [v["name"] for v in result if not v.get("released", True)]
+    if not unreleased:
+        print(f"Error: No unreleased versions found for {DEFAULT_PROJECT}", file=sys.stderr)
+        sys.exit(1)
+    return list(reversed(unreleased))
+
+
+def fetch_sprints(board_id: str) -> list[str]:
+    names: list[str] = []
+    for state in ("active", "future"):
+        result = jira_request("GET", f"agile/1.0/board/{board_id}/sprint?state={state}")
+        names.extend(s["name"] for s in result.get("values", []))
+    if not names:
+        print(f"Error: No sprints found for board {board_id}", file=sys.stderr)
+        sys.exit(1)
+    return names
+
+
+def fetch_sprint_id(board_id: str, sprint_name: str) -> str:
+    for state in ("active", "future"):
+        result = jira_request("GET", f"agile/1.0/board/{board_id}/sprint?state={state}&maxResults=50")
+        for s in result.get("values", []):
+            if s["name"] == sprint_name:
+                return str(s["id"])
+    print(f"Error: Sprint not found: {sprint_name}", file=sys.stderr)
+    sys.exit(1)
+
+
+def fetch_active_sprint(board_id: str) -> tuple[str, str]:
+    result = jira_request("GET", f"agile/1.0/board/{board_id}/sprint?state=active&maxResults=1")
+    values = result.get("values", [])
+    if not values:
+        print(f"Error: No active sprint for board {board_id}", file=sys.stderr)
+        sys.exit(1)
+    s = values[0]
+    return s["name"], str(s["id"])
+
+
+def fetch_account_id() -> str:
+    result = jira_request("GET", "api/3/myself")
+    account_id = result.get("accountId", "")
+    if not account_id:
+        print("Error: Could not fetch account ID", file=sys.stderr)
+        sys.exit(1)
+    return account_id
+
+
+def transition_issue(key: str, status_name: str) -> None:
+    result = jira_request("GET", f"api/3/issue/{key}/transitions")
+    transition_id = next(
+        (t["id"] for t in result.get("transitions", []) if t["name"].lower() == status_name.lower()),
+        None,
+    )
+    if transition_id is None:
+        print(f"Warning: Transition '{status_name}' not found — ticket left in default status", file=sys.stderr)
         return
-    fi
-    curl -s -u "${JIRA_EMAIL}:${JIRA_TOKEN}" \
-        -H "Content-Type: application/json" \
-        -X POST \
-        -d "{\"transition\":{\"id\":\"${transition_id}\"}}" \
-        "${JIRA_URL}/rest/api/3/issue/${key}/transitions" > /dev/null
-}
+    jira_request("POST", f"api/3/issue/{key}/transitions", {"transition": {"id": transition_id}})
 
-build_payload() {
-    local summary="$1" description="$2" fix_version="$3" issue_type="$4" sprint_id="$5" sprint_field="$6" account_id="$7"
 
-    local base
-    base=$(jq -n \
-        --arg project "$DEFAULT_PROJECT" \
-        --arg summary "$summary" \
-        --arg fix_version "$fix_version" \
-        --arg issue_type "$issue_type" \
-        --arg account_id "$account_id" \
-        '{fields: {project: {key: $project}, summary: $summary, issuetype: {name: $issue_type}, fixVersions: [{name: $fix_version}], assignee: {accountId: $account_id}}}')
+# ── Payload ───────────────────────────────────────────────────────────────────
 
-    if [ -n "$description" ]; then
-        # ADF (Atlassian Document Format) required for Jira Cloud description field
-        base=$(echo "$base" | jq \
-            --argjson desc \
-            "{\"type\":\"doc\",\"version\":1,\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":$(echo "$description" | jq -Rs '.')}]}]}" \
-            '.fields.description = $desc')
-    fi
+def to_adf(text: str) -> dict:
+    # Atlassian Document Format required by Jira Cloud description field
+    return {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}]}
 
-    if [ -n "$sprint_field" ] && [ -n "$sprint_id" ]; then
-        base=$(echo "$base" | jq --arg sf "$sprint_field" --argjson sid "$sprint_id" '.fields[$sf] = $sid')
-    fi
 
-    echo "$base"
-}
+def build_payload(summary: str, description: str, fix_version: str, issue_type: str, sprint_id: str, account_id: str) -> dict:
+    fields: dict = {
+        "project": {"key": DEFAULT_PROJECT},
+        "summary": summary,
+        "issuetype": {"name": issue_type},
+        "fixVersions": [{"name": fix_version}],
+        "assignee": {"accountId": account_id},
+    }
+    if description:
+        fields["description"] = to_adf(description)
+    if sprint_id:
+        fields[SPRINT_FIELD] = int(sprint_id)
+    return {"fields": fields}
 
-run_setup() {
-    echo ""
-    gum style --bold "jcr setup — discovering Jira configuration"
-    echo ""
 
-    local board_id
-    board_id=$(gum spin --title "Fetching board for ${DEFAULT_PROJECT}..." --show-output -- \
-        bash -c "curl -sf \
-            -u '${JIRA_EMAIL}:${JIRA_TOKEN}' \
-            -H 'Accept: application/json' \
-            '${JIRA_URL}/rest/agile/1.0/board?projectKeyOrId=${DEFAULT_PROJECT}&type=scrum' \
-        | jq -r '.values[0].id // empty'") || error "Failed to fetch board"
-    [ -n "$board_id" ] || error "No scrum board found for project ${DEFAULT_PROJECT}"
+def submit_ticket(payload: dict, interactive: bool = False, output_json: bool = False) -> None:
+    if interactive:
+        result = gum_spin_curl("Creating ticket...", "POST", "api/3/issue", payload)
+    else:
+        print("Creating ticket...", file=sys.stderr)
+        result = jira_request("POST", "api/3/issue", payload)
 
-    echo "Fetching a recent ticket to identify the sprint field..."
-    local search_response
-    search_response=$(curl -s \
-        -u "${JIRA_EMAIL}:${JIRA_TOKEN}" \
-        -H "Accept: application/json" \
-        "${JIRA_URL}/rest/api/3/search/jql?jql=project%3D${DEFAULT_PROJECT}%20ORDER%20BY%20created%20DESC&maxResults=1&fields=*all")
+    key = result.get("key", "")
+    if not key:
+        print(f"Error: Failed to create ticket: {extract_error(result)}", file=sys.stderr)
+        sys.exit(1)
 
-    local api_error
-    api_error=$(echo "$search_response" | jq -r '.errorMessages[0] // empty' 2>/dev/null)
-    [ -z "$api_error" ] || error "Jira API error: ${api_error}"
+    transition_issue(key, DEFAULT_STATUS)
+    ticket_url = f"{JIRA_URL}/browse/{key}"
 
-    local raw_fields
-    raw_fields=$(echo "$search_response" | jq -r '
-        .issues[0].fields | to_entries[]
-        | select(.key | startswith("customfield_"))
-        | select(.value != null)
-        | select(.value | type == "array")
-        | select(length > 0)
-        | select(.value[0] | objects | (has("id") and has("name") and has("state")))
-        | "\(.key)  →  \(.value[0].name)"' 2>/dev/null)
+    if interactive:
+        print()
+        gum_style("--foreground", "82", f"{key} → {ticket_url}")
+    elif output_json:
+        print(json.dumps({"key": key, "url": ticket_url}))
+    else:
+        print(f"{key} → {ticket_url}")
 
-    if [ -z "$raw_fields" ]; then
-        error "Could not find sprint-like fields on the most recent ${DEFAULT_PROJECT} ticket. Make sure the ticket has a sprint assigned."
-    fi
 
-    echo ""
-    local sprint_field_line
-    sprint_field_line=$(echo "$raw_fields" | gum choose --header "Which field is the Sprint? (select the one showing the sprint name)")
-    local sprint_field
-    sprint_field=$(echo "$sprint_field_line" | awk '{print $1}')
+# ── gum helpers ───────────────────────────────────────────────────────────────
 
-    local account_id
-    account_id=$(jira_get "api/3/myself" | jq -r '.accountId // empty')
+def gum_run(cmd: list[str], input_text: str | None = None) -> str:
+    # stdout=PIPE captures the selection; stderr is free so gum can render its TUI
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, input=input_text, text=True)
+    if result.returncode != 0:
+        print("Aborted.", file=sys.stderr)
+        sys.exit(0)
+    return result.stdout.strip()
 
-    echo ""
-    gum style --foreground 82 "Update these constants in the jcr script:"
-    echo "  BOARD_ID=\"${board_id}\""
-    echo "  SPRINT_FIELD=\"${sprint_field}\""
-    echo "  ACCOUNT_ID=\"${account_id}\""
-    echo ""
-}
 
-show_help() {
-    cat << 'EOF'
-jcr — Jira CReate: interactive Jira ticket creation
+def gum_input(placeholder: str, prompt: str = "> ") -> str:
+    return gum_run(["gum", "input", "--placeholder", placeholder, "--prompt", prompt])
 
-Usage:
-  jcr              Create a new Jira ticket interactively
-  jcr --setup      Discover BOARD_ID and SPRINT_FIELD values
-  jcr --dry-run    Show JSON payload without creating ticket
-  jcr --help       Show this help
 
-Requires: export JIRA_TOKEN="your-api-token" in your shell profile
-EOF
-}
+def gum_choose(options: list[str], header: str) -> str:
+    return gum_run(["gum", "choose", "--header", header], input_text="\n".join(options))
 
-main() {
-    local dry_run=false do_setup=false
 
-    for arg in "$@"; do
-        case "$arg" in
-            --dry-run|-n) dry_run=true ;;
-            --setup)      do_setup=true ;;
-            --help|-h)    show_help; exit 0 ;;
-            *) echo "Unknown argument: $arg" >&2; show_help; exit 2 ;;
-        esac
-    done
+def gum_write(placeholder: str) -> str:
+    return gum_run(["gum", "write", "--placeholder", placeholder])
 
-    check_deps
 
-    if [ "$do_setup" = "true" ]; then
-        run_setup
+def gum_confirm(message: str) -> bool:
+    return subprocess.run(["gum", "confirm", message]).returncode == 0
+
+
+def gum_style(*args: str) -> None:
+    subprocess.run(["gum", "style", *args])
+
+
+def gum_spin_curl(title: str, method: str, path: str, data: dict | None = None) -> dict:
+    url = f"{JIRA_URL}/rest/{path}"
+    cmd = ["curl", "-s", "-H", f"Authorization: {build_auth_header()}", "-H", "Accept: application/json",
+           "-H", "Content-Type: application/json", "-X", method]
+    if data is not None:
+        cmd += ["--data", json.dumps(data)]
+    cmd.append(url)
+
+    result = subprocess.run(["gum", "spin", "--title", title, "--show-output", "--"] + cmd, stdout=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        print("Error: Request failed", file=sys.stderr)
+        sys.exit(1)
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        print(f"Error: Invalid JSON response: {result.stdout}", file=sys.stderr)
+        sys.exit(1)
+
+
+# ── Commands ──────────────────────────────────────────────────────────────────
+
+def run_setup() -> None:
+    print()
+    gum_style("--bold", "jcr setup — discovering Jira configuration")
+    print()
+
+    board_result = gum_spin_curl(f"Fetching board for {DEFAULT_PROJECT}...", "GET", f"agile/1.0/board?projectKeyOrId={DEFAULT_PROJECT}&type=scrum")
+    values = board_result.get("values", [])
+    if not values:
+        print(f"Error: No scrum board found for {DEFAULT_PROJECT}", file=sys.stderr)
+        sys.exit(1)
+    board_id = str(values[0]["id"])
+
+    print("Fetching a recent ticket to identify the sprint field...", file=sys.stderr)
+    search_result = jira_request("GET", f"api/3/search/jql?jql=project%3D{DEFAULT_PROJECT}%20ORDER%20BY%20created%20DESC&maxResults=1&fields=*all")
+    issues = search_result.get("issues", [])
+    if not issues:
+        print(f"Error: No issues found for {DEFAULT_PROJECT}", file=sys.stderr)
+        sys.exit(1)
+
+    sprint_candidates = [
+        f"{key}  →  {value[0]['name']}"
+        for key, value in issues[0].get("fields", {}).items()
+        if key.startswith("customfield_")
+        and isinstance(value, list) and value
+        and isinstance(value[0], dict) and {"id", "name", "state"} <= value[0].keys()
+    ]
+    if not sprint_candidates:
+        print("Error: No sprint fields found. Make sure a recent ticket has a sprint assigned.", file=sys.stderr)
+        sys.exit(1)
+
+    print()
+    sprint_field = gum_choose(sprint_candidates, "Which field is the Sprint? (select the one showing the sprint name)").split()[0]
+    account_id = fetch_account_id()
+
+    print()
+    gum_style("--foreground", "82", "Update these constants in the jcr script:")
+    print(f'  BOARD_ID = "{board_id}"')
+    print(f'  SPRINT_FIELD = "{sprint_field}"')
+    print(f'  ACCOUNT_ID = "{account_id}"')
+    print()
+
+
+def run_interactive(args: argparse.Namespace) -> None:
+    board_id = BOARD_ID or fetch_board_id()
+
+    summary = gum_input("Ticket summary")
+    if not summary:
+        print("Error: Summary is required", file=sys.stderr)
+        sys.exit(1)
+
+    description = gum_write("Description...") if gum_confirm("Add description?") else ""
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        versions_future = pool.submit(fetch_versions)
+        sprints_future = pool.submit(fetch_sprints, board_id)
+        versions = versions_future.result()
+        sprints = sprints_future.result()
+
+    if DEFAULT_FIX_VERSION in versions:
+        versions = [DEFAULT_FIX_VERSION] + [v for v in versions if v != DEFAULT_FIX_VERSION]
+
+    fix_version = gum_choose(versions, "Fix Version")
+    sprint = gum_choose(sprints, "Sprint")
+    issue_type = gum_choose([DEFAULT_TYPE] + [t for t in ISSUE_TYPES if t != DEFAULT_TYPE], "Issue Type")
+
+    if not gum_confirm(f"Create {issue_type} in {DEFAULT_PROJECT}?"):
+        print("Aborted.")
+        sys.exit(0)
+
+    sprint_id = fetch_sprint_id(board_id, sprint) if sprint else ""
+    account_id = ACCOUNT_ID or fetch_account_id()
+    payload = build_payload(summary, description, fix_version, issue_type, sprint_id, account_id)
+
+    if args.dry_run:
+        print(json.dumps(payload, indent=2))
+        sys.exit(0)
+
+    submit_ticket(payload, interactive=True)
+
+
+def run_non_interactive(args: argparse.Namespace) -> None:
+    board_id = BOARD_ID or fetch_board_id()
+    account_id = args.assignee or ACCOUNT_ID or fetch_account_id()
+
+    if args.sprint:
+        sprint_id = fetch_sprint_id(board_id, args.sprint)
+    else:
+        print("Fetching active sprint...", file=sys.stderr)
+        sprint_name, sprint_id = fetch_active_sprint(board_id)
+        print(f"Using sprint: {sprint_name}", file=sys.stderr)
+
+    assert args.summary is not None
+    payload = build_payload(args.summary, args.description or "", args.fix_version, args.issue_type, sprint_id, account_id)
+
+    if args.dry_run:
+        print(json.dumps(payload, indent=2))
+        sys.exit(0)
+
+    submit_ticket(payload, interactive=False, output_json=args.output_json)
+
+
+# ── Bootstrap ─────────────────────────────────────────────────────────────────
+
+def validate_env() -> None:
+    missing = [v for v in ("JIRA_EMAIL", "JIRA_TOKEN") if not os.environ.get(v)]
+    if missing:
+        for var in missing:
+            print(f"Error: {var} is not set.", file=sys.stderr)
+        print('Add to your shell profile: export JIRA_EMAIL="..." JIRA_TOKEN="..."', file=sys.stderr)
+        sys.exit(1)
+
+
+def check_gum() -> None:
+    if shutil.which("gum") is None:
+        print("Error: gum not found. Install: brew install gum", file=sys.stderr)
+        sys.exit(1)
+
+
+def validate_sprint_field() -> None:
+    if not SPRINT_FIELD.startswith("customfield_"):
+        print(f'Error: SPRINT_FIELD="{SPRINT_FIELD}" — expected customfield_XXXXX. Run: jcr --setup', file=sys.stderr)
+        sys.exit(1)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="jcr",
+        description="jcr — Jira CReate: create Jira tickets interactively or via CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  jcr                                       # interactive mode\n"
+            "  jcr --summary 'Fix login bug'             # non-interactive, all defaults\n"
+            "  jcr --summary 'Fix login bug' --type Bug --fix-version 25.4.0\n"
+            "  jcr --summary 'Fix login bug' --json      # machine-readable output\n"
+            "  jcr --summary 'Fix login bug' --dry-run   # preview payload\n"
+            "  jcr --setup                               # discover config values\n"
+            "\n"
+            "Requires: export JIRA_EMAIL='...' JIRA_TOKEN='...' in your shell profile"
+        ),
+    )
+    parser.add_argument("--summary", metavar="TEXT", help="Ticket summary [triggers non-interactive mode]")
+    parser.add_argument("--description", metavar="TEXT", help="Description (plain text, converted to ADF)")
+    parser.add_argument("--fix-version", metavar="TEXT", default=DEFAULT_FIX_VERSION, help=f"Default: {DEFAULT_FIX_VERSION}")
+    parser.add_argument("--sprint", metavar="TEXT", help="Sprint name. Default: first active sprint")
+    parser.add_argument("--type", dest="issue_type", metavar="TEXT", default=DEFAULT_TYPE, help=f"Default: {DEFAULT_TYPE}")
+    parser.add_argument("--assignee", metavar="TEXT", default="", help="Jira accountId. Default: ACCOUNT_ID constant")
+    parser.add_argument("--dry-run", "-n", action="store_true", help="Print JSON payload, do not create")
+    parser.add_argument("--json", dest="output_json", action="store_true", help='Output result as JSON {"key": "...", "url": "..."}')
+    parser.add_argument("--setup", action="store_true", help="Discover BOARD_ID, SPRINT_FIELD, ACCOUNT_ID")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    validate_env()
+
+    if args.setup:
+        check_gum()
+        run_setup()
         return
-    fi
 
-    if [[ "$SPRINT_FIELD" != customfield_* ]]; then
-        echo "SPRINT_FIELD=\"${SPRINT_FIELD}\" looks wrong — expected customfield_XXXXX format." >&2
-        echo "Run: jcr --setup" >&2
-        exit 1
-    fi
+    validate_sprint_field()
 
-    local board_id="${BOARD_ID:-}"
-    [ -n "$board_id" ] || board_id=$(fetch_board_id)
-
-    local summary
-    summary=$(gum input --placeholder "Ticket summary" --prompt "> ")
-    [ -n "$summary" ] || error "Summary is required"
-
-    local description=""
-    if gum confirm "Add description?"; then
-        description=$(gum write --placeholder "Description...")
-    fi
-
-    local versions_list ordered_versions
-    versions_list=$(fetch_versions)
-    if echo "$versions_list" | grep -qx "$DEFAULT_FIX_VERSION"; then
-        ordered_versions="$DEFAULT_FIX_VERSION"$'\n'$(echo "$versions_list" | grep -vx "$DEFAULT_FIX_VERSION")
-    else
-        ordered_versions="$versions_list"
-    fi
-    local fix_version
-    fix_version=$(echo "$ordered_versions" | gum choose --header "Fix Version")
-
-    local sprint
-    sprint=$(fetch_sprints "$board_id" | gum choose --header "Sprint")
-
-    local type_options
-    type_options="$DEFAULT_TYPE"$'\n'$(printf 'Story\nBug\nEpic\nSub-task' | grep -vx "$DEFAULT_TYPE")
-    local issue_type
-    issue_type=$(echo "$type_options" | gum choose --header "Issue Type")
-
-    gum confirm "Create ${issue_type} in ${DEFAULT_PROJECT}?" || { echo "Aborted."; exit 0; }
-
-    local sprint_id=""
-    if [ -n "$SPRINT_FIELD" ] && [ -n "$sprint" ]; then
-        sprint_id=$(fetch_sprint_id "$board_id" "$sprint")
-    fi
-
-    local account_id="${ACCOUNT_ID:-}"
-    [ -n "$account_id" ] || account_id=$(fetch_account_id)
-
-    local payload
-    payload=$(build_payload "$summary" "$description" "$fix_version" "$issue_type" "$sprint_id" "$SPRINT_FIELD" "$account_id")
-
-    if [ "$dry_run" = "true" ]; then
-        echo "$payload" | jq .
+    if args.summary is not None:
+        run_non_interactive(args)
         return
-    fi
 
-    local tmp_payload tmp_result
-    tmp_payload=$(mktemp)
-    tmp_result=$(mktemp)
-    echo "$payload" > "$tmp_payload"
+    if not sys.stdin.isatty():
+        print("Error: No --summary provided and stdin is not a TTY. Use --summary for non-interactive mode.", file=sys.stderr)
+        sys.exit(2)
 
-    gum spin --title "Creating ticket..." -- \
-        curl -s \
-        -u "${JIRA_EMAIL}:${JIRA_TOKEN}" \
-        -H "Accept: application/json" \
-        -H "Content-Type: application/json" \
-        -X POST \
-        --data "@${tmp_payload}" \
-        -o "$tmp_result" \
-        "${JIRA_URL}/rest/api/3/issue"
-    rm -f "$tmp_payload"
+    check_gum()
+    run_interactive(args)
 
-    local result key
-    result=$(cat "$tmp_result")
-    rm -f "$tmp_result"
 
-    key=$(echo "$result" | jq -r '.key // empty')
-    if [ -z "$key" ]; then
-        local errmsg
-        errmsg=$(echo "$result" | jq -r '(.errorMessages // []) + ([.errors // {} | to_entries[] | .value]) | join(", ")' 2>/dev/null || echo "$result")
-        error "Failed to create ticket: ${errmsg}"
-    fi
-
-    transition_issue "$key" "$DEFAULT_STATUS"
-
-    echo ""
-    gum style --foreground 82 "${key} → ${JIRA_URL}/browse/${key}"
-}
-
-main "$@"
+if __name__ == "__main__":
+    main()

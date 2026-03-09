@@ -8,7 +8,7 @@
 *.db
 *.tar.gz
 .DS_Store
-.env
+.env*
 .idea
 __pycache__
 cache

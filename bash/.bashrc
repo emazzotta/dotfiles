@@ -48,6 +48,7 @@ export DOWNLOADDIR="$HOME/Downloads"
 export EDITOR=/opt/homebrew/bin/vim
 export GITDUMMYDIR="$PRIVATE_PROJECTS/gitdummy"
 export GLOBAL_ENV_FILE="$DOTFILESPATH/.env"
+export GLOBAL_AI_ENV_FILE="$DOTFILESPATH/.env.ai"
 export HISTCONTROL="ignoreboth"
 export HISTTIMEFORMAT="%Y-%m-%d %T "
 export HOMEBREW_CASK_OPTS="--appdir=/Applications"
@@ -145,7 +146,7 @@ alias ecr_login_staging='aws ecr get-login-password --region eu-west-1 | docker 
 alias eh='vi $HOME/.bash_history'
 alias ekh='vi $HOME/.ssh/known_hosts'
 alias encrypt='hashify'
-alias envify='source "$GLOBAL_ENV_FILE"'
+alias envify='source "$GLOBAL_ENV_FILE" && source "$GLOBAL_AI_ENV_FILE"'
 alias ep='vi $HOME/.bashrc;rp'
 alias er='vi README.md'
 alias err='vi $RECOMMENDED_READINGS'
