@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import textwrap
 import urllib.error
 import urllib.request
 from base64 import b64encode
@@ -133,6 +134,19 @@ def transition_issue(key: str, status_name: str) -> None:
 
 # ── Payload ───────────────────────────────────────────────────────────────────
 
+def extract_adf_text(node: dict | None) -> str:
+    if node is None:
+        return ""
+    if node.get("type") == "text":
+        return node.get("text", "")
+    parts = [extract_adf_text(child) for child in node.get("content", [])]
+    joined = " ".join(p for p in parts if p)
+    node_type = node.get("type", "")
+    if node_type in ("paragraph", "heading", "listItem", "blockquote", "panel"):
+        return joined + "\n"
+    return joined
+
+
 def to_adf(text: str) -> dict:
     # Atlassian Document Format required by Jira Cloud description field
     return {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}]}
@@ -228,6 +242,68 @@ def gum_spin_curl(title: str, method: str, path: str, data: dict | None = None) 
 
 
 # ── Commands ──────────────────────────────────────────────────────────────────
+
+def fetch_issue(key: str) -> dict:
+    fields = "summary,description,status,assignee,issuetype,priority,fixVersions,labels,comment"
+    return jira_request("GET", f"api/3/issue/{key}?fields={fields}")
+
+
+def format_issue(issue: dict, show_comments: bool) -> str:
+    key = issue.get("key", "")
+    fields = issue.get("fields", {})
+
+    summary = fields.get("summary", "")
+    issue_type = (fields.get("issuetype") or {}).get("name", "")
+    status = (fields.get("status") or {}).get("name", "")
+    assignee = (fields.get("assignee") or {}).get("displayName", "Unassigned")
+    priority = (fields.get("priority") or {}).get("name", "None")
+    fix_versions = ", ".join(v["name"] for v in fields.get("fixVersions", [])) or "-"
+    labels = ", ".join(fields.get("labels", [])) or "-"
+
+    raw_desc = extract_adf_text(fields.get("description")).strip()
+    wrapped_desc = textwrap.fill(raw_desc, width=100, initial_indent="  ", subsequent_indent="  ") if raw_desc else "  -"
+
+    comment_list = (fields.get("comment") or {}).get("comments", [])
+    comment_count = len(comment_list)
+
+    lines = [
+        f"=== {key} ===",
+        f"Summary:  {summary}",
+        f"Type:     {issue_type}",
+        f"Status:   {status}",
+        f"Assignee: {assignee}",
+        f"Priority: {priority}",
+        f"Version:  {fix_versions}",
+        f"Labels:   {labels}",
+        f"Desc:",
+        wrapped_desc,
+        f"",
+        f"Comments: {comment_count}",
+    ]
+
+    if show_comments and comment_list:
+        recent = comment_list[-5:]
+        for comment in recent:
+            author = (comment.get("author") or {}).get("displayName", "Unknown")
+            body = extract_adf_text(comment.get("body")).strip()
+            wrapped_body = textwrap.fill(body, width=100, initial_indent="  ", subsequent_indent="  ")
+            lines += [f"", f"  [{author}]", wrapped_body]
+
+    return "\n".join(lines)
+
+
+def run_get(args: argparse.Namespace) -> None:
+    issues = [fetch_issue(key) for key in args.keys]
+
+    if args.output_json:
+        print(json.dumps([i.get("fields", {}) for i in issues] if len(issues) > 1 else issues[0].get("fields", {}), indent=2))
+        return
+
+    for i, issue in enumerate(issues):
+        if i > 0:
+            print()
+        print(format_issue(issue, show_comments=args.comments))
+
 
 def run_setup() -> None:
     print()
@@ -360,6 +436,10 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
+            "  jcr LEO-2472                              # fetch a ticket\n"
+            "  jcr LEO-2472 LEO-2518                    # fetch multiple tickets\n"
+            "  jcr LEO-2472 --json                       # raw JSON output\n"
+            "  jcr LEO-2472 --comments                   # include last 5 comments\n"
             "  jcr                                       # interactive mode\n"
             "  jcr --summary 'Fix login bug'             # non-interactive, all defaults\n"
             "  jcr --summary 'Fix login bug' --type Bug --fix-version 25.4.0\n"
@@ -370,6 +450,7 @@ def parse_args() -> argparse.Namespace:
             "Requires: export JIRA_EMAIL='...' JIRA_TOKEN='...' in your shell profile"
         ),
     )
+    parser.add_argument("keys", nargs="*", metavar="KEY", help="One or more Jira issue keys to fetch (e.g. LEO-2472)")
     parser.add_argument("--summary", metavar="TEXT", help="Ticket summary [triggers non-interactive mode]")
     parser.add_argument("--description", metavar="TEXT", help="Description (plain text, converted to ADF)")
     parser.add_argument("--fix-version", metavar="TEXT", default=DEFAULT_FIX_VERSION, help=f"Default: {DEFAULT_FIX_VERSION}")
@@ -378,6 +459,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--assignee", metavar="TEXT", default="", help="Jira accountId. Default: ACCOUNT_ID constant")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Print JSON payload, do not create")
     parser.add_argument("--json", dest="output_json", action="store_true", help='Output result as JSON {"key": "...", "url": "..."}')
+    parser.add_argument("--comments", action="store_true", help="Show last 5 comments when fetching tickets")
     parser.add_argument("--setup", action="store_true", help="Discover BOARD_ID, SPRINT_FIELD, ACCOUNT_ID")
     return parser.parse_args()
 
@@ -392,6 +474,10 @@ def main() -> None:
         return
 
     validate_sprint_field()
+
+    if args.keys:
+        run_get(args)
+        return
 
     if args.summary is not None:
         run_non_interactive(args)
