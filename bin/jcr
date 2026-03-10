@@ -21,7 +21,7 @@ SPRINT_FIELD = "customfield_10020"
 BOARD_ID = "11"
 ACCOUNT_ID = "712020:ee7ed959-0679-4e8c-aa1c-ed33c9327198"
 DEFAULT_STATUS = "READY FOR DEV"
-ISSUE_TYPES = ["Task", "Story", "Bug", "Epic", "Sub-task"]
+ISSUE_TYPES = ["Task", "Story", "Bug", "Epic", "Sub-task", "Serviceanfrage"]
 
 
 # ── Jira API ──────────────────────────────────────────────────────────────────
@@ -148,7 +148,6 @@ def extract_adf_text(node: dict | None) -> str:
 
 
 def to_adf(text: str) -> dict:
-    # Atlassian Document Format required by Jira Cloud description field
     return {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}]}
 
 
@@ -165,6 +164,21 @@ def build_payload(summary: str, description: str, fix_version: str, issue_type: 
     if sprint_id:
         fields[SPRINT_FIELD] = int(sprint_id)
     return {"fields": fields}
+
+
+def build_update_fields(args: argparse.Namespace) -> dict:
+    fields: dict = {}
+    if args.issue_type is not None:
+        fields["issuetype"] = {"name": args.issue_type}
+    if args.summary is not None:
+        fields["summary"] = args.summary
+    if args.description is not None:
+        fields["description"] = to_adf(args.description)
+    if args.fix_version is not None:
+        fields["fixVersions"] = [{"name": args.fix_version}]
+    if args.assignee is not None:
+        fields["assignee"] = {"accountId": args.assignee}
+    return fields
 
 
 def submit_ticket(payload: dict, interactive: bool = False, output_json: bool = False) -> None:
@@ -194,7 +208,6 @@ def submit_ticket(payload: dict, interactive: bool = False, output_json: bool = 
 # ── gum helpers ───────────────────────────────────────────────────────────────
 
 def gum_run(cmd: list[str], input_text: str | None = None) -> str:
-    # stdout=PIPE captures the selection; stderr is free so gum can render its TUI
     result = subprocess.run(cmd, stdout=subprocess.PIPE, input=input_text, text=True)
     if result.returncode != 0:
         print("Aborted.", file=sys.stderr)
@@ -305,6 +318,27 @@ def run_get(args: argparse.Namespace) -> None:
         print(format_issue(issue, show_comments=args.comments))
 
 
+def run_update(args: argparse.Namespace) -> None:
+    if len(args.keys) != 1:
+        print("Error: --update requires exactly one issue key", file=sys.stderr)
+        sys.exit(1)
+
+    key = args.keys[0]
+    fields = build_update_fields(args)
+
+    if not fields:
+        print("Error: --update requires at least one of: --summary, --description, --type, --fix-version, --assignee", file=sys.stderr)
+        sys.exit(1)
+
+    jira_request("PUT", f"api/3/issue/{key}", {"fields": fields})
+    ticket_url = f"{JIRA_URL}/browse/{key}"
+
+    if args.output_json:
+        print(json.dumps({"key": key, "url": ticket_url}))
+    else:
+        print(f"{key} updated")
+
+
 def run_setup() -> None:
     print()
     gum_style("--bold", "jcr setup — discovering Jira configuration")
@@ -397,7 +431,9 @@ def run_non_interactive(args: argparse.Namespace) -> None:
         print(f"Using sprint: {sprint_name}", file=sys.stderr)
 
     assert args.summary is not None
-    payload = build_payload(args.summary, args.description or "", args.fix_version, args.issue_type, sprint_id, account_id)
+    fix_version = args.fix_version if args.fix_version is not None else DEFAULT_FIX_VERSION
+    issue_type = args.issue_type if args.issue_type is not None else DEFAULT_TYPE
+    payload = build_payload(args.summary, args.description or "", fix_version, issue_type, sprint_id, account_id)
 
     if args.dry_run:
         print(json.dumps(payload, indent=2))
@@ -445,6 +481,10 @@ def parse_args() -> argparse.Namespace:
             "  jcr --summary 'Fix login bug' --type Bug --fix-version 25.4.0\n"
             "  jcr --summary 'Fix login bug' --json      # machine-readable output\n"
             "  jcr --summary 'Fix login bug' --dry-run   # preview payload\n"
+            "  jcr LEO-2584 --update --type 'Serviceanfrage'\n"
+            "  jcr LEO-2584 --update --summary 'New title'\n"
+            "  jcr LEO-2584 --update --type Bug --summary 'New title' --fix-version 25.4.0\n"
+            "  jcr LEO-2584 --update --json              # machine-readable update output\n"
             "  jcr --setup                               # discover config values\n"
             "\n"
             "Requires: export JIRA_EMAIL='...' JIRA_TOKEN='...' in your shell profile"
@@ -453,10 +493,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("keys", nargs="*", metavar="KEY", help="One or more Jira issue keys to fetch (e.g. LEO-2472)")
     parser.add_argument("--summary", metavar="TEXT", help="Ticket summary [triggers non-interactive mode]")
     parser.add_argument("--description", metavar="TEXT", help="Description (plain text, converted to ADF)")
-    parser.add_argument("--fix-version", metavar="TEXT", default=DEFAULT_FIX_VERSION, help=f"Default: {DEFAULT_FIX_VERSION}")
+    parser.add_argument("--fix-version", metavar="TEXT", default=None, help=f"Fix version. Default for create: {DEFAULT_FIX_VERSION}")
     parser.add_argument("--sprint", metavar="TEXT", help="Sprint name. Default: first active sprint")
-    parser.add_argument("--type", dest="issue_type", metavar="TEXT", default=DEFAULT_TYPE, help=f"Default: {DEFAULT_TYPE}")
-    parser.add_argument("--assignee", metavar="TEXT", default="", help="Jira accountId. Default: ACCOUNT_ID constant")
+    parser.add_argument("--type", dest="issue_type", metavar="TEXT", default=None, help=f"Issue type. Default for create: {DEFAULT_TYPE}")
+    parser.add_argument("--assignee", metavar="TEXT", default=None, help="Jira accountId. Default: ACCOUNT_ID constant")
+    parser.add_argument("--update", action="store_true", help="Update an existing ticket (requires exactly one KEY)")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Print JSON payload, do not create")
     parser.add_argument("--json", dest="output_json", action="store_true", help='Output result as JSON {"key": "...", "url": "..."}')
     parser.add_argument("--comments", action="store_true", help="Show last 5 comments when fetching tickets")
@@ -474,6 +515,10 @@ def main() -> None:
         return
 
     validate_sprint_field()
+
+    if args.update:
+        run_update(args)
+        return
 
     if args.keys:
         run_get(args)
