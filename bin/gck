@@ -21,22 +21,26 @@ find "${dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
     if [ -d "${dir}/.git" ]; then
         current_branch=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
         echo -n "."
+        shown=false
         if [[ "$(git -C "${dir}" status -s)" != "" ]]; then
             echo
             substep_info "${dir} [git uncommitted changes]"
             git -C "${dir}" status -s
+            shown=true
         fi
         if [[ "$(git -C "${dir}" log --branches --not --remotes)" != "" ]]; then
             echo
             substep_info "${dir} [git unpushed changes]"
             echo -e "$(git -C "${dir}" log --pretty=format:"%h - %an, %ar: %s%n" --branches --not --remotes)"
+            shown=true
         fi
         if [ "$(git -C "${dir}" stash list)" != "" ]; then
             echo
             substep_info "${dir} [git stashed changes]"
             git -C "${dir}" stash list
+            shown=true
         fi
-        if [[ "${current_branch}" != "main" && "${current_branch}" != "master" ]]; then
+        if [[ "${shown}" == false && "${current_branch}" != "main" && "${current_branch}" != "master" ]]; then
             echo
             substep_info "${dir} [current branch: ${current_branch}]"
         fi
