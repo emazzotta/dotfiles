@@ -2,9 +2,11 @@
 
 DIR=$(dirname "$0")
 VS_CODE_DIR="${HOME}/Library/Application Support/Code/User"
-ZSH_THEME_DIR="${HOME}/.zprezto/modules/prompt/functions/"
+ZSH_THEME_DIR="${HOME}/.zprezto/modules/prompt/functions"
+RESOLVER_DIR="/etc/resolver"
 mkdir -p "${ZSH_THEME_DIR}"
 mkdir -p "${VS_CODE_DIR}"
+sudo mkdir -p "${RESOLVER_DIR}"
 
 stow -d "${DIR:-.}" -t "${HOME}" bash
 stow -d "${DIR:-.}" -t "${HOME}" claude
@@ -21,6 +23,6 @@ stow -d "${DIR:-.}" -t "${HOME}" sshrc
 stow -d "${DIR:-.}" -t "${HOME}" tmux
 stow -d "${DIR:-.}" -t "${HOME}" vim
 stow -d "${DIR:-.}" -t "${HOME}" zsh
-sudo stow -d "${DIR:-.}" -t "/etc/resolver" dns-resolver
+sudo stow -d "${DIR:-.}" -t "${RESOLVER_DIR}" dns-resolver
 stow -d "${DIR:-.}" -t "${ZSH_THEME_DIR}" zsh_theme
 stow -d "${DIR:-.}" -t "${VS_CODE_DIR}" vscode
