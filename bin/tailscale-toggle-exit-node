@@ -13,43 +13,26 @@ if ! command -v tailscale > /dev/null 2>&1; then
     exit 0
 fi
 
+if ! command -v showip > /dev/null 2>&1; then
+    printf "${YELLOW}●${RESET} showip not available, cannot determine exit node state\n"
+    exit 0
+fi
+
 TS_JSON=$(tailscale status --json 2>/dev/null || true)
-
-ts_backend_state() {
-    printf '%s' "$1" | jq -r '.BackendState' 2>/dev/null || true
-}
-
-ts_active_exit_node() {
-    printf '%s' "$1" | jq -r '.Peer[] | select(.ExitNode == true) | .HostName' 2>/dev/null || true
-}
-
-run_showip_if_available() {
-    if command -v showip > /dev/null 2>&1; then
-        local ip color
-        ip=$(showip -e)
-        if [ "$ip" = "$WORK_IP" ]; then
-            color="$GREEN"
-        else
-            color="$WHITE"
-        fi
-        printf "${color}●${RESET} IP → %s\n" "$ip"
-    fi
-}
-
-state=$(ts_backend_state "$TS_JSON")
+state=$(printf '%s' "$TS_JSON" | jq -r '.BackendState' 2>/dev/null || true)
 
 if [ "$state" = "Running" ]; then
     printf "${GREEN}●${RESET} Tailscale is connected\n"
 else
     printf "${RED}●${RESET} Tailscale not connected\n"
-    run_showip_if_available
     exit 0
 fi
 
-current_node=$(ts_active_exit_node "$TS_JSON")
+current_ip=$(showip -e 2>/dev/null || true)
 
-if [ -n "$current_node" ]; then
-    printf "${YELLOW}●${RESET} Exit node active: %s. Clear it? (y/N): " "$current_node"
+if [ "$current_ip" = "$WORK_IP" ]; then
+    printf "${GREEN}●${RESET} IP → %s\n" "$current_ip"
+    printf "${YELLOW}●${RESET} Exit node active. Clear it? (y/N): "
     read -r answer
     if [ "${answer:-N}" = "y" ] || [ "${answer:-N}" = "Y" ]; then
         tailscale set --exit-node=
@@ -58,6 +41,7 @@ if [ -n "$current_node" ]; then
         printf "${YELLOW}●${RESET} Exit node unchanged\n"
     fi
 else
+    printf "${WHITE}●${RESET} IP → %s\n" "$current_ip"
     printf "${YELLOW}●${RESET} No exit node active. Enable '%s'? (y/N): " "$EXIT_NODE_NAME"
     read -r answer
     if [ "${answer:-N}" = "y" ] || [ "${answer:-N}" = "Y" ]; then
@@ -67,5 +51,3 @@ else
         printf "${YELLOW}●${RESET} Exit node unchanged\n"
     fi
 fi
-
-run_showip_if_available

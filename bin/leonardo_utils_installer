@@ -10,6 +10,7 @@ set -euo pipefail
 readonly BASE_URL="https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin"
 readonly SCRIPTS=(
     "host-resolver"
+    "showip"
     "leonardo_account"
     "leonardo_drive"
     "leonardo_start"
@@ -56,6 +57,7 @@ Arguments:
 
 Scripts installed:
   - host-resolver
+  - showip
   - leonardo_account
   - leonardo_drive
   - leonardo_start
