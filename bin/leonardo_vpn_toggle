@@ -6,12 +6,16 @@ source leonardo_account
 VPN_NAME="LeonardoVPN"
 SERVER_ADDRESS="vpn.leonardo.ag"
 
+vpn_status() {
+    scutil --nc status "$VPN_NAME" 2>/dev/null || true
+}
+
 is_leonardo_vpn_configured() {
-    scutil --nc status "$VPN_NAME" &>/dev/null
+    [ -n "$(vpn_status)" ]
 }
 
 is_leonardo_vpn_connected() {
-    is_leonardo_vpn_configured && scutil --nc status "$VPN_NAME" | grep -qw "Connected"
+    vpn_status | grep -qiw "connected"
 }
 
 create_vpn_config() {
@@ -48,9 +52,12 @@ disconnect_vpn() {
     if ! is_leonardo_vpn_connected; then
         return 1
     fi
-    leonardo_drive --unmount
-    scutil --nc stop "$VPN_NAME"
-    printf "${RED}●${RESET} $VPN_NAME disconnected\n"
+    leonardo_drive --unmount || true
+    if scutil --nc stop "$VPN_NAME" 2>/dev/null; then
+        printf "${RED}●${RESET} $VPN_NAME disconnected\n"
+    else
+        printf "${RED}●${RESET} $VPN_NAME stop failed - try: scutil --nc stop \"$VPN_NAME\"\n" >&2
+    fi
 }
 
 toggle_vpn() {
