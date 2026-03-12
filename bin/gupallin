@@ -1,5 +1,6 @@
 #!/bin/bash
-set -euo pipefail
+
+set -uo pipefail
 
 root_dir="$(pwd)"
 [ -n "${1:-}" ] && root_dir="${1}"
@@ -16,6 +17,11 @@ separator() {
     printf "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
 }
 
+record_failure() {
+    local dir="$1" reason="$2"
+    { separator; printf "${BOLD}${WHITE}%s${RESET} [%s]\n" "${dir}" "${reason}"; } >> "${output_file}"
+}
+
 convert_git_url_to_http() {
     local git_url="$1"
     [[ "$git_url" =~ ^git@ ]] && git_url=$(echo "$git_url" | sed -E 's#git@([^:]+):#https://\1/#')
@@ -23,55 +29,52 @@ convert_git_url_to_http() {
 }
 
 has_remote_access() {
-    local remote_url="$1"
-    curl -k --silent --head --connect-timeout 5 "$remote_url" &> /dev/null || return 1
+    curl -k --silent --head --connect-timeout 5 "$1" &>/dev/null
 }
 
 has_git_access() {
     local remote_url
     remote_url=$(git -C "$1" remote get-url origin 2>/dev/null) || return 1
-    has_remote_access "$(convert_git_url_to_http "$remote_url")" || return 1
+    has_remote_access "$(convert_git_url_to_http "$remote_url")"
 }
 
 pull_branch() {
-    local branch="$1"
-    local dir="$2"
-    [ -n "${dir}" ] || return 1
-    if git -C "${dir}" rev-parse --verify "origin/${branch}" &> /dev/null && git -C "${dir}" checkout "${branch}" &> /dev/null; then
-        if ! git -C "${dir}" pull --quiet --rebase 2>/dev/null; then
-            { separator; printf "${BOLD}${WHITE}%s${RESET} [pull failed: %s]\n" "${dir}" "${branch}"; } >> "${output_file}"
-        fi
-        git -C "${dir}" checkout --quiet -
+    local branch="$1" dir="$2"
+    [ -n "${dir}" ] || return 0
+    if git -C "${dir}" rev-parse --verify "origin/${branch}" &>/dev/null; then
+        git -C "${dir}" checkout "${branch}" &>/dev/null || return 0
+        git -C "${dir}" pull --quiet --rebase &>/dev/null || record_failure "${dir}" "pull failed: ${branch}"
+        git -C "${dir}" checkout --quiet - &>/dev/null || true
     fi
 }
 
 pull_branches_by_regex() {
-    local pattern="$1"
-    local dir="$2"
-    [ -n "${dir}" ] || return 1
-    git -C "${dir}" branch -r | sed 's/origin\///g' | sed 's/ //g' | grep -E "${pattern}" | while read -r branch; do
-        pull_branch "${branch}" "${dir}"
-    done
+    local pattern="$1" dir="$2"
+    [ -n "${dir}" ] || return 0
+    git -C "${dir}" branch -r \
+        | sed 's/origin\///g' \
+        | sed 's/ //g' \
+        | grep -E "${pattern}" \
+        | while read -r branch; do
+            pull_branch "${branch}" "${dir}"
+          done || true
 }
 
 update_repos() {
     find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
-        if [ -d "${dir}/.git" ]; then
-            printf '%s' "${dir}" > "${status_file}"
-            if has_git_access "${dir}"; then
-                pull_branch "main" "${dir}"
-                pull_branch "master" "${dir}"
-                pull_branches_by_regex "${CUSTOM_RELEASE_PATTERN}" "${dir}"
-                local branch_name
-                branch_name=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
-                if [ "${branch_name}" != "master" ] && [ "${branch_name}" != "main" ]; then
-                    if ! git -C "${dir}" pull --quiet --rebase 2>/dev/null; then
-                        { separator; printf "${BOLD}${WHITE}%s${RESET} [pull failed: %s]\n" "${dir}" "${branch_name}"; } >> "${output_file}"
-                    fi
-                fi
-            else
-                { separator; printf "${BOLD}${WHITE}%s${RESET} [no remote access]\n" "${dir}"; } >> "${output_file}"
+        [ -d "${dir}/.git" ] || continue
+        printf '%s' "${dir}" > "${status_file}"
+        if has_git_access "${dir}"; then
+            pull_branch "main" "${dir}"
+            pull_branch "master" "${dir}"
+            pull_branches_by_regex "${CUSTOM_RELEASE_PATTERN}" "${dir}"
+            local branch_name
+            branch_name=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
+            if [ "${branch_name}" != "master" ] && [ "${branch_name}" != "main" ]; then
+                git -C "${dir}" pull --quiet --rebase &>/dev/null || record_failure "${dir}" "pull failed: ${branch_name}"
             fi
+        else
+            record_failure "${dir}" "no remote access"
         fi
     done
 }
@@ -92,9 +95,10 @@ spin() {
 update_repos &
 UPDATE_PID=$!
 spin
-wait "${UPDATE_PID}"
+wait "${UPDATE_PID}" || true
 
 cat "${output_file}"
 [ -s "${output_file}" ] && separator
 
+echo
 success "Done."
