@@ -28,8 +28,9 @@ disconnect() {
     leonardo_drive --unmount
 
     if command -v tailscale > /dev/null 2>&1; then
-        local ts_state
-        ts_state=$(tailscale status --json | jq -r '.BackendState')
+        local ts_json ts_state
+        ts_json=$(tailscale status --json 2>/dev/null || true)
+        ts_state=$(echo "$ts_json" | jq -r '.BackendState // empty' 2>/dev/null || true)
         if [ "$ts_state" = "Running" ]; then
             tailscale set --exit-node=
             tailscale down

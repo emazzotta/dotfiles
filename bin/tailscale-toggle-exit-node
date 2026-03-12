@@ -26,8 +26,9 @@ run_showip_if_available() {
 }
 
 check_tailscale_connected() {
-    local state
-    state=$(tailscale status --json | jq -r '.BackendState')
+    local json state
+    json=$(tailscale status --json 2>/dev/null || true)
+    state=$(printf '%s' "$json" | jq -r '.BackendState' 2>/dev/null || true)
     if [ "$state" = "Running" ]; then
         printf "${GREEN}●${RESET} Tailscale is connected\n"
     else
@@ -38,7 +39,9 @@ check_tailscale_connected() {
 }
 
 active_exit_node() {
-    tailscale status --json | jq -r '.Peer[] | select(.ExitNode == true) | .HostName'
+    local json
+    json=$(tailscale status --json 2>/dev/null || true)
+    printf '%s' "$json" | jq -r '.Peer[] | select(.ExitNode == true) | .HostName' 2>/dev/null || true
 }
 
 check_tailscale_connected
