@@ -53,11 +53,23 @@ fi
 current_node=$(ts_active_exit_node "$TS_JSON")
 
 if [ -n "$current_node" ]; then
-    tailscale set --exit-node=
-    printf "${YELLOW}●${RESET} Exit node cleared\n"
+    printf "${YELLOW}●${RESET} Exit node active: %s. Clear it? (y/N): " "$current_node"
+    read -r answer
+    if [ "${answer:-N}" = "y" ] || [ "${answer:-N}" = "Y" ]; then
+        tailscale set --exit-node=
+        printf "${YELLOW}●${RESET} Exit node cleared\n"
+    else
+        printf "${YELLOW}●${RESET} Exit node unchanged\n"
+    fi
 else
-    tailscale set --exit-node="$EXIT_NODE_NAME"
-    printf "${GREEN}●${RESET} Exit node enabled: %s\n" "$EXIT_NODE_NAME"
+    printf "${YELLOW}●${RESET} No exit node active. Enable '%s'? (y/N): " "$EXIT_NODE_NAME"
+    read -r answer
+    if [ "${answer:-N}" = "y" ] || [ "${answer:-N}" = "Y" ]; then
+        tailscale set --exit-node="$EXIT_NODE_NAME"
+        printf "${GREEN}●${RESET} Exit node enabled: %s\n" "$EXIT_NODE_NAME"
+    else
+        printf "${YELLOW}●${RESET} Exit node unchanged\n"
+    fi
 fi
 
 run_showip_if_available
