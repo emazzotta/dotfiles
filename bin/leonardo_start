@@ -59,12 +59,12 @@ fi
 if is_network_up; then
     leonardo_vpn_toggle || exit 0
     mount_k_drive_on_network_up && exit 0
-fi
-
-if ! is_network_up; then
+else
     leonardo_vpn_toggle --enable
+    printf "${YELLOW}●${RESET} Waiting for network...\n"
     DEADLINE=$((SECONDS + 15))
     while [ $SECONDS -lt $DEADLINE ]; do
+        sleep 1
         mount_k_drive_on_network_up && exit 0
     done
 fi

@@ -12,6 +12,21 @@ RESET='\033[0m'
 
 WORK_IP="46.245.188.32"
 
+if ! command -v tailscale > /dev/null 2>&1; then
+    printf "${YELLOW}●${RESET} Tailscale not installed\n"
+    exit 0
+fi
+
+TS_JSON=$(tailscale status --json 2>/dev/null || true)
+
+ts_backend_state() {
+    printf '%s' "$1" | jq -r '.BackendState' 2>/dev/null || true
+}
+
+ts_active_exit_node() {
+    printf '%s' "$1" | jq -r '.Peer[] | select(.ExitNode == true) | .HostName' 2>/dev/null || true
+}
+
 run_showip_if_available() {
     if command -v showip > /dev/null 2>&1; then
         local ip color
@@ -25,33 +40,24 @@ run_showip_if_available() {
     fi
 }
 
-check_tailscale_connected() {
-    local json state
-    json=$(tailscale status --json 2>/dev/null || true)
-    state=$(printf '%s' "$json" | jq -r '.BackendState' 2>/dev/null || true)
-    if [ "$state" = "Running" ]; then
-        printf "${GREEN}●${RESET} Tailscale is connected\n"
-    else
-        printf "${RED}●${RESET} Tailscale not connected\n"
-        run_showip_if_available
-        exit 0
-    fi
-}
+state=$(ts_backend_state "$TS_JSON")
 
-active_exit_node() {
-    local json
-    json=$(tailscale status --json 2>/dev/null || true)
-    printf '%s' "$json" | jq -r '.Peer[] | select(.ExitNode == true) | .HostName' 2>/dev/null || true
-}
+if [ "$state" = "Running" ]; then
+    printf "${GREEN}●${RESET} Tailscale is connected\n"
+else
+    printf "${RED}●${RESET} Tailscale not connected\n"
+    run_showip_if_available
+    exit 0
+fi
 
-check_tailscale_connected
-
-current_node=$(active_exit_node)
+current_node=$(ts_active_exit_node "$TS_JSON")
 
 if [ -n "$current_node" ]; then
     tailscale set --exit-node=
+    printf "${YELLOW}●${RESET} Exit node cleared\n"
 else
     tailscale set --exit-node="$EXIT_NODE_NAME"
+    printf "${GREEN}●${RESET} Exit node enabled: %s\n" "$EXIT_NODE_NAME"
 fi
 
 run_showip_if_available
