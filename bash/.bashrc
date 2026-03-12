@@ -338,7 +338,7 @@ superocd() {
     upallin "$HOME" && \
     zgen update <<< "n" &> /dev/null && \
     create_backups && \
-    ck "$HOME" && \
+    gck "$HOME" && \
     kill_unwanted_processes && \
     rm_launch_items
     
