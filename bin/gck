@@ -13,8 +13,9 @@ ignore_dirs=("dev")
 
 output_file=$(mktemp)
 branches_file=$(mktemp)
+remote_branches_file=$(mktemp)
 status_file=$(mktemp)
-trap 'rm -f "${output_file}" "${branches_file}" "${status_file}"' EXIT
+trap 'rm -f "${output_file}" "${branches_file}" "${remote_branches_file}" "${status_file}"' EXIT
 
 separator() {
     printf "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
@@ -62,6 +63,17 @@ scan_repos() {
                 done <<< "${other_branches}"
                 printf "${YELLOW}%s${RESET} [%s]\n" "${dir}" "${formatted%, }" >> "${branches_file}"
             fi
+            remote_only=""
+            while IFS= read -r branch; do
+                if ! git -C "${dir}" show-ref --verify --quiet "refs/heads/${branch}" 2>/dev/null; then
+                    remote_only="${remote_only}${branch}, "
+                fi
+            done < <(git -C "${dir}" for-each-ref --format='%(refname:short)' refs/remotes/origin/ \
+                | grep -Ev '^origin$|origin/(HEAD|main|master)$' \
+                | sed 's#^origin/##' || true)
+            if [ -n "${remote_only}" ]; then
+                printf "${YELLOW}%s${RESET} [%s]\n" "${dir}" "${remote_only%, }" >> "${remote_branches_file}"
+            fi
         fi
     done
 }
@@ -93,6 +105,15 @@ if [ -s "${branches_file}" ]; then
     printf "${YELLOW}  other branches${RESET}\n"
     dim_separator
     cat "${branches_file}"
+    dim_separator
+fi
+
+if [ -s "${remote_branches_file}" ]; then
+    echo
+    dim_separator
+    printf "${YELLOW}  other remote branches${RESET}\n"
+    dim_separator
+    cat "${remote_branches_file}"
     dim_separator
 fi
 
