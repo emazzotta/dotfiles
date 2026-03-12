@@ -1,51 +1,76 @@
 #!/bin/bash
 
+set -euo pipefail
+
 source "${CUSTOM_BIN_DIR}/prettyprint"
 
-info "Checking for unfinished git work."
-
-dir="${WDIR}"
-test "${1}" && dir="${1}"
+scan_dir="${WDIR}"
+if [ -n "${1:-}" ]; then
+    scan_dir="${1}"
+fi
 
 ignore_dirs=("dev")
 
-find "${dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read dir; do
-    skip=false
-    for pattern in "${ignore_dirs[@]}"; do
-        if [[ "${dir}" =~ (^|/)${pattern}$ ]]; then
-            skip=true
-            break
+output_file=$(mktemp)
+status_file=$(mktemp)
+trap 'rm -f "${output_file}" "${status_file}"' EXIT
+
+separator() {
+    printf "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
+}
+
+scan_repos() {
+    find "${scan_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
+        skip=false
+        for pattern in "${ignore_dirs[@]}"; do
+            if [[ "${dir}" =~ (^|/)${pattern}$ ]]; then
+                skip=true
+                break
+            fi
+        done
+        [ "${skip}" = true ] && continue
+        if [ -d "${dir}/.git" ]; then
+            printf '%s' "${dir}" > "${status_file}"
+            current_branch=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
+            shown=false
+            if [[ "$(git -C "${dir}" status -s)" != "" ]]; then
+                { separator; substep_info "${dir} [git uncommitted changes]"; git -c color.ui=always -C "${dir}" status -s; } >> "${output_file}"
+                shown=true
+            fi
+            if [[ "$(git -C "${dir}" log --branches --not --remotes)" != "" ]]; then
+                { separator; substep_info "${dir} [git unpushed changes]"; git -c color.ui=always -C "${dir}" log --pretty=format:"%h - %an, %ar: %s" --branches --not --remotes; printf '\n'; } >> "${output_file}"
+                shown=true
+            fi
+            if [ "$(git -C "${dir}" stash list)" != "" ]; then
+                { separator; substep_info "${dir} [git stashed changes]"; git -c color.ui=always -C "${dir}" stash list; } >> "${output_file}"
+                shown=true
+            fi
+            if [[ "${shown}" == false && "${current_branch}" != "main" && "${current_branch}" != "master" ]]; then
+                { separator; substep_info "${dir} [current branch: ${current_branch}]"; } >> "${output_file}"
+            fi
         fi
     done
-    [[ "${skip}" == true ]] && continue
-    if [ -d "${dir}/.git" ]; then
-        current_branch=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
-        echo -n "."
-        shown=false
-        if [[ "$(git -C "${dir}" status -s)" != "" ]]; then
-            echo
-            substep_info "${dir} [git uncommitted changes]"
-            git -C "${dir}" status -s
-            shown=true
-        fi
-        if [[ "$(git -C "${dir}" log --branches --not --remotes)" != "" ]]; then
-            echo
-            substep_info "${dir} [git unpushed changes]"
-            echo -e "$(git -C "${dir}" log --pretty=format:"%h - %an, %ar: %s%n" --branches --not --remotes)"
-            shown=true
-        fi
-        if [ "$(git -C "${dir}" stash list)" != "" ]; then
-            echo
-            substep_info "${dir} [git stashed changes]"
-            git -C "${dir}" stash list
-            shown=true
-        fi
-        if [[ "${shown}" == false && "${current_branch}" != "main" && "${current_branch}" != "master" ]]; then
-            echo
-            substep_info "${dir} [current branch: ${current_branch}]"
-        fi
-    fi
-done
+}
+
+spin() {
+    local spinners='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local i=0
+    while kill -0 "${SCAN_PID}" 2>/dev/null; do
+        local current
+        current=$(cat "${status_file}" 2>/dev/null || echo "")
+        printf "\r  ${YELLOW}%s${RESET}  %s" "${spinners:$((i % 10)):1}" "${current}" >&2
+        sleep 0.1
+        i=$((i + 1))
+    done
+    printf "\r%-100s\r" "" >&2
+}
+
+scan_repos &
+SCAN_PID=$!
+spin
+wait "${SCAN_PID}"
+
+cat "${output_file}"
 
 echo
 success "Done."

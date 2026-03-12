@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 source leonardo_account
 
@@ -6,17 +7,18 @@ VPN_NAME="LeonardoVPN"
 SERVER_ADDRESS="vpn.leonardo.ag"
 
 is_leonardo_vpn_configured() {
-    scutil --nc list | grep -q "$VPN_NAME"
+    scutil --nc status "$VPN_NAME" &>/dev/null
 }
 
 is_leonardo_vpn_connected() {
-    if ! is_leonardo_vpn_configured; then
-        create_vpn_config
-    fi
     is_leonardo_vpn_configured && scutil --nc status "$VPN_NAME" | grep -qw "Connected"
 }
 
 create_vpn_config() {
+    if is_leonardo_vpn_configured; then
+        printf "${YELLOW}●${RESET} $VPN_NAME configuration already exists, skipping creation\n"
+        return 0
+    fi
     if ! command -v macosvpn >/dev/null 2>&1; then
         printf "${RED}●${RESET} macosvpn is not installed. install via 'brew install macosvpn'\n"
         exit 1
@@ -34,6 +36,9 @@ connect_vpn() {
     if is_leonardo_vpn_connected; then
         printf "${YELLOW}●${RESET} $VPN_NAME is already connected\n"
     else
+        if ! is_leonardo_vpn_configured; then
+            create_vpn_config
+        fi
         printf "${YELLOW}●${RESET} Connecting to $VPN_NAME...\n"
         scutil --nc start --secret "$VPN_SHARED_SECRET" "$VPN_NAME"
     fi
@@ -43,7 +48,7 @@ disconnect_vpn() {
     if ! is_leonardo_vpn_connected; then
         return 1
     fi
-    umount "$NETWORK_DRIVE_MOUNT_POINT" &>/dev/null || true
+    leonardo_drive --unmount
     scutil --nc stop "$VPN_NAME"
     printf "${RED}●${RESET} $VPN_NAME disconnected\n"
 }

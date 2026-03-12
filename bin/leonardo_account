@@ -4,10 +4,7 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     set -euo pipefail
 fi
 
-export GREEN='\033[32m'
-export RED='\033[31m'
-export YELLOW='\033[33m'
-export RESET='\033[0m'
+source prettyprint
 
 exit_or_return() {
     local exit_code=$1

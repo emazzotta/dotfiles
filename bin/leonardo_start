@@ -44,8 +44,6 @@ disconnect() {
         disconnected=true
     fi
 
-    scutil --nc stop "Tailscale" 2>/dev/null || true
-
     if [ "$disconnected" = false ]; then
         printf "${YELLOW}●${RESET} Nothing to disconnect\n"
     fi

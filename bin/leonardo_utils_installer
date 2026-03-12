@@ -14,6 +14,8 @@ readonly SCRIPTS=(
     "leonardo_drive"
     "leonardo_start"
     "leonardo_vpn_toggle"
+    "prettyprint"
+    "tailscale-toggle-exit-node"
 )
 readonly DEFAULT_INSTALL_DIR="/usr/local/bin"
 
@@ -53,10 +55,13 @@ Arguments:
   INSTALL_DIR    Directory to install/uninstall scripts (default: ${DEFAULT_INSTALL_DIR})
 
 Scripts installed:
+  - host-resolver
   - leonardo_account
+  - leonardo_drive
   - leonardo_start
   - leonardo_vpn_toggle
-  - leonardo_drive
+  - prettyprint
+  - tailscale-toggle-exit-node
 
 Examples:
   $(basename "$0")                        Install to ${DEFAULT_INSTALL_DIR}

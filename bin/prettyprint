@@ -1,49 +1,30 @@
 #!/bin/bash
-
-# Took these printing functions from https://github.com/Sajjadhosn/dotfiles
-coloredEcho() {
-    local exp="$1";
-    local color="$2";
-    local arrow="$3";
-    if ! [[ $color =~ '^[0-9]$' ]] ; then
-       case $(echo $color | tr '[:upper:]' '[:lower:]') in
-        black) color=0 ;;
-        red) color=1 ;;
-        green) color=2 ;;
-        yellow) color=3 ;;
-        blue) color=4 ;;
-        magenta) color=5 ;;
-        cyan) color=6 ;;
-        white|*) color=7 ;; # white or invalid color
-       esac
-    fi
-    tput bold;
-    tput setaf "$color";
-    echo "$arrow $exp";
-    tput sgr0;
-}
+export GREEN='\033[32m'
+export RED='\033[31m'
+export YELLOW='\033[33m'
+export WHITE='\033[37m'
+export RESET='\033[0m'
 
 info() {
-    coloredEcho "$1" blue "========>"
+    printf "${YELLOW}●${RESET} %s\n" "$*"
 }
 
 success() {
-    coloredEcho "$1" green "========>"
+    printf "${GREEN}●${RESET} %s\n" "$*"
 }
 
 error() {
-    coloredEcho "$1" red "========>"
+    printf "${RED}●${RESET} %s\n" "$*" >&2
 }
 
 substep_info() {
-    coloredEcho "$1" magenta "===="
+    printf "  ${YELLOW}·${RESET} %s\n" "$*"
 }
 
 substep_success() {
-    coloredEcho "$1" cyan "===="
+    printf "  ${GREEN}·${RESET} %s\n" "$*"
 }
 
 substep_error() {
-    coloredEcho "$1" red "===="
+    printf "  ${RED}·${RESET} %s\n" "$*" >&2
 }
-
