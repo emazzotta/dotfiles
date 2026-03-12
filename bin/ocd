@@ -1,16 +1,44 @@
 #!/bin/bash
 
+set -euo pipefail
+
 source "${CUSTOM_BIN_DIR}/prettyprint"
+
+run_subtask() {
+    local label="$1"
+    shift
+    if command -v gum &>/dev/null; then
+        if env -u BOLD gum spin --spinner dot --title "  · ${label}..." -- bash -c "$(declare -f "$1"); $1"; then
+            substep_success "${label%...} completed."
+        else
+            substep_error "Failed: ${label}"
+            return 1
+        fi
+    else
+        substep_info "${label}..."
+        if "$@"; then
+            substep_success "${label%...} completed."
+        else
+            substep_error "Failed: ${label}"
+            return 1
+        fi
+    fi
+}
+
+push_dotfiles() {
+    local commit_msg
+    commit_msg="Update $(git -C "${DOTFILESPATH}" status -s | awk '{print $2}' | sed 's/\/.*$/,/g' | sort | uniq | tr '\n' ' ' | sed 's/, $//g')"
+    cd "${DOTFILESPATH}" && gacp "${commit_msg}" &>/dev/null
+}
+
+transcribe_commits() {
+    create_repos_json
+    cd "${GITDUMMYDIR}" && ./gitdummy.py &>/dev/null
+}
 
 info "Performing obsessive compulsive disorder task..."
 
-substep_info "Pushing dotfiles..."
-cd "${DOTFILESPATH}" && gacp "Update $(git status -s | awk '{print $2}' | sed 's/\/.*$/,/g' | sort | uniq |  tr '\n' ' ' | sed 's/, $//g')" &> /dev/null && substep_success "Dotfiles pushed."
-[ $? -ne 0  ] && substep_error "Failed to push dotfiles!"
-
-substep_info "Transcribing commits..."
-create_repos_json
-cd "${GITDUMMYDIR}" && ./gitdummy.py &> /dev/null && substep_success "Commits transcribed."
-[ $? -ne 0  ] && substep_error "Failed to transcribe commits!"
+run_subtask "Pushing dotfiles" push_dotfiles
+run_subtask "Transcribing commits" transcribe_commits
 
 success "Done."

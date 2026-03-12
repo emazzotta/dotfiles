@@ -12,11 +12,16 @@ fi
 ignore_dirs=("dev")
 
 output_file=$(mktemp)
+branches_file=$(mktemp)
 status_file=$(mktemp)
-trap 'rm -f "${output_file}" "${status_file}"' EXIT
+trap 'rm -f "${output_file}" "${branches_file}" "${status_file}"' EXIT
 
 separator() {
     printf "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
+}
+
+dim_separator() {
+    printf "${YELLOW}╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌${RESET}\n"
 }
 
 scan_repos() {
@@ -45,8 +50,17 @@ scan_repos() {
                 { separator; printf "${BOLD}${WHITE}%s${RESET} [git stashed changes]\n" "${dir}"; git -c color.ui=always -C "${dir}" stash list; } >> "${output_file}"
                 shown=true
             fi
-            if [[ "${shown}" == false && "${current_branch}" != "main" && "${current_branch}" != "master" ]]; then
-                { separator; printf "${BOLD}${WHITE}%s${RESET} [current branch: ${current_branch}]\n" "${dir}"; } >> "${output_file}"
+            other_branches=$(git -C "${dir}" for-each-ref --format='%(refname:short)' refs/heads/ | grep -Ev '^(main|master)$' || true)
+            if [ -n "${other_branches}" ]; then
+                formatted=""
+                while IFS= read -r branch; do
+                    if [ "${branch}" = "${current_branch}" ]; then
+                        formatted="${formatted}${BOLD}${branch}${RESET}, "
+                    else
+                        formatted="${formatted}${branch}, "
+                    fi
+                done <<< "${other_branches}"
+                printf "${YELLOW}%s${RESET} [%s]\n" "${dir}" "${formatted%, }" >> "${branches_file}"
             fi
         fi
     done
@@ -72,6 +86,15 @@ wait "${SCAN_PID}"
 
 cat "${output_file}"
 [ -s "${output_file}" ] && separator
+
+if [ -s "${branches_file}" ]; then
+    echo
+    dim_separator
+    printf "${YELLOW}  other branches${RESET}\n"
+    dim_separator
+    cat "${branches_file}"
+    dim_separator
+fi
 
 echo
 success "Done."
