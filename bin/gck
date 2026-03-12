@@ -34,19 +34,19 @@ scan_repos() {
             current_branch=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
             shown=false
             if [[ "$(git -C "${dir}" status -s)" != "" ]]; then
-                { separator; substep_info "${BOLD}${WHITE}${dir}${RESET} [git uncommitted changes]"; git -c color.ui=always -C "${dir}" status -s; } >> "${output_file}"
+                { separator; printf "${BOLD}${WHITE}%s${RESET} [git uncommitted changes]\n" "${dir}"; git -c color.ui=always -C "${dir}" status -s; } >> "${output_file}"
                 shown=true
             fi
             if [[ "$(git -C "${dir}" log --branches --not --remotes)" != "" ]]; then
-                { separator; substep_info "${BOLD}${WHITE}${dir}${RESET} [git unpushed changes]"; git -c color.ui=always -C "${dir}" log --pretty=format:"%h - %an, %ar: %s" --branches --not --remotes; printf '\n'; } >> "${output_file}"
+                { separator; printf "${BOLD}${WHITE}%s${RESET} [git unpushed changes]\n" "${dir}"; git -c color.ui=always -C "${dir}" log --pretty=format:"%h - %an, %ar: %s" --branches --not --remotes; printf '\n'; } >> "${output_file}"
                 shown=true
             fi
             if [ "$(git -C "${dir}" stash list)" != "" ]; then
-                { separator; substep_info "${BOLD}${WHITE}${dir}${RESET} [git stashed changes]"; git -c color.ui=always -C "${dir}" stash list; } >> "${output_file}"
+                { separator; printf "${BOLD}${WHITE}%s${RESET} [git stashed changes]\n" "${dir}"; git -c color.ui=always -C "${dir}" stash list; } >> "${output_file}"
                 shown=true
             fi
             if [[ "${shown}" == false && "${current_branch}" != "main" && "${current_branch}" != "master" ]]; then
-                { separator; substep_info "${BOLD}${WHITE}${dir}${RESET} [current branch: ${current_branch}]"; } >> "${output_file}"
+                { separator; printf "${BOLD}${WHITE}%s${RESET} [current branch: ${current_branch}]\n" "${dir}"; } >> "${output_file}"
             fi
         fi
     done
@@ -58,7 +58,7 @@ spin() {
     while kill -0 "${SCAN_PID}" 2>/dev/null; do
         local current
         current=$(cat "${status_file}" 2>/dev/null || echo "")
-        printf "\r  ${YELLOW}%s${RESET}  %s" "${spinners:$((i % 10)):1}" "${current}" >&2
+        printf "\033[2K\r  ${YELLOW}%s${RESET}  %s" "${spinners:$((i % 10)):1}" "${current}" >&2
         sleep 0.1
         i=$((i + 1))
     done
