@@ -8,10 +8,10 @@ run_subtask() {
     local label="$1"
     shift
     if command -v gum &>/dev/null; then
-        if env -u BOLD gum spin --spinner dot --title "  · ${label}..." -- bash -c "$(declare -f "$1"); $1"; then
-            substep_success "${label%...} completed."
+        if env -u BOLD gum spin --spinner dot --title "  ${label}..." -- bash -c "$(declare -f "$1"); $1"; then
+            success "${label} completed."
         else
-            substep_error "Failed: ${label}"
+            error "Failed: ${label}"
             return 1
         fi
     else
