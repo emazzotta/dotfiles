@@ -1,8 +1,8 @@
 #!/bin/bash
-set -euo pipefail
+
+GLOBAL_ENV_FILE="$HOME/dotfiles/.env"
 
 load_global_env() {
-    [ -z "${GLOBAL_ENV_FILE:-}" ] && return 0
     if [ ! -f "$GLOBAL_ENV_FILE" ]; then
         echo "Error: GLOBAL_ENV_FILE not found: $GLOBAL_ENV_FILE" >&2
         return 1
@@ -15,12 +15,15 @@ load_global_env() {
 
 resolve_params() {
     for key in "$@"; do
-        if [ -z "${!key+x}" ]; then
-            value=$(keyguard get "$key")
+        if ! printenv "$key" > /dev/null 2>&1; then
+            value=$(keyguard get "$key") || { echo "Error: failed to resolve '$key'" >&2; return 1; }
             export "$key=$value"
         fi
     done
 }
 
-load_global_env
-resolve_params "$@"
+load_global_env || return 1
+
+if [ $# -gt 0 ]; then
+    resolve_params "$@"
+fi

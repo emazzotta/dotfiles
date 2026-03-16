@@ -47,7 +47,6 @@ export DJ_TRACKS="$DJ_DIR/00_Collection"
 export DOWNLOADDIR="$HOME/Downloads"
 export EDITOR=/opt/homebrew/bin/vim
 export GITDUMMYDIR="$PRIVATE_PROJECTS/gitdummy"
-export GLOBAL_ENV_FILE="$DOTFILESPATH/.env"
 export HISTCONTROL="ignoreboth"
 export HISTTIMEFORMAT="%Y-%m-%d %T "
 export HOMEBREW_CASK_OPTS="--appdir=/Applications"
