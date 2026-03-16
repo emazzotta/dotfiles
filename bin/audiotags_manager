@@ -68,6 +68,13 @@ class Tags(Enum):
     YEAR = 'year'
 
 
+STRING_TAGS: Final[frozenset[str]] = frozenset({
+    Tags.ALBUM.value, Tags.ALBUMARTIST.value, Tags.ARTIST.value,
+    Tags.COMMENT.value, Tags.COMPOSER.value, Tags.GENRE.value,
+    Tags.ISRC.value, Tags.LYRICS.value, Tags.TRACKTITLE.value,
+})
+
+
 
 def main():
     parser = argparse.ArgumentParser(description='Perform audio tags operations')
@@ -194,10 +201,11 @@ def copy_metadata(destination, source):
 
 
 def clean_all_tags(track_metadata):
-    for tag in [tag.value for tag in Tags]:
+    for tag in STRING_TAGS:
         try:
-            if isinstance(track_metadata[tag].first, str) and track_metadata[tag].first:
-                cleaned = clean_string(tag_value=track_metadata[tag].first, tag_name=tag)
+            value = track_metadata[tag].first
+            if value:
+                cleaned = clean_string(tag_value=value, tag_name=tag)
                 if cleaned:
                     track_metadata[tag] = cleaned
         except (ValueError, UnidentifiedImageError) as e:
