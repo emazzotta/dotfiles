@@ -3,10 +3,7 @@
 GLOBAL_ENV_FILE="$HOME/dotfiles/.env"
 
 load_global_env() {
-    if [ ! -f "$GLOBAL_ENV_FILE" ]; then
-        echo "Error: GLOBAL_ENV_FILE not found: $GLOBAL_ENV_FILE" >&2
-        return 1
-    fi
+    [ ! -f "$GLOBAL_ENV_FILE" ] && return 0
     set -a
     # shellcheck source=/dev/null
     . "$GLOBAL_ENV_FILE"
@@ -22,7 +19,7 @@ resolve_params() {
     done
 }
 
-load_global_env || return 1
+load_global_env
 
 if [ $# -gt 0 ]; then
     resolve_params "$@"
