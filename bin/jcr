@@ -321,7 +321,7 @@ def run_get(args: argparse.Namespace) -> None:
     issues = [fetch_issue(key) for key in args.keys]
 
     if args.output_json:
-        print(json.dumps([i.get("fields", {}) for i in issues] if len(issues) > 1 else issues[0].get("fields", {}), indent=2))
+        print(json.dumps([i.get("fields", {}) for i in issues], indent=2))
         return
 
     for i, issue in enumerate(issues):
@@ -393,8 +393,16 @@ def run_setup() -> None:
     print()
 
 
+def resolve_board_id() -> str:
+    return BOARD_ID or fetch_board_id()
+
+
+def resolve_account_id(override: str | None = None) -> str:
+    return override or ACCOUNT_ID or fetch_account_id()
+
+
 def run_interactive(args: argparse.Namespace) -> None:
-    board_id = BOARD_ID or fetch_board_id()
+    board_id = resolve_board_id()
 
     summary = gum_input("Ticket summary")
     if not summary:
@@ -421,7 +429,7 @@ def run_interactive(args: argparse.Namespace) -> None:
         sys.exit(0)
 
     sprint_id = fetch_sprint_id(board_id, sprint) if sprint else ""
-    account_id = ACCOUNT_ID or fetch_account_id()
+    account_id = resolve_account_id()
     payload = build_payload(summary, description, fix_version, issue_type, sprint_id, account_id)
 
     if args.dry_run:
@@ -432,8 +440,8 @@ def run_interactive(args: argparse.Namespace) -> None:
 
 
 def run_non_interactive(args: argparse.Namespace) -> None:
-    board_id = BOARD_ID or fetch_board_id()
-    account_id = args.assignee or ACCOUNT_ID or fetch_account_id()
+    board_id = resolve_board_id()
+    account_id = resolve_account_id(args.assignee)
 
     if args.sprint:
         sprint_id = fetch_sprint_id(board_id, args.sprint)
@@ -442,7 +450,6 @@ def run_non_interactive(args: argparse.Namespace) -> None:
         sprint_name, sprint_id = fetch_active_sprint(board_id)
         print(f"Using sprint: {sprint_name}", file=sys.stderr)
 
-    assert args.summary is not None
     fix_version = args.fix_version if args.fix_version is not None else DEFAULT_FIX_VERSION
     issue_type = args.issue_type if args.issue_type is not None else DEFAULT_TYPE
     payload = build_payload(args.summary, args.description or "", fix_version, issue_type, sprint_id, account_id)
@@ -456,12 +463,31 @@ def run_non_interactive(args: argparse.Namespace) -> None:
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
+def load_envify() -> None:
+    try:
+        script = 'source envify "$JIRA_EMAIL" "$JIRA_TOKEN" && printf "%s\n" "JIRA_EMAIL=$JIRA_EMAIL" "JIRA_TOKEN=$JIRA_TOKEN"'
+        result = subprocess.run(
+            ["bash", "-c", script],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        )
+        if result.returncode != 0:
+            return
+        for line in result.stdout.splitlines():
+            if "=" in line:
+                key, _, value = line.partition("=")
+                if key in ("JIRA_EMAIL", "JIRA_TOKEN"):
+                    os.environ[key] = value
+    except OSError:
+        pass
+
+
 def validate_env() -> None:
+    load_envify()
     missing = [v for v in ("JIRA_EMAIL", "JIRA_TOKEN") if not os.environ.get(v)]
     if missing:
         for var in missing:
             print(f"Error: {var} is not set.", file=sys.stderr)
-        print('Add to your shell profile: export JIRA_EMAIL="..." JIRA_TOKEN="..."', file=sys.stderr)
+        print("Set JIRA_EMAIL and JIRA_TOKEN so envify can resolve them, or export them directly.", file=sys.stderr)
         sys.exit(1)
 
 
@@ -526,8 +552,6 @@ def main() -> None:
         run_setup()
         return
 
-    validate_sprint_field()
-
     if args.update:
         run_update(args)
         return
@@ -535,6 +559,8 @@ def main() -> None:
     if args.keys:
         run_get(args)
         return
+
+    validate_sprint_field()
 
     if args.summary is not None:
         run_non_interactive(args)

@@ -1,91 +1,154 @@
 #!/usr/bin/env python3
 
 import os
+import subprocess
 import sys
 import time
+from pathlib import Path
+from typing import Final
 from scriptlog import Logger
 
 logger = Logger()
 
-missing_modules = []
-try:
-    import spotipy
-    from spotipy.oauth2 import SpotifyOAuth
-except ImportError as e:
-    missing_modules.append(str(e).split()[-1])
-
-REQUIRED_ENV_VARS = [
+REQUIRED_ENV_VARS: tuple[str, ...] = (
     'SPOTIPY_CLIENT_ID',
     'SPOTIPY_CLIENT_SECRET',
-    'SPOTIPY_REDIRECT_URI'
-]
-PLAYLIST_NAME = "My Shazam Tracks"
-
-MISSING_ENV_VARS = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
-if MISSING_ENV_VARS or missing_modules:
-    logger.error("envify && av")
-    sys.exit(1)
-
-scope = 'playlist-modify-private playlist-read-private'
-sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope))
+    'SPOTIPY_REDIRECT_URI',
+)
+PLAYLIST_NAME: Final = "My Shazam Tracks"
+SPOTIFY_ADD_BATCH_SIZE: Final = 100
+DEFAULT_RATE_LIMIT_DELAY: Final = 5
 
 
-def find_or_create_playlist(name):
-    user_id = sp.current_user()['id']
-    playlists = sp.current_user_playlists()
+def check_missing_modules() -> list[str]:
+    missing = []
+    try:
+        import spotipy
+        from spotipy.oauth2 import SpotifyOAuth
+    except ImportError as e:
+        missing.append(str(e).split()[-1].strip("'\""))
+    return missing
 
-    for playlist in playlists['items']:
+
+def load_env_via_envify() -> None:
+    vars_str = ' '.join(REQUIRED_ENV_VARS)
+    echo_cmds = ' && '.join(f'echo "{v}=${{{v}}}"' for v in REQUIRED_ENV_VARS)
+    result = subprocess.run(
+        ['bash', '-c', f'source envify {vars_str} && {echo_cmds}'],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or 'envify failed with no output')
+    for line in result.stdout.splitlines():
+        if '=' in line:
+            key, _, value = line.partition('=')
+            if key in REQUIRED_ENV_VARS:
+                os.environ[key] = value
+
+
+def init_spotify():
+    missing_modules = check_missing_modules()
+    if missing_modules:
+        logger.error(
+            f"Missing Python packages: {', '.join(missing_modules)}. "
+            f"Install with: pip install {' '.join(missing_modules)}"
+        )
+        sys.exit(1)
+
+    if any(not os.getenv(v) for v in REQUIRED_ENV_VARS):
+        try:
+            load_env_via_envify()
+        except RuntimeError as e:
+            logger.error(f"Failed to load Spotify credentials: {e}")
+            sys.exit(1)
+
+    still_missing = [v for v in REQUIRED_ENV_VARS if not os.getenv(v)]
+    if still_missing:
+        logger.error(f"Spotify credentials still missing after envify: {', '.join(still_missing)}")
+        sys.exit(1)
+
+    import spotipy
+    from spotipy.oauth2 import SpotifyOAuth
+    scope = 'playlist-modify-private playlist-read-private'
+    return spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope))
+
+
+sp = init_spotify()
+
+
+def fetch_all_pages(paged_result) -> list:
+    items = list(paged_result['items'])
+    while paged_result['next']:
+        paged_result = sp.next(paged_result)
+        items.extend(paged_result['items'])
+    return items
+
+
+def find_or_create_playlist(name: str) -> str:
+    all_playlists = fetch_all_pages(sp.current_user_playlists())
+    for playlist in all_playlists:
         if playlist['name'] == name:
             return playlist['id']
-
+    user_id = sp.current_user()['id']
     return sp.user_playlist_create(user_id, name, public=False, description='A playlist from Shazam')['id']
 
 
-def add_tracks_to_playlist(playlist_id, track_file):
-    existing_tracks = set([item['track']['id'] for item in sp.playlist_tracks(playlist_id)['items']])
+def fetch_existing_track_ids(playlist_id: str) -> set[str]:
+    all_items = fetch_all_pages(sp.playlist_tracks(playlist_id))
+    return {item['track']['id'] for item in all_items if item['track']}
+
+
+def search_track(track: str) -> tuple[str | None, bool]:
+    import spotipy
+    result = None
+    rate_limited = False
+    while result is None:
+        try:
+            result = sp.search(q=track, limit=1)
+        except spotipy.exceptions.SpotifyException as e:
+            if e.http_status == 429:
+                rate_limited = True
+                delay = int(e.headers.get('Retry-After', DEFAULT_RATE_LIMIT_DELAY))
+                logger.warn(f"Rate limiting. Retrying in {delay} seconds...")
+                time.sleep(delay + 1)
+            else:
+                raise
+    items = result['tracks']['items']
+    return (items[0]['id'] if items else None), rate_limited
+
+
+def add_tracks_to_playlist(playlist_id: str, track_file: Path) -> tuple[list[str], bool]:
+    existing_tracks = fetch_existing_track_ids(playlist_id)
     track_ids = []
     not_found = []
     rate_limited = False
 
-    with open(track_file, 'r') as file:
-        for line in file:
-            track = line.strip()
-            result = None
-            while result is None:
-                try:
-                    result = sp.search(q=track, limit=1)
-                    if result['tracks']['items']:
-                        track_id = result['tracks']['items'][0]['id']
-                        if track_id not in existing_tracks:
-                            track_ids.append(track_id)
-                            existing_tracks.add(track_id)
-                    else:
-                        not_found.append(track)
-                except spotipy.exceptions.SpotifyException as e:
-                    if e.http_status == 429:
-                        rate_limited = True
-                        delay = int(e.headers['Retry-After'])
-                        logger.warn(f"Rate limiting occurred. Retrying in {delay} seconds...")
-                        time.sleep(delay + 1)
-                        result = None
-                    else:
-                        raise
+    for line in track_file.read_text().splitlines():
+        track = line.strip()
+        if not track:
+            continue
+        track_id, was_rate_limited = search_track(track)
+        rate_limited = rate_limited or was_rate_limited
+        if track_id is None:
+            not_found.append(track)
+        elif track_id not in existing_tracks:
+            track_ids.append(track_id)
+            existing_tracks.add(track_id)
 
-    if track_ids:
-        sp.playlist_add_items(playlist_id, track_ids)
+    for i in range(0, len(track_ids), SPOTIFY_ADD_BATCH_SIZE):
+        sp.playlist_add_items(playlist_id, track_ids[i:i + SPOTIFY_ADD_BATCH_SIZE])
 
     return not_found, rate_limited
 
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        script_name = os.path.basename(__file__)
-        logger.log(f"Usage: {script_name} <path_to_track_file>")
+        logger.log(f"Usage: {os.path.basename(__file__)} <path_to_track_file>")
         sys.exit(1)
 
-    track_file = sys.argv[1]
+    track_file = Path(sys.argv[1])
     playlist_id = find_or_create_playlist(PLAYLIST_NAME)
-
     tracks_not_found, rate_limited_occurred = add_tracks_to_playlist(playlist_id, track_file)
 
     if tracks_not_found:

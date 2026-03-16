@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source "$GLOBAL_ENV_FILE"
+source envify ALL_EMAILS PRIMARY_EMAIL
 
 rm -rf "${GITDUMMYDIR}/repos.json"
 REPOS=`echo -e $(for dir in $(find "${WDIR}" -maxdepth 2 -type d -o -type l);do if [ -e "${dir}/.git" ] && [[ "${dir}" != *"private-commits"* ]];then printf '"%s",' ${dir};fi;done)`

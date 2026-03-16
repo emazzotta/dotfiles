@@ -2,7 +2,7 @@
 
 set -e
 
-source "$GLOBAL_ENV_FILE"
+source envify PRIVATE_PHONE_NUMBER
 
 echo "Configuring macOS system settings..."
 

@@ -2,8 +2,8 @@
 
 set -e
 
-source "$GLOBAL_ENV_FILE"
 source "$(dirname "${BASH_SOURCE[0]}")/shelllog.sh"
+source envify PASSWORD_ZIPS
 
 usage() {
     log "usage: $(basename "${0}") [-c compression_level] [-p password] <file1> [file2 ...]"

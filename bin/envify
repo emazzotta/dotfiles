@@ -1,22 +1,85 @@
 #!/bin/bash
+# Do NOT add `set -euo pipefail` — this script is meant to be sourced into
+# interactive shells. Strict mode would leak into the caller's session and
+# cause unrelated commands to abort the terminal.
 
 GLOBAL_ENV_FILE="$HOME/dotfiles/.env"
+PARAM_SERVER_PORT=7777
 
 load_global_env() {
-    [ ! -f "$GLOBAL_ENV_FILE" ] && return 0
+    if [ ! -f "$GLOBAL_ENV_FILE" ]; then
+        return 0
+    fi
     set -a
     # shellcheck source=/dev/null
     . "$GLOBAL_ENV_FILE"
     set +a
 }
 
-resolve_params() {
-    for key in "$@"; do
-        if ! printenv "$key" > /dev/null 2>&1; then
-            value=$(keyguard get "$key") || { echo "Error: failed to resolve '$key'" >&2; return 1; }
-            export "$key=$value"
+find_reachable_param_host() {
+    for host in localhost host.docker.internal; do
+        if curl --connect-timeout 2 -s -o /dev/null "http://$host:$PARAM_SERVER_PORT/" 2>/dev/null; then
+            echo "$host"
+            return 0
         fi
     done
+    return 1
+}
+
+fetch_params_from_server() {
+    local host
+    if ! host=$(find_reachable_param_host); then
+        echo "Error: param server unreachable on localhost:$PARAM_SERVER_PORT and host.docker.internal:$PARAM_SERVER_PORT" >&2
+        return 1
+    fi
+    if [ $# -eq 1 ]; then
+        printf '%s=%s\n' "$1" "$(curl -sf "http://$host:$PARAM_SERVER_PORT/$1")"
+    else
+        local IFS=','
+        curl -sf "http://$host:$PARAM_SERVER_PORT/$*"
+    fi
+}
+
+resolve_all_params() {
+    if command -v keyguard > /dev/null 2>&1; then
+        if [ $# -eq 1 ]; then
+            printf '%s=%s\n' "$1" "$(keyguard get "$1")"
+        else
+            keyguard get "$@"
+        fi
+    else
+        fetch_params_from_server "$@"
+    fi
+}
+
+export_resolved_params() {
+    local line key value
+    while IFS= read -r line; do
+        key="${line%%=*}"
+        value="${line#*=}"
+        [ -n "$key" ] && export "$key=$value"
+    done <<< "$1"
+}
+
+resolve_params() {
+    local key
+    local unresolved=()
+    for key in "$@"; do
+        if ! printenv "$key" > /dev/null 2>&1; then
+            unresolved+=("$key")
+        fi
+    done
+
+    if [ ${#unresolved[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    local output
+    output=$(resolve_all_params "${unresolved[@]}") || {
+        echo "Error: failed to resolve params: ${unresolved[*]}" >&2
+        return 1
+    }
+    export_resolved_params "$output"
 }
 
 load_global_env

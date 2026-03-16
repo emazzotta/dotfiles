@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source "$GLOBAL_ENV_FILE"
+source envify PASSWORD_ZIPS
 
 echo
 echo "Creating Notion Backup ${NOTION_EXPORT_PATH}"

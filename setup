@@ -54,7 +54,7 @@ if $IS_MAC; then
   run_command_if_file_exists "./brew/mixed-in-key.rb" brew install --cask ./brew/mixed-in-key.rb
   run_command_if_file_exists "/Applications/KeeWeb.app" sudo chown -R root /Applications/KeeWeb.app
   [[ ! -f "$HOME/.ssh/id_rsa.pub" ]] && run_command_if_file_exists "$HOME/.ssh/id_rsa" ssh-keygen -y -f $HOME/.ssh/id_rsa > $HOME/.ssh/id_rsa.pub
-  [[ ! -f "$DOTFILESPATH/maven/.m2/settings.xml" ]] && envify && envsubst < "$DOTFILESPATH/maven/.m2/settings.template.xml" > "$DOTFILESPATH/maven/.m2/settings.xml"
+  [[ ! -f "$DOTFILESPATH/maven/.m2/settings.xml" ]] && envify SIGNING_PASSWORD NEXUS_PASSWORD && envsubst < "$DOTFILESPATH/maven/.m2/settings.template.xml" > "$DOTFILESPATH/maven/.m2/settings.xml"
 
   echo "Applying settings"
   run_if_exists ./.macos

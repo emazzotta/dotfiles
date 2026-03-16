@@ -2,7 +2,7 @@
 
 set -e
 
-source "$GLOBAL_ENV_FILE"
+source envify PASSWORD_ZIPS
 
 EXTRACTION_PATH="${DESKDIR}/data.txt"
 [[ ! -f "${EXTRACTION_PATH}" ]] && 7z x "${ZIPS_DIR}/data.txt.7z" -p"${PASSWORD_ZIPS}" -o"${DESKDIR}"
