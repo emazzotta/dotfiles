@@ -183,7 +183,7 @@ def main() -> int:
         '-e', '--exclude',
         action='append',
         default=[],
-        metavar='PATTERN',
+        metavar='PATH_PATTERN',
         help="Exclude paths matching pattern (can be specified multiple times)"
     )
 
@@ -191,7 +191,7 @@ def main() -> int:
         '-x', '--exclude-content',
         action='append',
         default=[],
-        metavar='PATTERN',
+        metavar='CONTENT_PATTERN',
         help="Exclude lines containing pattern (can be specified multiple times)"
     )
 
