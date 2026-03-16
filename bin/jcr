@@ -148,7 +148,19 @@ def extract_adf_text(node: dict | None) -> str:
 
 
 def to_adf(text: str) -> dict:
-    return {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}]}
+    blocks = [b for b in text.split("\n\n") if b.strip()]
+    if not blocks:
+        blocks = [text]
+    content = []
+    for block in blocks:
+        lines = block.split("\n")
+        inline: list[dict] = []
+        for i, line in enumerate(lines):
+            if i > 0:
+                inline.append({"type": "hardBreak"})
+            inline.append({"type": "text", "text": line})
+        content.append({"type": "paragraph", "content": inline})
+    return {"type": "doc", "version": 1, "content": content}
 
 
 def build_payload(summary: str, description: str, fix_version: str, issue_type: str, sprint_id: str, account_id: str) -> dict:
