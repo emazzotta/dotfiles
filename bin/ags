@@ -15,8 +15,14 @@ except ImportError:
 logger = Logger(use_timestamps=False)
 
 
-def find_files_by_name(pattern: str, search_path: str, excludes: list[str]) -> None:
-    cmd = ["find", search_path, "-type", "f", "-iname", f"*{pattern}*"]
+def find_files_by_name(patterns: list[str], search_path: str, excludes: list[str]) -> None:
+    iname_parts: list[str] = []
+    for i, pattern in enumerate(patterns):
+        if i > 0:
+            iname_parts.append("-o")
+        iname_parts.extend(["-iname", f"*{pattern}*"])
+
+    cmd = ["find", search_path, "-type", "f", "(", *iname_parts, ")"]
 
     for exclude in excludes:
         cmd.extend(["-not", "-path", f"*{exclude}*"])
@@ -34,7 +40,7 @@ def find_files_by_name(pattern: str, search_path: str, excludes: list[str]) -> N
 
 
 def search_content(
-    pattern: str,
+    patterns: list[str],
     search_path: str,
     file_regex: Optional[str],
     excludes: list[str],
@@ -43,6 +49,7 @@ def search_content(
     if not _check_ag_available():
         return
 
+    pattern = "|".join(patterns)
     if file_regex:
         _search_content_in_matching_files(pattern, search_path, file_regex, excludes, exclude_content)
     else:
@@ -156,7 +163,8 @@ def main() -> int:
 
     parser.add_argument(
         'pattern',
-        help="Pattern to search for in filenames and content"
+        nargs='+',
+        help="Pattern(s) to search for in filenames and content (multiple patterns are OR-ed)"
     )
 
     parser.add_argument(
@@ -189,11 +197,13 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    print(f"Searching for files and content matching pattern: '{args.pattern}'\n")
+    pattern_display = " | ".join(args.pattern)
+    print(f"Searching for files and content matching pattern: '{pattern_display}'\n")
 
     print("Files matching the filename pattern:")
     print()
-    find_files_by_name(args.pattern if not args.file_regex else args.file_regex, args.path, args.exclude)
+    filename_patterns = [args.file_regex] if args.file_regex else args.pattern
+    find_files_by_name(filename_patterns, args.path, args.exclude)
 
     print()
     print("Content matches:")

@@ -13,7 +13,6 @@
 __pycache__
 cache
 email
-keys
 node_modules
 
 Cache-Management.ps1

@@ -1,0 +1,26 @@
+#!/bin/bash
+set -euo pipefail
+
+load_global_env() {
+    [ -z "${GLOBAL_ENV_FILE:-}" ] && return 0
+    if [ ! -f "$GLOBAL_ENV_FILE" ]; then
+        echo "Error: GLOBAL_ENV_FILE not found: $GLOBAL_ENV_FILE" >&2
+        return 1
+    fi
+    set -a
+    # shellcheck source=/dev/null
+    . "$GLOBAL_ENV_FILE"
+    set +a
+}
+
+resolve_params() {
+    for key in "$@"; do
+        if [ -z "${!key+x}" ]; then
+            value=$(keyguard get "$key")
+            export "$key=$value"
+        fi
+    done
+}
+
+load_global_env
+resolve_params "$@"
