@@ -14,6 +14,7 @@ __pycache__
 cache
 email
 node_modules
+*.enc
 
 Cache-Management.ps1
 
