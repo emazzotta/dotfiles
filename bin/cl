@@ -72,7 +72,11 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-n] [CLAUDE_ARGS...]")
     parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
-    parser.add_argument("-p", "--path", dest="paths", action="append", type=parse_path, default=[], metavar="PATH")
+    parser.add_argument(
+        "-p", "--path",
+        dest="paths", action="append", type=parse_path, default=[], metavar="PATH",
+        help="directory to mount; may be repeated: -p ~/a -p ~/b",
+    )
     parser.add_argument("-n", "--no-skip", action="store_true", default=False)
 
     args, claude_args = parser.parse_known_args()
