@@ -331,7 +331,6 @@ superocd() {
     rm_old_gitlab_builds && \
     upallin "$HOME" && \
     zgen update <<< "n" &> /dev/null && \
-    create_backups && \
     gck "$HOME" && \
     kill_unwanted_processes && \
     rm_launch_items
