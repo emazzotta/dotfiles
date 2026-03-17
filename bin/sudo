@@ -1,4 +1,4 @@
- #!/bin/bash
+#!/bin/bash
 
 set -euo pipefail
 
@@ -6,5 +6,6 @@ if /usr/bin/sudo -n true 2>/dev/null; then
     /usr/bin/sudo "$@"
 else
     source envify MAC_SUDO_PW 2>/dev/null
-    echo "$MAC_SUDO_PW" | /usr/bin/sudo -S sh -c '"$@" 2>&1' _ "$@" 2>/dev/null
+    echo "$MAC_SUDO_PW" | /usr/bin/sudo -S "$@" 2>/dev/null
 fi
+
