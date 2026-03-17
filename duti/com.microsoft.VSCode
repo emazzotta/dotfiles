@@ -24,7 +24,10 @@ props
 py
 r2h
 sh
+sha
+sha1
 sha256
+sha512
 sql
 sub
 toml
