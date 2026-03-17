@@ -465,7 +465,7 @@ def run_non_interactive(args: argparse.Namespace) -> None:
 
 def load_envify() -> None:
     try:
-        script = 'source envify "$JIRA_EMAIL" "$JIRA_TOKEN" && printf "%s\n" "JIRA_EMAIL=$JIRA_EMAIL" "JIRA_TOKEN=$JIRA_TOKEN"'
+        script = 'source envify JIRA_EMAIL JIRA_TOKEN && printf "%s\n" "JIRA_EMAIL=$JIRA_EMAIL" "JIRA_TOKEN=$JIRA_TOKEN"'
         result = subprocess.run(
             ["bash", "-c", script],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
