@@ -47,11 +47,20 @@ resolve_caddyfile() {
 }
 
 main() {
-    local caddyfile
-    caddyfile=$(resolve_caddyfile "${1:-}")
     check_docker
-    check_caddyfile "$caddyfile"
-    format_caddyfile "$caddyfile"
+    if [ $# -eq 0 ]; then
+        local caddyfile
+        caddyfile=$(resolve_caddyfile "")
+        check_caddyfile "$caddyfile"
+        format_caddyfile "$caddyfile"
+        return
+    fi
+    for arg in "$@"; do
+        local caddyfile
+        caddyfile=$(resolve_caddyfile "$arg")
+        check_caddyfile "$caddyfile"
+        format_caddyfile "$caddyfile"
+    done
 }
 
 main "$@"
