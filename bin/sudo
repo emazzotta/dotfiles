@@ -8,13 +8,14 @@ fi
 
 source envify MAC_SUDO_PW 2>/dev/null
 
-pw_file=$(mktemp /tmp/.sudo_pw.XXXXXX)
+pw_fifo=$(mktemp -u /tmp/.sudo_pw.XXXXXX)
 askpass=$(mktemp /tmp/.sudo_askpass.XXXXXX)
-trap 'rm -f "$pw_file" "$askpass"' EXIT
+trap 'rm -f "$pw_fifo" "$askpass"' EXIT
 
-chmod 600 "$pw_file"
+mkfifo -m 600 "$pw_fifo"
 chmod 700 "$askpass"
-printf '%s\n' "$MAC_SUDO_PW" > "$pw_file"
-printf '#!/bin/sh\ncat "%s"\n' "$pw_file" > "$askpass"
+printf '#!/bin/sh\ncat "%s"\n' "$pw_fifo" > "$askpass"
 
-SUDO_ASKPASS="$askpass" exec /usr/bin/sudo -A "$@"
+printf '%s\n' "$MAC_SUDO_PW" > "$pw_fifo" &
+
+SUDO_ASKPASS="$askpass" /usr/bin/sudo -A "$@"
