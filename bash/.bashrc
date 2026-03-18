@@ -323,6 +323,7 @@ load() {
 superocd() {
     echo "Starting superocd sequence..."
     
+    sudo -v && \
     sshkeyadd && \
     ocd && \
     update && \
