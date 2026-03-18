@@ -3,9 +3,18 @@
 set -euo pipefail
 
 if /usr/bin/sudo -n true 2>/dev/null; then
-    /usr/bin/sudo "$@"
-else
-    source envify MAC_SUDO_PW 2>/dev/null
-    echo "$MAC_SUDO_PW" | /usr/bin/sudo -S "$@" 2>/dev/null
+    exec /usr/bin/sudo "$@"
 fi
 
+source envify MAC_SUDO_PW 2>/dev/null
+
+pw_file=$(mktemp /tmp/.sudo_pw.XXXXXX)
+askpass=$(mktemp /tmp/.sudo_askpass.XXXXXX)
+trap 'rm -f "$pw_file" "$askpass"' EXIT
+
+chmod 600 "$pw_file"
+chmod 700 "$askpass"
+printf '%s\n' "$MAC_SUDO_PW" > "$pw_file"
+printf '#!/bin/sh\ncat "%s"\n' "$pw_file" > "$askpass"
+
+SUDO_ASKPASS="$askpass" exec /usr/bin/sudo -A "$@"
