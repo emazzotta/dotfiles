@@ -40,10 +40,10 @@ def extract_error(result: dict) -> str:
 
 def jira_request(method: str, path: str, data: dict | None = None) -> dict:
     url = f"{JIRA_URL}/rest/{path}"
-    body = json.dumps(data).encode() if data is not None else None
+    body = json.dumps(data, ensure_ascii=False).encode("utf-8") if data is not None else None
     req = urllib.request.Request(
         url, data=body, method=method,
-        headers={"Authorization": build_auth_header(), "Accept": "application/json", "Content-Type": "application/json"},
+        headers={"Authorization": build_auth_header(), "Accept": "application/json", "Content-Type": "application/json; charset=utf-8"},
     )
     try:
         with urllib.request.urlopen(req) as resp:
@@ -120,6 +120,34 @@ def fetch_account_id() -> str:
     return account_id
 
 
+def link_issues(source_key: str, target_key: str, link_type: str) -> None:
+    jira_request("POST", "api/3/issueLink", {
+        "type": {"name": link_type},
+        "inwardIssue": {"key": source_key},
+        "outwardIssue": {"key": target_key},
+    })
+    print(f"Linked {source_key} → {target_key} ({link_type})", file=sys.stderr)
+
+
+def find_link_id(source_key: str, target_key: str) -> str | None:
+    result = jira_request("GET", f"api/3/issue/{source_key}?fields=issuelinks")
+    for link in result.get("fields", {}).get("issuelinks", []):
+        inward = (link.get("inwardIssue") or {}).get("key")
+        outward = (link.get("outwardIssue") or {}).get("key")
+        if target_key in (inward, outward):
+            return link["id"]
+    return None
+
+
+def unlink_issues(source_key: str, target_key: str) -> None:
+    link_id = find_link_id(source_key, target_key)
+    if link_id is None:
+        print(f"Warning: No link found between {source_key} and {target_key}", file=sys.stderr)
+        return
+    jira_request("DELETE", f"api/3/issueLink/{link_id}")
+    print(f"Unlinked {source_key} ↛ {target_key}", file=sys.stderr)
+
+
 def transition_issue(key: str, status_name: str) -> None:
     result = jira_request("GET", f"api/3/issue/{key}/transitions")
     transition_id = next(
@@ -193,7 +221,7 @@ def build_update_fields(args: argparse.Namespace) -> dict:
     return fields
 
 
-def submit_ticket(payload: dict, interactive: bool = False, output_json: bool = False) -> None:
+def submit_ticket(payload: dict, interactive: bool = False, output_json: bool = False) -> str:
     if interactive:
         result = gum_spin_curl("Creating ticket...", "POST", "api/3/issue", payload)
     else:
@@ -215,6 +243,8 @@ def submit_ticket(payload: dict, interactive: bool = False, output_json: bool = 
         print(json.dumps({"key": key, "url": ticket_url}))
     else:
         print(f"{key} → {ticket_url}")
+
+    return key
 
 
 # ── gum helpers ───────────────────────────────────────────────────────────────
@@ -345,6 +375,11 @@ def run_update(args: argparse.Namespace) -> None:
     jira_request("PUT", f"api/3/issue/{key}", {"fields": fields})
     ticket_url = f"{JIRA_URL}/browse/{key}"
 
+    for target in args.link or []:
+        link_issues(key, target, args.link_type)
+    for target in args.unlink or []:
+        unlink_issues(key, target)
+
     if args.output_json:
         print(json.dumps({"key": key, "url": ticket_url}))
     else:
@@ -436,7 +471,9 @@ def run_interactive(args: argparse.Namespace) -> None:
         print(json.dumps(payload, indent=2))
         sys.exit(0)
 
-    submit_ticket(payload, interactive=True)
+    key = submit_ticket(payload, interactive=True)
+    for target in args.link or []:
+        link_issues(key, target, args.link_type)
 
 
 def run_non_interactive(args: argparse.Namespace) -> None:
@@ -458,7 +495,9 @@ def run_non_interactive(args: argparse.Namespace) -> None:
         print(json.dumps(payload, indent=2))
         sys.exit(0)
 
-    submit_ticket(payload, interactive=False, output_json=args.output_json)
+    key = submit_ticket(payload, interactive=False, output_json=args.output_json)
+    for target in args.link or []:
+        link_issues(key, target, args.link_type)
 
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
@@ -523,6 +562,10 @@ def parse_args() -> argparse.Namespace:
             "  jcr LEO-2584 --update --summary 'New title'\n"
             "  jcr LEO-2584 --update --type Bug --summary 'New title' --fix-version 25.4.0\n"
             "  jcr LEO-2584 --update --json              # machine-readable update output\n"
+            "  jcr --summary 'Fix bug' --link LEO-2358  # link to existing ticket (Relates)\n"
+            "  jcr --summary 'Fix bug' --link LEO-2358 --link LEO-2400 --link-type Blocks\n"
+            "  jcr LEO-2597 --update --link LEO-2358    # add link to existing ticket\n"
+            "  jcr LEO-2597 --update --unlink LEO-2358  # remove link to existing ticket\n"
             "  jcr --setup                               # discover config values\n"
             "\n"
             "Requires: export JIRA_EMAIL='...' JIRA_TOKEN='...' in your shell profile"
@@ -538,6 +581,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--update", action="store_true", help="Update an existing ticket (requires exactly one KEY)")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Print JSON payload, do not create")
     parser.add_argument("--json", dest="output_json", action="store_true", help='Output result as JSON {"key": "...", "url": "..."}')
+    parser.add_argument("--link", metavar="KEY", action="append", help="Link ticket to KEY (repeatable). E.g. --link LEO-2358")
+    parser.add_argument("--link-type", metavar="TYPE", default="Relates", help="Link type (default: Relates). E.g. Blocks, Clones, Duplicate")
+    parser.add_argument("--unlink", metavar="KEY", action="append", help="Remove link to KEY (repeatable). Requires --update")
     parser.add_argument("--comments", action="store_true", help="Show last 5 comments when fetching tickets")
     parser.add_argument("--setup", action="store_true", help="Discover BOARD_ID, SPRINT_FIELD, ACCOUNT_ID")
     return parser.parse_args()
