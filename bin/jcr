@@ -298,12 +298,61 @@ def gum_spin_curl(title: str, method: str, path: str, data: dict | None = None) 
 
 # ── Commands ──────────────────────────────────────────────────────────────────
 
+ISSUE_FIELDS = ",".join([
+    "summary", "description", "status", "assignee", "issuetype", "priority",
+    "fixVersions", "labels", "comment", "issuelinks", "subtasks", "attachment",
+    "parent", "components", "created", "updated", "reporter", SPRINT_FIELD,
+])
+
+
 def fetch_issue(key: str) -> dict:
-    fields = "summary,description,status,assignee,issuetype,priority,fixVersions,labels,comment"
-    return jira_request("GET", f"api/3/issue/{key}?fields={fields}")
+    return jira_request("GET", f"api/3/issue/{key}?fields={ISSUE_FIELDS}")
 
 
-def format_issue(issue: dict, show_comments: bool) -> str:
+def format_sprint(fields: dict) -> str:
+    sprint_data = fields.get(SPRINT_FIELD)
+    if not sprint_data:
+        return "-"
+    if isinstance(sprint_data, list) and sprint_data:
+        active = [s for s in sprint_data if isinstance(s, dict) and s.get("state") == "active"]
+        chosen = active[0] if active else sprint_data[-1]
+        return chosen.get("name", "-") if isinstance(chosen, dict) else str(chosen)
+    if isinstance(sprint_data, dict):
+        return sprint_data.get("name", "-")
+    return str(sprint_data)
+
+
+def format_links(fields: dict) -> str:
+    links = fields.get("issuelinks", [])
+    if not links:
+        return "-"
+    parts: list[str] = []
+    for link in links:
+        link_type = (link.get("type") or {}).get("name", "")
+        if inward := link.get("inwardIssue"):
+            key = inward.get("key", "")
+            summary = (inward.get("fields") or {}).get("summary", "")
+            direction = (link.get("type") or {}).get("inward", link_type)
+            parts.append(f"  {direction} {key}: {summary}")
+        if outward := link.get("outwardIssue"):
+            key = outward.get("key", "")
+            summary = (outward.get("fields") or {}).get("summary", "")
+            direction = (link.get("type") or {}).get("outward", link_type)
+            parts.append(f"  {direction} {key}: {summary}")
+    return "\n".join(parts) if parts else "-"
+
+
+def format_subtasks(fields: dict) -> str:
+    subtasks = fields.get("subtasks", [])
+    if not subtasks:
+        return "-"
+    return "\n".join(
+        f"  {s.get('key', '')}: {(s.get('fields') or {}).get('summary', '')}"
+        for s in subtasks
+    )
+
+
+def format_issue(issue: dict, brief: bool = False) -> str:
     key = issue.get("key", "")
     fields = issue.get("fields", {})
 
@@ -311,9 +360,16 @@ def format_issue(issue: dict, show_comments: bool) -> str:
     issue_type = (fields.get("issuetype") or {}).get("name", "")
     status = (fields.get("status") or {}).get("name", "")
     assignee = (fields.get("assignee") or {}).get("displayName", "Unassigned")
+    reporter = (fields.get("reporter") or {}).get("displayName", "-")
     priority = (fields.get("priority") or {}).get("name", "None")
     fix_versions = ", ".join(v["name"] for v in fields.get("fixVersions", [])) or "-"
     labels = ", ".join(fields.get("labels", [])) or "-"
+    components = ", ".join(c.get("name", "") for c in fields.get("components", [])) or "-"
+    parent_field = fields.get("parent")
+    parent = f"{parent_field['key']}: {(parent_field.get('fields') or {}).get('summary', '')}" if parent_field else "-"
+    sprint = format_sprint(fields)
+    attachments = fields.get("attachment", [])
+    attachment_names = ", ".join(a.get("filename", "") for a in attachments) or "-"
 
     raw_desc = extract_adf_text(fields.get("description")).strip()
     wrapped_desc = textwrap.fill(raw_desc, width=100, initial_indent="  ", subsequent_indent="  ") if raw_desc else "  -"
@@ -323,32 +379,50 @@ def format_issue(issue: dict, show_comments: bool) -> str:
 
     lines = [
         f"=== {key} ===",
-        f"Summary:  {summary}",
-        f"Type:     {issue_type}",
-        f"Status:   {status}",
-        f"Assignee: {assignee}",
-        f"Priority: {priority}",
-        f"Version:  {fix_versions}",
-        f"Labels:   {labels}",
+        f"Summary:     {summary}",
+        f"Type:        {issue_type}",
+        f"Status:      {status}",
+        f"Assignee:    {assignee}",
+        f"Reporter:    {reporter}",
+        f"Priority:    {priority}",
+        f"Version:     {fix_versions}",
+        f"Sprint:      {sprint}",
+        f"Labels:      {labels}",
+        f"Components:  {components}",
+        f"Parent:      {parent}",
+        f"Attachments: {attachment_names}",
         f"Desc:",
         wrapped_desc,
-        f"",
-        f"Comments: {comment_count}",
     ]
 
-    if show_comments and comment_list:
+    links_str = format_links(fields)
+    if links_str != "-":
+        lines += [f"", f"Links:", links_str]
+
+    subtasks_str = format_subtasks(fields)
+    if subtasks_str != "-":
+        lines += [f"", f"Subtasks:", subtasks_str]
+
+    lines += [f"", f"Comments: {comment_count}"]
+
+    if not brief and comment_list:
         recent = comment_list[-5:]
         for comment in recent:
             author = (comment.get("author") or {}).get("displayName", "Unknown")
+            created = comment.get("created", "")[:10]
             body = extract_adf_text(comment.get("body")).strip()
             wrapped_body = textwrap.fill(body, width=100, initial_indent="  ", subsequent_indent="  ")
-            lines += [f"", f"  [{author}]", wrapped_body]
+            lines += [f"", f"  [{author} — {created}]", wrapped_body]
 
     return "\n".join(lines)
 
 
 def run_get(args: argparse.Namespace) -> None:
-    issues = [fetch_issue(key) for key in args.keys]
+    if len(args.keys) == 1:
+        issues = [fetch_issue(args.keys[0])]
+    else:
+        with ThreadPoolExecutor(max_workers=min(len(args.keys), 8)) as pool:
+            issues = list(pool.map(fetch_issue, args.keys))
 
     if args.output_json:
         print(json.dumps([i.get("fields", {}) for i in issues], indent=2))
@@ -357,7 +431,7 @@ def run_get(args: argparse.Namespace) -> None:
     for i, issue in enumerate(issues):
         if i > 0:
             print()
-        print(format_issue(issue, show_comments=args.comments))
+        print(format_issue(issue, brief=args.brief))
 
 
 def run_update(args: argparse.Namespace) -> None:
@@ -549,10 +623,10 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  jcr LEO-2472                              # fetch a ticket\n"
-            "  jcr LEO-2472 LEO-2518                    # fetch multiple tickets\n"
+            "  jcr LEO-2472                              # fetch a ticket (full info + comments)\n"
+            "  jcr LEO-2472 LEO-2518                    # fetch multiple tickets (concurrent)\n"
             "  jcr LEO-2472 --json                       # raw JSON output\n"
-            "  jcr LEO-2472 --comments                   # include last 5 comments\n"
+            "  jcr LEO-2472 --brief                      # without comments\n"
             "  jcr                                       # interactive mode\n"
             "  jcr --summary 'Fix login bug'             # non-interactive, all defaults\n"
             "  jcr --summary 'Fix login bug' --type Bug --fix-version 25.4.0\n"
@@ -584,7 +658,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--link", metavar="KEY", action="append", help="Link ticket to KEY (repeatable). E.g. --link LEO-2358")
     parser.add_argument("--link-type", metavar="TYPE", default="Relates", help="Link type (default: Relates). E.g. Blocks, Clones, Duplicate")
     parser.add_argument("--unlink", metavar="KEY", action="append", help="Remove link to KEY (repeatable). Requires --update")
-    parser.add_argument("--comments", action="store_true", help="Show last 5 comments when fetching tickets")
+    parser.add_argument("--comments", action="store_true", help="(deprecated, comments now shown by default)")
+    parser.add_argument("--brief", action="store_true", help="Suppress comments in output")
     parser.add_argument("--setup", action="store_true", help="Discover BOARD_ID, SPRINT_FIELD, ACCOUNT_ID")
     return parser.parse_args()
 
