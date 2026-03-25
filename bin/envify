@@ -32,11 +32,12 @@ fetch_params_from_server() {
         echo "Error: param server unreachable on localhost:$PARAM_SERVER_PORT and host.docker.internal:$PARAM_SERVER_PORT" >&2
         return 1
     fi
+    local cache_qs="?timeout=${ENVIFY_CACHE_TIMEOUT:-10}"
     if [ $# -eq 1 ]; then
-        printf '%s=%s\n' "$1" "$(curl -sf "http://$host:$PARAM_SERVER_PORT/$1")"
+        printf '%s=%s\n' "$1" "$(curl -sf "http://$host:$PARAM_SERVER_PORT/$1$cache_qs")"
     else
         local IFS=','
-        curl -sf "http://$host:$PARAM_SERVER_PORT/$*"
+        curl -sf "http://$host:$PARAM_SERVER_PORT/$*$cache_qs"
     fi
 }
 
