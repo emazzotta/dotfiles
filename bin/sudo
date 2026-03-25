@@ -2,6 +2,10 @@
 
 set -euo pipefail
 
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    exec /usr/bin/sudo "$@"
+fi
+
 if /usr/bin/sudo -n true 2>/dev/null; then
     exec /usr/bin/sudo "$@"
 fi
