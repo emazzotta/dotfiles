@@ -33,11 +33,12 @@ fetch_params_from_server() {
         return 1
     fi
     local cache_qs="?timeout=${ENVIFY_CACHE_TIMEOUT:-10}"
+    local source_header="X-Keyguard-Source: $(hostname)"
     if [ $# -eq 1 ]; then
-        printf '%s=%s\n' "$1" "$(curl -sf "http://$host:$PARAM_SERVER_PORT/$1$cache_qs")"
+        printf '%s=%s\n' "$1" "$(curl -sf -H "$source_header" "http://$host:$PARAM_SERVER_PORT/$1$cache_qs")"
     else
         local IFS=','
-        curl -sf "http://$host:$PARAM_SERVER_PORT/$*$cache_qs"
+        curl -sf -H "$source_header" "http://$host:$PARAM_SERVER_PORT/$*$cache_qs"
     fi
 }
 
