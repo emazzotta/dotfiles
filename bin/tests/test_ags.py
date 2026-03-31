@@ -63,3 +63,47 @@ def test_filter_output_case_sensitive():
     assert "line with error" in result
     assert "clean line" in result
     assert "line with ERROR" not in result
+
+
+def test_wrap_glob_plain_string_adds_wildcards():
+    assert ags._wrap_glob("foo") == "*foo*"
+
+
+def test_wrap_glob_with_star_passes_through():
+    assert ags._wrap_glob("**/foo/bar") == "**/foo/bar"
+
+
+def test_wrap_glob_with_question_mark_passes_through():
+    assert ags._wrap_glob("foo?bar") == "foo?bar"
+
+
+def test_wrap_glob_with_bracket_passes_through():
+    assert ags._wrap_glob("[Ff]oo") == "[Ff]oo"
+
+
+def test_wrap_glob_trailing_star_passes_through():
+    assert ags._wrap_glob("*.log") == "*.log"
+
+
+def test_ag_exclude_strips_double_star_path():
+    assert ags._ag_exclude("**/commons/**") == "commons"
+
+
+def test_ag_exclude_strips_leading_double_star():
+    assert ags._ag_exclude("**/target") == "target"
+
+
+def test_ag_exclude_strips_trailing_double_star():
+    assert ags._ag_exclude("build/**") == "build"
+
+
+def test_ag_exclude_plain_name_unchanged():
+    assert ags._ag_exclude("node_modules") == "node_modules"
+
+
+def test_ag_exclude_glob_pattern_stripped():
+    assert ags._ag_exclude("*.log") == ".log"
+
+
+def test_ag_exclude_nested_path():
+    assert ags._ag_exclude("**/foo/bar/**") == "foo/bar"

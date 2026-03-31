@@ -14,18 +14,35 @@ except ImportError:
 
 logger = Logger(use_timestamps=False)
 
+GLOB_CHARS = frozenset("*?[")
+
+
+def _wrap_glob(pattern: str) -> str:
+    if any(c in pattern for c in GLOB_CHARS):
+        return pattern
+    return f"*{pattern}*"
+
+
+def _ag_exclude(pattern: str) -> str:
+    result = pattern
+    while result.startswith("**/"):
+        result = result[3:]
+    while result.endswith("/**"):
+        result = result[:-3]
+    return result.strip("*") or pattern
+
 
 def find_files_by_name(patterns: list[str], search_path: str, excludes: list[str]) -> None:
     iname_parts: list[str] = []
     for i, pattern in enumerate(patterns):
         if i > 0:
             iname_parts.append("-o")
-        iname_parts.extend(["-iname", f"*{pattern}*"])
+        iname_parts.extend(["-iname", _wrap_glob(pattern)])
 
     cmd = ["find", search_path, "-type", "f", "(", *iname_parts, ")"]
 
     for exclude in excludes:
-        cmd.extend(["-not", "-path", f"*{exclude}*"])
+        cmd.extend(["-not", "-path", _wrap_glob(exclude)])
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -72,10 +89,10 @@ def _search_content_in_matching_files(
     excludes: list[str],
     exclude_content: list[str]
 ) -> None:
-    find_cmd = ["find", search_path, "-type", "f", "-iname", f"*{file_regex}*"]
+    find_cmd = ["find", search_path, "-type", "f", "-iname", _wrap_glob(file_regex)]
 
     for exclude in excludes:
-        find_cmd.extend(["-not", "-path", f"*{exclude}*"])
+        find_cmd.extend(["-not", "-path", _wrap_glob(exclude)])
 
     try:
         find_result = subprocess.run(find_cmd, capture_output=True, text=True, check=True)
@@ -103,7 +120,7 @@ def _search_content_all_files(
     ag_cmd = ["ag", "--hidden", "--color", "--group", pattern, search_path]
 
     for exclude in excludes:
-        ag_cmd.extend(["--ignore", exclude])
+        ag_cmd.extend(["--ignore", _ag_exclude(exclude)])
 
     try:
         result = subprocess.run(ag_cmd, capture_output=True, text=True)
