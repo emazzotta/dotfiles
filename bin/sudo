@@ -10,6 +10,16 @@ if /usr/bin/sudo -n true 2>/dev/null; then
     exec /usr/bin/sudo "$@"
 fi
 
+keyguard_available() {
+    command -v envify &>/dev/null || return 1
+    curl --connect-timeout 1 -s -o /dev/null "http://localhost:7777/" 2>/dev/null ||
+        curl --connect-timeout 1 -s -o /dev/null "http://host.docker.internal:7777/" 2>/dev/null
+}
+
+if ! keyguard_available; then
+    exec /usr/bin/sudo "$@"
+fi
+
 source envify MAC_SUDO_PW 2>/dev/null
 
 pw_fifo=$(mktemp -u /tmp/.sudo_pw.XXXXXX)
