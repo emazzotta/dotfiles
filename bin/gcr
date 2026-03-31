@@ -1,0 +1,86 @@
+#!/bin/bash
+set -euo pipefail
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; RESET='\033[0m'
+
+log()   { echo -e "${GREEN}[gcr]${RESET} $*"; }
+error() { echo -e "${RED}[gcr]${RESET} $*" >&2; }
+
+show_usage() {
+    cat << 'EOF'
+Usage: gcr <command> [args...]
+
+Thin git-crypt wrapper with automatic key injection.
+
+In a git repo:  passes all arguments straight to git-crypt,
+                injecting the key automatically for 'unlock'.
+Outside a repo: operates on all repos under $WDIR/leo-productions.
+
+Examples:
+  gcr unlock          # unlock current repo (or all leo-productions repos)
+  gcr lock            # lock current repo (or all leo-productions repos)
+  gcr status          # show git-crypt status
+  gcr status -e       # any git-crypt flag works
+EOF
+}
+
+load_key() {
+    KEY_FILE=$(mktemp)
+    trap '/bin/rm -f "$KEY_FILE"' EXIT INT TERM
+    source envify LEO_GIT_CRYPT
+    echo "$LEO_GIT_CRYPT" | base64 -d > "$KEY_FILE"
+}
+
+run_git_crypt() {
+    local repo_dir="$1"
+    shift
+    local cmd="$1"
+    shift
+
+    if [[ "$cmd" == "unlock" ]]; then
+        load_key
+        git -C "$repo_dir" crypt unlock "$KEY_FILE" "$@"
+    else
+        git -C "$repo_dir" crypt "$cmd" "$@"
+    fi
+}
+
+find_git_root() {
+    git rev-parse --show-toplevel 2>/dev/null
+}
+
+find_leo_repos() {
+    local base="${WDIR:?WDIR not set}/leo-productions"
+    if [ ! -d "$base" ]; then
+        error "Directory not found: $base"
+        exit 1
+    fi
+    find "$base" -maxdepth 3 -name ".git" -type d -exec dirname {} \;
+}
+
+main() {
+    [ $# -lt 1 ] && { show_usage; exit 1; }
+    command -v git-crypt &>/dev/null || { error "git-crypt not installed"; exit 1; }
+
+    local git_root
+    git_root=$(find_git_root) || true
+
+    if [ -n "$git_root" ]; then
+        log "$git_root"
+        run_git_crypt "$git_root" "$@"
+    else
+        local repos
+        repos=$(find_leo_repos)
+        [ -z "$repos" ] && { error "No git repos found under leo-productions"; exit 1; }
+        local failed=0
+        while IFS= read -r repo; do
+            log "$repo"
+            if ! run_git_crypt "$repo" "$@"; then
+                failed=$((failed + 1))
+            fi
+        done <<< "$repos"
+        [ "$failed" -gt 0 ] && exit 1
+    fi
+}
+
+main "$@"
