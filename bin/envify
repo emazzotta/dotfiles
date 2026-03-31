@@ -5,6 +5,7 @@
 
 GLOBAL_ENV_FILE="$HOME/dotfiles/.env"
 PARAM_SERVER_PORT=7777
+CACHE_QS="?timeout=${ENVIFY_CACHE_TIMEOUT:-120}"
 
 load_global_env() {
     if [ ! -f "$GLOBAL_ENV_FILE" ]; then
@@ -32,13 +33,12 @@ fetch_params_from_server() {
         echo "Error: param server unreachable on localhost:$PARAM_SERVER_PORT and host.docker.internal:$PARAM_SERVER_PORT" >&2
         return 1
     fi
-    local cache_qs="?timeout=${ENVIFY_CACHE_TIMEOUT:-120}"
     local source_header="X-Keyguard-Source: $(hostname)"
     if [ $# -eq 1 ]; then
-        printf '%s=%s\n' "$1" "$(curl -sf -H "$source_header" "http://$host:$PARAM_SERVER_PORT/$1$cache_qs")"
+        printf '%s=%s\n' "$1" "$(curl -sf -H "$source_header" "http://$host:$PARAM_SERVER_PORT/$1$CACHE_QS")"
     else
         local IFS=','
-        curl -sf -H "$source_header" "http://$host:$PARAM_SERVER_PORT/$*$cache_qs"
+        curl -sf -H "$source_header" "http://$host:$PARAM_SERVER_PORT/$*$CACHE_QS"
     fi
 }
 
@@ -63,7 +63,7 @@ list_available_params() {
             echo "Error: param server unreachable on localhost:$PARAM_SERVER_PORT and host.docker.internal:$PARAM_SERVER_PORT" >&2
             return 1
         fi
-        curl -sf "http://$host:$PARAM_SERVER_PORT/_keys"
+        curl -sf "http://$host:$PARAM_SERVER_PORT/_keys$CACHE_QS"
     fi
 }
 
