@@ -52,19 +52,24 @@ class TestParseCertDatePortability:
         assert "date -d" in content
         assert "Darwin" in content
 
-    def test_parse_cert_date_on_current_platform(self, tmp_path):
+    @pytest.mark.parametrize("date_str", [
+        "Mar 15 12:00:00 2025 GMT",
+        "Jan  1 00:00:00 2025 GMT",
+        "Dec 31 23:59:59 2024 GMT",
+    ])
+    def test_parse_cert_date_on_current_platform(self, tmp_path, date_str):
         script = tmp_path / "test.sh"
-        script.write_text("""#!/bin/bash
-parse_cert_date() {
+        script.write_text(f"""#!/bin/bash
+parse_cert_date() {{
     local date_str
     date_str="$(echo "$1" | sed 's/  */ /g')"
     if [ "$(uname -s)" = "Darwin" ]; then
-        date -j -f "%b %d %T %Y %Z" "$date_str" "+%s" 2>/dev/null || echo 0
+        TZ=UTC date -j -f "%b %d %T %Y %Z" "$date_str" "+%s" 2>/dev/null || echo 0
     else
         date -d "$1" "+%s" 2>/dev/null || echo 0
     fi
-}
-result=$(parse_cert_date "Jan  1 00:00:00 2025 UTC")
+}}
+result=$(parse_cert_date "{date_str}")
 if [ "$result" -gt 0 ] 2>/dev/null; then
     echo "OK"
 else
