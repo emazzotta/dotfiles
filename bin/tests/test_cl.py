@@ -333,8 +333,8 @@ def test_main_passthrough_args_included_in_command(tmp_path, monkeypatch):
     assert "--resume" in captured_command[0]
 
 
-def test_main_skip_flag_prepends_dangerously_skip_permissions(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["cl", "-s"])
+def test_main_default_includes_dangerously_skip_permissions(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["cl"])
 
     captured_command = []
     def mock_run(cmd):
@@ -352,8 +352,8 @@ def test_main_skip_flag_prepends_dangerously_skip_permissions(monkeypatch):
     assert command.index("--dangerously-skip-permissions") > claude_index
 
 
-def test_main_without_skip_flag_omits_dangerously_skip_permissions(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["cl"])
+def test_main_no_skip_flag_omits_dangerously_skip_permissions(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["cl", "--no-skip"])
 
     captured_command = []
     def mock_run(cmd):
