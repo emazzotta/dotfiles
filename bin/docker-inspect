@@ -1,13 +1,18 @@
-#!/bin/sh
-set -eu
+#!/bin/bash
+set -euo pipefail
 
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") <container1> [container2 ...]
+Usage: $(basename "$0") [container1 container2 ...]
 
-Inspect one or more Docker containers and display their configuration.
+Inspect running Docker containers and display their configuration.
+
+If no container is specified:
+  - Single running container: inspects it automatically
+  - Multiple running containers: interactive selection via gum
 
 Examples:
+  $(basename "$0")
   $(basename "$0") nginx
   $(basename "$0") nginx postgres redis
 EOF
@@ -15,22 +20,62 @@ EOF
 
 validate_docker() {
     if ! command -v docker >/dev/null 2>&1; then
-        echo "Error: docker command not found" >&2
+        echo "Error: docker not found" >&2
         exit 1
     fi
+}
+
+select_containers() {
+    local running
+    running=$(docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}' 2>/dev/null)
+
+    if [ -z "$running" ]; then
+        echo "Error: no running containers found" >&2
+        return 1
+    fi
+
+    local count
+    count=$(echo "$running" | wc -l | tr -d ' ')
+
+    if [ "$count" -eq 1 ]; then
+        echo "$running" | cut -f1
+        return
+    fi
+
+    if ! command -v gum >/dev/null 2>&1; then
+        echo "Error: multiple containers running but gum not found" >&2
+        echo "Install: brew install gum" >&2
+        echo "" >&2
+        echo "Running containers:" >&2
+        echo "$running" | column -t -s $'\t' >&2
+        return 1
+    fi
+
+    local choices
+    choices=$(echo "$running" | awk -F'\t' '{printf "%-30s %-35s %s\n", $1, $2, $3}')
+
+    local selected
+    selected=$(echo "$choices" | gum choose --header "Select containers to inspect:")
+
+    if [ -z "$selected" ]; then
+        echo "No containers selected" >&2
+        return 1
+    fi
+
+    echo "$selected" | awk '{print $1}'
 }
 
 inspect_container() {
     local container="$1"
 
     if ! docker inspect "$container" >/dev/null 2>&1; then
-        echo "Error: Container '$container' not found or not accessible" >&2
+        echo "Error: container '$container' not found" >&2
         return 1
     fi
 
     docker inspect --format='Container: {{.Name}}
 Image: {{.Config.Image}}
-Ports: {{range $p, $conf := .NetworkSettings.Ports}}{{$p}}->{{(index $conf 0).HostPort}} {{end}}
+Ports: {{range $p, $conf := .NetworkSettings.Ports}}{{$p}}{{if $conf}}->{{(index $conf 0).HostPort}}{{end}} {{end}}
 Env: {{range .Config.Env}}
   - {{.}}{{end}}
 Volumes: {{range .Mounts}}
@@ -40,14 +85,33 @@ Network: {{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}
 }
 
 main() {
-    if [ $# -eq 0 ]; then
+    if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
         show_usage
-        exit 1
+        exit 0
     fi
 
     validate_docker
 
-    for container in "$@"; do
+    local containers=()
+
+    if [ $# -eq 0 ]; then
+        local selected
+        if ! selected=$(select_containers); then
+            exit 1
+        fi
+        while IFS= read -r name; do
+            containers+=("$name")
+        done <<< "$selected"
+    else
+        containers=("$@")
+    fi
+
+    if [ ${#containers[@]} -eq 0 ]; then
+        echo "Error: no containers to inspect" >&2
+        exit 1
+    fi
+
+    for container in "${containers[@]}"; do
         inspect_container "$container" || continue
     done
 }

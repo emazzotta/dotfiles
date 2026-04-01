@@ -1,3 +1,5 @@
+[![Test](https://github.com/emazzotta/dotfiles/workflows/test/badge.svg)](https://github.com/emazzotta/dotfiles/actions)
+
 # Dotfiles
 
 This is a collection of my dotfiles.
