@@ -2,6 +2,7 @@
 
 import argparse
 import glob
+import shutil
 import sys
 from pathlib import Path
 from subprocess import run
@@ -9,6 +10,24 @@ from time import time
 
 
 COMPOSE_FILE = Path.home() / "Projects" / "private" / "opencode" / "docker-compose.yml"
+
+
+def lock_git_crypt(pwd: Path) -> None:
+    if not shutil.which("git-crypt"):
+        return
+
+    git_crypt_dir = pwd / ".git-crypt"
+    if not git_crypt_dir.is_dir():
+        return
+
+    result = run(["git-crypt", "lock"], cwd=pwd, capture_output=True, text=True)
+    if result.returncode == 0:
+        print(f"git-crypt: locked {pwd.name}")
+    elif "already locked" in result.stderr.lower():
+        print(f"git-crypt: {pwd.name} already locked")
+    else:
+        print(f"git-crypt: failed to lock {pwd.name} - {result.stderr.strip()}", file=sys.stderr)
+        sys.exit(1)
 
 
 def parse_path(path_str: str) -> Path:
@@ -80,6 +99,8 @@ def main() -> None:
     parser.add_argument("-n", "--no-skip", action="store_true", default=False)
 
     args, claude_args = parser.parse_known_args()
+
+    lock_git_crypt(pwd)
 
     volume_args = build_volume_args(args.files, args.paths, pwd)
     container_name = f"opencode-{int(time())}"
