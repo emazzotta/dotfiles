@@ -29,4 +29,5 @@ dotfiles/
 !**/ccline/models.toml
 !**/ccline/themes
 !**/.claude/settings.json
+!**/.claude/hooks/**
 !**/karabiner/karabiner.json

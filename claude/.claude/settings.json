@@ -9,8 +9,8 @@
       {
         "hooks": [
           {
-            "type": "prompt",
-            "prompt": "Before confirming the task is done, check these systematically:\n\n1. COMPLETENESS: Did you do everything the user asked? Re-read the original request. Are there parts you skipped, deferred, or forgot?\n2. TESTS: If you changed code that has tests - did you update/add/run them? Do they pass? If you added a new function, did you add tests? If you deleted code, did you delete corresponding tests?\n3. SYNC FILES: If you edited CLAUDE.md, AGENTS.md, or OPENCODE.md - are all three identical?\n4. SKILL/AGENT SYNC: If you edited a skill that also has an agent (or vice versa) - is the body content identical?\n5. BUILD: If you changed Java code, does it compile? If you changed Python, are there syntax errors? Did you verify?\n6. SIDE EFFECTS: Did your changes break any imports, references, or dependent code?\n7. VERIFICATION: Did you actually demonstrate correctness (test output, build log, command output) or are you just assuming it works?\n\nIf ANY check fails, fix it before stopping. If all pass, confirm completion."
+            "type": "command",
+            "command": "/home/opencode/.claude/hooks/stop-verify.sh"
           }
         ]
       }
