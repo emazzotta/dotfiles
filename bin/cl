@@ -82,7 +82,7 @@ def resolve_file_volume_args(file_path: str, pwd: Path) -> list[str]:
 
 
 def expand_glob_volume_args(pattern: str, pwd: Path) -> list[str]:
-    matches = glob.glob(pattern, root_dir=pwd)
+    matches = [str(p.relative_to(pwd)) for p in pwd.glob(pattern)]
     if not matches:
         print(f"Error: No files matched pattern: {pattern}", file=sys.stderr)
         sys.exit(1)

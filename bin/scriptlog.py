@@ -69,6 +69,11 @@ class Logger:
 _default_logger: Optional[Logger] = None
 
 
+def reset_logger() -> None:
+    global _default_logger
+    _default_logger = None
+
+
 def get_logger(use_timestamps: bool = True, use_colors: bool = True) -> Logger:
     global _default_logger
     if _default_logger is None:

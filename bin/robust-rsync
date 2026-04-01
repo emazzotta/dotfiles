@@ -85,6 +85,9 @@ class RetryStrategy:
         self.max_wait = max_wait
         self.current_wait = initial_wait
 
+    def reset(self) -> None:
+        self.current_wait = self.initial_wait
+
     def calculate_next_wait(self) -> int:
         jitter = randint(0, 4)
         total_wait = self.current_wait + jitter

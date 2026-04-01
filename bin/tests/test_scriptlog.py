@@ -1,77 +1,119 @@
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from scriptlog import Logger, Color
+import pytest
 
 
-def test_logger_initialization():
-    logger = Logger()
-    assert logger.use_timestamps is True
-    assert logger.use_colors is True
-
-    logger_no_time = Logger(use_timestamps=False)
-    assert logger_no_time.use_timestamps is False
-
-
-def test_colorize():
-    logger = Logger(use_colors=True)
-    colored = logger._colorize("test", Color.RED)
-    assert colored == f"{Color.RED.value}test{Color.RESET.value}"
-
-    logger_no_color = Logger(use_colors=False)
-    plain = logger_no_color._colorize("test", Color.RED)
-    assert plain == "test"
+@pytest.fixture
+def scriptlog(load_script):
+    mod = load_script("scriptlog.py")
+    mod.reset_logger()
+    yield mod
+    mod.reset_logger()
 
 
-def test_log_output(capsys):
-    logger = Logger(use_timestamps=False, use_colors=False)
+class TestLoggerInit:
+    def test_defaults(self, scriptlog):
+        logger = scriptlog.Logger()
+        assert logger.use_timestamps is True
+        assert logger.use_colors is True
 
-    logger.log("Test message")
-    captured = capsys.readouterr()
-    assert "Test message" in captured.out
-
-
-def test_success_output(capsys):
-    logger = Logger(use_timestamps=False, use_colors=False)
-
-    logger.success("Success message")
-    captured = capsys.readouterr()
-    assert "✓" in captured.out
-    assert "Success message" in captured.out
+    def test_custom_flags(self, scriptlog):
+        logger = scriptlog.Logger(use_timestamps=False, use_colors=False)
+        assert logger.use_timestamps is False
+        assert logger.use_colors is False
 
 
-def test_error_output(capsys):
-    logger = Logger(use_timestamps=False, use_colors=False)
+class TestColorize:
+    def test_with_colors(self, scriptlog):
+        logger = scriptlog.Logger(use_colors=True)
+        colored = logger._colorize("test", scriptlog.Color.RED)
+        assert colored == f"{scriptlog.Color.RED.value}test{scriptlog.Color.RESET.value}"
 
-    logger.error("Error message")
-    captured = capsys.readouterr()
-    assert "ERROR:" in captured.err
-    assert "Error message" in captured.err
-
-
-def test_warn_output(capsys):
-    logger = Logger(use_timestamps=False, use_colors=False)
-
-    logger.warn("Warning message")
-    captured = capsys.readouterr()
-    assert "WARN:" in captured.out
-    assert "Warning message" in captured.out
+    def test_without_colors(self, scriptlog):
+        logger = scriptlog.Logger(use_colors=False)
+        assert logger._colorize("test", scriptlog.Color.RED) == "test"
 
 
-def test_info_output(capsys):
-    logger = Logger(use_timestamps=False, use_colors=False)
+class TestTimestamp:
+    def test_format(self, scriptlog):
+        logger = scriptlog.Logger(use_timestamps=True)
+        ts = logger._timestamp()
+        assert ts.startswith("[")
+        assert ts.endswith("]")
+        assert len(ts) > 10
 
-    logger.info("Info message")
-    captured = capsys.readouterr()
-    assert "INFO:" in captured.out
-    assert "Info message" in captured.out
+    def test_disabled(self, scriptlog):
+        logger = scriptlog.Logger(use_timestamps=False)
+        assert logger._timestamp() == ""
 
 
-def test_timestamp_format():
-    logger = Logger(use_timestamps=True)
-    timestamp = logger._timestamp()
-    assert timestamp.startswith("[")
-    assert timestamp.endswith("]")
-    assert len(timestamp) > 10
+class TestLoggerOutput:
+    @pytest.fixture
+    def logger(self, scriptlog):
+        return scriptlog.Logger(use_timestamps=False, use_colors=False)
+
+    def test_log(self, logger, capsys):
+        logger.log("Test message")
+        assert "Test message" in capsys.readouterr().out
+
+    def test_log_with_prefix(self, logger, capsys):
+        logger.log("test", prefix="CUSTOM")
+        captured = capsys.readouterr().out
+        assert "CUSTOM:" in captured
+        assert "test" in captured
+
+    def test_success(self, logger, capsys):
+        logger.success("ok")
+        captured = capsys.readouterr().out
+        assert "✓" in captured
+        assert "ok" in captured
+
+    def test_error(self, logger, capsys):
+        logger.error("fail")
+        captured = capsys.readouterr().err
+        assert "ERROR:" in captured
+        assert "fail" in captured
+
+    def test_warn(self, logger, capsys):
+        logger.warn("warning")
+        captured = capsys.readouterr().out
+        assert "WARN:" in captured
+        assert "warning" in captured
+
+    def test_info(self, logger, capsys):
+        logger.info("information")
+        captured = capsys.readouterr().out
+        assert "INFO:" in captured
+        assert "information" in captured
+
+    def test_debug(self, logger, capsys):
+        logger.debug("debug msg")
+        captured = capsys.readouterr().out
+        assert "DEBUG:" in captured
+        assert "debug msg" in captured
+
+
+class TestSingleton:
+    def test_returns_same_instance(self, scriptlog):
+        l1 = scriptlog.get_logger(use_timestamps=False)
+        l2 = scriptlog.get_logger(use_timestamps=True)
+        assert l1 is l2
+
+    def test_reset_allows_reconfiguration(self, scriptlog):
+        l1 = scriptlog.get_logger(use_timestamps=False)
+        scriptlog.reset_logger()
+        l2 = scriptlog.get_logger(use_timestamps=True)
+        assert l2 is not l1
+        assert l2.use_timestamps is True
+
+
+class TestModuleFunctions:
+    def test_log(self, scriptlog, capsys):
+        scriptlog.log("module log")
+        assert "module log" in capsys.readouterr().out
+
+    def test_success(self, scriptlog, capsys):
+        scriptlog.success("ok")
+        assert "✓" in capsys.readouterr().out
+
+    def test_error(self, scriptlog, capsys):
+        scriptlog.error("fail")
+        assert "ERROR:" in capsys.readouterr().err

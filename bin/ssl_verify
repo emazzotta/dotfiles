@@ -101,8 +101,18 @@ END_DATE=$(openssl x509 -in /tmp/cert.pem -noout -enddate 2>/dev/null | cut -d= 
 echo "Valid From: ${START_DATE}"
 echo "Valid Until: ${END_DATE}"
 
-EXPIRY_EPOCH=$(date -j -f "%b %d %T %Y %Z" "$END_DATE" "+%s" 2>/dev/null || echo 0)
-START_EPOCH=$(date -j -f "%b %d %T %Y %Z" "$START_DATE" "+%s" 2>/dev/null || echo 0)
+parse_cert_date() {
+    local date_str
+    date_str="$(echo "$1" | sed 's/  */ /g')"
+    if [ "$(uname -s)" = "Darwin" ]; then
+        date -j -f "%b %d %T %Y %Z" "$date_str" "+%s" 2>/dev/null || echo 0
+    else
+        date -d "$1" "+%s" 2>/dev/null || echo 0
+    fi
+}
+
+EXPIRY_EPOCH=$(parse_cert_date "$END_DATE")
+START_EPOCH=$(parse_cert_date "$START_DATE")
 CURRENT_EPOCH=$(date "+%s")
 DAYS_UNTIL_EXPIRY=$(( ($EXPIRY_EPOCH - $CURRENT_EPOCH) / 86400 ))
 TOTAL_VALIDITY_DAYS=$(( ($EXPIRY_EPOCH - $START_EPOCH) / 86400 ))

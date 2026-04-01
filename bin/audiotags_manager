@@ -225,7 +225,7 @@ def clean_string(tag_value, tag_name=None):
     line = re.sub(r'\s+', ' ', line)
 
     patterns = [
-        r'\(copy\)'
+        r'\(copy\)',
         r'\(Extended Mix\)',
         r'\(Extended Version\)',
         r'\(Extended\)',
