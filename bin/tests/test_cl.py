@@ -12,6 +12,11 @@ def cl(load_script):
 
 
 class TestLockGitCrypt:
+    @pytest.fixture(autouse=True)
+    def _mock_which(self, cl):
+        with patch.object(cl.shutil, "which", return_value="/usr/bin/git-crypt"):
+            yield
+
     def test_skips_when_no_git_crypt_dir(self, cl, tmp_path):
         with patch.object(cl, "run") as mock_run:
             cl.lock_git_crypt(tmp_path)
@@ -35,6 +40,11 @@ class TestLockGitCrypt:
 
 
 class TestLockGitCryptMultiplePaths:
+    @pytest.fixture(autouse=True)
+    def _mock_which(self, cl):
+        with patch.object(cl.shutil, "which", return_value="/usr/bin/git-crypt"):
+            yield
+
     @pytest.fixture
     def mock_cl_run(self, cl, monkeypatch):
         captured = []
