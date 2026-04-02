@@ -116,7 +116,8 @@ def main() -> None:
 
     args, claude_args = parser.parse_known_args()
 
-    lock_git_crypt(pwd)
+    for directory in args.paths or [pwd]:
+        lock_git_crypt(directory)
 
     volume_args = build_volume_args(args.files, args.paths, pwd)
     container_name = f"opencode-{int(time())}"

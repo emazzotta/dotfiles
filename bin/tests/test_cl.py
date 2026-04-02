@@ -1,5 +1,7 @@
 import argparse
 import sys
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -7,6 +9,75 @@ import pytest
 @pytest.fixture
 def cl(load_script):
     return load_script("cl")
+
+
+class TestLockGitCrypt:
+    def test_skips_when_no_git_crypt_dir(self, cl, tmp_path):
+        with patch.object(cl, "run") as mock_run:
+            cl.lock_git_crypt(tmp_path)
+        mock_run.assert_not_called()
+
+    def test_locks_when_git_crypt_dir_exists(self, cl, tmp_path):
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".git-crypt").mkdir()
+        with patch.object(cl, "run") as mock_run:
+            mock_run.return_value = type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            cl.lock_git_crypt(tmp_path)
+        lock_calls = [c for c in mock_run.call_args_list if c[0][0][:2] == ["git-crypt", "lock"]]
+        assert len(lock_calls) == 1
+
+    def test_already_locked(self, cl, tmp_path, capsys):
+        (tmp_path / ".git-crypt").mkdir()
+        with patch.object(cl, "run") as mock_run:
+            mock_run.return_value = type("R", (), {"returncode": 1, "stdout": "", "stderr": "already locked"})()
+            cl.lock_git_crypt(tmp_path)
+        assert "already locked" in capsys.readouterr().out
+
+
+class TestLockGitCryptMultiplePaths:
+    @pytest.fixture
+    def mock_cl_run(self, cl, monkeypatch):
+        captured = []
+        def mock_run(cmd, **kwargs):
+            captured.append((cmd, kwargs.get("cwd")))
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        monkeypatch.setattr(cl, "run", mock_run)
+        return captured
+
+    def test_no_paths_locks_pwd(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".git-crypt").mkdir()
+        monkeypatch.setattr(sys, "argv", ["cl"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        lock_calls = [c for c in mock_cl_run if c[0][:2] == ["git-crypt", "lock"]]
+        assert len(lock_calls) == 1
+        assert lock_calls[0][1] == tmp_path
+
+    def test_paths_lock_each_path(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        dir1, dir2 = tmp_path / "dir1", tmp_path / "dir2"
+        for d in (dir1, dir2):
+            d.mkdir()
+            (d / ".git-crypt").mkdir()
+        monkeypatch.setattr(sys, "argv", ["cl", "-p", str(dir1), "-p", str(dir2)])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        lock_calls = [c for c in mock_cl_run if c[0][:2] == ["git-crypt", "lock"]]
+        locked_dirs = {c[1] for c in lock_calls}
+        assert locked_dirs == {dir1, dir2}
+
+    def test_paths_without_git_crypt_skipped(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        dir1 = tmp_path / "dir1"
+        dir2 = tmp_path / "dir2"
+        dir1.mkdir()
+        dir2.mkdir()
+        (dir1 / ".git-crypt").mkdir()
+        monkeypatch.setattr(sys, "argv", ["cl", "-p", str(dir1), "-p", str(dir2)])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        lock_calls = [c for c in mock_cl_run if c[0][:2] == ["git-crypt", "lock"]]
+        assert len(lock_calls) == 1
+        assert lock_calls[0][1] == dir1
 
 
 class TestParsePath:
