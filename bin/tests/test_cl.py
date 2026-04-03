@@ -45,6 +45,10 @@ class TestLockGitCryptMultiplePaths:
         with patch.object(cl.shutil, "which", return_value="/usr/bin/git-crypt"):
             yield
 
+    @pytest.fixture(autouse=True)
+    def _no_leonardo_commons(self, cl, monkeypatch, tmp_path):
+        monkeypatch.setattr(cl, "LEONARDO_COMMONS", tmp_path / "nonexistent")
+
     @pytest.fixture
     def mock_cl_run(self, cl, monkeypatch):
         captured = []
@@ -211,12 +215,16 @@ class TestBuildVolumeArgs:
 
 
 class TestMain:
+    @pytest.fixture(autouse=True)
+    def _no_leonardo_commons(self, cl, monkeypatch, tmp_path):
+        monkeypatch.setattr(cl, "LEONARDO_COMMONS", tmp_path / "nonexistent")
+
     @pytest.fixture
     def mock_cl_run(self, cl, monkeypatch):
         captured = []
-        def mock_run(cmd):
+        def mock_run(cmd, **kwargs):
             captured.append(cmd)
-            return type("R", (), {"returncode": 0})()
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
         monkeypatch.setattr(cl, "run", mock_run)
         return captured
 
