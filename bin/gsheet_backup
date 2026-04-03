@@ -1,0 +1,103 @@
+#!/bin/bash
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: $(basename "$0") [-e] <sheet_id> <backup_dir> [max_copies]" >&2
+    echo "  -e          Encrypt backup with pwcompress (7z + password)" >&2
+    echo "  sheet_id    Google Sheets document ID" >&2
+    echo "  backup_dir  Directory to store backups" >&2
+    echo "  max_copies  Max backups to keep (default: 10)" >&2
+    exit 1
+}
+
+base64url() {
+    openssl base64 -A | tr '+/' '-_' | tr -d '='
+}
+
+ENCRYPT=false
+if [ "${1:-}" = "-e" ]; then
+    ENCRYPT=true
+    shift
+fi
+
+if [ $# -lt 2 ]; then
+    usage
+fi
+
+SHEET_ID="$1"
+BACKUP_DIR="$2"
+MAX_COPIES="${3:-10}"
+EXT="xlsx"
+if [ "$ENCRYPT" = true ]; then
+    EXT="7z"
+fi
+
+if [ ! -d "$BACKUP_DIR" ]; then
+    echo "Error: Backup directory does not exist: $BACKUP_DIR" >&2
+    exit 1
+fi
+
+if [ "$ENCRYPT" = true ]; then
+    source envify GOOGLE_DOCUMENTS_API_KEY PASSWORD_ZIPS
+else
+    source envify GOOGLE_DOCUMENTS_API_KEY
+fi
+SA_EMAIL=$(echo "$GOOGLE_DOCUMENTS_API_KEY" | jq -r '.client_email')
+SA_KEY=$(echo "$GOOGLE_DOCUMENTS_API_KEY" | jq -r '.private_key')
+
+NOW=$(date +%s)
+EXP=$((NOW + 3600))
+
+HEADER=$(printf '{"alg":"RS256","typ":"JWT"}' | base64url)
+CLAIMS=$(printf '{"iss":"%s","scope":"https://www.googleapis.com/auth/drive.readonly","aud":"https://oauth2.googleapis.com/token","iat":%d,"exp":%d}' \
+    "$SA_EMAIL" "$NOW" "$EXP" | base64url)
+
+SIGNATURE=$(printf '%s.%s' "$HEADER" "$CLAIMS" | \
+    openssl dgst -sha256 -sign <(echo "$SA_KEY") -binary | base64url)
+
+JWT="${HEADER}.${CLAIMS}.${SIGNATURE}"
+
+ACCESS_TOKEN=$(curl -s -X POST "https://oauth2.googleapis.com/token" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    -d "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${JWT}" | jq -r '.access_token')
+
+if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" = "null" ]; then
+    echo "Error: Failed to obtain access token" >&2
+    exit 1
+fi
+
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+OUTPUT_FILE="${BACKUP_DIR}/sheet_${SHEET_ID}_${TIMESTAMP}.xlsx"
+
+HTTP_CODE=$(curl -s -o "$OUTPUT_FILE" -w "%{http_code}" \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+    "https://www.googleapis.com/drive/v3/files/${SHEET_ID}/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+if [ "$HTTP_CODE" != "200" ]; then
+    echo "Error: Download failed with HTTP $HTTP_CODE" >&2
+    /bin/rm -f "$OUTPUT_FILE"
+    exit 1
+fi
+
+FILE_SIZE=$(wc -c < "$OUTPUT_FILE" | tr -d ' ')
+if [ "$FILE_SIZE" -lt 100 ]; then
+    echo "Error: Downloaded file suspiciously small (${FILE_SIZE} bytes)" >&2
+    /bin/rm -f "$OUTPUT_FILE"
+    exit 1
+fi
+
+if [ "$ENCRYPT" = true ]; then
+    (cd "$BACKUP_DIR" && pwcompress "$(basename "$OUTPUT_FILE")")
+    /bin/rm -f "$OUTPUT_FILE"
+fi
+
+EXISTING=$(find "$BACKUP_DIR" -name "sheet_${SHEET_ID}_*.${EXT}" -type f | sort)
+COUNT=$(echo "$EXISTING" | grep -c . || true)
+
+if [ "$COUNT" -gt "$MAX_COPIES" ]; then
+    REMOVE_COUNT=$((COUNT - MAX_COPIES))
+    echo "$EXISTING" | head -n "$REMOVE_COUNT" | while IFS= read -r old_file; do
+        /bin/rm -f "$old_file"
+    done
+fi

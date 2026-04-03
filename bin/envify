@@ -72,7 +72,12 @@ export_resolved_params() {
     while IFS= read -r line; do
         key="${line%%=*}"
         value="${line#*=}"
-        [ -n "$key" ] && export "$key=$value"
+        if [ -n "$key" ]; then
+            if [[ "$value" == base64:* ]]; then
+                value=$(base64 -d <<< "${value#base64:}" 2>/dev/null) || value="${value}"
+            fi
+            export "$key=$value"
+        fi
     done <<< "$1"
 }
 
