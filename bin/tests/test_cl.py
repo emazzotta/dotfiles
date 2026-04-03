@@ -135,7 +135,7 @@ class TestBuildVolumeArgs:
     def test_no_args(self, cl, tmp_path):
         pwd = tmp_path / "workspace"
         pwd.mkdir()
-        assert cl.build_volume_args([], [], pwd) == ["-v", f"{pwd}:/workspace/code"]
+        assert cl.build_volume_args([], [], pwd) == ["-v", f"{pwd}:/workspace/code/{pwd.name}"]
 
     def test_with_files(self, cl, tmp_path):
         pwd = tmp_path / "workspace"
