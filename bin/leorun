@@ -27,6 +27,94 @@ EOF
 
 export LEONARDO_PROJECTS="$HOME/Projects/leo-productions"
 LEONARDO_DIR="$LEONARDO_PROJECTS/leonardo"
+COMMONS_SETTINGS="commons/configs/maven_settings.xml"
+
+is_git_crypted() {
+    local file="$1"
+    local header
+    header=$(head -c 10 "$file" | tr -d '\0')
+    [[ "$header" == GITCRYPT* ]]
+}
+
+resolve_settings_args() {
+    local project_dir="$1"
+    local settings_path="$project_dir/$COMMONS_SETTINGS"
+    if [ -f "$settings_path" ] && ! is_git_crypted "$settings_path"; then
+        MVN_SETTINGS_ARGS=(-s "$COMMONS_SETTINGS")
+    else
+        MVN_SETTINGS_ARGS=()
+    fi
+}
+
+run_mvn() {
+    mvn "$@" ${MVN_SETTINGS_ARGS[@]+"${MVN_SETTINGS_ARGS[@]}"}
+}
+
+git_sync_branch() {
+    local project_path="$1"
+    local branch_name="${2:-}"
+
+    cd "$project_path"
+
+    if [ -n "$branch_name" ]; then
+        echo "   Checking out branch: $branch_name"
+        git fetch origin
+        if ! git checkout "$branch_name"; then
+            echo "   Failed to checkout branch $branch_name" >&2
+            exit 1
+        fi
+    else
+        echo "   Using current branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    fi
+
+    echo "   Pulling latest changes..."
+    if ! git pull; then
+        echo "   Failed to pull latest changes" >&2
+        exit 1
+    fi
+}
+
+install_project() {
+    local project_spec="$1"
+    local projects_dir="$2"
+    local base_git_url="$3"
+
+    project_spec=$(echo "$project_spec" | xargs)
+    local project_name="$project_spec"
+    local branch_name=""
+
+    if [[ "$project_spec" =~ ^(.+)\[(.+)\]$ ]]; then
+        project_name="${BASH_REMATCH[1]}"
+        branch_name="${BASH_REMATCH[2]}"
+    fi
+
+    echo ""
+    echo "Processing: $project_name"
+
+    local project_path="$projects_dir/$project_name"
+
+    if [ ! -d "$project_path" ]; then
+        echo "   Project not found, cloning..."
+        local clone_url="$base_git_url/$project_name.git"
+        echo "   Clone URL: $clone_url"
+        cd "$projects_dir"
+        if ! git clone "$clone_url"; then
+            echo "   Failed to clone $project_name" >&2
+            exit 1
+        fi
+    fi
+
+    git_sync_branch "$project_path" "$branch_name"
+
+    echo "   Building with Maven..."
+    resolve_settings_args "$project_path"
+    echo "   Command: mvn clean install -DskipTests ${MVN_SETTINGS_ARGS[*]+${MVN_SETTINGS_ARGS[*]}}"
+    if ! run_mvn clean install -DskipTests; then
+        echo "   Maven build failed for $project_name" >&2
+        exit 1
+    fi
+    echo "   Build completed"
+}
 
 INSTALL_PROJECTS=""
 MODE="normal"
@@ -57,119 +145,54 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-[ ! -f "$LEONARDO_DIR/ops/maven_settings.xml" ] && [ ! -f "$LEONARDO_DIR/pom.xml" ] && {
-    echo "Error: Not in leonardo project root (missing ops/maven_settings.xml or pom.xml)" >&2
+if [ ! -f "$LEONARDO_DIR/pom.xml" ]; then
+    echo "Error: Leonardo project not found (missing pom.xml in $LEONARDO_DIR)" >&2
     exit 1
-}
+fi
 
 cd "$LEONARDO_DIR"
-echo "📁 Running from: $LEONARDO_DIR"
+echo "Running from: $LEONARDO_DIR"
 
 if [ -n "$INSTALL_PROJECTS" ]; then
     echo ""
-    echo "📦 Processing install dependencies..."
+    echo "Processing install dependencies..."
 
     GIT_REMOTE_URL=$(git remote get-url origin 2>/dev/null)
     if [ -z "$GIT_REMOTE_URL" ]; then
-        echo "❌ Failed to get git remote origin from leonardo project" >&2
+        echo "Failed to get git remote origin from leonardo project" >&2
         exit 1
     fi
 
     BASE_GIT_URL=$(echo "$GIT_REMOTE_URL" | sed 's|/leonardo\(\.git\)\?$||')
-    echo "   Base git URL: $BASE_GIT_URL"
-
     PROJECTS_DIR=$(dirname "$LEONARDO_DIR")
 
     IFS=',' read -ra PROJECTS <<< "$INSTALL_PROJECTS"
     for project_spec in "${PROJECTS[@]}"; do
-        project_spec=$(echo "$project_spec" | xargs)
-
-        project_name="$project_spec"
-        branch_name=""
-
-        if [[ "$project_spec" =~ ^(.+)\[(.+)\]$ ]]; then
-            project_name="${BASH_REMATCH[1]}"
-            branch_name="${BASH_REMATCH[2]}"
-        fi
-
-        echo ""
-        echo "📦 Processing: $project_name"
-
-        project_path="$PROJECTS_DIR/$project_name"
-
-        if [ ! -d "$project_path" ]; then
-            echo "   ⚠️  Project not found, cloning..."
-            clone_url="$BASE_GIT_URL/$project_name.git"
-            echo "   Clone URL: $clone_url"
-
-            cd "$PROJECTS_DIR"
-            if ! git clone "$clone_url"; then
-                echo "   ❌ Failed to clone $project_name" >&2
-                exit 1
-            fi
-            echo "   ✓ Cloned successfully"
-        else
-            echo "   ✓ Project exists"
-        fi
-
-        cd "$project_path"
-
-        if [ -n "$branch_name" ]; then
-            echo "   🔀 Checking out branch: $branch_name"
-            git fetch origin
-            if ! git checkout "$branch_name"; then
-                echo "   ❌ Failed to checkout branch $branch_name" >&2
-                exit 1
-            fi
-            echo "   ✓ Branch checked out"
-
-            echo "   ⬇️  Pulling latest changes..."
-            if ! git pull; then
-                echo "   ❌ Failed to pull latest changes" >&2
-                exit 1
-            fi
-            echo "   ✓ Latest changes pulled"
-        else
-            current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-            echo "   ℹ️  Using current branch: $current_branch"
-
-            echo "   ⬇️  Pulling latest changes..."
-            if ! git pull; then
-                echo "   ❌ Failed to pull latest changes" >&2
-                exit 1
-            fi
-            echo "   ✓ Latest changes pulled"
-        fi
-
-        echo "   🔨 Building with Maven..."
-        echo "   Command: mvn clean install -DskipTests -s ops/maven_settings.xml"
-
-        if ! mvn clean install -DskipTests -s ops/maven_settings.xml; then
-            echo "   ❌ Maven build failed for $project_name" >&2
-            exit 1
-        fi
-        echo "   ✓ Build completed successfully"
+        install_project "$project_spec" "$PROJECTS_DIR" "$BASE_GIT_URL"
     done
 
     cd "$LEONARDO_DIR"
     echo ""
-    echo "✓ All install dependencies processed"
+    echo "All install dependencies processed"
 fi
 
-MVN_SETTINGS_FLAG="-s ops/maven_settings.xml"
-MVN_RUN_CMD="mvn exec:exec -Prun-leonardo -DskipTests $MVN_SETTINGS_FLAG -pl leonardo-leonardo"
+resolve_settings_args "$LEONARDO_DIR"
+
+run_leonardo() {
+    run_mvn exec:exec -Prun-leonardo -DskipTests -pl leonardo-leonardo
+}
 
 case "$MODE" in
-  fast)
-    echo "➤ $MVN_RUN_CMD"
-    eval "$MVN_RUN_CMD"
-    ;;
-  quick)
-    echo "➤ mvn $MVN_SETTINGS_FLAG -DskipTests compile && $MVN_RUN_CMD"
-    eval "mvn $MVN_SETTINGS_FLAG -DskipTests compile && $MVN_RUN_CMD"
-    ;;
-  *)
-    echo "➤ mvn $MVN_SETTINGS_FLAG -DskipTests clean install && $MVN_RUN_CMD"
-    eval "mvn $MVN_SETTINGS_FLAG -DskipTests clean install && $MVN_RUN_CMD"
-    ;;
+    fast)
+        echo "[$MODE] exec only"
+        run_leonardo
+        ;;
+    quick)
+        echo "[$MODE] compile + exec"
+        run_mvn -DskipTests compile && run_leonardo
+        ;;
+    *)
+        echo "[normal] clean install + exec"
+        run_mvn -DskipTests clean install && run_leonardo
+        ;;
 esac
