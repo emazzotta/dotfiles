@@ -10,6 +10,7 @@ from time import time
 
 
 COMPOSE_FILE = Path.home() / "Projects" / "private" / "opencode" / "docker-compose.yml"
+LEONARDO_COMMONS = Path.home() / "Projects" / "leo-productions" / "leonardo-commons"
 
 
 def lock_git_crypt(pwd: Path) -> None:
@@ -120,6 +121,11 @@ def main() -> None:
         lock_git_crypt(directory)
 
     volume_args = build_volume_args(args.files, args.paths, pwd)
+    if LEONARDO_COMMONS.is_dir():
+        lock_git_crypt(LEONARDO_COMMONS)
+        mounted = any(str(LEONARDO_COMMONS) in v for v in volume_args)
+        if not mounted:
+            volume_args.extend(["-v", f"{LEONARDO_COMMONS}:/workspace/code/leonardo-commons"])
     container_name = f"opencode-{int(time())}"
     skip_args = [] if args.no_skip else ["--dangerously-skip-permissions"]
 
