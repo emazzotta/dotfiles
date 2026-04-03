@@ -64,12 +64,22 @@ def validate_file_in_pwd(absolute_path: Path, pwd: Path, original_path: str) -> 
         sys.exit(1)
 
 
+def is_home_dir(path: Path) -> bool:
+    return path == Path.home()
+
+
 def build_volume_args(files: list[str], paths: list[Path], pwd: Path) -> list[str]:
     if not files and not paths:
+        if is_home_dir(pwd):
+            print("Error: Refusing to mount home directory - run from a project directory", file=sys.stderr)
+            sys.exit(1)
         return ["-v", f"{pwd}:/workspace/code"]
 
     volume_args: list[str] = []
     for path in paths:
+        if is_home_dir(path):
+            print(f"Skipping home directory mount: {path}", file=sys.stderr)
+            continue
         volume_args.extend(["-v", f"{path}:/workspace/code/{path.name}"])
     for file_path in files:
         volume_args.extend(resolve_file_volume_args(file_path, pwd))
