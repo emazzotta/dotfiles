@@ -73,7 +73,7 @@ def build_volume_args(files: list[str], paths: list[Path], pwd: Path) -> list[st
         if is_home_dir(pwd):
             print("Error: Refusing to mount home directory - run from a project directory", file=sys.stderr)
             sys.exit(1)
-        return ["-v", f"{pwd}:/workspace/code"]
+        return ["-v", f"{pwd}:/workspace/code/{pwd.name}"]
 
     volume_args: list[str] = []
     for path in paths:
