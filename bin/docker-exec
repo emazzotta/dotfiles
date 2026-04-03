@@ -1,0 +1,122 @@
+#!/bin/bash
+set -euo pipefail
+
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") [-c CONTAINER] [COMMAND...]
+
+Execute a command in a running Docker container.
+
+If no command is given, tries /bin/bash then falls back to /bin/sh.
+If no container is specified:
+  - Single running container: selects it automatically
+  - Multiple running containers: interactive selection via gum
+
+Examples:
+  $(basename "$0")
+  $(basename "$0") -c nginx
+  $(basename "$0") -c nginx ls -la
+  $(basename "$0") python3 -c 'print("hi")'
+EOF
+}
+
+validate_docker() {
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "Error: docker not found" >&2
+        exit 1
+    fi
+}
+
+select_container() {
+    local running
+    running=$(docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}' 2>/dev/null)
+
+    if [ -z "$running" ]; then
+        echo "Error: no running containers found" >&2
+        return 1
+    fi
+
+    local count
+    count=$(echo "$running" | wc -l | tr -d ' ')
+
+    if [ "$count" -eq 1 ]; then
+        echo "$running" | cut -f1
+        return
+    fi
+
+    if ! command -v gum >/dev/null 2>&1; then
+        echo "Error: multiple containers running but gum not found" >&2
+        echo "Install: brew install gum" >&2
+        echo "" >&2
+        echo "Running containers:" >&2
+        echo "$running" | column -t -s $'\t' >&2
+        return 1
+    fi
+
+    local choices
+    choices=$(echo "$running" | awk -F'\t' '{printf "%-30s %-35s %s\n", $1, $2, $3}')
+
+    local selected
+    selected=$(echo "$choices" | gum choose --header "Select container:")
+
+    if [ -z "$selected" ]; then
+        echo "No container selected" >&2
+        return 1
+    fi
+
+    echo "$selected" | awk '{print $1}'
+}
+
+detect_shell() {
+    local container="$1"
+    if docker exec "$container" test -x /bin/bash 2>/dev/null; then
+        echo "/bin/bash"
+    else
+        echo "/bin/sh"
+    fi
+}
+
+main() {
+    if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+        show_usage
+        exit 0
+    fi
+
+    validate_docker
+
+    local container=""
+    local cmd=()
+
+    if [ "${1:-}" = "-c" ]; then
+        if [ -z "${2:-}" ]; then
+            echo "Error: -c requires a container name" >&2
+            exit 1
+        fi
+        container="$2"
+        shift 2
+        cmd=("$@")
+    else
+        cmd=("$@")
+    fi
+
+    if [ -z "$container" ]; then
+        if ! container=$(select_container); then
+            exit 1
+        fi
+    fi
+
+    if ! docker inspect "$container" >/dev/null 2>&1; then
+        echo "Error: container '$container' not found" >&2
+        exit 1
+    fi
+
+    if [ ${#cmd[@]} -eq 0 ]; then
+        local shell
+        shell=$(detect_shell "$container")
+        cmd=("$shell")
+    fi
+
+    exec docker exec -it "$container" "${cmd[@]}"
+}
+
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
