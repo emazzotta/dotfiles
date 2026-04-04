@@ -1,0 +1,547 @@
+#!/usr/bin/env python3
+
+import argparse
+import html
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from scriptlog import Logger
+
+logger = Logger()
+
+API_BASE = "https://api.notion.com/v1"
+API_VERSION = "2022-06-28"
+RATE_LIMIT_DELAY = 0.35
+NOTION_API_KEY = ""
+INDEX_FILENAME = ".notion_page_index.json"
+CACHE_DIR_NAME = ".notion_html_cache"
+
+HTML_STYLE = """\
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 900px; margin: 0 auto; padding: 2rem; line-height: 1.6; color: #333; }
+h1, h2, h3 { margin-top: 1.5em; }
+pre { background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+code { background: #f0f0f0; padding: 0.2em 0.4em; border-radius: 3px; font-size: 0.9em; }
+pre code { background: none; padding: 0; }
+blockquote { border-left: 3px solid #ddd; margin-left: 0; padding-left: 1rem; color: #666; }
+.callout { background: #f7f6f3; border-radius: 4px; padding: 1rem; margin: 0.5rem 0; }
+.columns { display: flex; gap: 1rem; }
+.column { flex: 1; }
+.todo { margin: 0.25rem 0; }
+.bookmark { margin: 0.5rem 0; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+td, th { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
+details { margin: 0.5rem 0; }
+summary { cursor: pointer; font-weight: 500; }
+img { max-width: 100%; }
+figure { margin: 1rem 0; }
+figcaption { color: #666; font-size: 0.9em; }
+hr { border: none; border-top: 1px solid #ddd; margin: 1.5rem 0; }"""
+
+
+def api_request(method, endpoint, body=None, retries=3):
+    url = f"{API_BASE}/{endpoint}"
+    headers = {
+        "Authorization": f"Bearer {NOTION_API_KEY}",
+        "Notion-Version": API_VERSION,
+        "Content-Type": "application/json",
+    }
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, method=method, headers=headers)
+            if body:
+                req.data = json.dumps(body).encode()
+            with urllib.request.urlopen(req) as resp:
+                time.sleep(RATE_LIMIT_DELAY)
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                retry_after = int(e.headers.get("Retry-After", 2))
+                logger.warn(f"Rate limited, waiting {retry_after}s...")
+                time.sleep(retry_after)
+                continue
+            if attempt == retries - 1:
+                body_text = ""
+                try:
+                    body_text = e.read().decode()[:200]
+                except Exception:
+                    pass
+                logger.error(f"API error {e.code} for {endpoint}: {body_text}")
+                return None
+            time.sleep(1)
+        except Exception as e:
+            if attempt == retries - 1:
+                logger.error(f"Request failed for {endpoint}: {e}")
+                return None
+            time.sleep(1)
+    return None
+
+
+def fetch_block_children(block_id):
+    children = []
+    cursor = None
+    while True:
+        endpoint = f"blocks/{block_id}/children?page_size=100"
+        if cursor:
+            endpoint += f"&start_cursor={cursor}"
+        result = api_request("GET", endpoint)
+        if not result:
+            break
+        children.extend(result.get("results", []))
+        if not result.get("has_more"):
+            break
+        cursor = result.get("next_cursor")
+    return children
+
+
+def extract_page_title(page):
+    for prop in page.get("properties", {}).values():
+        if prop.get("type") == "title":
+            parts = prop.get("title", [])
+            if parts:
+                return "".join(t.get("plain_text", "") for t in parts)
+    return "Untitled"
+
+
+def discover_pages_via_search():
+    """Use the search API to find all pages - much faster than recursive traversal."""
+    pages = []
+    cursor = None
+    while True:
+        body = {"page_size": 100, "filter": {"property": "object", "value": "page"}}
+        if cursor:
+            body["start_cursor"] = cursor
+        result = api_request("POST", "search", body)
+        if not result:
+            break
+        for page in result.get("results", []):
+            title = extract_page_title(page)
+            pages.append({
+                "id": page["id"],
+                "title": title,
+                "last_edited": page.get("last_edited_time", ""),
+            })
+        if not result.get("has_more"):
+            break
+        cursor = result.get("next_cursor")
+    return pages
+
+
+def render_rich_text(rich_texts):
+    result = ""
+    for rt in rich_texts:
+        text = html.escape(rt.get("plain_text", ""))
+        ann = rt.get("annotations", {})
+        if ann.get("code"):
+            text = f"<code>{text}</code>"
+        if ann.get("bold"):
+            text = f"<strong>{text}</strong>"
+        if ann.get("italic"):
+            text = f"<em>{text}</em>"
+        if ann.get("strikethrough"):
+            text = f"<del>{text}</del>"
+        if ann.get("underline"):
+            text = f"<u>{text}</u>"
+        color = ann.get("color", "default")
+        if color != "default":
+            css_color = color.replace("_background", "")
+            if "_background" in color:
+                text = f'<span style="background-color:{css_color}">{text}</span>'
+            else:
+                text = f'<span style="color:{css_color}">{text}</span>'
+        href = rt.get("href")
+        if href:
+            text = f'<a href="{html.escape(href)}">{text}</a>'
+        result += text
+    return result
+
+
+MAX_BLOCK_DEPTH = 2
+
+
+def render_blocks(blocks, page_titles=None, depth=0):
+    parts = []
+    i = 0
+    while i < len(blocks):
+        block = blocks[i]
+        block_type = block.get("type", "unsupported")
+        data = block.get(block_type, {})
+        block_html = ""
+        can_recurse = depth < MAX_BLOCK_DEPTH
+
+        if block_type == "paragraph":
+            content = render_rich_text(data.get("rich_text", []))
+            child_html = _render_children(block, depth) if can_recurse and block.get("has_children") else ""
+            block_html = f"<p>{content}</p>{child_html}"
+
+        elif block_type in ("heading_1", "heading_2", "heading_3"):
+            level = block_type[-1]
+            content = render_rich_text(data.get("rich_text", []))
+            if data.get("is_toggleable") and block.get("has_children") and can_recurse:
+                child_html = _render_children(block, depth)
+                block_html = f"<details><summary><h{level} style='display:inline'>{content}</h{level}></summary>{child_html}</details>"
+            else:
+                block_html = f"<h{level}>{content}</h{level}>"
+
+        elif block_type == "bulleted_list_item":
+            items = []
+            while i < len(blocks) and blocks[i].get("type") == "bulleted_list_item":
+                b = blocks[i]
+                d = b.get("bulleted_list_item", {})
+                content = render_rich_text(d.get("rich_text", []))
+                child_html = _render_children(b, depth) if can_recurse and b.get("has_children") else ""
+                items.append(f"<li>{content}{child_html}</li>")
+                i += 1
+            block_html = f"<ul>{''.join(items)}</ul>"
+            parts.append(block_html)
+            continue
+
+        elif block_type == "numbered_list_item":
+            items = []
+            while i < len(blocks) and blocks[i].get("type") == "numbered_list_item":
+                b = blocks[i]
+                d = b.get("numbered_list_item", {})
+                content = render_rich_text(d.get("rich_text", []))
+                child_html = _render_children(b, depth) if can_recurse and b.get("has_children") else ""
+                items.append(f"<li>{content}{child_html}</li>")
+                i += 1
+            block_html = f"<ol>{''.join(items)}</ol>"
+            parts.append(block_html)
+            continue
+
+        elif block_type == "to_do":
+            checked = "checked" if data.get("checked") else ""
+            content = render_rich_text(data.get("rich_text", []))
+            block_html = f'<div class="todo"><input type="checkbox" {checked} disabled/> {content}</div>'
+
+        elif block_type == "toggle":
+            content = render_rich_text(data.get("rich_text", []))
+            child_html = _render_children(block, depth) if can_recurse and block.get("has_children") else ""
+            block_html = f"<details><summary>{content}</summary>{child_html}</details>"
+
+        elif block_type == "code":
+            content = render_rich_text(data.get("rich_text", []))
+            lang = data.get("language", "")
+            caption = render_rich_text(data.get("caption", []))
+            block_html = f'<pre><code class="language-{html.escape(lang)}">{content}</code></pre>'
+            if caption:
+                block_html += f"<p><small>{caption}</small></p>"
+
+        elif block_type == "quote":
+            content = render_rich_text(data.get("rich_text", []))
+            child_html = _render_children(block, depth) if can_recurse and block.get("has_children") else ""
+            block_html = f"<blockquote>{content}{child_html}</blockquote>"
+
+        elif block_type == "callout":
+            icon = data.get("icon", {})
+            emoji = icon.get("emoji", "") if icon.get("type") == "emoji" else ""
+            content = render_rich_text(data.get("rich_text", []))
+            child_html = _render_children(block, depth) if can_recurse and block.get("has_children") else ""
+            block_html = f'<div class="callout">{emoji} {content}{child_html}</div>'
+
+        elif block_type == "divider":
+            block_html = "<hr/>"
+
+        elif block_type == "image":
+            url = _extract_file_url(data)
+            caption = render_rich_text(data.get("caption", []))
+            if url:
+                block_html = f'<figure><img src="{html.escape(url)}" alt="{caption}"/>'
+                if caption:
+                    block_html += f"<figcaption>{caption}</figcaption>"
+                block_html += "</figure>"
+
+        elif block_type == "video":
+            url = _extract_file_url(data)
+            if url:
+                if "youtube" in url or "youtu.be" in url:
+                    block_html = f'<iframe src="{html.escape(url)}" width="560" height="315" allowfullscreen></iframe>'
+                else:
+                    block_html = f'<video src="{html.escape(url)}" controls></video>'
+
+        elif block_type == "bookmark":
+            url = data.get("url", "")
+            caption = render_rich_text(data.get("caption", []))
+            block_html = f'<div class="bookmark"><a href="{html.escape(url)}">{caption or html.escape(url)}</a></div>'
+
+        elif block_type == "embed":
+            url = data.get("url", "")
+            block_html = f'<iframe src="{html.escape(url)}" width="100%" height="400"></iframe>'
+
+        elif block_type in ("file", "pdf", "audio"):
+            url = _extract_file_url(data)
+            caption = render_rich_text(data.get("caption", []))
+            name = caption or block_type
+            if url:
+                block_html = f'<a href="{html.escape(url)}">{name}</a>'
+
+        elif block_type == "equation":
+            expr = html.escape(data.get("expression", ""))
+            block_html = f'<div class="equation"><code>{expr}</code></div>'
+
+        elif block_type == "table":
+            if can_recurse and block.get("has_children"):
+                rows = fetch_block_children(block["id"])
+                row_htmls = []
+                for j, row in enumerate(rows):
+                    cells = row.get("table_row", {}).get("cells", [])
+                    tag = "th" if j == 0 and data.get("has_column_header") else "td"
+                    cell_htmls = [f"<{tag}>{render_rich_text(cell)}</{tag}>" for cell in cells]
+                    row_htmls.append(f"<tr>{''.join(cell_htmls)}</tr>")
+                block_html = f"<table>{''.join(row_htmls)}</table>"
+
+        elif block_type == "column_list":
+            if can_recurse and block.get("has_children"):
+                child_html = _render_children(block, depth)
+                block_html = f'<div class="columns">{child_html}</div>'
+
+        elif block_type == "column":
+            if can_recurse and block.get("has_children"):
+                child_html = _render_children(block, depth)
+                block_html = f'<div class="column">{child_html}</div>'
+
+        elif block_type == "child_page":
+            title = data.get("title", "Untitled")
+            safe = sanitize_filename(title)
+            block_html = f'<div class="child-page"><a href="{safe}.html">{html.escape(title)}</a></div>'
+
+        elif block_type == "child_database":
+            title = data.get("title", "Untitled")
+            block_html = f'<div class="child-database">{html.escape(title)} (database)</div>'
+
+        elif block_type == "synced_block":
+            if can_recurse and block.get("has_children"):
+                block_html = _render_children(block, depth)
+
+        elif block_type == "link_to_page":
+            linked_id = data.get("page_id") or data.get("database_id")
+            if linked_id and page_titles and linked_id in page_titles:
+                title = page_titles[linked_id]
+                safe = sanitize_filename(title)
+                block_html = f'<a href="{safe}.html">{html.escape(title)}</a>'
+
+        elif block_type == "table_of_contents":
+            block_html = '<div class="toc">(Table of Contents)</div>'
+
+        elif block_type == "breadcrumb":
+            pass
+
+        else:
+            rt = data.get("rich_text", [])
+            if rt:
+                content = render_rich_text(rt)
+                block_html = f"<div>{content}</div>"
+
+        if block_html:
+            parts.append(block_html)
+        i += 1
+
+    return "\n".join(parts)
+
+
+def _render_children(block, depth):
+    children = fetch_block_children(block["id"])
+    return render_blocks(children, depth=depth + 1)
+
+
+def _extract_file_url(data):
+    file_type = data.get("type", "")
+    if file_type == "external":
+        return data.get("external", {}).get("url", "")
+    elif file_type == "file":
+        return data.get("file", {}).get("url", "")
+    return ""
+
+
+def sanitize_filename(name):
+    name = re.sub(r'[<>:"/\\|?*]', '_', name)
+    name = name.strip(". ")
+    return name[:200] if name else "Untitled"
+
+
+
+def load_env():
+    result = subprocess.run(
+        ["bash", "-c", "source envify NOTION_API_KEY PASSWORD_ZIPS && env"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        logger.error(f"Failed to load credentials via envify: {result.stderr}")
+        sys.exit(1)
+    for line in result.stdout.splitlines():
+        key, _, value = line.partition("=")
+        if key in ("NOTION_API_KEY", "PASSWORD_ZIPS"):
+            os.environ[key] = value
+
+    global NOTION_API_KEY
+    NOTION_API_KEY = os.environ.get("NOTION_API_KEY", "")
+    if not NOTION_API_KEY:
+        logger.error("NOTION_API_KEY not set")
+        sys.exit(1)
+
+
+def load_page_index(backup_dir):
+    index_path = Path(backup_dir) / INDEX_FILENAME
+    if index_path.exists():
+        try:
+            data = json.loads(index_path.read_text(encoding="utf-8"))
+            if isinstance(data, list) and data:
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return None
+
+
+def save_page_index(backup_dir, pages):
+    index_path = Path(backup_dir) / INDEX_FILENAME
+    index_path.write_text(json.dumps(pages, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def enforce_retention(backup_dir, max_copies):
+    archives = sorted(Path(backup_dir).glob("notion_everything_*.7z"))
+    if len(archives) > max_copies:
+        for old in archives[: len(archives) - max_copies]:
+            logger.log(f"Removing old backup: {old.name}")
+            old.unlink()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Back up Notion pages under 'Everything' as HTML, compressed with pwcompress."
+    )
+    parser.add_argument("backup_dir", help="Directory to store backups")
+    parser.add_argument("max_copies", nargs="?", type=int, default=10, help="Max backups to keep (default: 10)")
+    parser.add_argument("--reindex", action="store_true", help="Force full page rediscovery (ignores cached index)")
+    parser.add_argument("--full", action="store_true", help="Re-export all pages (ignore edit timestamps)")
+    parser.add_argument("--depth", type=int, default=2, help="Max block nesting depth to fetch (default: 2, 0=top-level only)")
+    args = parser.parse_args()
+
+    backup_dir = Path(args.backup_dir)
+    if not backup_dir.is_dir():
+        logger.error(f"Backup directory does not exist: {backup_dir}")
+        sys.exit(1)
+
+    global MAX_BLOCK_DEPTH
+    MAX_BLOCK_DEPTH = args.depth
+
+    load_env()
+
+    cache_dir = backup_dir / CACHE_DIR_NAME
+    cache_dir.mkdir(exist_ok=True)
+
+    prev_index = load_page_index(str(backup_dir))
+    prev_edit_times = {}
+    if prev_index and not args.full:
+        prev_edit_times = {p["id"]: p.get("last_edited", "") for p in prev_index}
+
+    logger.log("Fetching page index from Notion...")
+    pages = discover_pages_via_search()
+    if not pages:
+        logger.error("No pages found - check API key and integration access")
+        sys.exit(1)
+
+    save_page_index(str(backup_dir), pages)
+    logger.success(f"Found {len(pages)} pages")
+
+    page_titles = {p["id"]: p["title"] for p in pages}
+    used_names = set()
+    name_map = {}
+    for page in pages:
+        safe_name = sanitize_filename(page["title"])
+        if safe_name in used_names:
+            short_id = page["id"].replace("-", "")[:8]
+            safe_name = f"{safe_name}_{short_id}"
+        used_names.add(safe_name)
+        name_map[page["id"]] = safe_name
+
+    changed = []
+    unchanged = []
+    for page in pages:
+        pid = page["id"]
+        last_edited = page.get("last_edited", "")
+        safe_name = name_map[pid]
+        cached_file = cache_dir / f"{safe_name}.html"
+
+        if args.full or not cached_file.exists() or prev_edit_times.get(pid) != last_edited:
+            changed.append(page)
+        else:
+            unchanged.append(page)
+
+    if changed:
+        logger.log(f"Exporting {len(changed)} changed pages ({len(unchanged)} cached)...")
+    else:
+        logger.log("No pages changed since last backup")
+
+    failed = 0
+    for idx, page in enumerate(changed, 1):
+        pid = page["id"]
+        title = page["title"]
+        safe_name = name_map[pid]
+        logger.log(f"[{idx}/{len(changed)}] {title}")
+        try:
+            blocks = fetch_block_children(pid)
+            content = render_blocks(blocks, page_titles)
+            escaped_title = html.escape(title)
+            page_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>{escaped_title}</title>
+<style>{HTML_STYLE}</style>
+</head>
+<body>
+<h1>{escaped_title}</h1>
+{content}
+</body>
+</html>"""
+            (cache_dir / f"{safe_name}.html").write_text(page_html, encoding="utf-8")
+        except Exception as e:
+            logger.warn(f"Failed to export '{title}': {e}")
+            failed += 1
+
+    current_ids = {p["id"] for p in pages}
+    for html_file in cache_dir.glob("*.html"):
+        found = False
+        for pid, sname in name_map.items():
+            if sname == html_file.stem:
+                found = True
+                break
+        if not found:
+            html_file.unlink()
+
+    exported = len(pages) - failed
+    logger.success(f"Cache: {exported} pages ({len(changed) - failed} updated, {len(unchanged)} reused)")
+
+    if exported == 0:
+        logger.error("No pages exported successfully")
+        sys.exit(1)
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    dir_name = f"notion_everything_{timestamp}"
+    output_dir = backup_dir / dir_name
+    shutil.copytree(str(cache_dir), str(output_dir))
+
+    logger.log("Compressing with pwcompress...")
+    result = subprocess.run(["pwcompress", dir_name], cwd=str(backup_dir))
+    if result.returncode != 0:
+        logger.error(f"pwcompress failed (exit {result.returncode}) - temp dir preserved at {output_dir}")
+        sys.exit(1)
+
+    shutil.rmtree(output_dir)
+    logger.success(f"Created {backup_dir / dir_name}.7z")
+
+    enforce_retention(str(backup_dir), args.max_copies)
+    logger.success("Backup complete")
+
+
+if __name__ == "__main__":
+    main()

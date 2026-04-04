@@ -333,7 +333,9 @@ superocd() {
     gck "$HOME" && \
     kill_unwanted_processes && \
     rm_launch_items && \
-    gsheet_backup -e "1KZK4zhVIMSk-EHjCc_E0O3MJOYTFOCWb6awhigELBJ8" "$GDRIVEDIR/Dokumente/Docs/Backup" # Backup Life Sheet
+    source envify GOOGLE_DOCUMENTS_API_KEY NOTION_API_KEY PASSWORD_ZIPS && \
+    gsheet_backup -e "1KZK4zhVIMSk-EHjCc_E0O3MJOYTFOCWb6awhigELBJ8" "$GDRIVEDIR/Dokumente/Docs/Backup" && \ # Backup Life Sheet
+    notion_page_backup "$GDRIVEDIR/Dokumente/Docs/Backup"
     
     local exit_code=$?
     return $exit_code
