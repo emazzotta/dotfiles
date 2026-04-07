@@ -175,19 +175,114 @@ def extract_adf_text(node: dict | None) -> str:
     return joined
 
 
+def _adf_text(text: str) -> dict:
+    return {"type": "text", "text": text}
+
+
+def _adf_paragraph(text: str) -> dict:
+    return {"type": "paragraph", "content": [_adf_text(text)]}
+
+
+def _parse_heading(line: str) -> dict | None:
+    for level in (6, 5, 4, 3, 2, 1):
+        prefix = "#" * level + " "
+        if line.startswith(prefix):
+            return {"type": "heading", "attrs": {"level": level}, "content": [_adf_text(line[len(prefix):])]}
+    return None
+
+
+def _parse_table_block(lines: list[str]) -> dict | None:
+    if len(lines) < 2:
+        return None
+    rows: list[dict] = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith("|") or not stripped.endswith("|"):
+            return None
+        cells = [c.strip() for c in stripped[1:-1].split("|")]
+        if i == 1 and all(set(c.strip()) <= {"-", ":"} for c in cells):
+            continue
+        cell_type = "tableHeader" if i == 0 else "tableCell"
+        row_content = [{"type": cell_type, "content": [_adf_paragraph(c)]} for c in cells]
+        rows.append({"type": "tableRow", "content": row_content})
+    if not rows:
+        return None
+    return {"type": "table", "attrs": {"isNumberColumnEnabled": False, "layout": "default"}, "content": rows}
+
+
+def _parse_bullet_items(lines: list[str]) -> dict | None:
+    items: list[dict] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            items.append({"type": "listItem", "content": [_adf_paragraph(stripped[2:])]})
+        elif stripped.startswith("* "):
+            items.append({"type": "listItem", "content": [_adf_paragraph(stripped[2:])]})
+        else:
+            return None
+    if not items:
+        return None
+    return {"type": "bulletList", "content": items}
+
+
 def to_adf(text: str) -> dict:
-    blocks = [b for b in text.split("\n\n") if b.strip()]
-    if not blocks:
-        blocks = [text]
-    content = []
-    for block in blocks:
-        lines = block.split("\n")
-        inline: list[dict] = []
-        for i, line in enumerate(lines):
-            if i > 0:
-                inline.append({"type": "hardBreak"})
-            inline.append({"type": "text", "text": line})
-        content.append({"type": "paragraph", "content": inline})
+    lines = text.split("\n")
+    content: list[dict] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        if not stripped:
+            i += 1
+            continue
+
+        heading = _parse_heading(stripped)
+        if heading:
+            content.append(heading)
+            i += 1
+            continue
+
+        if stripped.startswith("|") and stripped.endswith("|"):
+            table_lines = []
+            while i < len(lines) and lines[i].strip().startswith("|") and lines[i].strip().endswith("|"):
+                table_lines.append(lines[i])
+                i += 1
+            table = _parse_table_block(table_lines)
+            if table:
+                content.append(table)
+            else:
+                for tl in table_lines:
+                    content.append(_adf_paragraph(tl.strip()))
+            continue
+
+        if stripped.startswith("- ") or stripped.startswith("* "):
+            bullet_lines = []
+            while i < len(lines) and (lines[i].strip().startswith("- ") or lines[i].strip().startswith("* ")):
+                bullet_lines.append(lines[i])
+                i += 1
+            bullets = _parse_bullet_items(bullet_lines)
+            if bullets:
+                content.append(bullets)
+            else:
+                for bl in bullet_lines:
+                    content.append(_adf_paragraph(bl.strip()))
+            continue
+
+        paragraph_lines = []
+        while i < len(lines) and lines[i].strip() and not _parse_heading(lines[i].strip()) and not (lines[i].strip().startswith("|") and lines[i].strip().endswith("|")) and not lines[i].strip().startswith("- ") and not lines[i].strip().startswith("* "):
+            paragraph_lines.append(lines[i].strip())
+            i += 1
+        if paragraph_lines:
+            inline: list[dict] = []
+            for j, pl in enumerate(paragraph_lines):
+                if j > 0:
+                    inline.append({"type": "hardBreak"})
+                inline.append(_adf_text(pl))
+            content.append({"type": "paragraph", "content": inline})
+
+    if not content:
+        content = [_adf_paragraph(text)]
     return {"type": "doc", "version": 1, "content": content}
 
 
