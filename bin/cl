@@ -2,6 +2,7 @@
 
 import argparse
 import glob
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -77,6 +78,29 @@ def is_home_dir(path: Path) -> bool:
     return path == Path.home()
 
 
+def _unique_mount_names(paths: list[Path]) -> dict[Path, str]:
+    if not paths:
+        return {}
+    if len({p.name for p in paths}) == len(paths):
+        return {p: p.name for p in paths}
+
+    ancestor = Path(os.path.commonpath(paths))
+    candidates: dict[Path, str] = {}
+    for p in paths:
+        rel = p.relative_to(ancestor)
+        parts = rel.parts
+        candidates[p] = f"{parts[0]}-{parts[-1]}" if len(parts) > 1 else p.name
+
+    name_counts: dict[str, int] = {}
+    for name in candidates.values():
+        name_counts[name] = name_counts.get(name, 0) + 1
+
+    return {
+        p: "-".join(p.relative_to(ancestor).parts) if name_counts[name] > 1 else name
+        for p, name in candidates.items()
+    }
+
+
 def build_volume_args(files: list[str], paths: list[Path], pwd: Path) -> list[str]:
     if not files and not paths:
         if is_home_dir(pwd):
@@ -84,13 +108,16 @@ def build_volume_args(files: list[str], paths: list[Path], pwd: Path) -> list[st
             sys.exit(1)
         return ["-v", f"{pwd}:/workspace/code/{pwd.name}"]
 
+    mountable = [p for p in paths if not is_home_dir(p)]
+    for p in paths:
+        if is_home_dir(p):
+            print(f"Skipping home directory mount: {p}", file=sys.stderr)
+    mount_names = _unique_mount_names(mountable)
+
     volume_args: list[str] = []
     seen_crypt_roots: set[Path] = set()
-    for path in paths:
-        if is_home_dir(path):
-            print(f"Skipping home directory mount: {path}", file=sys.stderr)
-            continue
-        volume_args.extend(["-v", f"{path}:/workspace/code/{path.name}"])
+    for path in mountable:
+        volume_args.extend(["-v", f"{path}:/workspace/code/{mount_names[path]}"])
         crypt_root = _find_git_crypt_root(path)
         if crypt_root and crypt_root != path and crypt_root not in seen_crypt_roots:
             seen_crypt_roots.add(crypt_root)

@@ -163,6 +163,73 @@ class TestLockGitCryptMultiplePaths:
         assert locked_dirs == {repo1, repo2}
 
 
+class TestUniqueMountNames:
+    def test_empty_paths(self, cl):
+        assert cl._unique_mount_names([]) == {}
+
+    def test_all_unique_names(self, cl, tmp_path):
+        a = tmp_path / "alpha"
+        b = tmp_path / "beta"
+        a.mkdir()
+        b.mkdir()
+        result = cl._unique_mount_names([a, b])
+        assert result == {a: "alpha", b: "beta"}
+
+    def test_colliding_names_use_first_diverging_component(self, cl, tmp_path):
+        r1 = tmp_path / "repo1" / "src" / "main" / "installer"
+        r2 = tmp_path / "repo2" / "src" / "main" / "installer"
+        r3 = tmp_path / "repo3" / "pkg" / "installer"
+        for d in (r1, r2, r3):
+            d.mkdir(parents=True)
+        result = cl._unique_mount_names([r1, r2, r3])
+        assert result[r1] == "repo1-installer"
+        assert result[r2] == "repo2-installer"
+        assert result[r3] == "repo3-installer"
+
+    def test_single_path_with_common_name(self, cl, tmp_path):
+        p = tmp_path / "only"
+        p.mkdir()
+        result = cl._unique_mount_names([p])
+        assert result == {p: "only"}
+
+    def test_colliding_prefix_falls_back_to_full_relative(self, cl, tmp_path):
+        r1 = tmp_path / "shared" / "a" / "leaf"
+        r2 = tmp_path / "shared" / "b" / "leaf"
+        for d in (r1, r2):
+            d.mkdir(parents=True)
+        result = cl._unique_mount_names([r1, r2])
+        assert result[r1] == "a-leaf"
+        assert result[r2] == "b-leaf"
+
+    def test_deep_collision_uses_full_path(self, cl, tmp_path):
+        r1 = tmp_path / "x" / "same" / "leaf"
+        r2 = tmp_path / "y" / "same" / "leaf"
+        for d in (r1, r2):
+            d.mkdir(parents=True)
+        result = cl._unique_mount_names([r1, r2])
+        assert result[r1] == "x-leaf"
+        assert result[r2] == "y-leaf"
+
+    def test_prefix_itself_collides_falls_back(self, cl, tmp_path):
+        r1 = tmp_path / "same" / "a" / "leaf"
+        r2 = tmp_path / "same" / "b" / "leaf"
+        for d in (r1, r2):
+            d.mkdir(parents=True)
+        result = cl._unique_mount_names([r1, r2])
+        assert result[r1] != result[r2]
+
+    def test_mixed_unique_and_colliding(self, cl, tmp_path):
+        unique = tmp_path / "special"
+        r1 = tmp_path / "repo1" / "leaf"
+        r2 = tmp_path / "repo2" / "leaf"
+        for d in (unique, r1, r2):
+            d.mkdir(parents=True)
+        result = cl._unique_mount_names([unique, r1, r2])
+        assert result[unique] == "special"
+        assert result[r1] == "repo1-leaf"
+        assert result[r2] == "repo2-leaf"
+
+
 class TestParsePath:
     def test_success(self, cl, tmp_path):
         test_dir = tmp_path / "testdir"
@@ -333,6 +400,18 @@ class TestBuildVolumeArgs:
         result = cl.build_volume_args([], [subdir], tmp_path)
         crypt_mounts = [v for v in result if ".git-crypt" in v]
         assert crypt_mounts == []
+
+    def test_colliding_path_names_get_disambiguated(self, cl, tmp_path):
+        r1 = tmp_path / "repo1" / "src" / "mac-installer"
+        r2 = tmp_path / "repo2" / "src" / "mac-installer"
+        r3 = tmp_path / "repo3" / "pkg" / "mac-installer"
+        for d in (r1, r2, r3):
+            d.mkdir(parents=True)
+        result = cl.build_volume_args([], [r1, r2, r3], tmp_path)
+        container_paths = [v.split(":")[-1] for v in result if v.startswith("/")]
+        assert "/workspace/code/repo1-mac-installer" in container_paths
+        assert "/workspace/code/repo2-mac-installer" in container_paths
+        assert "/workspace/code/repo3-mac-installer" in container_paths
 
 
 class TestMain:
