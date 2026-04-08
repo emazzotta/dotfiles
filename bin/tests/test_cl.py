@@ -11,6 +11,32 @@ def cl(load_script):
     return load_script("cl")
 
 
+class TestFindGitCryptRoot:
+    def test_returns_same_dir_when_git_crypt_present(self, cl, tmp_path):
+        (tmp_path / ".git-crypt").mkdir()
+        assert cl._find_git_crypt_root(tmp_path) == tmp_path
+
+    def test_walks_up_to_find_root(self, cl, tmp_path):
+        (tmp_path / ".git-crypt").mkdir()
+        subdir = tmp_path / "src" / "main" / "deep"
+        subdir.mkdir(parents=True)
+        assert cl._find_git_crypt_root(subdir) == tmp_path
+
+    def test_returns_none_when_absent(self, cl, tmp_path):
+        subdir = tmp_path / "no-crypt"
+        subdir.mkdir()
+        assert cl._find_git_crypt_root(subdir) is None
+
+    def test_finds_nearest_root(self, cl, tmp_path):
+        (tmp_path / ".git-crypt").mkdir()
+        inner = tmp_path / "inner"
+        inner.mkdir()
+        (inner / ".git-crypt").mkdir()
+        subdir = inner / "child"
+        subdir.mkdir()
+        assert cl._find_git_crypt_root(subdir) == inner
+
+
 class TestLockGitCrypt:
     @pytest.fixture(autouse=True)
     def _mock_which(self, cl):
@@ -37,6 +63,17 @@ class TestLockGitCrypt:
             mock_run.return_value = type("R", (), {"returncode": 1, "stdout": "", "stderr": "already locked"})()
             cl.lock_git_crypt(tmp_path)
         assert "already locked" in capsys.readouterr().out
+
+    def test_locks_at_repo_root_from_subdir(self, cl, tmp_path):
+        (tmp_path / ".git-crypt").mkdir()
+        subdir = tmp_path / "src" / "main"
+        subdir.mkdir(parents=True)
+        with patch.object(cl, "run") as mock_run:
+            mock_run.return_value = type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            cl.lock_git_crypt(subdir)
+        lock_calls = [c for c in mock_run.call_args_list if c[0][0][:2] == ["git-crypt", "lock"]]
+        assert len(lock_calls) == 1
+        assert lock_calls[0][1]["cwd"] == tmp_path
 
 
 class TestLockGitCryptMultiplePaths:
@@ -68,7 +105,7 @@ class TestLockGitCryptMultiplePaths:
         assert len(lock_calls) == 1
         assert lock_calls[0][1] == tmp_path
 
-    def test_paths_lock_each_path(self, cl, monkeypatch, mock_cl_run, tmp_path):
+    def test_paths_lock_each_repo(self, cl, monkeypatch, mock_cl_run, tmp_path):
         dir1, dir2 = tmp_path / "dir1", tmp_path / "dir2"
         for d in (dir1, dir2):
             d.mkdir()
@@ -92,6 +129,38 @@ class TestLockGitCryptMultiplePaths:
         lock_calls = [c for c in mock_cl_run if c[0][:2] == ["git-crypt", "lock"]]
         assert len(lock_calls) == 1
         assert lock_calls[0][1] == dir1
+
+    def test_subdirs_of_same_repo_lock_once(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git-crypt").mkdir()
+        sub1 = repo / "src" / "main"
+        sub2 = repo / "src" / "test"
+        sub1.mkdir(parents=True)
+        sub2.mkdir(parents=True)
+        monkeypatch.setattr(sys, "argv", ["cl", "-p", str(sub1), "-p", str(sub2)])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        lock_calls = [c for c in mock_cl_run if c[0][:2] == ["git-crypt", "lock"]]
+        assert len(lock_calls) == 1
+        assert lock_calls[0][1] == repo
+
+    def test_subdirs_of_different_repos_lock_each(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        repo1 = tmp_path / "repo1"
+        repo2 = tmp_path / "repo2"
+        for r in (repo1, repo2):
+            r.mkdir()
+            (r / ".git-crypt").mkdir()
+        sub1 = repo1 / "src"
+        sub2 = repo2 / "src"
+        sub1.mkdir()
+        sub2.mkdir()
+        monkeypatch.setattr(sys, "argv", ["cl", "-p", str(sub1), "-p", str(sub2)])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        lock_calls = [c for c in mock_cl_run if c[0][:2] == ["git-crypt", "lock"]]
+        locked_dirs = {c[1] for c in lock_calls}
+        assert locked_dirs == {repo1, repo2}
 
 
 class TestParsePath:
@@ -212,6 +281,58 @@ class TestBuildVolumeArgs:
         result = cl.build_volume_args(["file.txt"], [path_a], pwd)
         assert f"{path_a}:/workspace/code/{path_a.name}" in " ".join(result)
         assert f"{test_file}:/workspace/code/file.txt" in " ".join(result)
+
+    def test_subdir_path_mounts_git_crypt(self, cl, tmp_path):
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git-crypt").mkdir()
+        subdir = repo / "src" / "main"
+        subdir.mkdir(parents=True)
+        result = cl.build_volume_args([], [subdir], tmp_path)
+        joined = " ".join(result)
+        assert f"{subdir}:/workspace/code/{subdir.name}" in joined
+        assert f"{repo / '.git-crypt'}:/workspace/code/{repo.name}/.git-crypt:ro" in joined
+
+    def test_repo_root_path_skips_extra_git_crypt_mount(self, cl, tmp_path):
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git-crypt").mkdir()
+        result = cl.build_volume_args([], [repo], tmp_path)
+        crypt_mounts = [v for v in result if ".git-crypt" in v]
+        assert crypt_mounts == []
+
+    def test_multiple_subdirs_same_repo_mount_git_crypt_once(self, cl, tmp_path):
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git-crypt").mkdir()
+        sub1 = repo / "src"
+        sub2 = repo / "test"
+        sub1.mkdir()
+        sub2.mkdir()
+        result = cl.build_volume_args([], [sub1, sub2], tmp_path)
+        crypt_mounts = [v for v in result if ".git-crypt" in v]
+        assert len(crypt_mounts) == 1
+
+    def test_subdirs_of_different_repos_mount_each_git_crypt(self, cl, tmp_path):
+        repo1 = tmp_path / "repo1"
+        repo2 = tmp_path / "repo2"
+        for r in (repo1, repo2):
+            r.mkdir()
+            (r / ".git-crypt").mkdir()
+        sub1 = repo1 / "src"
+        sub2 = repo2 / "src"
+        sub1.mkdir()
+        sub2.mkdir()
+        result = cl.build_volume_args([], [sub1, sub2], tmp_path)
+        crypt_mounts = [v for v in result if ".git-crypt" in v]
+        assert len(crypt_mounts) == 2
+
+    def test_no_git_crypt_no_extra_mount(self, cl, tmp_path):
+        subdir = tmp_path / "plain" / "src"
+        subdir.mkdir(parents=True)
+        result = cl.build_volume_args([], [subdir], tmp_path)
+        crypt_mounts = [v for v in result if ".git-crypt" in v]
+        assert crypt_mounts == []
 
 
 class TestMain:

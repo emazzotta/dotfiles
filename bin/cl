@@ -13,25 +13,34 @@ COMPOSE_FILE = Path.home() / "Projects" / "private" / "opencode" / "docker-compo
 LEONARDO_COMMONS = Path.home() / "Projects" / "leo-productions" / "leonardo-commons"
 
 
+def _find_git_crypt_root(path: Path) -> Path | None:
+    current = path
+    while current != current.parent:
+        if (current / ".git-crypt").is_dir():
+            return current
+        current = current.parent
+    return None
+
+
 def lock_git_crypt(pwd: Path) -> None:
     if not shutil.which("git-crypt"):
         return
 
-    git_crypt_dir = pwd / ".git-crypt"
-    if not git_crypt_dir.is_dir():
+    repo_root = _find_git_crypt_root(pwd)
+    if repo_root is None:
         return
 
-    stashed = _git_stash_push(pwd)
-    result = run(["git-crypt", "lock"], cwd=pwd, capture_output=True, text=True)
+    stashed = _git_stash_push(repo_root)
+    result = run(["git-crypt", "lock"], cwd=repo_root, capture_output=True, text=True)
     if result.returncode == 0:
-        print(f"git-crypt: locked {pwd.name}")
+        print(f"git-crypt: locked {repo_root.name}")
     elif "already locked" in result.stderr.lower():
-        print(f"git-crypt: {pwd.name} already locked")
+        print(f"git-crypt: {repo_root.name} already locked")
     else:
-        _git_stash_pop(pwd, stashed)
-        print(f"git-crypt: failed to lock {pwd.name} - {result.stderr.strip()}", file=sys.stderr)
+        _git_stash_pop(repo_root, stashed)
+        print(f"git-crypt: failed to lock {repo_root.name} - {result.stderr.strip()}", file=sys.stderr)
         sys.exit(1)
-    _git_stash_pop(pwd, stashed)
+    _git_stash_pop(repo_root, stashed)
 
 
 def _git_stash_push(pwd: Path) -> bool:
@@ -76,11 +85,17 @@ def build_volume_args(files: list[str], paths: list[Path], pwd: Path) -> list[st
         return ["-v", f"{pwd}:/workspace/code/{pwd.name}"]
 
     volume_args: list[str] = []
+    seen_crypt_roots: set[Path] = set()
     for path in paths:
         if is_home_dir(path):
             print(f"Skipping home directory mount: {path}", file=sys.stderr)
             continue
         volume_args.extend(["-v", f"{path}:/workspace/code/{path.name}"])
+        crypt_root = _find_git_crypt_root(path)
+        if crypt_root and crypt_root != path and crypt_root not in seen_crypt_roots:
+            seen_crypt_roots.add(crypt_root)
+            crypt_dir = crypt_root / ".git-crypt"
+            volume_args.extend(["-v", f"{crypt_dir}:/workspace/code/{crypt_root.name}/.git-crypt:ro"])
     for file_path in files:
         volume_args.extend(resolve_file_volume_args(file_path, pwd))
     return volume_args
@@ -127,11 +142,16 @@ def main() -> None:
 
     args, claude_args = parser.parse_known_args()
 
-    for directory in args.paths or [pwd]:
-        lock_git_crypt(directory)
+    lock_targets = args.paths or [pwd]
+    locked_roots: set[Path] = set()
+    for directory in lock_targets:
+        root = _find_git_crypt_root(directory)
+        if root and root not in locked_roots:
+            lock_git_crypt(directory)
+            locked_roots.add(root)
 
     volume_args = build_volume_args(args.files, args.paths, pwd)
-    if LEONARDO_COMMONS.is_dir():
+    if LEONARDO_COMMONS.is_dir() and LEONARDO_COMMONS.resolve() not in locked_roots:
         lock_git_crypt(LEONARDO_COMMONS)
         mounted = any(str(LEONARDO_COMMONS) in v for v in volume_args)
         if not mounted:
