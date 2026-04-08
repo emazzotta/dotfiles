@@ -163,71 +163,22 @@ class TestLockGitCryptMultiplePaths:
         assert locked_dirs == {repo1, repo2}
 
 
-class TestUniqueMountNames:
-    def test_empty_paths(self, cl):
-        assert cl._unique_mount_names([]) == {}
+class TestContainerPath:
+    def test_path_within_pwd(self, cl, tmp_path):
+        pwd = tmp_path / "workspace"
+        subdir = pwd / "repo" / "src" / "main"
+        subdir.mkdir(parents=True)
+        assert cl._container_path(subdir, pwd) == "repo/src/main"
 
-    def test_all_unique_names(self, cl, tmp_path):
-        a = tmp_path / "alpha"
-        b = tmp_path / "beta"
-        a.mkdir()
-        b.mkdir()
-        result = cl._unique_mount_names([a, b])
-        assert result == {a: "alpha", b: "beta"}
+    def test_path_is_pwd_uses_name(self, cl, tmp_path):
+        assert cl._container_path(tmp_path, tmp_path) == tmp_path.name
 
-    def test_colliding_names_use_first_diverging_component(self, cl, tmp_path):
-        r1 = tmp_path / "repo1" / "src" / "main" / "installer"
-        r2 = tmp_path / "repo2" / "src" / "main" / "installer"
-        r3 = tmp_path / "repo3" / "pkg" / "installer"
-        for d in (r1, r2, r3):
-            d.mkdir(parents=True)
-        result = cl._unique_mount_names([r1, r2, r3])
-        assert result[r1] == "repo1-installer"
-        assert result[r2] == "repo2-installer"
-        assert result[r3] == "repo3-installer"
-
-    def test_single_path_with_common_name(self, cl, tmp_path):
-        p = tmp_path / "only"
-        p.mkdir()
-        result = cl._unique_mount_names([p])
-        assert result == {p: "only"}
-
-    def test_colliding_prefix_falls_back_to_full_relative(self, cl, tmp_path):
-        r1 = tmp_path / "shared" / "a" / "leaf"
-        r2 = tmp_path / "shared" / "b" / "leaf"
-        for d in (r1, r2):
-            d.mkdir(parents=True)
-        result = cl._unique_mount_names([r1, r2])
-        assert result[r1] == "a-leaf"
-        assert result[r2] == "b-leaf"
-
-    def test_deep_collision_uses_full_path(self, cl, tmp_path):
-        r1 = tmp_path / "x" / "same" / "leaf"
-        r2 = tmp_path / "y" / "same" / "leaf"
-        for d in (r1, r2):
-            d.mkdir(parents=True)
-        result = cl._unique_mount_names([r1, r2])
-        assert result[r1] == "x-leaf"
-        assert result[r2] == "y-leaf"
-
-    def test_prefix_itself_collides_falls_back(self, cl, tmp_path):
-        r1 = tmp_path / "same" / "a" / "leaf"
-        r2 = tmp_path / "same" / "b" / "leaf"
-        for d in (r1, r2):
-            d.mkdir(parents=True)
-        result = cl._unique_mount_names([r1, r2])
-        assert result[r1] != result[r2]
-
-    def test_mixed_unique_and_colliding(self, cl, tmp_path):
-        unique = tmp_path / "special"
-        r1 = tmp_path / "repo1" / "leaf"
-        r2 = tmp_path / "repo2" / "leaf"
-        for d in (unique, r1, r2):
-            d.mkdir(parents=True)
-        result = cl._unique_mount_names([unique, r1, r2])
-        assert result[unique] == "special"
-        assert result[r1] == "repo1-leaf"
-        assert result[r2] == "repo2-leaf"
+    def test_path_outside_pwd_falls_back_to_name(self, cl, tmp_path):
+        outside = tmp_path / "other" / "project"
+        outside.mkdir(parents=True)
+        pwd = tmp_path / "workspace"
+        pwd.mkdir()
+        assert cl._container_path(outside, pwd) == "project"
 
 
 class TestParsePath:
@@ -320,7 +271,13 @@ class TestBuildVolumeArgs:
         with pytest.raises(SystemExit, match="1"):
             cl.build_volume_args(["../outside.txt"], [], pwd)
 
-    def test_single_path(self, cl, tmp_path):
+    def test_single_path_within_pwd(self, cl, tmp_path):
+        path_a = tmp_path / "project_a"
+        path_a.mkdir()
+        result = cl.build_volume_args([], [path_a], tmp_path)
+        assert result == ["-v", f"{path_a}:/workspace/code/project_a"]
+
+    def test_single_path_outside_pwd(self, cl, tmp_path):
         pwd = tmp_path / "workspace"
         pwd.mkdir()
         path_a = tmp_path / "project_a"
@@ -329,14 +286,13 @@ class TestBuildVolumeArgs:
         assert result == ["-v", f"{path_a}:/workspace/code/{path_a.name}"]
 
     def test_multiple_paths(self, cl, tmp_path):
-        pwd = tmp_path / "workspace"
-        pwd.mkdir()
-        path_a, path_b = tmp_path / "project_a", tmp_path / "project_b"
+        path_a = tmp_path / "project_a"
+        path_b = tmp_path / "project_b"
         path_a.mkdir()
         path_b.mkdir()
-        result = cl.build_volume_args([], [path_a, path_b], pwd)
+        result = cl.build_volume_args([], [path_a, path_b], tmp_path)
         assert len(result) == 4
-        assert f"{path_a}:/workspace/code/{path_a.name}" in result[1]
+        assert f"{path_a}:/workspace/code/project_a" in result[1]
 
     def test_mixed_files_and_paths(self, cl, tmp_path):
         pwd = tmp_path / "workspace"
@@ -349,59 +305,7 @@ class TestBuildVolumeArgs:
         assert f"{path_a}:/workspace/code/{path_a.name}" in " ".join(result)
         assert f"{test_file}:/workspace/code/file.txt" in " ".join(result)
 
-    def test_subdir_path_mounts_git_crypt(self, cl, tmp_path):
-        repo = tmp_path / "myrepo"
-        repo.mkdir()
-        (repo / ".git-crypt").mkdir()
-        subdir = repo / "src" / "main"
-        subdir.mkdir(parents=True)
-        result = cl.build_volume_args([], [subdir], tmp_path)
-        joined = " ".join(result)
-        assert f"{subdir}:/workspace/code/{subdir.name}" in joined
-        assert f"{repo / '.git-crypt'}:/workspace/code/{repo.name}/.git-crypt:ro" in joined
-
-    def test_repo_root_path_skips_extra_git_crypt_mount(self, cl, tmp_path):
-        repo = tmp_path / "myrepo"
-        repo.mkdir()
-        (repo / ".git-crypt").mkdir()
-        result = cl.build_volume_args([], [repo], tmp_path)
-        crypt_mounts = [v for v in result if ".git-crypt" in v]
-        assert crypt_mounts == []
-
-    def test_multiple_subdirs_same_repo_mount_git_crypt_once(self, cl, tmp_path):
-        repo = tmp_path / "myrepo"
-        repo.mkdir()
-        (repo / ".git-crypt").mkdir()
-        sub1 = repo / "src"
-        sub2 = repo / "test"
-        sub1.mkdir()
-        sub2.mkdir()
-        result = cl.build_volume_args([], [sub1, sub2], tmp_path)
-        crypt_mounts = [v for v in result if ".git-crypt" in v]
-        assert len(crypt_mounts) == 1
-
-    def test_subdirs_of_different_repos_mount_each_git_crypt(self, cl, tmp_path):
-        repo1 = tmp_path / "repo1"
-        repo2 = tmp_path / "repo2"
-        for r in (repo1, repo2):
-            r.mkdir()
-            (r / ".git-crypt").mkdir()
-        sub1 = repo1 / "src"
-        sub2 = repo2 / "src"
-        sub1.mkdir()
-        sub2.mkdir()
-        result = cl.build_volume_args([], [sub1, sub2], tmp_path)
-        crypt_mounts = [v for v in result if ".git-crypt" in v]
-        assert len(crypt_mounts) == 2
-
-    def test_no_git_crypt_no_extra_mount(self, cl, tmp_path):
-        subdir = tmp_path / "plain" / "src"
-        subdir.mkdir(parents=True)
-        result = cl.build_volume_args([], [subdir], tmp_path)
-        crypt_mounts = [v for v in result if ".git-crypt" in v]
-        assert crypt_mounts == []
-
-    def test_colliding_path_names_get_disambiguated(self, cl, tmp_path):
+    def test_same_leaf_names_preserve_relative_structure(self, cl, tmp_path):
         r1 = tmp_path / "repo1" / "src" / "mac-installer"
         r2 = tmp_path / "repo2" / "src" / "mac-installer"
         r3 = tmp_path / "repo3" / "pkg" / "mac-installer"
@@ -409,9 +313,9 @@ class TestBuildVolumeArgs:
             d.mkdir(parents=True)
         result = cl.build_volume_args([], [r1, r2, r3], tmp_path)
         container_paths = [v.split(":")[-1] for v in result if v.startswith("/")]
-        assert "/workspace/code/repo1-mac-installer" in container_paths
-        assert "/workspace/code/repo2-mac-installer" in container_paths
-        assert "/workspace/code/repo3-mac-installer" in container_paths
+        assert "/workspace/code/repo1/src/mac-installer" in container_paths
+        assert "/workspace/code/repo2/src/mac-installer" in container_paths
+        assert "/workspace/code/repo3/pkg/mac-installer" in container_paths
 
 
 class TestMain:

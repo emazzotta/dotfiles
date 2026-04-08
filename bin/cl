@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import glob
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -23,11 +21,12 @@ def _find_git_crypt_root(path: Path) -> Path | None:
     return None
 
 
-def lock_git_crypt(pwd: Path) -> None:
+def lock_git_crypt(pwd: Path, repo_root: Path | None = None) -> None:
     if not shutil.which("git-crypt"):
         return
 
-    repo_root = _find_git_crypt_root(pwd)
+    if repo_root is None:
+        repo_root = _find_git_crypt_root(pwd)
     if repo_root is None:
         return
 
@@ -78,27 +77,12 @@ def is_home_dir(path: Path) -> bool:
     return path == Path.home()
 
 
-def _unique_mount_names(paths: list[Path]) -> dict[Path, str]:
-    if not paths:
-        return {}
-    if len({p.name for p in paths}) == len(paths):
-        return {p: p.name for p in paths}
-
-    ancestor = Path(os.path.commonpath(paths))
-    candidates: dict[Path, str] = {}
-    for p in paths:
-        rel = p.relative_to(ancestor)
-        parts = rel.parts
-        candidates[p] = f"{parts[0]}-{parts[-1]}" if len(parts) > 1 else p.name
-
-    name_counts: dict[str, int] = {}
-    for name in candidates.values():
-        name_counts[name] = name_counts.get(name, 0) + 1
-
-    return {
-        p: "-".join(p.relative_to(ancestor).parts) if name_counts[name] > 1 else name
-        for p, name in candidates.items()
-    }
+def _container_path(path: Path, pwd: Path) -> str:
+    try:
+        rel = path.relative_to(pwd)
+        return path.name if rel == Path(".") else str(rel)
+    except ValueError:
+        return path.name
 
 
 def build_volume_args(files: list[str], paths: list[Path], pwd: Path) -> list[str]:
@@ -108,21 +92,12 @@ def build_volume_args(files: list[str], paths: list[Path], pwd: Path) -> list[st
             sys.exit(1)
         return ["-v", f"{pwd}:/workspace/code/{pwd.name}"]
 
-    mountable = [p for p in paths if not is_home_dir(p)]
-    for p in paths:
-        if is_home_dir(p):
-            print(f"Skipping home directory mount: {p}", file=sys.stderr)
-    mount_names = _unique_mount_names(mountable)
-
     volume_args: list[str] = []
-    seen_crypt_roots: set[Path] = set()
-    for path in mountable:
-        volume_args.extend(["-v", f"{path}:/workspace/code/{mount_names[path]}"])
-        crypt_root = _find_git_crypt_root(path)
-        if crypt_root and crypt_root != path and crypt_root not in seen_crypt_roots:
-            seen_crypt_roots.add(crypt_root)
-            crypt_dir = crypt_root / ".git-crypt"
-            volume_args.extend(["-v", f"{crypt_dir}:/workspace/code/{crypt_root.name}/.git-crypt:ro"])
+    for path in paths:
+        if is_home_dir(path):
+            print(f"Skipping home directory mount: {path}", file=sys.stderr)
+            continue
+        volume_args.extend(["-v", f"{path}:/workspace/code/{_container_path(path, pwd)}"])
     for file_path in files:
         volume_args.extend(resolve_file_volume_args(file_path, pwd))
     return volume_args
@@ -174,7 +149,7 @@ def main() -> None:
     for directory in lock_targets:
         root = _find_git_crypt_root(directory)
         if root and root not in locked_roots:
-            lock_git_crypt(directory)
+            lock_git_crypt(directory, repo_root=root)
             locked_roots.add(root)
 
     volume_args = build_volume_args(args.files, args.paths, pwd)
