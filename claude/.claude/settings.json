@@ -45,6 +45,19 @@
             "command": "file=\"${CLAUDE_TOOL_INPUT_FILE_PATH:-}${CLAUDE_TOOL_INPUT_file_path:-}\"; case \"$file\" in */CLAUDE.md|*/AGENTS.md|*/OPENCODE.md) echo 'SYNC REQUIRED: You just edited a synced file. CLAUDE.md, AGENTS.md, and OPENCODE.md must be identical. Update the other two files now.';; esac; exit 0"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/.claude/hooks/post-tool-error-observer.sh"
+          },
+          {
+            "type": "command",
+            "command": "/workspace/.claude/hooks/post-tool-commit-observer.sh"
+          }
+        ]
       }
     ]
   }
