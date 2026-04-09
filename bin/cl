@@ -147,6 +147,7 @@ def main() -> None:
         nargs="?", const="", default=None, metavar="SEARCH",
         help="resume a session (opencode: interactive picker; claude: --resume)",
     )
+    parser.add_argument("--convert", action="store_true", default=False, help="convert sessions between claude and opencode")
 
     args, claude_args = parser.parse_known_args()
 
@@ -167,7 +168,10 @@ def main() -> None:
     container_name = f"opencode-{int(time())}"
     skip_args = [] if args.no_skip else ["--dangerously-skip-permissions"]
 
-    if args.oc:
+    if args.convert:
+        entrypoint = "session-convert"
+        entrypoint_args = claude_args
+    elif args.oc:
         if args.resume is not None:
             entrypoint = "opencode-resume"
             resume_args = [args.resume] if args.resume else []

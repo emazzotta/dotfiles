@@ -1,0 +1,540 @@
+#!/usr/bin/env python3
+"""Convert session context between Claude Code and OpenCode."""
+
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Final
+
+OPENCODE_DB_PATH: Final = Path(
+    os.environ.get(
+        "OPENCODE_DB",
+        Path.home() / ".local" / "share" / "opencode" / "opencode.db",
+    )
+)
+
+
+def find_claude_sessions_dir() -> Path | None:
+    """Find the Claude sessions directory.
+
+    Inside the container it's always ~/.claude/projects/-workspace/.
+    On macOS, Claude hashes the project path, so we scan all project
+    dirs and pick the one with the most recent session files.
+    """
+    projects_dir = Path.home() / ".claude" / "projects"
+    if not projects_dir.is_dir():
+        return None
+    # Container shortcut
+    container_dir = projects_dir / "-workspace"
+    if container_dir.is_dir() and any(container_dir.glob("*.jsonl")):
+        return container_dir
+    # macOS: find the project dir with the most recently modified jsonl
+    best_dir = None
+    best_mtime = 0.0
+    for candidate in projects_dir.iterdir():
+        if not candidate.is_dir():
+            continue
+        jsonl_files = list(candidate.glob("*.jsonl"))
+        if not jsonl_files:
+            continue
+        newest = max(f.stat().st_mtime for f in jsonl_files)
+        if newest > best_mtime:
+            best_mtime = newest
+            best_dir = candidate
+    return best_dir
+
+
+@dataclass(frozen=True)
+class Message:
+    role: str
+    text: str
+
+
+@dataclass(frozen=True)
+class Session:
+    id: str
+    title: str
+    updated: datetime
+    messages: list[Message] = field(default_factory=list)
+
+
+def relative_time(dt: datetime) -> str:
+    diff = datetime.now() - dt
+    seconds = int(diff.total_seconds())
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{seconds // 60}m ago"
+    if seconds < 86400:
+        return f"{seconds // 3600}h ago"
+    days = seconds // 86400
+    if days == 1:
+        return "yesterday"
+    if days < 30:
+        return f"{days}d ago"
+    return f"{days // 30}mo ago"
+
+
+# --- Claude session parsing ---
+
+
+def list_claude_sessions(limit: int = 20) -> list[Session]:
+    sessions_dir = find_claude_sessions_dir()
+    if not sessions_dir:
+        return []
+    files = sorted(
+        sessions_dir.glob("*.jsonl"),
+        key=lambda f: f.stat().st_mtime,
+        reverse=True,
+    )[:limit]
+    sessions = []
+    for f in files:
+        title = ""
+        updated = datetime.fromtimestamp(f.stat().st_mtime)
+        for line in f.open():
+            record = json.loads(line)
+            if record.get("type") == "user":
+                content = record.get("message", {}).get("content", "")
+                if isinstance(content, str):
+                    title = content[:60]
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            title = part["text"][:60]
+                            break
+                break
+        sessions.append(Session(
+            id=f.stem,
+            title=title or "Untitled",
+            updated=updated,
+        ))
+    return sessions
+
+
+def parse_claude_session(session_id: str) -> Session:
+    sessions_dir = find_claude_sessions_dir()
+    if not sessions_dir:
+        print("Error: Claude sessions directory not found", file=sys.stderr)
+        sys.exit(1)
+    path = sessions_dir / f"{session_id}.jsonl"
+    messages: list[Message] = []
+    title = ""
+    for line in path.open():
+        record = json.loads(line)
+        record_type = record.get("type")
+        if record_type == "user":
+            content = record.get("message", {}).get("content", "")
+            text = extract_claude_text(content)
+            if text:
+                if not title:
+                    title = text[:60]
+                messages.append(Message(role="user", text=text))
+        elif record_type == "assistant":
+            msg = record.get("message", {})
+            text = extract_claude_assistant_text(msg.get("content", []))
+            if text:
+                messages.append(Message(role="assistant", text=text))
+    return Session(
+        id=session_id,
+        title=title or "Untitled",
+        updated=datetime.fromtimestamp(path.stat().st_mtime),
+        messages=messages,
+    )
+
+
+def extract_claude_text(content: str | list) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                parts.append(part["text"])
+        return "\n".join(parts)
+    return ""
+
+
+def extract_claude_assistant_text(content: list) -> str:
+    parts = []
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "text":
+            parts.append(part["text"])
+        elif part.get("type") == "tool_use":
+            tool = part.get("name", "unknown")
+            inp = part.get("input", {})
+            summary = summarize_tool_call(tool, inp)
+            if summary:
+                parts.append(f"[tool: {summary}]")
+    return "\n".join(parts)
+
+
+def summarize_tool_call(tool: str, inp: dict) -> str:
+    if tool == "Bash":
+        cmd = inp.get("command", "")
+        return f"bash: {cmd[:80]}" if cmd else ""
+    if tool in ("Read", "Glob", "Grep"):
+        target = inp.get("file_path") or inp.get("pattern", "")
+        return f"{tool.lower()}: {target[:80]}" if target else ""
+    if tool == "Edit":
+        fp = inp.get("file_path", "")
+        return f"edit: {fp}" if fp else ""
+    if tool == "Write":
+        fp = inp.get("file_path", "")
+        return f"write: {fp}" if fp else ""
+    return tool.lower()
+
+
+# --- OpenCode session parsing ---
+
+
+def list_opencode_sessions(limit: int = 20) -> list[Session]:
+    if not OPENCODE_DB_PATH.is_file():
+        return []
+    conn = sqlite3.connect(f"file:{OPENCODE_DB_PATH}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT id, title, time_updated FROM session ORDER BY time_updated DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [
+        Session(
+            id=row["id"],
+            title=row["title"] or "Untitled",
+            updated=datetime.fromtimestamp(row["time_updated"] / 1000),
+        )
+        for row in rows
+    ]
+
+
+def parse_opencode_session(session_id: str) -> Session:
+    conn = sqlite3.connect(f"file:{OPENCODE_DB_PATH}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+
+    session_row = conn.execute(
+        "SELECT title, time_updated FROM session WHERE id = ?", (session_id,),
+    ).fetchone()
+    if not session_row:
+        print(f"Error: session {session_id} not found", file=sys.stderr)
+        sys.exit(1)
+
+    msg_rows = conn.execute(
+        "SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created ASC",
+        (session_id,),
+    ).fetchall()
+
+    messages: list[Message] = []
+    for msg_row in msg_rows:
+        msg_info = json.loads(msg_row["data"])
+        role = msg_info.get("role", "")
+        if role not in ("user", "assistant"):
+            continue
+
+        part_rows = conn.execute(
+            "SELECT data FROM part WHERE message_id = ? ORDER BY time_created ASC",
+            (msg_row["id"],),
+        ).fetchall()
+
+        parts = []
+        for part_row in part_rows:
+            part = json.loads(part_row["data"])
+            if part["type"] == "text":
+                parts.append(part["text"])
+            elif part["type"] == "tool":
+                summary = summarize_opencode_tool(part)
+                if summary:
+                    parts.append(f"[tool: {summary}]")
+        text = "\n".join(parts)
+        if text:
+            messages.append(Message(role=role, text=text))
+
+    conn.close()
+    return Session(
+        id=session_id,
+        title=session_row["title"] or "Untitled",
+        updated=datetime.fromtimestamp(session_row["time_updated"] / 1000),
+        messages=messages,
+    )
+
+
+def summarize_opencode_tool(part: dict) -> str:
+    tool = part.get("tool", "unknown")
+    state = part.get("state", {})
+    inp = state.get("input", {})
+    if tool == "bash":
+        cmd = inp.get("command", "")
+        return f"bash: {cmd[:80]}" if cmd else ""
+    if tool in ("read", "glob", "grep"):
+        target = inp.get("file_path") or inp.get("filePath") or inp.get("pattern", "")
+        return f"{tool}: {target[:80]}" if target else ""
+    if tool in ("edit", "write"):
+        fp = inp.get("file_path") or inp.get("filePath", "")
+        return f"{tool}: {fp}" if fp else ""
+    title = state.get("title", "")
+    return f"{tool}: {title[:60]}" if title else tool
+
+
+# --- Conversion ---
+
+
+def session_to_markdown(session: Session) -> str:
+    lines = [
+        f"# Session: {session.title}",
+        f"Source ID: {session.id}",
+        f"Exported: {datetime.now().isoformat()}",
+        "",
+    ]
+    for msg in session.messages:
+        prefix = "## User" if msg.role == "user" else "## Assistant"
+        lines.append(prefix)
+        lines.append("")
+        lines.append(msg.text)
+        lines.append("")
+    return "\n".join(lines)
+
+
+def markdown_to_opencode_import(session: Session) -> dict:
+    session_id = f"ses_{hash(session.id) & 0xFFFFFFFFFFFF:012x}"
+    ts = int(session.updated.timestamp() * 1000)
+    oc_messages = []
+    prev_msg_id = None
+    for i, msg in enumerate(session.messages):
+        msg_id = f"msg_{hash((session.id, i)) & 0xFFFFFFFFFFFF:012x}"
+        part_id = f"prt_{hash((session.id, i, 0)) & 0xFFFFFFFFFFFF:012x}"
+        if msg.role == "user":
+            info: dict = {
+                "role": "user",
+                "time": {"created": ts + i},
+                "agent": "coder",
+                "model": {"providerID": "anthropic", "modelID": "claude-opus-4-6"},
+                "summary": {"diffs": []},
+                "id": msg_id,
+                "sessionID": session_id,
+            }
+        else:
+            info = {
+                "role": "assistant",
+                "mode": "build",
+                "agent": "coder",
+                "path": {"cwd": "/workspace", "root": "/"},
+                "cost": 0,
+                "tokens": {"total": 0, "input": 0, "output": 0, "reasoning": 0, "cache": {"write": 0, "read": 0}},
+                "modelID": "claude-opus-4-6",
+                "providerID": "anthropic",
+                "time": {"created": ts + i, "completed": ts + i + 1},
+                "finish": "end_turn",
+                "id": msg_id,
+                "sessionID": session_id,
+            }
+        if prev_msg_id:
+            info["parentID"] = prev_msg_id
+        oc_messages.append({
+            "info": info,
+            "parts": [
+                {
+                    "type": "text",
+                    "text": msg.text,
+                    "id": part_id,
+                    "sessionID": session_id,
+                    "messageID": msg_id,
+                }
+            ],
+        })
+        prev_msg_id = msg_id
+    return {
+        "info": {
+            "id": session_id,
+            "slug": "imported-session",
+            "projectID": "global",
+            "directory": "/workspace",
+            "title": f"[from claude] {session.title}",
+            "version": "1.4.1",
+            "summary": {"additions": 0, "deletions": 0, "files": 0},
+            "time": {"created": ts, "updated": ts},
+        },
+        "messages": oc_messages,
+    }
+
+
+def session_to_claude_jsonl(session: Session) -> tuple[str, str]:
+    """Returns (session_id, jsonl_content)."""
+    import uuid as uuid_mod
+    session_id = str(uuid_mod.uuid5(uuid_mod.NAMESPACE_URL, f"opencode:{session.id}"))
+    lines = []
+    ts = session.updated.isoformat()
+    parent_uuid = None
+    for i, msg in enumerate(session.messages):
+        uuid = str(uuid_mod.uuid5(uuid_mod.NAMESPACE_URL, f"opencode:{session.id}:{i}"))
+        if msg.role == "user":
+            record = {
+                "parentUuid": parent_uuid,
+                "isSidechain": False,
+                "type": "user",
+                "message": {"role": "user", "content": msg.text},
+                "uuid": uuid,
+                "timestamp": ts,
+                "cwd": "/workspace",
+                "sessionId": session_id,
+            }
+        else:
+            record = {
+                "parentUuid": parent_uuid,
+                "isSidechain": False,
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": msg.text}],
+                    "model": "imported",
+                },
+                "uuid": uuid,
+                "timestamp": ts,
+                "cwd": "/workspace",
+                "sessionId": session_id,
+            }
+        lines.append(json.dumps(record, ensure_ascii=False))
+        parent_uuid = uuid
+    return session_id, "\n".join(lines)
+
+
+# --- gum UI ---
+
+
+def gum_available() -> bool:
+    try:
+        return subprocess.run(
+            ["gum", "--version"], capture_output=True,
+        ).returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def gum_choose(header: str, options: list[str]) -> str | None:
+    if not options:
+        return None
+    result = subprocess.run(
+        ["gum", "choose", "--header", header, *options],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def menu_choose(header: str, options: list[str]) -> str | None:
+    if not options:
+        return None
+    print(f"\n{header}\n", file=sys.stderr)
+    for i, opt in enumerate(options, 1):
+        print(f"  {i:2d}) {opt}", file=sys.stderr)
+    print(file=sys.stderr)
+    try:
+        selection = input(f"Select [1-{len(options)}]: ")
+    except (EOFError, KeyboardInterrupt):
+        return None
+    if not selection.isdigit() or not (1 <= int(selection) <= len(options)):
+        print("Invalid selection", file=sys.stderr)
+        return None
+    return options[int(selection) - 1]
+
+
+_gum_warned = False
+
+
+def choose(header: str, options: list[str]) -> str | None:
+    global _gum_warned  # noqa: PLW0603
+    if gum_available():
+        return gum_choose(header, options)
+    if not _gum_warned:
+        hint = "brew install gum" if sys.platform == "darwin" else "rebuild container image"
+        print(f"gum not found - falling back to numbered menu ({hint})", file=sys.stderr)
+        _gum_warned = True
+    return menu_choose(header, options)
+
+
+def format_session_line(s: Session) -> str:
+    title = s.title if len(s.title) <= 50 else s.title[:47] + "..."
+    return f"{title:<52s} {relative_time(s.updated):<12s} {s.id}"
+
+
+def pick_session(sessions: list[Session], header: str) -> Session | None:
+    if not sessions:
+        print("No sessions found", file=sys.stderr)
+        return None
+    options = [format_session_line(s) for s in sessions]
+    selected = choose(header, options)
+    if not selected:
+        return None
+    selected_id = selected.strip().split()[-1]
+    for s in sessions:
+        if s.id == selected_id:
+            return s
+    return None
+
+
+# --- Main ---
+
+
+def main() -> None:
+    directions = [
+        "claude -> opencode",
+        "opencode -> claude",
+        "claude -> markdown",
+        "opencode -> markdown",
+    ]
+    direction = choose("Convert session:", directions)
+    if not direction:
+        sys.exit(1)
+
+    source, target = direction.split(" -> ")
+
+    if source == "claude":
+        sessions = list_claude_sessions()
+        picked = pick_session(sessions, "Select Claude session:")
+        if not picked:
+            sys.exit(1)
+        session = parse_claude_session(picked.id)
+    else:
+        sessions = list_opencode_sessions()
+        picked = pick_session(sessions, "Select OpenCode session:")
+        if not picked:
+            sys.exit(1)
+        session = parse_opencode_session(picked.id)
+
+    print(f"\nParsed {len(session.messages)} messages from {source}", file=sys.stderr)
+
+    if target == "markdown":
+        output = session_to_markdown(session)
+        out_path = Path(f"session-{session.id[:12]}.md")
+        out_path.write_text(output)
+        print(f"Written to {out_path}", file=sys.stderr)
+    elif target == "opencode":
+        data = markdown_to_opencode_import(session)
+        out_path = Path(f"session-{session.id[:12]}.json")
+        out_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        result = subprocess.run(["opencode", "import", str(out_path)], capture_output=True, text=True)
+        out_path.unlink()
+        if result.returncode != 0:
+            print(f"Error: opencode import failed: {result.stderr.strip()}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Imported into opencode. Resume with: opencode -c", file=sys.stderr)
+    elif target == "claude":
+        claude_session_id, jsonl_content = session_to_claude_jsonl(session)
+        claude_dir = find_claude_sessions_dir()
+        if not claude_dir:
+            print("Error: Claude sessions directory not found", file=sys.stderr)
+            sys.exit(1)
+        out_path = claude_dir / f"{claude_session_id}.jsonl"
+        out_path.write_text(jsonl_content)
+        print(f"Imported into claude. Resume with: claude --resume {claude_session_id}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
