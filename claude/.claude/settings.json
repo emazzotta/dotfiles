@@ -1,9 +1,4 @@
 {
-  "statusLine": {
-    "type": "command",
-    "command": "/opt/ccline/ccline"
-  },
-  "skipDangerousModePermissionPrompt": true,
   "hooks": {
     "SessionStart": [
       {
@@ -66,5 +61,14 @@
         ]
       }
     ]
-  }
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "/opt/ccline/ccline"
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true
+  },
+  "skipDangerousModePermissionPrompt": true
 }

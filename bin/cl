@@ -192,6 +192,15 @@ def main() -> None:
         entrypoint = "claude"
         entrypoint_args = [*skip_args, *resume_args, *claude_args]
 
+    plugin_args = []
+    if entrypoint == "claude":
+        plugin_dir = Path("/workspace/.claude/plugins")
+        plugin_args = [
+            arg
+            for d in sorted(plugin_dir.iterdir()) if d.is_dir()
+            for arg in ("--plugin-dir", str(d))
+        ] if plugin_dir.is_dir() else []
+
     command = [
         "docker", "compose",
         "-f", str(COMPOSE_FILE),
@@ -201,6 +210,7 @@ def main() -> None:
         *volume_args,
         "opencode",
         entrypoint,
+        *plugin_args,
         *entrypoint_args,
     ]
 
