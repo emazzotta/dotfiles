@@ -333,7 +333,7 @@ superocd() {
     rm_old_gitlab_builds && \
     upallin "$HOME" && \
     zgen update <<< "n" &> /dev/null && \
-    gck "$HOME" && \
+    gck "$WDIR" && \
     kill_unwanted_processes && \
     rm_launch_items && \
     source envify GOOGLE_DOCUMENTS_API_KEY NOTION_API_KEY PASSWORD_ZIPS && \
