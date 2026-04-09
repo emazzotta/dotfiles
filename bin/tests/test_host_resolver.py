@@ -1,5 +1,6 @@
 import queue
 import time
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -61,6 +62,91 @@ class TestHostsLookup:
         hostnames = mod.HOSTS.get("unknown-host-xyz", ("unknown-host-xyz",))
         assert hostnames == ("unknown-host-xyz",)
 
-    def test_resolve_hosts_unknown_returns_fallback(self, mod):
+    def test_resolve_hosts_unknown_returns_default_fallback(self, mod):
         result = mod.resolve_hosts("nonexistent.invalid.host.xyz", timeout_ms=200)
         assert result == "127.0.0.1"
+
+    def test_resolve_hosts_unknown_returns_custom_fallback(self, mod):
+        result = mod.resolve_hosts("nonexistent.invalid.host.xyz", timeout_ms=200, fallback_ip="10.0.0.1")
+        assert result == "10.0.0.1"
+
+
+class TestDnsServer:
+    def test_resolve_ip_uses_dig_when_dns_server_set(self, mod):
+        completed = MagicMock()
+        completed.returncode = 0
+        completed.stdout = b"192.168.0.61\n"
+        with patch.object(mod.subprocess, "run", return_value=completed) as mock_run:
+            result = mod.resolve_ip("myhost", timeout_ms=2000, dns_server="192.168.0.254")
+        assert result == "192.168.0.61"
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "dig"
+        assert "@192.168.0.254" in cmd
+        assert "myhost" in cmd
+
+    def test_resolve_ip_without_dns_server_uses_socket(self, mod):
+        completed = MagicMock()
+        completed.returncode = 0
+        completed.stdout = b"127.0.0.1\n"
+        with patch.object(mod.subprocess, "run", return_value=completed) as mock_run:
+            mod.resolve_ip("localhost", timeout_ms=2000)
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == mod.sys.executable
+
+    def test_resolve_ip_dig_empty_response_returns_none(self, mod):
+        completed = MagicMock()
+        completed.returncode = 0
+        completed.stdout = b"\n"
+        with patch.object(mod.subprocess, "run", return_value=completed):
+            assert mod.resolve_ip("nohost", timeout_ms=2000, dns_server="1.1.1.1") is None
+
+
+class TestSilentMode:
+    def test_silent_suppresses_fallback_message(self, mod, capsys):
+        mod.resolve_hosts("nonexistent.invalid.host.xyz", timeout_ms=200, silent=True)
+        assert capsys.readouterr().err == ""
+
+    def test_non_silent_prints_fallback_message(self, mod, capsys):
+        mod.resolve_hosts("nonexistent.invalid.host.xyz", timeout_ms=200, silent=False)
+        assert "No reachable host found" in capsys.readouterr().err
+
+    def test_silent_with_custom_fallback_suppresses_message(self, mod, capsys):
+        result = mod.resolve_hosts("nonexistent.invalid.host.xyz", timeout_ms=200,
+                                   fallback_ip="10.0.0.1", silent=True)
+        assert result == "10.0.0.1"
+        assert capsys.readouterr().err == ""
+
+    def test_non_silent_with_custom_fallback_prints_message(self, mod, capsys):
+        result = mod.resolve_hosts("nonexistent.invalid.host.xyz", timeout_ms=200,
+                                   fallback_ip="10.0.0.1", silent=False)
+        assert result == "10.0.0.1"
+        assert "No reachable host found" in capsys.readouterr().err
+
+
+class TestAlertMode:
+    def test_alert_exits_1_when_resolved_differs_from_fallback(self, mod):
+        with patch.object(mod, "resolve_hosts", return_value="192.168.0.61"):
+            with patch.object(mod.sys, "argv", ["host-resolver", "myhost", "-a"]):
+                with pytest.raises(SystemExit, match="1"):
+                    mod.main()
+
+    def test_alert_exits_0_when_resolved_equals_default_fallback(self, mod):
+        with patch.object(mod, "resolve_hosts", return_value="127.0.0.1"):
+            with patch.object(mod.sys, "argv", ["host-resolver", "myhost", "-a"]):
+                mod.main()
+
+    def test_alert_exits_0_when_resolved_equals_custom_fallback(self, mod):
+        with patch.object(mod, "resolve_hosts", return_value="10.0.0.1"):
+            with patch.object(mod.sys, "argv", ["host-resolver", "myhost", "-a", "-f", "10.0.0.1"]):
+                mod.main()
+
+    def test_alert_exits_1_when_resolved_differs_from_custom_fallback(self, mod):
+        with patch.object(mod, "resolve_hosts", return_value="192.168.0.61"):
+            with patch.object(mod.sys, "argv", ["host-resolver", "myhost", "-a", "-f", "10.0.0.1"]):
+                with pytest.raises(SystemExit, match="1"):
+                    mod.main()
+
+    def test_no_alert_flag_does_not_exit_1(self, mod):
+        with patch.object(mod, "resolve_hosts", return_value="192.168.0.61"):
+            with patch.object(mod.sys, "argv", ["host-resolver", "myhost"]):
+                mod.main()

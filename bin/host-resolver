@@ -18,8 +18,17 @@ HOSTS: Final[dict[str, tuple[str, ...]]] = {
 }
 
 
-def resolve_ip(hostname: str, timeout_ms: float) -> str | None:
+def resolve_ip(hostname: str, timeout_ms: float, dns_server: str | None = None) -> str | None:
     try:
+        if dns_server:
+            timeout_sec = str(max(1, int(timeout_ms / 1000)))
+            result = subprocess.run(
+                ["dig", "+short", "+time=" + timeout_sec, "+tries=1", f"@{dns_server}", hostname],
+                capture_output=True,
+                timeout=timeout_ms / 1000,
+            )
+            lines = result.stdout.decode().strip().splitlines() if result.returncode == 0 else []
+            return lines[-1] if lines else None
         result = subprocess.run(
             [sys.executable, "-c", "import socket,sys; print(socket.gethostbyname(sys.argv[1]))", hostname],
             capture_output=True,
@@ -30,15 +39,16 @@ def resolve_ip(hostname: str, timeout_ms: float) -> str | None:
         return None
 
 
-def try_host(hostname: str, timeout_ms: float) -> str | None:
+def try_host(hostname: str, timeout_ms: float, dns_server: str | None = None, silent: bool = False) -> str | None:
     ping_flag = ["-W", str(int(timeout_ms) if IS_DARWIN else max(1, int(timeout_ms) // 1000))]
     try:
-        ip = resolve_ip(hostname, timeout_ms)
+        ip = resolve_ip(hostname, timeout_ms, dns_server)
         if ip is None:
             return None
         result = subprocess.run(["ping", "-c", "1"] + ping_flag + [ip], capture_output=True)
         if result.returncode == 0:
-            print(f"Resolved {hostname} -> {ip}", file=sys.stderr)
+            if not silent:
+                print(f"Resolved {hostname} -> {ip}", file=sys.stderr)
             return ip
         return None
     except OSError:
@@ -57,28 +67,54 @@ def enforce_timeout(q: queue.Queue[str | None], count: int, timeout_ms: float) -
             return
 
 
-def fetch_first_reachable(hostnames: tuple[str, ...], timeout_ms: float) -> str | None:
+def fetch_first_reachable(hostnames: tuple[str, ...], timeout_ms: float, dns_server: str | None = None,
+                          silent: bool = False) -> str | None:
     results: queue.Queue[str | None] = queue.Queue()
     for hostname in hostnames:
-        threading.Thread(target=lambda h=hostname: results.put(try_host(h, timeout_ms)), daemon=True).start()
+        threading.Thread(target=lambda h=hostname: results.put(try_host(h, timeout_ms, dns_server, silent)), daemon=True).start()
     return next((ip for ip in enforce_timeout(results, len(hostnames), timeout_ms) if ip), None)
 
 
-def resolve_hosts(short_name: str, timeout_ms: float) -> str:
+def resolve_hosts(short_name: str, timeout_ms: float, fallback_ip: str | None = None,
+                   dns_server: str | None = None, silent: bool = False) -> str:
     hostnames = HOSTS.get(short_name, (short_name,))
-    if ip := fetch_first_reachable(hostnames, timeout_ms):
+    if ip := fetch_first_reachable(hostnames, timeout_ms, dns_server, silent):
         return ip
-    print(f"No reachable host found for {short_name}, falling back to 127.0.0.1", file=sys.stderr)
-    return "127.0.0.1"
+    fallback_ip = fallback_ip or "127.0.0.1"
+    if not silent:
+        print(f"No reachable host found for {short_name}, falling back to {fallback_ip}", file=sys.stderr)
+    return fallback_ip
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Resolve a host short name to an IP address")
-    parser.add_argument("host", help="Short name (looked up in HOSTS) or a literal hostname/IP")
+    parser = argparse.ArgumentParser(
+        description="Resolve a host short name to a reachable IP address.",
+        epilog=(
+            "examples:\n"
+            "  host-resolver ci-macmini\n"
+            "  host-resolver myhost -d 192.168.0.254 -t 500\n"
+            "  host-resolver myhost -d 192.168.0.254 -f 10.0.0.1 -s\n"
+            "  host-resolver myhost -d 192.168.0.254 -a -s && echo 'down' || echo 'up'\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("host",
+                        help="short name from the built-in HOSTS map, or any hostname/IP to resolve directly")
     parser.add_argument("-t", "--timeout", type=float, default=RESOLVE_TIMEOUT_MS, metavar="MS",
-                        help=f"Timeout in milliseconds (default: {RESOLVE_TIMEOUT_MS})")
+                        help=f"resolution and ping timeout in milliseconds (default: {RESOLVE_TIMEOUT_MS})")
+    parser.add_argument("-f", "--fallback-ip", default=None, metavar="IP",
+                        help="IP to return when the host is unreachable (default: 127.0.0.1)")
+    parser.add_argument("-d", "--dns", default=None, metavar="SERVER",
+                        help="DNS server IP to query via dig instead of the system resolver")
+    parser.add_argument("-s", "--silent", action="store_true",
+                        help="suppress all diagnostic output on stderr")
+    parser.add_argument("-a", "--alert", action="store_true",
+                        help="exit 1 when the host resolved to an IP different from the fallback")
     args = parser.parse_args()
-    print(resolve_hosts(args.host, args.timeout))
+    ip = resolve_hosts(args.host, args.timeout, fallback_ip=args.fallback_ip, dns_server=args.dns, silent=args.silent)
+    print(ip)
+    if args.alert and ip != (args.fallback_ip or "127.0.0.1"):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
