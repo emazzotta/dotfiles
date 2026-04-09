@@ -70,7 +70,6 @@ export PYTHONIOENCODING='UTF-8'
 export RECOMMENDED_READINGS="$MARKDOWNDIR/recommended_readings.md"
 export SDKMAN_DIR="$HOME/.sdkman"
 export TERM="xterm-256color"
-export DANI_MACMINI_IP=$(host-resolver Mac-mini-von-Daniele-1 -f 192.168.0.61 -d winbox -t 500 -s -a)
 export VENV_PATH="$HOME/.venv"
 export VENV_PYTHON_3="$VENV_PATH/python-3-venv"
 export VIM_PLUGINS_DIR="$HOME/.vim_runtime/my_plugins"
