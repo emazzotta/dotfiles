@@ -51,10 +51,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspace/.claude/hooks/post-tool-error-observer.sh"
-          },
-          {
-            "type": "command",
             "command": "/workspace/.claude/hooks/post-tool-commit-observer.sh"
           }
         ]
