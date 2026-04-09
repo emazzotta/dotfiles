@@ -32,12 +32,14 @@ def _ag_exclude(pattern: str) -> str:
     return result.strip("*") or pattern
 
 
-def find_files_by_name(patterns: list[str], search_path: str, excludes: list[str]) -> None:
+def find_files_by_name(patterns: list[str], search_path: str, excludes: list[str], *, exact: bool = False) -> None:
     iname_parts: list[str] = []
     for i, pattern in enumerate(patterns):
         if i > 0:
             iname_parts.append("-o")
-        iname_parts.extend(["-iname", _wrap_glob(pattern)])
+        name_flag = "-name" if exact else "-iname"
+        name_value = pattern if exact else _wrap_glob(pattern)
+        iname_parts.extend([name_flag, name_value])
 
     cmd = ["find", search_path, "-type", "f", "(", *iname_parts, ")"]
 
@@ -61,16 +63,18 @@ def search_content(
     search_path: str,
     file_regex: Optional[str],
     excludes: list[str],
-    exclude_content: list[str]
+    exclude_content: list[str],
+    *,
+    exact: bool = False
 ) -> None:
     if not _check_ag_available():
         return
 
     pattern = "|".join(patterns)
     if file_regex:
-        _search_content_in_matching_files(pattern, search_path, file_regex, excludes, exclude_content)
+        _search_content_in_matching_files(pattern, search_path, file_regex, excludes, exclude_content, exact=exact)
     else:
-        _search_content_all_files(pattern, search_path, excludes, exclude_content)
+        _search_content_all_files(pattern, search_path, excludes, exclude_content, exact=exact)
 
 
 def _check_ag_available() -> bool:
@@ -87,9 +91,13 @@ def _search_content_in_matching_files(
     search_path: str,
     file_regex: str,
     excludes: list[str],
-    exclude_content: list[str]
+    exclude_content: list[str],
+    *,
+    exact: bool = False
 ) -> None:
-    find_cmd = ["find", search_path, "-type", "f", "-iname", _wrap_glob(file_regex)]
+    name_flag = "-name" if exact else "-iname"
+    name_value = file_regex if exact else _wrap_glob(file_regex)
+    find_cmd = ["find", search_path, "-type", "f", name_flag, name_value]
 
     for exclude in excludes:
         find_cmd.extend(["-not", "-path", _wrap_glob(exclude)])
@@ -105,7 +113,7 @@ def _search_content_in_matching_files(
         for file_path in files:
             if not file_path:
                 continue
-            _search_in_file(pattern, file_path, exclude_content)
+            _search_in_file(pattern, file_path, exclude_content, exact=exact)
 
     except subprocess.CalledProcessError as e:
         logger.error(f"find command failed: {e}")
@@ -115,9 +123,14 @@ def _search_content_all_files(
     pattern: str,
     search_path: str,
     excludes: list[str],
-    exclude_content: list[str]
+    exclude_content: list[str],
+    *,
+    exact: bool = False
 ) -> None:
-    ag_cmd = ["ag", "--hidden", "--color", "--group", pattern, search_path]
+    ag_cmd = ["ag", "--hidden", "--color", "--group"]
+    if exact:
+        ag_cmd.extend(["-w", "-s"])
+    ag_cmd.extend([pattern, search_path])
 
     for exclude in excludes:
         ag_cmd.extend(["--ignore", _ag_exclude(exclude)])
@@ -140,8 +153,11 @@ def _search_content_all_files(
         logger.error(f"ag command failed: {e}")
 
 
-def _search_in_file(pattern: str, file_path: str, exclude_content: list[str]) -> None:
-    ag_cmd = ["ag", "--hidden", "--color", "--group", pattern, file_path]
+def _search_in_file(pattern: str, file_path: str, exclude_content: list[str], *, exact: bool = False) -> None:
+    ag_cmd = ["ag", "--hidden", "--color", "--group"]
+    if exact:
+        ag_cmd.extend(["-w", "-s"])
+    ag_cmd.extend([pattern, file_path])
 
     try:
         result = subprocess.run(ag_cmd, capture_output=True, text=True)
@@ -184,6 +200,24 @@ def main() -> int:
         help="Pattern(s) to search for in filenames and content (multiple patterns are OR-ed)"
     )
 
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        '-f', '--files-only',
+        action='store_true',
+        help="Only search for files by name"
+    )
+    mode_group.add_argument(
+        '-c', '--content-only',
+        action='store_true',
+        help="Only search for content matches"
+    )
+
+    parser.add_argument(
+        '-e', '--exact',
+        action='store_true',
+        help="Exact match - case-sensitive, word boundaries for content, no wildcard wrapping for filenames"
+    )
+
     parser.add_argument(
         '-r', '--file-regex',
         metavar='REGEX',
@@ -197,7 +231,7 @@ def main() -> int:
     )
 
     parser.add_argument(
-        '-e', '--exclude',
+        '-x', '--exclude',
         action='append',
         default=[],
         metavar='PATH_PATTERN',
@@ -205,7 +239,7 @@ def main() -> int:
     )
 
     parser.add_argument(
-        '-x', '--exclude-content',
+        '--exclude-content',
         action='append',
         default=[],
         metavar='CONTENT_PATTERN',
@@ -214,18 +248,25 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    search_files = not args.content_only
+    search_content_flag = not args.files_only
+
     pattern_display = " | ".join(args.pattern)
-    print(f"Searching for files and content matching pattern: '{pattern_display}'\n")
+    label = "files" if args.files_only else "content" if args.content_only else "files and content"
+    print(f"Searching for {label} matching pattern: '{pattern_display}'\n")
 
-    print("Files matching the filename pattern:")
-    print()
-    filename_patterns = [args.file_regex] if args.file_regex else args.pattern
-    find_files_by_name(filename_patterns, args.path, args.exclude)
+    if search_files:
+        print("Files matching the filename pattern:")
+        print()
+        filename_patterns = [args.file_regex] if args.file_regex else args.pattern
+        find_files_by_name(filename_patterns, args.path, args.exclude, exact=args.exact)
 
-    print()
-    print("Content matches:")
-    print()
-    search_content(args.pattern, args.path, args.file_regex, args.exclude, args.exclude_content)
+    if search_content_flag:
+        if search_files:
+            print()
+        print("Content matches:")
+        print()
+        search_content(args.pattern, args.path, args.file_regex, args.exclude, args.exclude_content, exact=args.exact)
 
     return 0
 
