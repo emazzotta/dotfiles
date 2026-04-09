@@ -1,0 +1,190 @@
+#!/bin/bash
+set -euo pipefail
+
+DB_PATH="${OPENCODE_DB:-${HOME}/.local/share/opencode/opencode.db}"
+
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") [-n COUNT] [-f] [SEARCH]
+
+Interactive session picker for opencode. Queries the opencode
+SQLite database and launches opencode with the selected session.
+
+Options:
+  -n COUNT   Number of sessions to show (default: 20)
+  -f         Fork the session instead of resuming in-place
+  -h         Show this help
+
+Arguments:
+  SEARCH     Optional text to filter sessions by title
+
+Environment:
+  OPENCODE_DB   Path to opencode.db (default: ~/.local/share/opencode/opencode.db)
+
+If gum is available, uses gum choose for selection.
+Otherwise falls back to a numbered list.
+
+Examples:
+  $(basename "$0")
+  $(basename "$0") -n 10
+  $(basename "$0") c2v
+  $(basename "$0") -f c2v
+EOF
+}
+
+fetch_sessions() {
+    local count="$1"
+    local search="$2"
+
+    if [ ! -f "$DB_PATH" ]; then
+        echo "Error: database not found at $DB_PATH" >&2
+        return 1
+    fi
+
+    local json
+    json=$(python3 -c "
+import sqlite3, json, sys
+
+db, count, search = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+conn = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
+conn.row_factory = sqlite3.Row
+if search:
+    rows = conn.execute(
+        'SELECT id, title, time_updated FROM session WHERE title LIKE ? COLLATE NOCASE ORDER BY time_updated DESC LIMIT ?',
+        (f'%{search}%', count),
+    ).fetchall()
+else:
+    rows = conn.execute(
+        'SELECT id, title, time_updated FROM session ORDER BY time_updated DESC LIMIT ?',
+        (count,),
+    ).fetchall()
+conn.close()
+print(json.dumps([dict(r) for r in rows]))
+" "$DB_PATH" "$count" "$search" 2>/dev/null) || {
+        echo "Error: failed to query opencode database" >&2
+        return 1
+    }
+
+    if [ -z "$json" ] || [ "$json" = "[]" ]; then
+        if [ -n "$search" ]; then
+            echo "No sessions matching '$search'" >&2
+        else
+            echo "No sessions found" >&2
+        fi
+        return 1
+    fi
+
+    printf '%s' "$json"
+}
+
+format_choices() {
+    local json="$1"
+    python3 -c "
+import json, sys, time
+
+now_ms = int(time.time() * 1000)
+for s in json.loads(sys.stdin.read()):
+    sid = s['id']
+    title = s.get('title', 'Untitled')
+    if len(title) > 45:
+        title = title[:42] + '...'
+    diff_s = (now_ms - s['time_updated']) // 1000
+    if diff_s < 60:
+        ago = 'just now'
+    elif diff_s < 3600:
+        ago = f'{diff_s // 60}m ago'
+    elif diff_s < 86400:
+        ago = f'{diff_s // 3600}h ago'
+    else:
+        days = diff_s // 86400
+        if days == 1:
+            ago = 'yesterday'
+        elif days < 30:
+            ago = f'{days}d ago'
+        else:
+            ago = f'{days // 30}mo ago'
+    print(f'{sid}\t{title}\t{ago}')
+" <<< "$json"
+}
+
+select_session() {
+    local json="$1"
+    local choices
+    choices=$(format_choices "$json")
+
+    local display
+    display=$(echo "$choices" | while IFS=$'\t' read -r sid title ago; do
+        printf "%-47s %-12s %s\n" "$title" "$ago" "$sid"
+    done)
+
+    if command -v gum &>/dev/null; then
+        local selected
+        selected=$(echo "$display" | gum choose --header "Select session to resume:") || return 1
+
+        if [ -z "$selected" ]; then
+            echo "No session selected" >&2
+            return 1
+        fi
+
+        echo "$selected" | awk '{print $NF}'
+    else
+        local i=1
+        echo "" >&2
+        echo "Sessions:" >&2
+        echo "" >&2
+        while IFS= read -r line; do
+            printf "  %2d) %s\n" "$i" "$line" >&2
+            i=$((i + 1))
+        done <<< "$display"
+        echo "" >&2
+
+        local count
+        count=$(echo "$display" | wc -l | tr -d ' ')
+
+        local selection
+        printf "Select [1-%d]: " "$count" >&2
+        read -r selection
+
+        if ! [[ "$selection" =~ ^[0-9]+$ ]] || [ "$selection" -lt 1 ] || [ "$selection" -gt "$count" ]; then
+            echo "Invalid selection" >&2
+            return 1
+        fi
+
+        echo "$choices" | sed -n "${selection}p" | cut -f1
+    fi
+}
+
+main() {
+    local count=20
+    local fork=false
+    local search=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -h|--help) show_usage; exit 0 ;;
+            -n) count="$2"; shift 2 ;;
+            -f) fork=true; shift ;;
+            -*) echo "Unknown option: $1" >&2; show_usage >&2; exit 1 ;;
+            *) search="$1"; shift ;;
+        esac
+    done
+
+    local json
+    if ! json=$(fetch_sessions "$count" "$search"); then
+        exit 1
+    fi
+
+    local session_id
+    if ! session_id=$(select_session "$json"); then
+        exit 1
+    fi
+
+    local args=("--session" "$session_id")
+    if [ "$fork" = true ]; then
+        args+=("--fork")
+    fi
+
+    exec opencode "${args[@]}"
+}
+
+main "$@"

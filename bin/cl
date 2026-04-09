@@ -133,7 +133,7 @@ def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
 def main() -> None:
     pwd = Path.cwd()
 
-    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-n] [CLAUDE_ARGS...]")
+    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-n] [-r [SEARCH]] [CLAUDE_ARGS...]")
     parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
     parser.add_argument(
         "-p", "--path",
@@ -142,6 +142,11 @@ def main() -> None:
     )
     parser.add_argument("-n", "--no-skip", action="store_true", default=False)
     parser.add_argument("-o", "--oc", action="store_true", default=False, help="run opencode instead of claude")
+    parser.add_argument(
+        "-r", "--resume",
+        nargs="?", const="", default=None, metavar="SEARCH",
+        help="resume a session (opencode: interactive picker; claude: --resume)",
+    )
 
     args, claude_args = parser.parse_known_args()
 
@@ -161,8 +166,21 @@ def main() -> None:
             volume_args.extend(["-v", f"{LEONARDO_COMMONS}:/workspace/code/leonardo-commons"])
     container_name = f"opencode-{int(time())}"
     skip_args = [] if args.no_skip else ["--dangerously-skip-permissions"]
-    entrypoint = "opencode" if args.oc else "claude"
-    entrypoint_args = claude_args if args.oc else [*skip_args, *claude_args]
+
+    if args.oc:
+        if args.resume is not None:
+            entrypoint = "opencode-resume"
+            resume_args = [args.resume] if args.resume else []
+            entrypoint_args = [*resume_args, *claude_args]
+        else:
+            entrypoint = "opencode"
+            entrypoint_args = claude_args
+    else:
+        resume_args = []
+        if args.resume is not None:
+            resume_args = ["--resume", args.resume] if args.resume else ["--resume"]
+        entrypoint = "claude"
+        entrypoint_args = [*skip_args, *resume_args, *claude_args]
 
     command = [
         "docker", "compose",
