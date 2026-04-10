@@ -29,6 +29,9 @@ CACHE_DIR_NAME = "notion_cache"
 CACHE_ARCHIVE_NAME = ".notion_cache.7z"
 LEGACY_CACHE_DIR_NAME = ".notion_html_cache"
 ARCHIVE_COMPRESSION_LEVEL = 5
+STAGING_ROOT = Path.home() / ".cache" / "notion_backup"
+PROBE_ARCHIVE_NAME = ".encryption_probe.7z"
+PROBE_FILE_NAME = ".encryption_probe"
 
 HTML_STYLE = """\
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 900px; margin: 0 auto; padding: 2rem; line-height: 1.6; color: #333; }
@@ -470,6 +473,39 @@ def extract_cache_archive(archive_path, work_dir):
     return cache_dir
 
 
+def verify_encryption_paths(work_dir, backup_dir):
+    """Fail fast if 7z cannot encrypt from work_dir to backup_dir.
+
+    Catches Keka sandbox permission issues before any Notion API calls,
+    so a multi-minute backup doesn't die at the very end.
+    """
+    probe_file = work_dir / PROBE_FILE_NAME
+    probe_archive = backup_dir / PROBE_ARCHIVE_NAME
+    probe_file.write_text("probe")
+    probe_archive.unlink(missing_ok=True)
+    try:
+        result = subprocess.run(
+            [
+                "7z", "a",
+                "-mhe=on",
+                f"-p{ARCHIVE_PASSWORD}",
+                str(probe_archive),
+                probe_file.name,
+            ],
+            cwd=str(work_dir),
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            logger.error(
+                f"Encryption preflight failed - 7z cannot write from {work_dir} "
+                f"to {backup_dir}: {result.stderr.strip() or result.stdout.strip()}"
+            )
+            sys.exit(1)
+    finally:
+        probe_file.unlink(missing_ok=True)
+        probe_archive.unlink(missing_ok=True)
+
+
 def create_encrypted_archive(source_parent, source_name, archive_path, label):
     if archive_path.exists():
         archive_path.unlink()
@@ -497,7 +533,6 @@ def main():
     )
     parser.add_argument("backup_dir", help="Directory to store backups")
     parser.add_argument("max_copies", nargs="?", type=int, default=10, help="Max backups to keep (default: 10)")
-    parser.add_argument("--reindex", action="store_true", help="Force full page rediscovery (ignores cached index)")
     parser.add_argument("--full", action="store_true", help="Re-export all pages (ignore edit timestamps)")
     parser.add_argument("--depth", type=int, default=5, help="Max block nesting depth to fetch (default: 5, 0=top-level only)")
     parser.add_argument("--keep-empty-untitled", action="store_true", help="Keep pages titled 'Untitled' even when they have no content")
@@ -515,10 +550,12 @@ def main():
 
     purge_legacy_plaintext(backup_dir)
 
+    STAGING_ROOT.mkdir(parents=True, exist_ok=True)
     run_timestamp = time.strftime("%Y%m%d_%H%M%S")
-    work_dir = Path(tempfile.mkdtemp(prefix=f"notion_backup_{run_timestamp}_"))
+    work_dir = Path(tempfile.mkdtemp(prefix=f"run_{run_timestamp}_", dir=str(STAGING_ROOT)))
     success = False
     try:
+        verify_encryption_paths(work_dir, backup_dir)
         run_backup(args, backup_dir, work_dir, run_timestamp)
         success = True
     finally:
