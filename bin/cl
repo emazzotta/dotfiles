@@ -1,11 +1,95 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import shutil
 import sys
+import threading
 from pathlib import Path
-from subprocess import run
-from time import time
+from subprocess import DEVNULL, PIPE, Popen, run
+from time import perf_counter, time, time_ns
+
+_PROFILE_ENABLED = os.environ.get("CL_PROFILE") == "1"
+_profile_start = perf_counter()
+_profile_last = _profile_start
+_docker_events: list[tuple[float, str]] = []
+
+
+def _profile(label: str) -> None:
+    global _profile_last
+    if not _PROFILE_ENABLED:
+        return
+    now = perf_counter()
+    delta_ms = (now - _profile_last) * 1000
+    total_ms = (now - _profile_start) * 1000
+    print(f"[cl-profile] {label:36s} +{delta_ms:8.1f}ms  (total {total_ms:8.1f}ms)", file=sys.stderr)
+    _profile_last = now
+
+
+def _start_docker_events_monitor(container_name: str, baseline_ns: int) -> tuple[Popen, threading.Thread] | None:
+    if not _PROFILE_ENABLED:
+        return None
+    docker_path = shutil.which("docker")
+    if not docker_path:
+        print("[cl-profile] docker events: docker not in PATH", file=sys.stderr)
+        return None
+    since_unix = str(baseline_ns // 1_000_000_000 - 1)
+    cmd = [
+        docker_path, "events",
+        "--since", since_unix,
+        "--filter", f"container={container_name}",
+        "--format", "{{.TimeNano}}\t{{.Action}}",
+    ]
+    try:
+        proc = Popen(cmd, stdout=PIPE, stderr=PIPE, text=True)
+    except OSError as e:
+        print(f"[cl-profile] docker events: spawn failed: {e}", file=sys.stderr)
+        return None
+
+    def reader() -> None:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            line = line.strip()
+            if not line or "\t" not in line:
+                continue
+            ts_str, status = line.split("\t", 1)
+            try:
+                ts_ns = int(ts_str)
+            except ValueError:
+                continue
+            delta_ms = (ts_ns - baseline_ns) / 1_000_000
+            _docker_events.append((delta_ms, status))
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    return proc, thread
+
+
+def _print_docker_events(monitor: tuple[Popen, threading.Thread] | None) -> None:
+    if not _PROFILE_ENABLED:
+        return
+    if monitor is None:
+        print("[cl-profile] docker events: monitor never started", file=sys.stderr)
+        return
+    proc, _thread = monitor
+    exit_code = proc.poll()
+    stderr_output = ""
+    if proc.stderr is not None:
+        try:
+            stderr_output = (proc.stderr.read() or "").strip()
+        except Exception as e:
+            stderr_output = f"<read failed: {e}>"
+    if not _docker_events:
+        print(f"[cl-profile] docker events: NO events captured (exit={exit_code})", file=sys.stderr)
+        if stderr_output:
+            for line in stderr_output.splitlines():
+                print(f"[cl-profile] docker events: stderr: {line}", file=sys.stderr)
+        return
+    for delta_ms, status in _docker_events:
+        print(f"[cl-profile] docker event: {status:26s} +{delta_ms:8.1f}ms  (from docker run)", file=sys.stderr)
+    if stderr_output:
+        for line in stderr_output.splitlines():
+            print(f"[cl-profile] docker events: stderr: {line}", file=sys.stderr)
 
 
 OPENCODE_ROOT = Path.home() / "Projects" / "private" / "opencode"
@@ -123,7 +207,9 @@ def build_dotfiles_volume_args() -> list[str]:
         return any(matches(part, pat) for part in path.split("/") for pat in DOTFILES_CRUFT_PATTERNS)
 
     tracked = git_lines("ls-files")
-    ignored = {f for f in git_lines("ls-files", "--others", "--ignored", "--exclude-standard") if not is_cruft(f)}
+    _profile("  dotfiles: ls-files tracked")
+    ignored = {f for f in git_lines("ls-files", "--others", "--ignored", "--exclude-standard", "--directory") if not is_cruft(f)}
+    _profile("  dotfiles: ls-files ignored")
 
     def ancestors(paths: set[str]) -> set[str]:
         out: set[str] = set()
@@ -135,6 +221,7 @@ def build_dotfiles_volume_args() -> list[str]:
 
     tracked_dirs = ancestors(tracked)
     dirty_dirs = ancestors(ignored)
+    _profile("  dotfiles: ancestors sets")
 
     mounts: list[tuple[Path, str]] = [(DOTFILES / ".git", f"{DOTFILES_CONTAINER}/.git")]
 
@@ -156,6 +243,7 @@ def build_dotfiles_volume_args() -> list[str]:
                     mounts.append((entry, f"{DOTFILES_CONTAINER}/{rel_entry}"))
 
     walk("")
+    _profile(f"  dotfiles: walk ({len(mounts)} mounts)")
     return [arg for host, container in mounts for arg in ("-v", f"{host}:{container}")]
 
 
@@ -224,6 +312,7 @@ def main() -> None:
     parser.add_argument("--convert", action="store_true", default=False, help="convert sessions between claude and opencode")
 
     args, claude_args = parser.parse_known_args()
+    _profile("argparse")
 
     lock_targets = args.paths or [pwd]
     locked_roots: set[Path] = set()
@@ -232,19 +321,24 @@ def main() -> None:
         if root and root not in locked_roots:
             lock_git_crypt(directory, repo_root=root)
             locked_roots.add(root)
+    _profile("git-crypt lock (targets)")
 
     if args.oc:
         sync_script = OPENCODE_ROOT / "opencode" / "workspace" / ".claude" / "scripts" / "sync-ollama-models"
         if sync_script.is_file():
             run([str(sync_script)], cwd=OPENCODE_ROOT)
+        _profile("sync-ollama-models")
 
     volume_args = build_volume_args(args.files, args.paths, pwd)
+    _profile("build_volume_args")
     dotfiles_volume_args = build_dotfiles_volume_args()
+    _profile("build_dotfiles_volume_args")
     if LEONARDO_COMMONS.is_dir() and LEONARDO_COMMONS.resolve() not in locked_roots:
         lock_git_crypt(LEONARDO_COMMONS)
         mounted = any(str(LEONARDO_COMMONS) in v for v in volume_args)
         if not mounted:
             volume_args.extend(["-v", f"{LEONARDO_COMMONS}:/workspace/code/leonardo-commons"])
+    _profile("leonardo-commons lock/mount")
     container_name = f"opencode-{int(time())}"
     skip_args = [] if args.no_skip else ["--dangerously-skip-permissions"]
 
@@ -275,6 +369,7 @@ def main() -> None:
             for arg in ("--plugin-dir", str(d))
         ] if plugin_dir.is_dir() else []
 
+    _profile("plugin dir scan")
     command = [
         "docker", "compose",
         "-f", str(COMPOSE_FILE),
@@ -288,8 +383,17 @@ def main() -> None:
         *plugin_args,
         *entrypoint_args,
     ]
+    _profile("handoff to docker compose")
 
-    result = run(command)
+    monitor = _start_docker_events_monitor(container_name, time_ns())
+    try:
+        result = run(command)
+    finally:
+        if monitor is not None:
+            events_proc, events_thread = monitor
+            events_proc.terminate()
+            events_thread.join(timeout=1.0)
+        _print_docker_events(monitor)
     sys.exit(result.returncode)
 
 
