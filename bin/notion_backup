@@ -164,7 +164,16 @@ def render_rich_text(rich_texts):
     return result
 
 
-MAX_BLOCK_DEPTH = 2
+MAX_BLOCK_DEPTH = 5
+MEANINGFUL_MEDIA_PATTERN = re.compile(r"<(img|iframe|video|audio|figure)\b", re.IGNORECASE)
+HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
+
+
+def has_meaningful_content(rendered_html):
+    if MEANINGFUL_MEDIA_PATTERN.search(rendered_html):
+        return True
+    text = HTML_TAG_PATTERN.sub("", rendered_html).strip()
+    return bool(text)
 
 
 def render_blocks(blocks, page_titles=None, depth=0):
@@ -179,14 +188,14 @@ def render_blocks(blocks, page_titles=None, depth=0):
 
         if block_type == "paragraph":
             content = render_rich_text(data.get("rich_text", []))
-            child_html = _render_children(block, depth) if can_recurse and block.get("has_children") else ""
+            child_html = _render_children(block, depth, page_titles) if can_recurse and block.get("has_children") else ""
             block_html = f"<p>{content}</p>{child_html}"
 
         elif block_type in ("heading_1", "heading_2", "heading_3"):
             level = block_type[-1]
             content = render_rich_text(data.get("rich_text", []))
             if data.get("is_toggleable") and block.get("has_children") and can_recurse:
-                child_html = _render_children(block, depth)
+                child_html = _render_children(block, depth, page_titles)
                 block_html = f"<details><summary><h{level} style='display:inline'>{content}</h{level}></summary>{child_html}</details>"
             else:
                 block_html = f"<h{level}>{content}</h{level}>"
@@ -197,7 +206,7 @@ def render_blocks(blocks, page_titles=None, depth=0):
                 b = blocks[i]
                 d = b.get("bulleted_list_item", {})
                 content = render_rich_text(d.get("rich_text", []))
-                child_html = _render_children(b, depth) if can_recurse and b.get("has_children") else ""
+                child_html = _render_children(b, depth, page_titles) if can_recurse and b.get("has_children") else ""
                 items.append(f"<li>{content}{child_html}</li>")
                 i += 1
             block_html = f"<ul>{''.join(items)}</ul>"
@@ -210,7 +219,7 @@ def render_blocks(blocks, page_titles=None, depth=0):
                 b = blocks[i]
                 d = b.get("numbered_list_item", {})
                 content = render_rich_text(d.get("rich_text", []))
-                child_html = _render_children(b, depth) if can_recurse and b.get("has_children") else ""
+                child_html = _render_children(b, depth, page_titles) if can_recurse and b.get("has_children") else ""
                 items.append(f"<li>{content}{child_html}</li>")
                 i += 1
             block_html = f"<ol>{''.join(items)}</ol>"
@@ -224,7 +233,7 @@ def render_blocks(blocks, page_titles=None, depth=0):
 
         elif block_type == "toggle":
             content = render_rich_text(data.get("rich_text", []))
-            child_html = _render_children(block, depth) if can_recurse and block.get("has_children") else ""
+            child_html = _render_children(block, depth, page_titles) if can_recurse and block.get("has_children") else ""
             block_html = f"<details><summary>{content}</summary>{child_html}</details>"
 
         elif block_type == "code":
@@ -237,14 +246,14 @@ def render_blocks(blocks, page_titles=None, depth=0):
 
         elif block_type == "quote":
             content = render_rich_text(data.get("rich_text", []))
-            child_html = _render_children(block, depth) if can_recurse and block.get("has_children") else ""
+            child_html = _render_children(block, depth, page_titles) if can_recurse and block.get("has_children") else ""
             block_html = f"<blockquote>{content}{child_html}</blockquote>"
 
         elif block_type == "callout":
             icon = data.get("icon", {})
             emoji = icon.get("emoji", "") if icon.get("type") == "emoji" else ""
             content = render_rich_text(data.get("rich_text", []))
-            child_html = _render_children(block, depth) if can_recurse and block.get("has_children") else ""
+            child_html = _render_children(block, depth, page_titles) if can_recurse and block.get("has_children") else ""
             block_html = f'<div class="callout">{emoji} {content}{child_html}</div>'
 
         elif block_type == "divider":
@@ -300,12 +309,12 @@ def render_blocks(blocks, page_titles=None, depth=0):
 
         elif block_type == "column_list":
             if can_recurse and block.get("has_children"):
-                child_html = _render_children(block, depth)
+                child_html = _render_children(block, depth, page_titles)
                 block_html = f'<div class="columns">{child_html}</div>'
 
         elif block_type == "column":
             if can_recurse and block.get("has_children"):
-                child_html = _render_children(block, depth)
+                child_html = _render_children(block, depth, page_titles)
                 block_html = f'<div class="column">{child_html}</div>'
 
         elif block_type == "child_page":
@@ -319,7 +328,7 @@ def render_blocks(blocks, page_titles=None, depth=0):
 
         elif block_type == "synced_block":
             if can_recurse and block.get("has_children"):
-                block_html = _render_children(block, depth)
+                block_html = _render_children(block, depth, page_titles)
 
         elif block_type == "link_to_page":
             linked_id = data.get("page_id") or data.get("database_id")
@@ -347,9 +356,9 @@ def render_blocks(blocks, page_titles=None, depth=0):
     return "\n".join(parts)
 
 
-def _render_children(block, depth):
+def _render_children(block, depth, page_titles=None):
     children = fetch_block_children(block["id"])
-    return render_blocks(children, depth=depth + 1)
+    return render_blocks(children, page_titles=page_titles, depth=depth + 1)
 
 
 def _extract_file_url(data):
@@ -415,13 +424,14 @@ def enforce_retention(backup_dir, max_copies):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Back up Notion pages under 'Everything' as HTML, compressed with pwcompress."
+        description="Back up a Notion workspace as HTML, compressed with pwcompress."
     )
     parser.add_argument("backup_dir", help="Directory to store backups")
     parser.add_argument("max_copies", nargs="?", type=int, default=10, help="Max backups to keep (default: 10)")
     parser.add_argument("--reindex", action="store_true", help="Force full page rediscovery (ignores cached index)")
     parser.add_argument("--full", action="store_true", help="Re-export all pages (ignore edit timestamps)")
-    parser.add_argument("--depth", type=int, default=2, help="Max block nesting depth to fetch (default: 2, 0=top-level only)")
+    parser.add_argument("--depth", type=int, default=5, help="Max block nesting depth to fetch (default: 5, 0=top-level only)")
+    parser.add_argument("--keep-empty-untitled", action="store_true", help="Keep pages titled 'Untitled' even when they have no content")
     args = parser.parse_args()
 
     backup_dir = Path(args.backup_dir)
@@ -481,6 +491,8 @@ def main():
         logger.log("No pages changed since last backup")
 
     failed = 0
+    skipped_empty = 0
+    skipped_ids = set()
     for idx, page in enumerate(changed, 1):
         pid = page["id"]
         title = page["title"]
@@ -489,6 +501,17 @@ def main():
         try:
             blocks = fetch_block_children(pid)
             content = render_blocks(blocks, page_titles)
+            if (
+                not args.keep_empty_untitled
+                and title == "Untitled"
+                and not has_meaningful_content(content)
+            ):
+                skipped_empty += 1
+                skipped_ids.add(pid)
+                stale = cache_dir / f"{safe_name}.html"
+                if stale.exists():
+                    stale.unlink()
+                continue
             escaped_title = html.escape(title)
             page_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -508,18 +531,19 @@ def main():
             logger.warn(f"Failed to export '{title}': {e}")
             failed += 1
 
-    current_ids = {p["id"] for p in pages}
+    kept_names = {
+        sname for pid, sname in name_map.items() if pid not in skipped_ids
+    }
     for html_file in cache_dir.glob("*.html"):
-        found = False
-        for pid, sname in name_map.items():
-            if sname == html_file.stem:
-                found = True
-                break
-        if not found:
+        if html_file.stem not in kept_names:
             html_file.unlink()
 
-    exported = len(pages) - failed
-    logger.success(f"Cache: {exported} pages ({len(changed) - failed} updated, {len(unchanged)} reused)")
+    exported = len(pages) - failed - skipped_empty
+    updated = len(changed) - failed - skipped_empty
+    summary = f"Cache: {exported} pages ({updated} updated, {len(unchanged)} reused)"
+    if skipped_empty:
+        summary += f", skipped {skipped_empty} empty Untitled"
+    logger.success(summary)
 
     if exported == 0:
         logger.error("No pages exported successfully")

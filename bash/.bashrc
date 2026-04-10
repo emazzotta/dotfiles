@@ -337,7 +337,7 @@ superocd() {
     kill_unwanted_processes && \
     rm_launch_items && \
     gsheet_backup -e "1KZK4zhVIMSk-EHjCc_E0O3MJOYTFOCWb6awhigELBJ8" "$GDRIVEDIR/Dokumente/Docs/Automated_Backups" && \
-    notion_page_backup "$GDRIVEDIR/Dokumente/Docs/Automated_Backups"
+    notion_backup "$GDRIVEDIR/Dokumente/Docs/Automated_Backups"
     
     local exit_code=$?
     return $exit_code
