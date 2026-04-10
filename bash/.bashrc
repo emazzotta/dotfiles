@@ -333,11 +333,11 @@ superocd() {
     upallin "$HOME" && \
     zgen update <<< "n" &> /dev/null && \
     gck "$WDIR" && \
+    source envify MAC_SUDO_PW GOOGLE_DOCUMENTS_API_KEY NOTION_API_KEY PASSWORD_ZIPS && \
     kill_unwanted_processes && \
     rm_launch_items && \
-    source envify GOOGLE_DOCUMENTS_API_KEY NOTION_API_KEY PASSWORD_ZIPS && \
-    gsheet_backup -e "1KZK4zhVIMSk-EHjCc_E0O3MJOYTFOCWb6awhigELBJ8" "$GDRIVEDIR/Dokumente/Docs/Backup" && \
-    notion_page_backup "$GDRIVEDIR/Dokumente/Docs/Backup"
+    gsheet_backup -e "1KZK4zhVIMSk-EHjCc_E0O3MJOYTFOCWb6awhigELBJ8" "$GDRIVEDIR/Dokumente/Docs/Automated_Backups" && \
+    notion_page_backup "$GDRIVEDIR/Dokumente/Docs/Automated_Backups"
     
     local exit_code=$?
     return $exit_code
