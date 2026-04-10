@@ -11,6 +11,14 @@ from time import time
 OPENCODE_ROOT = Path.home() / "Projects" / "private" / "opencode"
 COMPOSE_FILE = OPENCODE_ROOT / "docker-compose.yml"
 LEONARDO_COMMONS = Path.home() / "Projects" / "leo-productions" / "leonardo-commons"
+DOTFILES = Path.home() / "dotfiles"
+DOTFILES_CONTAINER = "/home/opencode/dotfiles"
+DOTFILES_CRUFT_PATTERNS = (
+    "__pycache__", "*.pyc", "*.pyo",
+    ".DS_Store",
+    ".venv", "venv", "node_modules",
+    ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
+)
 
 
 def _find_git_crypt_root(path: Path) -> Path | None:
@@ -84,6 +92,71 @@ def _container_path(path: Path, pwd: Path) -> str:
         return path.name if rel == Path(".") else str(rel)
     except ValueError:
         return path.name
+
+
+def build_dotfiles_volume_args() -> list[str]:
+    """Mount only git-tracked dotfiles content into the container.
+
+    Walks ~/dotfiles and emits -v args for every tracked file and
+    every directory whose contents are entirely tracked. Directories
+    with a mix of tracked and sensitive gitignored files are drilled
+    into so only the tracked children get mounted - sensitive files
+    never appear in the container's namespace. .git is always mounted
+    so the container can commit back to the host.
+
+    Cruft (build artifacts, OS metadata - see DOTFILES_CRUFT_PATTERNS)
+    does not force drilling. A directory with only cruft mixed in stays
+    a whole-dir mount; the cruft comes along but is harmless.
+    """
+    if not (DOTFILES / ".git").is_dir():
+        return []
+
+    def git_lines(*args: str) -> set[str]:
+        result = run(["git", "-C", str(DOTFILES), *args], capture_output=True, text=True)
+        return set(result.stdout.splitlines()) if result.returncode == 0 else set()
+
+    def is_cruft(path: str) -> bool:
+        def matches(name: str, pattern: str) -> bool:
+            if pattern.startswith("*."):
+                return name.endswith(pattern[1:])
+            return name == pattern
+        return any(matches(part, pat) for part in path.split("/") for pat in DOTFILES_CRUFT_PATTERNS)
+
+    tracked = git_lines("ls-files")
+    ignored = {f for f in git_lines("ls-files", "--others", "--ignored", "--exclude-standard") if not is_cruft(f)}
+
+    def ancestors(paths: set[str]) -> set[str]:
+        out: set[str] = set()
+        for path in paths:
+            parts = path.split("/")
+            for i in range(1, len(parts)):
+                out.add("/".join(parts[:i]))
+        return out
+
+    tracked_dirs = ancestors(tracked)
+    dirty_dirs = ancestors(ignored)
+
+    mounts: list[tuple[Path, str]] = [(DOTFILES / ".git", f"{DOTFILES_CONTAINER}/.git")]
+
+    def walk(rel: str) -> None:
+        host_dir = DOTFILES / rel if rel else DOTFILES
+        for entry in sorted(host_dir.iterdir()):
+            if entry.name == ".git":
+                continue
+            rel_entry = f"{rel}/{entry.name}" if rel else entry.name
+            if entry.is_file():
+                if rel_entry in tracked:
+                    mounts.append((entry, f"{DOTFILES_CONTAINER}/{rel_entry}"))
+            elif entry.is_dir():
+                if rel_entry not in tracked_dirs:
+                    continue
+                if rel_entry in dirty_dirs:
+                    walk(rel_entry)
+                else:
+                    mounts.append((entry, f"{DOTFILES_CONTAINER}/{rel_entry}"))
+
+    walk("")
+    return [arg for host, container in mounts for arg in ("-v", f"{host}:{container}")]
 
 
 def build_volume_args(files: list[str], paths: list[Path], pwd: Path) -> list[str]:
@@ -166,6 +239,7 @@ def main() -> None:
             run([str(sync_script)], cwd=OPENCODE_ROOT)
 
     volume_args = build_volume_args(args.files, args.paths, pwd)
+    dotfiles_volume_args = build_dotfiles_volume_args()
     if LEONARDO_COMMONS.is_dir() and LEONARDO_COMMONS.resolve() not in locked_roots:
         lock_git_crypt(LEONARDO_COMMONS)
         mounted = any(str(LEONARDO_COMMONS) in v for v in volume_args)
@@ -207,6 +281,7 @@ def main() -> None:
         "-p", "opencode",
         "run", "--remove-orphans", "--rm",
         "--name", container_name,
+        *dotfiles_volume_args,
         *volume_args,
         "opencode",
         entrypoint,
