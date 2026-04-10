@@ -30,6 +30,3 @@ alias prp='cd $PRIVATE_PROJECTS'
 alias lrp='cd $WDIR/leo-productions'
 alias utmdir='cd $HOME/Library/Containers/com.utmapp.UTM/Data/Documents'
 alias w='cd $WDIR'
-
-### LOCATION HELPERS ###
-alias pbp='pwd | pbcopy'
