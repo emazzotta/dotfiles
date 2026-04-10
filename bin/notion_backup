@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -22,8 +23,12 @@ API_BASE = "https://api.notion.com/v1"
 API_VERSION = "2022-06-28"
 RATE_LIMIT_DELAY = 0.35
 NOTION_API_KEY = ""
+ARCHIVE_PASSWORD = ""
 INDEX_FILENAME = ".notion_page_index.json"
-CACHE_DIR_NAME = ".notion_html_cache"
+CACHE_DIR_NAME = "notion_cache"
+CACHE_ARCHIVE_NAME = ".notion_cache.7z"
+LEGACY_CACHE_DIR_NAME = ".notion_html_cache"
+ARCHIVE_COMPRESSION_LEVEL = 5
 
 HTML_STYLE = """\
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 900px; margin: 0 auto; padding: 2rem; line-height: 1.6; color: #333; }
@@ -390,15 +395,19 @@ def load_env():
         if key in ("NOTION_API_KEY", "PASSWORD_ZIPS"):
             os.environ[key] = value
 
-    global NOTION_API_KEY
+    global NOTION_API_KEY, ARCHIVE_PASSWORD
     NOTION_API_KEY = os.environ.get("NOTION_API_KEY", "")
+    ARCHIVE_PASSWORD = os.environ.get("PASSWORD_ZIPS", "")
     if not NOTION_API_KEY:
         logger.error("NOTION_API_KEY not set")
         sys.exit(1)
+    if not ARCHIVE_PASSWORD:
+        logger.error("PASSWORD_ZIPS not set")
+        sys.exit(1)
 
 
-def load_page_index(backup_dir):
-    index_path = Path(backup_dir) / INDEX_FILENAME
+def load_page_index(index_dir):
+    index_path = Path(index_dir) / INDEX_FILENAME
     if index_path.exists():
         try:
             data = json.loads(index_path.read_text(encoding="utf-8"))
@@ -409,8 +418,8 @@ def load_page_index(backup_dir):
     return None
 
 
-def save_page_index(backup_dir, pages):
-    index_path = Path(backup_dir) / INDEX_FILENAME
+def save_page_index(index_dir, pages):
+    index_path = Path(index_dir) / INDEX_FILENAME
     index_path.write_text(json.dumps(pages, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -422,9 +431,69 @@ def enforce_retention(backup_dir, max_copies):
             old.unlink()
 
 
+def purge_legacy_plaintext(backup_dir):
+    legacy_cache = backup_dir / LEGACY_CACHE_DIR_NAME
+    legacy_index = backup_dir / INDEX_FILENAME
+    removed_any = False
+    if legacy_cache.is_dir():
+        logger.warn(f"Removing legacy plaintext cache: {legacy_cache}")
+        shutil.rmtree(legacy_cache)
+        removed_any = True
+    if legacy_index.exists():
+        logger.warn(f"Removing legacy plaintext page index: {legacy_index}")
+        legacy_index.unlink()
+        removed_any = True
+    if removed_any:
+        logger.log("Legacy plaintext state removed; cache will be rebuilt encrypted on this run")
+
+
+def extract_cache_archive(archive_path, work_dir):
+    cache_dir = work_dir / CACHE_DIR_NAME
+    if not archive_path.exists():
+        cache_dir.mkdir()
+        return cache_dir
+    logger.log("Decrypting cache archive...")
+    result = subprocess.run(
+        [
+            "7z", "x",
+            f"-o{work_dir}",
+            f"-p{ARCHIVE_PASSWORD}",
+            "-y",
+            str(archive_path),
+        ],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        logger.error(f"Failed to decrypt cache archive: {result.stderr.strip() or result.stdout.strip()}")
+        sys.exit(1)
+    cache_dir.mkdir(exist_ok=True)
+    return cache_dir
+
+
+def create_encrypted_archive(source_parent, source_name, archive_path, label):
+    if archive_path.exists():
+        archive_path.unlink()
+    logger.log(f"Encrypting {label}...")
+    result = subprocess.run(
+        [
+            "7z", "a",
+            f"-mx={ARCHIVE_COMPRESSION_LEVEL}",
+            "-mhe=on",
+            f"-p{ARCHIVE_PASSWORD}",
+            str(archive_path),
+            source_name,
+        ],
+        cwd=str(source_parent),
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        logger.error(f"Failed to encrypt {label}: {result.stderr.strip() or result.stdout.strip()}")
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Back up a Notion workspace as HTML, compressed with pwcompress."
+        description="Back up a Notion workspace as encrypted 7z archives (cache + timestamped snapshot)."
     )
     parser.add_argument("backup_dir", help="Directory to store backups")
     parser.add_argument("max_copies", nargs="?", type=int, default=10, help="Max backups to keep (default: 10)")
@@ -444,10 +513,26 @@ def main():
 
     load_env()
 
-    cache_dir = backup_dir / CACHE_DIR_NAME
-    cache_dir.mkdir(exist_ok=True)
+    purge_legacy_plaintext(backup_dir)
 
-    prev_index = load_page_index(str(backup_dir))
+    run_timestamp = time.strftime("%Y%m%d_%H%M%S")
+    work_dir = Path(tempfile.mkdtemp(prefix=f"notion_backup_{run_timestamp}_"))
+    success = False
+    try:
+        run_backup(args, backup_dir, work_dir, run_timestamp)
+        success = True
+    finally:
+        if success:
+            shutil.rmtree(work_dir, ignore_errors=True)
+        else:
+            logger.error(f"Backup failed - work dir preserved at {work_dir}")
+
+
+def run_backup(args, backup_dir, work_dir, run_timestamp):
+    cache_archive = backup_dir / CACHE_ARCHIVE_NAME
+    cache_dir = extract_cache_archive(cache_archive, work_dir)
+
+    prev_index = load_page_index(str(cache_dir))
     prev_edit_times = {}
     if prev_index and not args.full:
         prev_edit_times = {p["id"]: p.get("last_edited", "") for p in prev_index}
@@ -458,7 +543,7 @@ def main():
         logger.error("No pages found - check API key and integration access")
         sys.exit(1)
 
-    save_page_index(str(backup_dir), pages)
+    save_page_index(str(cache_dir), pages)
     logger.success(f"Found {len(pages)} pages")
 
     page_titles = {p["id"]: p["title"] for p in pages}
@@ -549,18 +634,22 @@ def main():
         logger.error("No pages exported successfully")
         sys.exit(1)
 
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    dir_name = f"notion_everything_{timestamp}"
-    output_dir = backup_dir / dir_name
-    shutil.copytree(str(cache_dir), str(output_dir))
+    create_encrypted_archive(
+        source_parent=work_dir,
+        source_name=CACHE_DIR_NAME,
+        archive_path=backup_dir / CACHE_ARCHIVE_NAME,
+        label="cache",
+    )
 
-    logger.log("Compressing with pwcompress...")
-    result = subprocess.run(["pwcompress", dir_name], cwd=str(backup_dir))
-    if result.returncode != 0:
-        logger.error(f"pwcompress failed (exit {result.returncode}) - temp dir preserved at {output_dir}")
-        sys.exit(1)
-
-    shutil.rmtree(output_dir)
+    dir_name = f"notion_everything_{run_timestamp}"
+    snapshot_dir = work_dir / dir_name
+    shutil.copytree(str(cache_dir), str(snapshot_dir))
+    create_encrypted_archive(
+        source_parent=work_dir,
+        source_name=dir_name,
+        archive_path=backup_dir / f"{dir_name}.7z",
+        label="snapshot",
+    )
     logger.success(f"Created {backup_dir / dir_name}.7z")
 
     enforce_retention(str(backup_dir), args.max_copies)
