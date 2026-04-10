@@ -3,30 +3,23 @@
 import argparse
 import os
 import shutil
-import socket
 import sys
 import threading
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from subprocess import DEVNULL, PIPE, Popen, run
 from time import perf_counter, time, time_ns
 
-INTERNET_CHECK_HOST = "1.1.1.1"
-INTERNET_CHECK_PORT = 443
-INTERNET_CHECK_TIMEOUT_S = 1.5
+INTERNET_CHECK_HOST = "one.one.one.one"
+INTERNET_CHECK_TIMEOUT_MS = 1000
 
 
 def warn_if_offline() -> None:
-    try:
-        with socket.create_connection((INTERNET_CHECK_HOST, INTERNET_CHECK_PORT), timeout=INTERNET_CHECK_TIMEOUT_S):
-            return
-    except OSError:
-        pass
-    print(
-        f"\033[33mcl: warning - no internet connectivity "
-        f"(tcp {INTERNET_CHECK_HOST}:{INTERNET_CHECK_PORT} failed). "
-        f"LLM calls will likely fail.\033[0m",
-        file=sys.stderr,
-    )
+    host_resolver = SourceFileLoader("host_resolver", str(Path.home() / "dotfiles" / "bin" / "host-resolver")).load_module()
+    if host_resolver.try_host(INTERNET_CHECK_HOST, INTERNET_CHECK_TIMEOUT_MS, silent=True):
+        return
+    print(f"\033[33mcl: warning - no internet (could not reach {INTERNET_CHECK_HOST}). LLM calls will likely fail.\033[0m", file=sys.stderr)
+
 
 _PROFILE_ENABLED = os.environ.get("CL_PROFILE") == "1"
 _profile_start = perf_counter()
