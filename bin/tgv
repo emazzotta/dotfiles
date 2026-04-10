@@ -1,6 +1,7 @@
 #!/bin/bash
 
 test -f "${DOTFILESPATH}/.env" && source "${DOTFILESPATH}/.env"
+[[ -z "${TELEGRAM_FILE_BOT_KEY:-}" ]] && source envify TELEGRAM_FILE_BOT_KEY
 
 if test "${3}"; then
     echo "Sending voice to ${2}..."

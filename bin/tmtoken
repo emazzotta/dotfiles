@@ -1,5 +1,7 @@
 #!/bin/bash
 
+[[ -z "${TM_USER:-}" ]] && source envify TM_USER
+
 if ! test "${TM_USER}"; then
     echo "TM_USER not set"
     exit 1
