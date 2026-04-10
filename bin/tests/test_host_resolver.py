@@ -10,16 +10,17 @@ def mod(load_script):
     return load_script("host-resolver")
 
 
-class TestResolveIp:
+class TestResolveIps:
     def test_resolves_localhost(self, mod):
-        assert mod.resolve_ip("localhost", timeout_ms=2000) == "127.0.0.1"
+        ips = mod.resolve_ips("localhost", timeout_ms=2000)
+        assert "127.0.0.1" in ips or "::1" in ips
 
-    def test_nonexistent_host_returns_none(self, mod):
-        assert mod.resolve_ip("nonexistent.invalid.host.xyz", timeout_ms=500) is None
+    def test_nonexistent_host_returns_empty(self, mod):
+        assert mod.resolve_ips("nonexistent.invalid.host.xyz", timeout_ms=500) == ()
 
     def test_respects_timeout(self, mod):
         start = time.monotonic()
-        mod.resolve_ip("nonexistent.invalid.host.xyz", timeout_ms=200)
+        mod.resolve_ips("nonexistent.invalid.host.xyz", timeout_ms=200)
         elapsed = time.monotonic() - start
         assert elapsed < 2.0
 
@@ -72,33 +73,33 @@ class TestHostsLookup:
 
 
 class TestDnsServer:
-    def test_resolve_ip_uses_dig_when_dns_server_set(self, mod):
+    def test_resolve_ips_uses_dig_when_dns_server_set(self, mod):
         completed = MagicMock()
         completed.returncode = 0
         completed.stdout = b"192.168.0.61\n"
         with patch.object(mod.subprocess, "run", return_value=completed) as mock_run:
-            result = mod.resolve_ip("myhost", timeout_ms=2000, dns_server="192.168.0.254")
-        assert result == "192.168.0.61"
+            result = mod.resolve_ips("myhost", timeout_ms=2000, dns_server="192.168.0.254")
+        assert result == ("192.168.0.61",)
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == "dig"
         assert "@192.168.0.254" in cmd
         assert "myhost" in cmd
 
-    def test_resolve_ip_without_dns_server_uses_socket(self, mod):
+    def test_resolve_ips_without_dns_server_uses_socket(self, mod):
         completed = MagicMock()
         completed.returncode = 0
         completed.stdout = b"127.0.0.1\n"
         with patch.object(mod.subprocess, "run", return_value=completed) as mock_run:
-            mod.resolve_ip("localhost", timeout_ms=2000)
+            mod.resolve_ips("localhost", timeout_ms=2000)
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == mod.sys.executable
 
-    def test_resolve_ip_dig_empty_response_returns_none(self, mod):
+    def test_resolve_ips_dig_empty_response_returns_empty(self, mod):
         completed = MagicMock()
         completed.returncode = 0
         completed.stdout = b"\n"
         with patch.object(mod.subprocess, "run", return_value=completed):
-            assert mod.resolve_ip("nohost", timeout_ms=2000, dns_server="1.1.1.1") is None
+            assert mod.resolve_ips("nohost", timeout_ms=2000, dns_server="1.1.1.1") == ()
 
 
 class TestSilentMode:

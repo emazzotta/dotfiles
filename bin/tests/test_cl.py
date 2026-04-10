@@ -338,7 +338,7 @@ class TestMain:
         monkeypatch.setattr(sys, "argv", ["cl", "-p", str(custom_dir)])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
-        assert f"{custom_dir}:/workspace/code/{custom_dir.name}" in mock_cl_run[0]
+        assert f"{custom_dir}:/workspace/code/{custom_dir.name}" in mock_cl_run[-1]
 
     def test_custom_path_and_files(self, cl, monkeypatch, mock_cl_run, tmp_path):
         custom_dir = tmp_path / "custom"
@@ -349,7 +349,7 @@ class TestMain:
         monkeypatch.setattr(sys, "argv", ["cl", "-p", str(custom_dir), "-f", "file.txt"])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
-        cmd = mock_cl_run[0]
+        cmd = mock_cl_run[-1]
         assert f"{custom_dir}:/workspace/code/{custom_dir.name}" in cmd
         assert f"{test_file}:/workspace/code/file.txt" in cmd
 
@@ -367,13 +367,13 @@ class TestMain:
         monkeypatch.setattr(sys, "argv", ["cl", "--resume"])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
-        assert "--resume" in mock_cl_run[0]
+        assert "--resume" in mock_cl_run[-1]
 
     def test_default_includes_skip_permissions(self, cl, monkeypatch, mock_cl_run):
         monkeypatch.setattr(sys, "argv", ["cl"])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
-        cmd = mock_cl_run[0]
+        cmd = mock_cl_run[-1]
         assert "--dangerously-skip-permissions" in cmd
         assert cmd.index("--dangerously-skip-permissions") > cmd.index("claude")
 
@@ -381,7 +381,7 @@ class TestMain:
         monkeypatch.setattr(sys, "argv", ["cl", "--no-skip"])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
-        assert "--dangerously-skip-permissions" not in mock_cl_run[0]
+        assert "--dangerously-skip-permissions" not in mock_cl_run[-1]
 
     def test_files_outside_cwd_exits(self, cl, monkeypatch, tmp_path):
         pwd = tmp_path / "pwd"
@@ -400,6 +400,6 @@ class TestMain:
         monkeypatch.setattr(sys, "argv", ["cl", "-p", str(dir1), "-p", str(dir2)])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
-        cmd = mock_cl_run[0]
+        cmd = mock_cl_run[-1]
         assert f"{dir1}:/workspace/code/dir1" in cmd
         assert f"{dir2}:/workspace/code/dir2" in cmd
