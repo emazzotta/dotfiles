@@ -2,6 +2,7 @@ tap "buo/cask-upgrade"
 tap "jandedobbeleer/oh-my-posh"
 
 brew "adr-tools"
+brew "age"
 brew "aria2"
 brew "awscli"
 brew "bash-completion"
