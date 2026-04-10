@@ -1,0 +1,35 @@
+#!/bin/bash
+### UP DIRECTORY ###
+alias .1='cd ..'
+alias .2='.1;.1'
+alias .3='.2;.1'
+alias .4='.3;.1'
+alias .5='.4;.1'
+
+### QUICK CD ###
+alias .a='cd $APPDIR'
+alias .ac='cd $DOTFILESPATH/autocomplete'
+alias .as='cd $HOME/Library/LaunchAgents'
+alias .d='cd $DESKDIR'
+alias .dc='cd $DOCUMENTDIR'
+alias .dj='cd $DJ_DIR'
+alias .dl='cd $DOWNLOADDIR'
+alias .f='cd $DOTFILESPATH'
+alias .gd='cd $GDRIVEDIR'
+alias .k='cd $KUBE_DIR'
+alias .s='cd $HOME/.ssh'
+alias .sshrcd='cd $HOME/.sshrc.d'
+alias .v='cd $VENV_PATH'
+alias .vd='cd $VIM_RUNTIME_DIR'
+alias aip='cd $OPENCODE_PATH/data/opencode/workspace'
+alias cb='cd $CUSTOM_BIN_DIR'
+alias kl='cd $HOME/Daten'
+alias lb='cd $PRIVATE_PROJECTS/lighthouse-badges'
+alias ph='cd $PRIVATE_PROJECTS/plexius-homepage'
+alias prp='cd $PRIVATE_PROJECTS'
+alias lrp='cd $WDIR/leo-productions'
+alias utmdir='cd $HOME/Library/Containers/com.utmapp.UTM/Data/Documents'
+alias w='cd $WDIR'
+
+### LOCATION HELPERS ###
+alias pbp='pwd | pbcopy'

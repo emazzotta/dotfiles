@@ -1,49 +1,184 @@
 #!/bin/bash
+# agrep - search shell aliases, exports, function defs, and custom bin scripts.
+set -uo pipefail
 
-FILE="${HOME}/.bashrc"
-EXACT_FLAG="-iF"
+BASHRC_DIR="${HOME}/.bashrc.d"
+[ -d "$BASHRC_DIR" ] || BASHRC_DIR="${HOME}/dotfiles/bash/.bashrc.d"
+BIN_DIR="${CUSTOM_BIN_DIR:-${HOME}/dotfiles/bin}"
 
-if [[ $# -eq 0 ]]; then
-    echo "usage: $(basename "$0") [-e|--exact] <term>"
-    exit 1
-fi
+readonly BOLD=$'\033[1m'
+readonly DIM=$'\033[2m'
+readonly RESET=$'\033[0m'
 
-if [[ "$1" == "-e" || "$1" == "--exact" ]]; then
-    EXACT_FLAG="-iFw"
-    TERM="${2:-}"
-else
-    TERM="$1"
-fi
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [-e|--exact] [-h|--help] <term>
 
-[[ -z "$TERM" ]] && echo "Error: search term required" && exit 1
+Search shell aliases, exports, function definitions, and custom bin scripts
+for <term>. Lists where matches are found. Offers to show full bin scripts
+via an interactive picker.
 
-search_in_bashrc() {
-    local prefix=$1
-    grep -w "$prefix" "$FILE" | awk -v p="$prefix" '{$1=p; print}' | grep $EXACT_FLAG "$TERM"
+Options:
+  -e, --exact    Match whole words only (default: substring)
+  -h, --help     Show this help
+
+Examples:
+  $(basename "$0") git             # find everything mentioning git
+  $(basename "$0") -e gst          # find the exact alias 'gst'
+  $(basename "$0") leonardo_start  # shows hits, prompts to view the script
+EOF
 }
 
-search_in_custom_bin() {
-    ls "${CUSTOM_BIN_DIR}" 2>/dev/null | while read -r filename; do
-        local filepath="${CUSTOM_BIN_DIR}/${filename}"
-        [[ ! -f "$filepath" ]] && continue
-        if cat "$filepath" | grep -q $EXACT_FLAG "$TERM"; then
-            cat "$filepath" | grep $EXACT_FLAG "$TERM" | while read -r line; do
-                echo -e "${line} ${COLOR_RED}(${filename})${COLOR_RESET}"
-            done
-        fi
+parse_args() {
+    exact=0
+    term=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -e|--exact) exact=1 ;;
+            -h|--help)  usage; exit 0 ;;
+            --)         shift; term="${1:-}"; break ;;
+            -*)         printf 'Unknown option: %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
+            *)          term="$1" ;;
+        esac
+        shift
     done
+    if [ -z "$term" ]; then
+        usage >&2
+        exit 1
+    fi
 }
 
-if ! ls "${CUSTOM_BIN_DIR}" 2>/dev/null | grep -qw "$TERM"; then
-    search_in_bashrc "export"
-    search_in_bashrc "alias"
-    search_in_custom_bin
-else
-    FULL_PATH="${CUSTOM_BIN_DIR}/${TERM}"
+section() {
+    printf '\n%s%s%s\n' "$BOLD" "$1" "$RESET"
+}
 
-    if [[ "$EXACT_FLAG" == "-iF" ]] && ls "${FULL_PATH}"* &>/dev/null; then
-        cat "${FULL_PATH}"*
-    elif [[ -e "$FULL_PATH" ]]; then
-        cat "$FULL_PATH"
+# Re-color matches in an input stream. Filename/lineno prefix stays plain.
+highlight() {
+    local term="$1" exact="$2"
+    if [ "$exact" -eq 1 ]; then
+        GREP_COLORS='mt=01;31' grep --color=always -iwF -- "$term"
+    else
+        GREP_COLORS='mt=01;31' grep --color=always -iF -- "$term"
     fi
-fi
+}
+
+search_bashrc_d() {
+    local term="$1" exact="$2"
+    [ -d "$BASHRC_DIR" ] || return 0
+
+    local match_cmd=(grep -iF -- "$term")
+    [ "$exact" -eq 1 ] && match_cmd=(grep -iwF -- "$term")
+
+    grep -HnE '^(alias |export |[a-zA-Z_][a-zA-Z0-9_]*\(\))' \
+        "$BASHRC_DIR"/[0-9]*.sh 2>/dev/null \
+        | "${match_cmd[@]}" \
+        | sed "s|^$BASHRC_DIR/||" \
+        | highlight "$term" "$exact"
+}
+
+search_bin_dir() {
+    local term="$1" exact="$2"
+    [ -d "$BIN_DIR" ] || return 0
+
+    local search_cmd=(grep -HnrI -iF -- "$term" "$BIN_DIR")
+    [ "$exact" -eq 1 ] && search_cmd=(grep -HnrI -iwF -- "$term" "$BIN_DIR")
+
+    "${search_cmd[@]}" 2>/dev/null \
+        | sed "s|^$BIN_DIR/||" \
+        | highlight "$term" "$exact"
+}
+
+# Collect candidate bin scripts to offer for viewing: exact-name match first,
+# then unique files that had content matches.
+candidate_files() {
+    local bin_hits="$1"
+    local exact_name=""
+    [ -f "$BIN_DIR/$term" ] && exact_name="$term"
+
+    {
+        [ -n "$exact_name" ] && printf '%s\n' "$exact_name"
+        if [ -n "$bin_hits" ]; then
+            printf '%s\n' "$bin_hits" \
+                | sed -E 's/^([^:]+):.*/\1/' \
+                | awk '!seen[$0]++'
+        fi
+    } | awk '!seen[$0]++'
+}
+
+view_bin_script() {
+    local name="$1"
+    local path="$BIN_DIR/$name"
+    [ -f "$path" ] || { printf 'not a bin script: %s\n' "$name" >&2; return 1; }
+
+    if [ -t 1 ] && command -v less >/dev/null 2>&1; then
+        {
+            printf '%s--- %s ---%s\n' "$BOLD" "$name" "$RESET"
+            cat "$path"
+        } | less -FRX
+    else
+        printf '%s--- %s ---%s\n' "$BOLD" "$name" "$RESET"
+        cat "$path"
+    fi
+}
+
+offer_view() {
+    local bin_hits="$1"
+    # Only prompt when stdin and stdout are both a tty
+    [ -t 0 ] && [ -t 1 ] || return 0
+    command -v gum >/dev/null 2>&1 || return 0
+
+    local candidates
+    candidates=$(candidate_files "$bin_hits")
+    [ -z "$candidates" ] && return 0
+
+    local count
+    count=$(printf '%s\n' "$candidates" | wc -l | tr -d ' ')
+
+    local choice=""
+    if [ "$count" -eq 1 ]; then
+        gum confirm "View full content of bin script '$candidates'?" --default=false || return 0
+        choice="$candidates"
+    else
+        choice=$(printf '%s\n' "$candidates" | gum choose --header "View full script (esc to skip):")
+        [ -z "$choice" ] && return 0
+    fi
+
+    echo ""
+    view_bin_script "$choice"
+}
+
+main() {
+    parse_args "$@"
+
+    local config_hits bin_hits
+    config_hits=$(search_bashrc_d "$term" "$exact")
+    bin_hits=$(search_bin_dir "$term" "$exact")
+
+    local has_hits=0
+    if [ -n "$config_hits" ]; then
+        section "[config]"
+        printf '%s\n' "$config_hits"
+        has_hits=1
+    fi
+
+    if [ -n "$bin_hits" ]; then
+        section "[bin]"
+        printf '%s\n' "$bin_hits"
+        has_hits=1
+    fi
+
+    # Term matches an exact bin script name but had no content matches - still worth surfacing
+    if [ "$has_hits" -eq 0 ] && [ -f "$BIN_DIR/$term" ]; then
+        printf '%sbin script "%s" exists%s\n' "$DIM" "$term" "$RESET"
+        has_hits=1
+    fi
+
+    if [ "$has_hits" -eq 0 ]; then
+        printf '%sno matches for "%s"%s\n' "$DIM" "$term" "$RESET" >&2
+        return 1
+    fi
+
+    offer_view "$bin_hits"
+}
+
+main "$@"

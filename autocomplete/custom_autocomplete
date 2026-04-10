@@ -7,8 +7,8 @@ fi
 _agrep()
 {
   _agrep_commands=$(ls ${CUSTOM_BIN_DIR})
-  _agrep_commands+=$(grep -Eo '^(alias ).*' ${HOME}/.bashrc | sed 's/=.*$//g' | sed 's/alias //g')
-  _agrep_commands+=$(grep -Eo '^(export ).*' ${HOME}/.bashrc | sed 's/=.*$//g' | sed 's/export //g')
+  _agrep_commands+=$(grep -hEo '^(alias ).*' ${HOME}/.bashrc.d/[0-9]*.sh | sed 's/=.*$//g' | sed 's/alias //g')
+  _agrep_commands+=$(grep -hEo '^(export ).*' ${HOME}/.bashrc.d/[0-9]*.sh | sed 's/=.*$//g' | sed 's/export //g')
   local cur prev
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
