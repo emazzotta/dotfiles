@@ -1,3 +1,8 @@
 #!/bin/bash
 
-/Applications/Keka.app/Contents/MacOS/Keka --cli 7zz "${@}"
+KEKA=/Applications/Keka.app/Contents/MacOS/Keka
+
+if [[ -x "${KEKA}" ]]; then
+  exec "${KEKA}" --cli 7zz "${@}"
+fi
+exec /usr/bin/7z "${@}"
