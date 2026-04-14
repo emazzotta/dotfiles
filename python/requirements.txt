@@ -5,6 +5,6 @@ bpython==0.26
 music_tag==0.4.3
 ptpython==3.0.32
 pytest-sugar==1.1.1
-pytest==9.0.2
+pytest==9.0.3
 requests==2.33.0
 tesla_dashcam==0.1.21
