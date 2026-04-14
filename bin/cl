@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import threading
+import importlib.util
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from subprocess import DEVNULL, PIPE, Popen, run
@@ -15,7 +16,10 @@ INTERNET_CHECK_TIMEOUT_MS = 1000
 
 
 def warn_if_offline() -> None:
-    host_resolver = SourceFileLoader("host_resolver", str(Path.home() / "dotfiles" / "bin" / "host-resolver")).load_module()
+    path = Path(__file__).resolve().parent / "host-resolver"
+    spec = importlib.util.spec_from_loader("host_resolver", SourceFileLoader("host_resolver", str(path)))
+    host_resolver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(host_resolver)
     if host_resolver.try_host(INTERNET_CHECK_HOST, INTERNET_CHECK_TIMEOUT_MS, silent=True):
         return
     print(f"\033[33mcl: warning - no internet (could not reach {INTERNET_CHECK_HOST}). LLM calls will likely fail.\033[0m", file=sys.stderr)
