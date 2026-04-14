@@ -80,6 +80,37 @@
             }
         }
 
+        $macPropsPath = "\\Mac\Home\.leonardo\25\LEONARDO_25.props"
+        $winPropsDir = Join-Path $env:USERPROFILE ".leonardo\25"
+        $winPropsPath = Join-Path $winPropsDir "LEONARDO_25.props"
+
+        if (Test-Path -LiteralPath $macPropsPath) {
+            if (-not (Test-Path $winPropsDir)) {
+                New-Item -ItemType Directory -Path $winPropsDir -Force | Out-Null
+            }
+            $macContent = Get-Content -LiteralPath $macPropsPath -Raw
+            $winContent = [regex]::Replace($macContent, '/Users/emanuelemazzotta([^\s"''=]*)', {
+                param($m)
+                '\\\\Mac\\Home' + ($m.Groups[1].Value -replace '/', '\\')
+            })
+
+            $needsWrite = $true
+            if (Test-Path -LiteralPath $winPropsPath) {
+                $currentContent = Get-Content -LiteralPath $winPropsPath -Raw
+                if ($currentContent -ceq $winContent) {
+                    $needsWrite = $false
+                }
+            }
+
+            if ($needsWrite) {
+                Set-Content -LiteralPath $winPropsPath -Value $winContent -NoNewline -Encoding UTF8
+                $copiedCount++
+                Write-Host "✅ Props copied: LEONARDO_25.props (paths rewritten to \\Mac\Home)" -ForegroundColor Green
+            }
+        } else {
+            Write-Host "⚠️  Mac props not reachable at $macPropsPath" -ForegroundColor Yellow
+        }
+
         if ($copiedCount -eq 0 -and $deletedCount -eq 0) {
             Write-Host "✓ All files up to date" -ForegroundColor Gray
         } else {
@@ -103,11 +134,41 @@
     } -ArgumentList $SourceProfilePath, $DestProfilePath
 }
 
+function New-SSHSession {
+    param([Parameter(Mandatory=$true)][hashtable]$Params)
+
+    $target = "$($Params.UserName)@$($Params.HostName):$($Params.Port)"
+    Write-Host "🔌 Connecting to $target..." -ForegroundColor Cyan
+
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $err = $null
+    $session = New-PSSession @Params -ErrorAction SilentlyContinue -ErrorVariable err
+    $sw.Stop()
+    $elapsed = [int]$sw.Elapsed.TotalSeconds
+
+    if ($session) {
+        Write-Host "   ✓ Connected in ${elapsed}s" -ForegroundColor Green
+        return $session
+    }
+
+    Write-Host "   ✗ Failed after ${elapsed}s" -ForegroundColor Red
+    foreach ($e in $err) {
+        Write-Host "   $($e.Exception.Message)" -ForegroundColor DarkYellow
+    }
+    return $null
+}
+
 function Connect-Devhost-VM {
     $DotfilesProfilePath = "\\Mac\Home\Projects\private\dotfiles\powershell\.config\powershell\Microsoft.PowerShell_profile.ps1"
     $CustomProfilePath = "C:\Users\Administrator\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
 
-    $session = New-PSSession -HostName 192.168.192.150 -UserName "administrator" -SSHTransport -Port 2222
+    $session = New-SSHSession -Params @{
+        HostName = "192.168.192.150"
+        UserName = "administrator"
+        SSHTransport = $true
+        Port = 2222
+    }
+    if (-not $session) { return }
     Sync-ProfileAndModules -Session $session -SourceProfilePath $DotfilesProfilePath -DestProfilePath $CustomProfilePath
     Enter-PSSession -Session $session
 }
@@ -116,7 +177,13 @@ function Connect-Parallels-VM {
     $DotfilesProfilePath = "\\Mac\Home\Projects\private\dotfiles\powershell\.config\powershell\Microsoft.PowerShell_profile.ps1"
     $CustomProfilePath = "C:\Users\emanuelemazzotta\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
 
-    $session = New-PSSession -HostName "EMANUELE-PARALLELS.local" -UserName "emanuelemazzotta" -SSHTransport -Port 22
+    $session = New-SSHSession -Params @{
+        HostName = "EMANUELE-PARALLELS.local"
+        UserName = "emanuelemazzotta"
+        SSHTransport = $true
+        Port = 22
+    }
+    if (-not $session) { return }
     Sync-ProfileAndModules -Session $session -SourceProfilePath $DotfilesProfilePath -DestProfilePath $CustomProfilePath
     Enter-PSSession -Session $session
 }
