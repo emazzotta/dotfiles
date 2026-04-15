@@ -84,7 +84,7 @@ def create_mock_bin(tmp_path):
 def run_script(tmp_path):
     def _run(script_path, args=None, env_extra=None):
         env = os.environ.copy()
-        env["PATH"] = str(tmp_path / "bin") + ":" + env["PATH"]
+        env["PATH"] = f"{tmp_path / 'bin'}:{BIN_DIR}:{env['PATH']}"
         if env_extra:
             env.update(env_extra)
         return subprocess.run(

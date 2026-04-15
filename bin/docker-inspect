@@ -42,9 +42,9 @@ select_containers() {
         return
     fi
 
-    if ! command -v gum >/dev/null 2>&1; then
-        echo "Error: multiple containers running but gum not found" >&2
-        echo "Install: brew install gum" >&2
+    if ! command -v picker >/dev/null 2>&1 || ! { command -v fzf >/dev/null 2>&1 || command -v gum >/dev/null 2>&1; }; then
+        echo "Error: multiple containers running but no interactive picker backend found" >&2
+        echo "Install: brew install fzf (or gum)" >&2
         echo "" >&2
         echo "Running containers:" >&2
         echo "$running" | column -t -s $'\t' >&2

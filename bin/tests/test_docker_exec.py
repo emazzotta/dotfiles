@@ -155,8 +155,8 @@ fi
             capture_output=True, text=True, env=env,
         )
         assert result.returncode == 1
-        assert "gum not found" in result.stderr
-        assert "brew install gum" in result.stderr
+        assert "no interactive picker backend found" in result.stderr
+        assert "brew install fzf" in result.stderr
 
     def test_gum_selection(self, create_mock_bin, run_script):
         create_mock_bin("docker", """
@@ -170,7 +170,8 @@ elif [ "$1" = "exec" ] && [ "$2" = "-it" ]; then
     echo "exec: $3 $4"
 fi
 """)
-        create_mock_bin("gum", """
+        create_mock_bin("gum", "true")
+        create_mock_bin("picker", """
 while IFS= read -r line; do lines+=("$line"); done
 echo "${lines[0]}"
 """)
