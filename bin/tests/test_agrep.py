@@ -1,12 +1,15 @@
 import importlib.machinery
 import importlib.util
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 AGREP = Path(__file__).parent.parent / "agrep"
+
+requires_rg = pytest.mark.skipif(shutil.which("rg") is None, reason="ripgrep not installed")
 
 
 def _load(path: Path):
@@ -75,6 +78,7 @@ class TestBashrcMatches:
         assert [h.path.name for h in hits] == ["10-x.sh"]
 
 
+@requires_rg
 class TestRgContent:
     def test_finds_content_and_filenames(self, tmp_path):
         (tmp_path / "a").write_text("hello world\n")
@@ -91,6 +95,7 @@ class TestRgContent:
 
 
 class TestIntegration:
+    @requires_rg
     def test_cli_finds_filename_and_content(self, tmp_path, monkeypatch):
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
