@@ -136,9 +136,16 @@ offer_view() {
     local count
     count=$(printf '%s\n' "$candidates" | wc -l | tr -d ' ')
 
+    local prompt
+    if [ "$count" -eq 1 ]; then
+        prompt="View full content of bin script '$candidates'?"
+    else
+        prompt="View full content of one of the $count matching bin scripts?"
+    fi
+    gum confirm "$prompt" --default=false || return 0
+
     local choice=""
     if [ "$count" -eq 1 ]; then
-        gum confirm "View full content of bin script '$candidates'?" --default=false || return 0
         choice="$candidates"
     else
         choice=$(printf '%s\n' "$candidates" | picker --header "View full script (esc to skip):")
