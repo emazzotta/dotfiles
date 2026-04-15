@@ -419,13 +419,14 @@ def gum_choose(header: str, options: list[str]) -> str | None:
     if not options:
         return None
     result = subprocess.run(
-        ["gum", "choose", "--header", header, *options],
+        ["picker", "--header", header],
+        input="\n".join(options),
         stdout=subprocess.PIPE,
         text=True,
     )
     if result.returncode != 0:
         return None
-    return result.stdout.strip()
+    return result.stdout.strip() or None
 
 
 def menu_choose(header: str, options: list[str]) -> str | None:

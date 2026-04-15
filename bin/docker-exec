@@ -57,7 +57,7 @@ select_container() {
     choices=$(echo "$running" | awk -F'\t' '{printf "%-30s %-35s %s\n", $1, $2, $3}')
 
     local selected
-    selected=$(echo "$choices" | gum choose --header "Select container:")
+    selected=$(echo "$choices" | picker --header "Select container:")
 
     if [ -z "$selected" ]; then
         echo "No container selected" >&2

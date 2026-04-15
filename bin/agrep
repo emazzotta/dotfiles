@@ -95,10 +95,12 @@ candidate_files() {
     local exact_name=""
     [ -f "$BIN_DIR/$term" ] && exact_name="$term"
 
+    local esc=$'\033'
     {
         [ -n "$exact_name" ] && printf '%s\n' "$exact_name"
         if [ -n "$bin_hits" ]; then
             printf '%s\n' "$bin_hits" \
+                | sed -E "s/${esc}\\[[0-9;]*[a-zA-Z]//g" \
                 | sed -E 's/^([^:]+):.*/\1/' \
                 | awk '!seen[$0]++'
         fi
@@ -139,7 +141,7 @@ offer_view() {
         gum confirm "View full content of bin script '$candidates'?" --default=false || return 0
         choice="$candidates"
     else
-        choice=$(printf '%s\n' "$candidates" | gum choose --header "View full script (esc to skip):")
+        choice=$(printf '%s\n' "$candidates" | picker --header "View full script (esc to skip):")
         [ -z "$choice" ] && return 0
     fi
 

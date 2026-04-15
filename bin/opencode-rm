@@ -12,7 +12,7 @@ Interactive session picker for removing opencode sessions. Multi-select
 with gum; deletes from SQLite database and filesystem storage.
 
 Options:
-  -n COUNT   Number of sessions to show (default: 30)
+  -n COUNT   Number of sessions to show (default: all)
   -m         Multi-select (space to toggle, enter to confirm)
   -y         Skip confirmation prompt
   -h         Show this help
@@ -83,7 +83,7 @@ PY
 }
 
 main() {
-    local count=30 skip_confirm=false multi=false search=""
+    local count=100000 skip_confirm=false multi=false search=""
     while [ $# -gt 0 ]; do
         case "$1" in
             -h|--help) show_usage; exit 0 ;;
@@ -108,14 +108,11 @@ main() {
         printf "%-47s %-12s %s\n" "$title" "$ago" "$sid"
     done)
 
-    command -v gum &>/dev/null || { echo "Error: gum required" >&2; exit 1; }
+    local picker_args=(--header "Select session to DELETE:")
+    [ "$multi" = true ] && picker_args=(--multi --header "Select session(s) to DELETE (tab=toggle, enter=confirm):")
 
-    local gum_flags=("--header" "Select session to DELETE:")
-    if [ "$multi" = true ]; then
-        gum_flags=("--no-limit" "--header" "Select session(s) to DELETE (space=toggle, enter=confirm):")
-    fi
     local selected
-    selected=$(echo "$display" | gum choose "${gum_flags[@]}") || exit 1
+    selected=$(echo "$display" | picker "${picker_args[@]}") || exit 1
     [ -n "$selected" ] || { echo "No selection" >&2; exit 1; }
 
     local ids=()
