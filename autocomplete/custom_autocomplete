@@ -123,4 +123,4 @@ complete -o nospace -F _ef ef
 complete -o nospace -F _repo repo c
 complete -F _cl cl
 complete -F _ags ags
-complete -F _make_targets make
+complete -F _make_targets make m
