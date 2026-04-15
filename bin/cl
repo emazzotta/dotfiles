@@ -326,6 +326,11 @@ def main() -> None:
         help="resume a session (opencode: interactive picker; claude: --resume)",
     )
     parser.add_argument("--convert", action="store_true", default=False, help="convert sessions between claude and opencode")
+    parser.add_argument(
+        "--rm",
+        dest="rm", nargs="?", const="", default=None, metavar="SEARCH",
+        help="remove sessions via interactive picker (claude by default, opencode with -o)",
+    )
 
     args, claude_args = parser.parse_known_args()
     _profile("argparse")
@@ -342,7 +347,7 @@ def main() -> None:
             locked_roots.add(root)
     _profile("git-crypt lock (targets)")
 
-    if args.oc:
+    if args.oc and args.rm is None:
         sync_script = OPENCODE_ROOT / "opencode" / "workspace" / ".claude" / "scripts" / "sync-local-models"
         if sync_script.is_file():
             run([str(sync_script)], cwd=OPENCODE_ROOT)
@@ -361,7 +366,11 @@ def main() -> None:
     container_name = f"opencode-{int(time())}"
     skip_args = [] if args.no_skip else ["--dangerously-skip-permissions"]
 
-    if args.convert:
+    if args.rm is not None:
+        entrypoint = "opencode-rm" if args.oc else "claude-rm"
+        rm_args = [args.rm] if args.rm else []
+        entrypoint_args = [*rm_args, *claude_args]
+    elif args.convert:
         entrypoint = "session-convert"
         entrypoint_args = claude_args
     elif args.oc:
