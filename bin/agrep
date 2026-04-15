@@ -1,228 +1,204 @@
-#!/bin/bash
-# agrep - search shell aliases, exports, function defs, and custom bin scripts.
-set -uo pipefail
+#!/usr/bin/env python3
+"""Search shell aliases, exports, function definitions, and custom bin scripts."""
 
-BASHRC_DIR="${HOME}/.bashrc.d"
-[ -d "$BASHRC_DIR" ] || BASHRC_DIR="${HOME}/dotfiles/bash/.bashrc.d"
-BIN_DIR="${CUSTOM_BIN_DIR:-${HOME}/dotfiles/bin}"
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable
 
-readonly BOLD=$'\033[1m'
-readonly DIM=$'\033[2m'
-readonly RESET=$'\033[0m'
+BOLD = "\033[1m"
+DIM = "\033[2m"
+RED = "\033[1;31m"
+RESET = "\033[0m"
 
-usage() {
-    cat <<EOF
-Usage: $(basename "$0") [-e|--exact] [-h|--help] <term>
+HOME = Path.home()
+BASHRC_DIR = next(
+    (d for d in (HOME / ".bashrc.d", HOME / "dotfiles" / "bash" / ".bashrc.d") if d.is_dir()),
+    None,
+)
+BIN_DIR = Path(os.environ.get("CUSTOM_BIN_DIR", HOME / "dotfiles" / "bin"))
 
-Search shell aliases, exports, function definitions, and custom bin scripts
-for <term>. Lists where matches are found. Offers to show full bin scripts
-via an interactive picker.
+DEF_LINE_RE = re.compile(r"^(alias |export |[A-Za-z_][A-Za-z0-9_]*\(\))")
 
-Options:
-  -e, --exact    Match whole words only (default: substring)
-  -h, --help     Show this help
 
-Examples:
-  $(basename "$0") git             # find everything mentioning git
-  $(basename "$0") -e gst          # find the exact alias 'gst'
-  $(basename "$0") leonardo_start  # shows hits, prompts to view the script
-EOF
-}
+@dataclass
+class Hit:
+    path: Path
+    line_no: int | None
+    text: str
 
-parse_args() {
-    exact=0
-    term=""
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            -e|--exact) exact=1 ;;
-            -h|--help)  usage; exit 0 ;;
-            --)         shift; term="${1:-}"; break ;;
-            -*)         printf 'Unknown option: %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
-            *)          term="$1" ;;
-        esac
-        shift
-    done
-    if [ -z "$term" ]; then
-        usage >&2
-        exit 1
-    fi
-}
 
-section() {
-    printf '\n%s%s%s\n' "$BOLD" "$1" "$RESET"
-}
+def colorize(text: str, term: str, exact: bool) -> str:
+    pat = rf"\b{re.escape(term)}\b" if exact else re.escape(term)
+    return re.sub(pat, lambda m: f"{RED}{m.group(0)}{RESET}", text, flags=re.IGNORECASE)
 
-# Re-color matches in an input stream. Filename/lineno prefix stays plain.
-highlight() {
-    local term="$1" exact="$2"
-    if [ "$exact" -eq 1 ]; then
-        GREP_COLORS='mt=01;31' grep --color=always -iwF -- "$term"
-    else
-        GREP_COLORS='mt=01;31' grep --color=always -iF -- "$term"
-    fi
-}
 
-search_bashrc_d() {
-    local term="$1" exact="$2"
-    [ -d "$BASHRC_DIR" ] || return 0
+def rg_content(term: str, path: Path, exact: bool) -> list[Hit]:
+    if not path.is_dir():
+        return []
+    args = ["rg", "--no-heading", "--with-filename", "--line-number", "--color=never", "-F", "-i"]
+    if exact:
+        args.append("-w")
+    args += ["--", term, str(path)]
+    r = subprocess.run(args, capture_output=True, text=True)
+    hits = []
+    for line in r.stdout.splitlines():
+        parts = line.split(":", 2)
+        if len(parts) < 3:
+            continue
+        fp, ln, text = parts
+        try:
+            hits.append(Hit(Path(fp), int(ln), text))
+        except ValueError:
+            continue
+    return hits
 
-    local match_cmd=(grep -iF -- "$term")
-    [ "$exact" -eq 1 ] && match_cmd=(grep -iwF -- "$term")
 
-    grep -HnE '^(alias |export |[a-zA-Z_][a-zA-Z0-9_]*\(\))' \
-        "$BASHRC_DIR"/[0-9]*.sh 2>/dev/null \
-        | "${match_cmd[@]}" \
-        | sed "s|^$BASHRC_DIR/||" \
-        | highlight "$term" "$exact"
-}
+def filename_matches(term: str, path: Path, exact: bool) -> list[Path]:
+    if not path.is_dir():
+        return []
+    pat = re.compile(
+        rf"(?i)\b{re.escape(term)}\b" if exact else rf"(?i){re.escape(term)}"
+    )
+    return [p for p in sorted(path.iterdir()) if p.is_file() and pat.search(p.name)]
 
-search_bin_dir() {
-    local term="$1" exact="$2"
-    [ -d "$BIN_DIR" ] || return 0
 
-    local search_cmd=(grep -HnrI -iF -- "$term" "$BIN_DIR")
-    [ "$exact" -eq 1 ] && search_cmd=(grep -HnrI -iwF -- "$term" "$BIN_DIR")
+def bashrc_matches(term: str, exact: bool) -> list[Hit]:
+    if BASHRC_DIR is None:
+        return []
+    t = term.lower()
+    hits = []
+    pat = re.compile(rf"(?i)\b{re.escape(term)}\b") if exact else None
+    for p in sorted(BASHRC_DIR.glob("[0-9]*.sh")):
+        try:
+            for i, raw in enumerate(p.read_text().splitlines(), 1):
+                if not DEF_LINE_RE.match(raw):
+                    continue
+                if pat:
+                    if not pat.search(raw):
+                        continue
+                elif t not in raw.lower():
+                    continue
+                hits.append(Hit(p, i, raw))
+        except OSError:
+            continue
+    return hits
 
-    local content_hits
-    content_hits=$("${search_cmd[@]}" 2>/dev/null | sed "s|^$BIN_DIR/||" || true)
 
-    local files_with_hits=""
-    [ -n "$content_hits" ] && files_with_hits=$(printf '%s\n' "$content_hits" | cut -d: -f1 | sort -u)
+def print_section(title: str, lines: Iterable[str]) -> bool:
+    lines = list(lines)
+    if not lines:
+        return False
+    print(f"\n{BOLD}[{title}]{RESET}")
+    for line in lines:
+        print(line)
+    return True
 
-    local name_match=(grep -iF -- "$term")
-    [ "$exact" -eq 1 ] && name_match=(grep -iwF -- "$term")
-    local all_name_hits=""
-    all_name_hits=$(find "$BIN_DIR" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null \
-        | "${name_match[@]}" 2>/dev/null || true)
-    local name_only=""
-    if [ -n "$all_name_hits" ]; then
-        if [ -n "$files_with_hits" ]; then
-            name_only=$(printf '%s\n' "$all_name_hits" | grep -vxFf <(echo "$files_with_hits") || true)
-        else
-            name_only="$all_name_hits"
-        fi
-    fi
 
-    {
-        [ -n "$content_hits" ] && printf '%s\n' "$content_hits"
-        if [ -n "$name_only" ]; then
-            while IFS= read -r fname; do
-                [ -z "$fname" ] && continue
-                printf '%s%s%s (filename match)\n' "$DIM" "$fname" "$RESET"
-            done <<< "$name_only"
-        fi
-    } | highlight "$term" "$exact"
-}
+def fmt_hit(h: Hit, base: Path, term: str, exact: bool) -> str:
+    rel = h.path.relative_to(base) if h.path.is_relative_to(base) else h.path
+    return f"{rel}:{h.line_no}:{colorize(h.text, term, exact)}"
 
-# Collect candidate bin scripts to offer for viewing: exact-name match first,
-# then unique files that had content matches.
-candidate_files() {
-    local bin_hits="$1"
-    local exact_name=""
-    [ -f "$BIN_DIR/$term" ] && exact_name="$term"
 
-    local name_matches=""
-    if [ -d "$BIN_DIR" ]; then
-        local match_cmd=(grep -iF -- "$term")
-        [ "$exact" -eq 1 ] && match_cmd=(grep -iwF -- "$term")
-        name_matches=$(find "$BIN_DIR" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null \
-            | "${match_cmd[@]}" || true)
-    fi
+def run_picker(candidates: list[str], header: str) -> str | None:
+    if not shutil.which("picker"):
+        return None
+    r = subprocess.run(
+        ["picker", "--header", header],
+        input="\n".join(candidates),
+        capture_output=True,
+        text=True,
+    )
+    sel = r.stdout.strip()
+    return sel or None
 
-    local esc=$'\033'
-    {
-        [ -n "$exact_name" ] && printf '%s\n' "$exact_name"
-        [ -n "$name_matches" ] && printf '%s\n' "$name_matches"
-        if [ -n "$bin_hits" ]; then
-            printf '%s\n' "$bin_hits" \
-                | sed -E "s/${esc}\\[[0-9;]*[a-zA-Z]//g" \
-                | sed -E 's/^([^:]+):.*/\1/' \
-                | awk '!seen[$0]++'
-        fi
-    } | awk '!seen[$0]++'
-}
 
-view_bin_script() {
-    local name="$1"
-    local path="$BIN_DIR/$name"
-    [ -f "$path" ] || { printf 'not a bin script: %s\n' "$name" >&2; return 1; }
+def view_bin_script(name: str) -> None:
+    path = BIN_DIR / name
+    if not path.is_file():
+        print(f"not a bin script: {name}", file=sys.stderr)
+        return
+    header = f"{BOLD}--- {name} ---{RESET}\n"
+    content = path.read_text(errors="replace")
+    if sys.stdout.isatty() and shutil.which("less"):
+        p = subprocess.Popen(["less", "-FRX"], stdin=subprocess.PIPE, text=True)
+        assert p.stdin
+        p.stdin.write(header + content)
+        p.stdin.close()
+        p.wait()
+    else:
+        sys.stdout.write(header + content)
 
-    if [ -t 1 ] && command -v less >/dev/null 2>&1; then
-        {
-            printf '%s--- %s ---%s\n' "$BOLD" "$name" "$RESET"
-            cat "$path"
-        } | less -FRX
-    else
-        printf '%s--- %s ---%s\n' "$BOLD" "$name" "$RESET"
-        cat "$path"
-    fi
-}
 
-offer_view() {
-    local bin_hits="$1"
-    # Only prompt when stdin and stdout are both a tty
-    [ -t 0 ] && [ -t 1 ] || return 0
-    command -v gum >/dev/null 2>&1 || return 0
+def offer_view(candidates: list[str]) -> None:
+    if not candidates or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return
+    if not shutil.which("gum"):
+        return
 
-    local candidates
-    candidates=$(candidate_files "$bin_hits")
-    [ -z "$candidates" ] && return 0
+    count = len(candidates)
+    prompt = (
+        f"View full content of bin script '{candidates[0]}'?"
+        if count == 1
+        else f"View full content of one of the {count} matching bin scripts?"
+    )
+    if subprocess.run(["gum", "confirm", prompt, "--default=false"]).returncode != 0:
+        return
 
-    local count
-    count=$(printf '%s\n' "$candidates" | wc -l | tr -d ' ')
+    choice = candidates[0] if count == 1 else run_picker(candidates, "View full script (esc to skip):")
+    if not choice:
+        return
+    print()
+    view_bin_script(choice)
 
-    local prompt
-    if [ "$count" -eq 1 ]; then
-        prompt="View full content of bin script '$candidates'?"
-    else
-        prompt="View full content of one of the $count matching bin scripts?"
-    fi
-    gum confirm "$prompt" --default=false || return 0
 
-    local choice=""
-    if [ "$count" -eq 1 ]; then
-        choice="$candidates"
-    else
-        choice=$(printf '%s\n' "$candidates" | picker --header "View full script (esc to skip):")
-        [ -z "$choice" ] && return 0
-    fi
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("-e", "--exact", action="store_true", help="match whole words only")
+    parser.add_argument("term")
+    args = parser.parse_args()
 
-    echo ""
-    view_bin_script "$choice"
-}
+    term, exact = args.term, args.exact
 
-main() {
-    parse_args "$@"
+    bashrc_hits = bashrc_matches(term, exact)
+    if BASHRC_DIR is not None:
+        lines = [fmt_hit(h, BASHRC_DIR, term, exact) for h in bashrc_hits]
+        print_section("config", lines)
 
-    local config_hits bin_hits
-    config_hits=$(search_bashrc_d "$term" "$exact")
-    bin_hits=$(search_bin_dir "$term" "$exact")
+    bin_content_hits = rg_content(term, BIN_DIR, exact)
+    name_hits = filename_matches(term, BIN_DIR, exact)
 
-    local has_hits=0
-    if [ -n "$config_hits" ]; then
-        section "[config]"
-        printf '%s\n' "$config_hits"
-        has_hits=1
-    fi
+    content_files = {h.path for h in bin_content_hits}
+    bin_lines = [fmt_hit(h, BIN_DIR, term, exact) for h in bin_content_hits]
+    for p in name_hits:
+        if p not in content_files:
+            bin_lines.append(f"{DIM}{colorize(p.name, term, exact)}{RESET} (filename match)")
+    printed_bin = print_section("bin", bin_lines)
 
-    if [ -n "$bin_hits" ]; then
-        section "[bin]"
-        printf '%s\n' "$bin_hits"
-        has_hits=1
-    fi
+    candidates: list[str] = []
+    seen: set[str] = set()
+    exact_name = BIN_DIR / term
+    if exact_name.is_file() and term not in seen:
+        candidates.append(term)
+        seen.add(term)
+    for p in name_hits:
+        if p.name not in seen:
+            candidates.append(p.name)
+            seen.add(p.name)
+    for p in bin_content_hits:
+        if p.path.name not in seen:
+            candidates.append(p.path.name)
+            seen.add(p.path.name)
 
-    # Term matches an exact bin script name but had no content matches - still worth surfacing
-    if [ "$has_hits" -eq 0 ] && [ -f "$BIN_DIR/$term" ]; then
-        printf '%sbin script "%s" exists%s\n' "$DIM" "$term" "$RESET"
-        has_hits=1
-    fi
+    if printed_bin:
+        offer_view(candidates)
+    return 0
 
-    if [ "$has_hits" -eq 0 ]; then
-        printf '%sno matches for "%s"%s\n' "$DIM" "$term" "$RESET" >&2
-        return 1
-    fi
 
-    offer_view "$bin_hits"
-}
-
-main "$@"
+if __name__ == "__main__":
+    sys.exit(main())
