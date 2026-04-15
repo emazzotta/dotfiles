@@ -142,12 +142,13 @@ def offer_view(candidates: list[str]) -> None:
         return
 
     count = len(candidates)
-    prompt = (
-        f"View full content of bin script '{candidates[0]}'?"
-        if count == 1
-        else f"View full content of one of the {count} matching bin scripts?"
-    )
-    if subprocess.run(["gum", "confirm", prompt, "--default=false"]).returncode != 0:
+    if count == 1:
+        prompt = f"View full content of bin script '{candidates[0]}'?"
+        default = "--default=false"
+    else:
+        prompt = f"View full content of one of the {count} matching bin scripts?"
+        default = "--default=true"
+    if subprocess.run(["gum", "confirm", prompt, default]).returncode != 0:
         return
 
     choice = candidates[0] if count == 1 else run_picker(candidates, "View full script (esc to skip):")
