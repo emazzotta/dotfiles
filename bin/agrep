@@ -83,9 +83,35 @@ search_bin_dir() {
     local search_cmd=(grep -HnrI -iF -- "$term" "$BIN_DIR")
     [ "$exact" -eq 1 ] && search_cmd=(grep -HnrI -iwF -- "$term" "$BIN_DIR")
 
-    "${search_cmd[@]}" 2>/dev/null \
-        | sed "s|^$BIN_DIR/||" \
-        | highlight "$term" "$exact"
+    local content_hits
+    content_hits=$("${search_cmd[@]}" 2>/dev/null | sed "s|^$BIN_DIR/||" || true)
+
+    local files_with_hits=""
+    [ -n "$content_hits" ] && files_with_hits=$(printf '%s\n' "$content_hits" | cut -d: -f1 | sort -u)
+
+    local name_match=(grep -iF -- "$term")
+    [ "$exact" -eq 1 ] && name_match=(grep -iwF -- "$term")
+    local all_name_hits=""
+    all_name_hits=$(find "$BIN_DIR" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null \
+        | "${name_match[@]}" 2>/dev/null || true)
+    local name_only=""
+    if [ -n "$all_name_hits" ]; then
+        if [ -n "$files_with_hits" ]; then
+            name_only=$(printf '%s\n' "$all_name_hits" | grep -vxFf <(echo "$files_with_hits") || true)
+        else
+            name_only="$all_name_hits"
+        fi
+    fi
+
+    {
+        [ -n "$content_hits" ] && printf '%s\n' "$content_hits"
+        if [ -n "$name_only" ]; then
+            while IFS= read -r fname; do
+                [ -z "$fname" ] && continue
+                printf '%s%s%s (filename match)\n' "$DIM" "$fname" "$RESET"
+            done <<< "$name_only"
+        fi
+    } | highlight "$term" "$exact"
 }
 
 # Collect candidate bin scripts to offer for viewing: exact-name match first,
@@ -95,9 +121,18 @@ candidate_files() {
     local exact_name=""
     [ -f "$BIN_DIR/$term" ] && exact_name="$term"
 
+    local name_matches=""
+    if [ -d "$BIN_DIR" ]; then
+        local match_cmd=(grep -iF -- "$term")
+        [ "$exact" -eq 1 ] && match_cmd=(grep -iwF -- "$term")
+        name_matches=$(find "$BIN_DIR" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null \
+            | "${match_cmd[@]}" || true)
+    fi
+
     local esc=$'\033'
     {
         [ -n "$exact_name" ] && printf '%s\n' "$exact_name"
+        [ -n "$name_matches" ] && printf '%s\n' "$name_matches"
         if [ -n "$bin_hits" ]; then
             printf '%s\n' "$bin_hits" \
                 | sed -E "s/${esc}\\[[0-9;]*[a-zA-Z]//g" \
