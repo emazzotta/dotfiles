@@ -34,18 +34,22 @@ EOF
             ;;
         "")
             if command -v fzf >/dev/null 2>&1; then
-                local files=()
-                local f
+                local entries=()
+                local f content
                 for f in "$rcd"/[0-9]*.sh; do
-                    [ -r "$f" ] && files+=("$(basename "$f")")
+                    [ -r "$f" ] || continue
+                    content=$(tr '\n' ' ' < "$f")
+                    entries+=("$(basename "$f")"$'\t'"$content")
                 done
-                [ ${#files[@]} -eq 0 ] && return 0
+                [ ${#entries[@]} -eq 0 ] && return 0
                 local picked
-                picked=$(printf '%s\n' "${files[@]}" | fzf \
-                    --preview "cat '$rcd/{}'" \
+                picked=$(printf '%s\n' "${entries[@]}" | fzf \
+                    --delimiter=$'\t' \
+                    --with-nth=1 \
+                    --preview "cat '$rcd/{1}'" \
                     --preview-window=right:60% \
-                    --header 'edit which file?' \
-                    --height=60%)
+                    --header 'edit which file? (matches name + content)' \
+                    --height=60% | cut -f1)
                 [ -z "$picked" ] && return 0
                 "$EDITOR" "$rcd/$picked"
             else
