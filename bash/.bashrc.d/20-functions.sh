@@ -45,6 +45,7 @@ EOF
                 local picked
                 picked=$(printf '%s\n' "${entries[@]}" | fzf \
                     --delimiter=$'\t' \
+                    --nth=1,2 \
                     --with-nth=1 \
                     --preview "cat '$rcd/{1}'" \
                     --preview-window=right:60% \
