@@ -8,20 +8,47 @@ source envify PASSWORD_ZIPS
 
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") <archive-file>
+Usage: $(basename "$0") [-o OUTPUT_DIR] <archive-file>
 
-Extracts password-protected archive to \$DESKDIR using \$PASSWORD_ZIPS
+Extracts password-protected archive using \$PASSWORD_ZIPS.
+
+Destination resolution:
+  1. -o OUTPUT_DIR       - explicit destination (wins)
+  2. archive in \$DESKDIR - extract to \$DESKDIR
+  3. otherwise           - prompt via gum (current dir vs \$DESKDIR)
 
 Environment variables required:
-  DESKDIR         - Destination directory for extraction
+  DESKDIR         - Desktop directory (fallback destination)
   PASSWORD_ZIPS   - Password for the archive
   GLOBAL_ENV_FILE - (optional) File to source for environment variables
 
 Examples:
   $(basename "$0") archive.7z
+  $(basename "$0") -o /tmp/out archive.7z
   $(basename "$0") /path/to/archive.7z
 EOF
 }
+
+OUTPUT_DIR=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help)
+            show_usage
+            exit 0
+            ;;
+        -o)
+            if [ -z "${2:-}" ]; then
+                error "-o requires a directory argument"
+                exit 1
+            fi
+            OUTPUT_DIR="$2"
+            shift 2
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 if [ $# -eq 0 ]; then
     show_usage
@@ -55,10 +82,38 @@ if [ -z "${PASSWORD_ZIPS:-}" ]; then
     exit 1
 fi
 
-log "Extracting archive: $ARCHIVE"
-log "Destination: $DESKDIR"
+ARCHIVE_DIR="$(cd "$(dirname "$ARCHIVE")" && pwd)"
+DESKDIR_ABS="$(cd "$DESKDIR" && pwd)"
 
-if 7z x "$ARCHIVE" -o"$DESKDIR" -p"$PASSWORD_ZIPS"; then
+if [ -n "$OUTPUT_DIR" ]; then
+    DEST="$OUTPUT_DIR"
+elif [ "$ARCHIVE_DIR" = "$DESKDIR_ABS" ]; then
+    DEST="$DESKDIR"
+else
+    CWD="$(pwd)"
+    if ! command -v gum >/dev/null 2>&1; then
+        error "gum not found; pass -o OUTPUT_DIR explicitly"
+        exit 1
+    fi
+    choice=$(gum choose --header "Extract destination:" \
+        "Current directory ($CWD)" \
+        "Desktop ($DESKDIR)")
+    case "$choice" in
+        "Current directory"*) DEST="$CWD" ;;
+        "Desktop"*) DEST="$DESKDIR" ;;
+        *)
+            error "No destination selected"
+            exit 1
+            ;;
+    esac
+fi
+
+mkdir -p "$DEST"
+
+log "Extracting archive: $ARCHIVE"
+log "Destination: $DEST"
+
+if 7z x "$ARCHIVE" -o"$DEST" -p"$PASSWORD_ZIPS"; then
     success "Archive extracted successfully"
 else
     error "Extraction failed"
