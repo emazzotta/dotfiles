@@ -1,0 +1,28 @@
+#!/bin/bash
+
+set -e
+
+PORT=9222
+PROFILE_DIR="${HOME}/.chrome-cdp-profile"
+CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+if ! [[ -x "${CHROME}" ]]; then
+    echo "Google Chrome not found at: ${CHROME}" >&2
+    exit 1
+fi
+
+if lsof -iTCP:${PORT} -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "Port ${PORT} already in use - Chrome likely already running with CDP." >&2
+    echo "Verify: curl -s http://localhost:${PORT}/json/version" >&2
+    exit 0
+fi
+
+echo "Launching Chrome with CDP on port ${PORT} (profile: ${PROFILE_DIR})"
+echo "Reachable from Docker container as http://192.168.65.254:${PORT}"
+
+exec "${CHROME}" \
+    --remote-debugging-port=${PORT} \
+    --remote-debugging-address=0.0.0.0 \
+    --remote-allow-origins=* \
+    --user-data-dir="${PROFILE_DIR}" \
+    "$@"
