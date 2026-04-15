@@ -14,7 +14,7 @@ Usage: ep [<name>|-l|--list|-h|--help]
 
 Browse or edit shell config chunks in $rcd.
 
-  ep              Pick a file via fzf (falls back to \$EDITOR directory view)
+  ep              Fuzzy-search file names and contents via fzf; jump to picked line
   ep <name>       Jump to the definition of alias/export/function <name>
   ep -l, --list   List every definition grouped by file, via less
   ep -h, --help   Show this help
@@ -34,20 +34,26 @@ EOF
             ;;
         "")
             if command -v fzf >/dev/null 2>&1; then
-                local files=()
-                local f
-                for f in "$rcd"/[0-9]*.sh; do
-                    [ -r "$f" ] && files+=("$(basename "$f")")
-                done
-                [ ${#files[@]} -eq 0 ] && return 0
+                local lines
+                lines=$(awk '
+                    FNR == 1 { printf "%s:1:# --- %s ---\n", FILENAME, FILENAME }
+                    { printf "%s:%d:%s\n", FILENAME, FNR, $0 }
+                ' "$rcd"/[0-9]*.sh 2>/dev/null)
+                [ -z "$lines" ] && return 0
                 local picked
-                picked=$(printf '%s\n' "${files[@]}" | fzf \
-                    --preview "cat '$rcd/{}'" \
+                picked=$(printf '%s' "$lines" | fzf \
+                    --delimiter=: \
+                    --with-nth=1,3.. \
+                    --preview "awk -v n={2} 'NR>=n-10 && NR<=n+20 {printf \"%s%4d: %s\n\", (NR==n?\"> \":\"  \"), NR, \$0}' {1}" \
                     --preview-window=right:60% \
-                    --header 'edit which file?' \
-                    --height=60%)
+                    --header 'fuzzy-search file or content; enter opens at line' \
+                    --height=80%)
                 [ -z "$picked" ] && return 0
-                "$EDITOR" "$rcd/$picked"
+                local file line
+                file="${picked%%:*}"
+                line="${picked#*:}"
+                line="${line%%:*}"
+                "$EDITOR" "+$line" "$file"
             else
                 "$EDITOR" "$rcd"
             fi
