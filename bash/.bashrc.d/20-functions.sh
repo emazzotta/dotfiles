@@ -34,23 +34,24 @@ EOF
             ;;
         "")
             if command -v fzf >/dev/null 2>&1; then
-                local entries=()
-                local f name content
-                for f in "$rcd"/[0-9]*.sh; do
-                    [ -r "$f" ] || continue
-                    name=$(basename "$f")
-                    content=$(tr '\n' ' ' < "$f" | tr -s ' ')
-                    entries+=("$(printf '%-25s  %s' "$name" "$content")")
-                done
-                [ ${#entries[@]} -eq 0 ] && return 0
+                local lines
+                lines=$(awk '
+                    FNR == 1 { fname = FILENAME; sub(".*/", "", fname) }
+                    NF > 0 { printf "%-25s  %4d  %s\n", fname, FNR, $0 }
+                ' "$rcd"/[0-9]*.sh 2>/dev/null)
+                [ -z "$lines" ] && return 0
                 local picked
-                picked=$(printf '%s\n' "${entries[@]}" | fzf \
-                    --preview "cat '$rcd/{1}'" \
+                picked=$(printf '%s\n' "$lines" | fzf \
+                    --tiebreak=begin,index \
+                    --preview "awk -v n={2} 'NR>=n-8 && NR<=n+16 {printf \"%s%4d  %s\n\", (NR==n?\"> \":\"  \"), NR, \$0}' '$rcd/{1}'" \
                     --preview-window=right:60% \
-                    --header 'edit which file? (matches name + content)' \
-                    --height=60% | awk '{print $1}')
+                    --header 'edit which line? (matches name + content)' \
+                    --height=70%)
                 [ -z "$picked" ] && return 0
-                "$EDITOR" "$rcd/$picked"
+                local file line
+                file=$(echo "$picked" | awk '{print $1}')
+                line=$(echo "$picked" | awk '{print $2}')
+                "$EDITOR" "+$line" "$rcd/$file"
             else
                 "$EDITOR" "$rcd"
             fi
