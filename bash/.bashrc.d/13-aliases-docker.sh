@@ -4,6 +4,7 @@ alias dc='docker-compose'
 alias dps='docker ps'
 alias dexe='docker-exec'
 alias din='docker-inspect'
+alias ddbg='docker-debug'
 
 ### TUI / INSPECTION ###
 alias ctop='docker run -ti -v /var/run/docker.sock:/var/run/docker.sock quay.io/vektorlab/ctop'

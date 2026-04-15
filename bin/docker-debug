@@ -1,0 +1,81 @@
+#!/bin/bash
+set -euo pipefail
+
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") [-c CONTAINER] [DEBUG_ARGS...]
+
+Open a Docker Desktop debug shell (\`docker debug\`) in a running
+container. The debug shell ships with common debug utilities even if
+the container image is minimal.
+
+If no container is specified:
+  - Single running container: selects it automatically
+  - Multiple running containers: interactive picker
+
+Extra args after the container selection are forwarded to \`docker debug\`.
+
+Examples:
+  $(basename "$0")
+  $(basename "$0") -c opencode-1776271205
+  $(basename "$0") --shell bash
+EOF
+}
+
+validate_docker() {
+    command -v docker >/dev/null 2>&1 || { echo "Error: docker not found" >&2; exit 1; }
+    docker debug --help >/dev/null 2>&1 || {
+        echo "Error: 'docker debug' not available (requires Docker Desktop)" >&2
+        exit 1
+    }
+}
+
+select_container() {
+    local running
+    running=$(docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}' 2>/dev/null)
+
+    [ -n "$running" ] || { echo "Error: no running containers found" >&2; return 1; }
+
+    local count
+    count=$(echo "$running" | wc -l | tr -d ' ')
+
+    if [ "$count" -eq 1 ]; then
+        echo "$running" | cut -f1
+        return
+    fi
+
+    local choices
+    choices=$(echo "$running" | awk -F'\t' '{printf "%-30s %-35s %s\n", $1, $2, $3}')
+
+    local selected
+    selected=$(echo "$choices" | picker --header "Select container:")
+    [ -n "$selected" ] || { echo "No container selected" >&2; return 1; }
+
+    echo "$selected" | awk '{print $1}'
+}
+
+main() {
+    if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+        show_usage
+        exit 0
+    fi
+
+    validate_docker
+
+    local container=""
+    if [ "${1:-}" = "-c" ]; then
+        [ -n "${2:-}" ] || { echo "Error: -c requires a container name" >&2; exit 1; }
+        container="$2"
+        shift 2
+    fi
+
+    if [ -z "$container" ]; then
+        container=$(select_container) || exit 1
+    fi
+
+    docker inspect "$container" >/dev/null 2>&1 || { echo "Error: container '$container' not found" >&2; exit 1; }
+
+    exec docker debug "$@" "$container"
+}
+
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
