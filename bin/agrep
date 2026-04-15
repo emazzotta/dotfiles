@@ -123,16 +123,12 @@ def view_bin_script(name: str) -> None:
     if not path.is_file():
         print(f"not a bin script: {name}", file=sys.stderr)
         return
-    header = f"{BOLD}--- {name} ---{RESET}\n"
-    content = path.read_text(errors="replace")
-    if sys.stdout.isatty() and shutil.which("less"):
-        p = subprocess.Popen(["less", "-FRX"], stdin=subprocess.PIPE, text=True)
-        assert p.stdin
-        p.stdin.write(header + content)
-        p.stdin.close()
-        p.wait()
+    editor = os.environ.get("EDITOR") or shutil.which("vim") or shutil.which("vi")
+    if sys.stdout.isatty() and editor:
+        subprocess.run([editor, str(path)])
     else:
-        sys.stdout.write(header + content)
+        sys.stdout.write(f"{BOLD}--- {name} ---{RESET}\n")
+        sys.stdout.write(path.read_text(errors="replace"))
 
 
 def offer_view(candidates: list[str]) -> None:
