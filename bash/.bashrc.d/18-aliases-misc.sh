@@ -74,7 +74,7 @@ alias wscat='npx wscat'
 
 ### DOWNLOADS / ARCHIVES ###
 alias dload='aria2c'
-alias mpc='pwuncompress "$GDRIVEDIR/Dokumente/Zipped_PW/MPC.7z"'
+alias mpc='pwuncompress "$GDRIVEDIR/Dokumente/Zipped_PW/MPC.7z" -o "$DESKDIR"'
 alias spacey='pwuncompress "$ZIPS_DIR/Spacey.7z"'
 alias pwz='source envify PASSWORD_ZIPS && echo -ne "$PASSWORD_ZIPS" | pbcopy'
 
