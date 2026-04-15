@@ -5,6 +5,7 @@ set -e
 PORT=9222
 PROFILE_DIR="${HOME}/.chrome-cdp-profile"
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+LOG_FILE="${TMPDIR:-/tmp}/playwright-chrome-claude.log"
 
 if ! [[ -x "${CHROME}" ]]; then
     echo "Google Chrome not found at: ${CHROME}" >&2
@@ -19,10 +20,14 @@ fi
 
 echo "Launching Chrome with CDP on port ${PORT} (profile: ${PROFILE_DIR})"
 echo "Reachable from Docker container as http://192.168.65.254:${PORT}"
+echo "Logs: ${LOG_FILE}"
 
-exec "${CHROME}" \
+nohup "${CHROME}" \
     --remote-debugging-port=${PORT} \
     --remote-debugging-address=0.0.0.0 \
     --remote-allow-origins=* \
     --user-data-dir="${PROFILE_DIR}" \
-    "$@"
+    "$@" >"${LOG_FILE}" 2>&1 &
+
+disown
+echo "Chrome PID: $!"
