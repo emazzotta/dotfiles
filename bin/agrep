@@ -41,7 +41,10 @@ def colorize(text: str, term: str, exact: bool) -> str:
 def rg_content(term: str, path: Path, exact: bool) -> list[Hit]:
     if not path.is_dir():
         return []
-    args = ["rg", "--no-heading", "--with-filename", "--line-number", "--color=never", "-F", "-i"]
+    args = [
+        "rg", "--no-heading", "--with-filename", "--line-number",
+        "--color=never", "--max-depth=1", "-F", "-i",
+    ]
     if exact:
         args.append("-w")
     args += ["--", term, str(path)]
