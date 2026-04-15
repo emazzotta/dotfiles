@@ -343,10 +343,10 @@ def main() -> None:
     _profile("git-crypt lock (targets)")
 
     if args.oc:
-        sync_script = OPENCODE_ROOT / "opencode" / "workspace" / ".claude" / "scripts" / "sync-ollama-models"
+        sync_script = OPENCODE_ROOT / "opencode" / "workspace" / ".claude" / "scripts" / "sync-local-models"
         if sync_script.is_file():
             run([str(sync_script)], cwd=OPENCODE_ROOT)
-        _profile("sync-ollama-models")
+        _profile("sync-local-models")
 
     volume_args = build_volume_args(args.files, args.paths, pwd)
     _profile("build_volume_args")
