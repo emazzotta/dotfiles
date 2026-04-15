@@ -35,22 +35,20 @@ EOF
         "")
             if command -v fzf >/dev/null 2>&1; then
                 local entries=()
-                local f content
+                local f name content
                 for f in "$rcd"/[0-9]*.sh; do
                     [ -r "$f" ] || continue
-                    content=$(tr '\n' ' ' < "$f")
-                    entries+=("$(basename "$f")"$'\t'"$content")
+                    name=$(basename "$f")
+                    content=$(tr '\n' ' ' < "$f" | tr -s ' ')
+                    entries+=("$(printf '%-25s  %s' "$name" "$content")")
                 done
                 [ ${#entries[@]} -eq 0 ] && return 0
                 local picked
                 picked=$(printf '%s\n' "${entries[@]}" | fzf \
-                    --delimiter=$'\t' \
-                    --nth=1,2 \
-                    --with-nth=1 \
                     --preview "cat '$rcd/{1}'" \
                     --preview-window=right:60% \
                     --header 'edit which file? (matches name + content)' \
-                    --height=60% | cut -f1)
+                    --height=60% | awk '{print $1}')
                 [ -z "$picked" ] && return 0
                 "$EDITOR" "$rcd/$picked"
             else

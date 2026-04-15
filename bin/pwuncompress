@@ -29,6 +29,7 @@ EOF
 }
 
 OUTPUT_DIR=""
+ARCHIVE=""
 while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help)
@@ -44,17 +45,20 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         *)
-            break
+            if [ -n "$ARCHIVE" ]; then
+                error "Unexpected extra argument: $1"
+                exit 1
+            fi
+            ARCHIVE="$1"
+            shift
             ;;
     esac
 done
 
-if [ $# -eq 0 ]; then
+if [ -z "$ARCHIVE" ]; then
     show_usage
     exit 1
 fi
-
-ARCHIVE="$1"
 
 if [ ! -f "$ARCHIVE" ]; then
     error "Archive not found: $ARCHIVE"
