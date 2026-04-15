@@ -1,0 +1,22 @@
+#!/bin/bash
+
+set -e
+
+source "$(dirname "${BASH_SOURCE[0]}")/shelllog.sh"
+
+SOURCE_DIR="${DESKDIR}/MPC"
+DEST_DIR="${GDRIVEDIR}/Dokumente/Zipped_PW"
+ARCHIVE_NAME="MPC.7z"
+
+if [ ! -d "${SOURCE_DIR}" ]; then
+    error "Source directory not found: ${SOURCE_DIR}"
+    exit 1
+fi
+
+mkdir -p "${DEST_DIR}"
+
+cd "${DESKDIR}"
+pwcompress -c 0 MPC
+
+mv -f "${DESKDIR}/${ARCHIVE_NAME}" "${DEST_DIR}/${ARCHIVE_NAME}"
+success "Moved ${ARCHIVE_NAME} to ${DEST_DIR}"
