@@ -170,11 +170,7 @@ elif [ "$1" = "exec" ] && [ "$2" = "-it" ]; then
     echo "exec: $3 $4"
 fi
 """)
-        create_mock_bin("gum", "true")
-        create_mock_bin("picker", """
-while IFS= read -r line; do lines+=("$line"); done
-echo "${lines[0]}"
-""")
+        create_mock_bin("picker", 'cat >/dev/null; echo "nginx  nginx:latest  Up 5 min"')
         result = run_script(SCRIPT)
         assert result.returncode == 0
         assert "exec: nginx /bin/bash" in result.stdout
@@ -185,7 +181,7 @@ if [ "$1" = "ps" ]; then
     printf 'nginx\tnginx:latest\tUp 5 min\npostgres\tpostgres:16\tUp 3 min'
 fi
 """)
-        create_mock_bin("gum", "echo -n ''")
+        create_mock_bin("picker", 'cat >/dev/null; echo -n ""')
         result = run_script(SCRIPT)
         assert result.returncode == 1
         assert "No container selected" in result.stderr
