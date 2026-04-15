@@ -41,10 +41,7 @@ def colorize(text: str, term: str, exact: bool) -> str:
 def rg_content(term: str, path: Path, exact: bool) -> list[Hit]:
     if not path.is_dir():
         return []
-    args = [
-        "rg", "--no-heading", "--with-filename", "--line-number",
-        "--color=never", "--max-depth=1", "-F", "-i",
-    ]
+    args = ["rg", "--no-heading", "--with-filename", "--line-number", "--color=never", "-F", "-i"]
     if exact:
         args.append("-w")
     args += ["--", term, str(path)]
@@ -179,6 +176,9 @@ def main() -> int:
             bin_lines.append(f"{DIM}{colorize(p.name, term, exact)}{RESET} (filename match)")
     printed_bin = print_section("bin", bin_lines)
 
+    def rel(p: Path) -> str:
+        return str(p.relative_to(BIN_DIR)) if p.is_relative_to(BIN_DIR) else str(p)
+
     candidates: list[str] = []
     seen: set[str] = set()
     exact_name = BIN_DIR / term
@@ -186,13 +186,15 @@ def main() -> int:
         candidates.append(term)
         seen.add(term)
     for p in name_hits:
-        if p.name not in seen:
-            candidates.append(p.name)
-            seen.add(p.name)
-    for p in bin_content_hits:
-        if p.path.name not in seen:
-            candidates.append(p.path.name)
-            seen.add(p.path.name)
+        key = rel(p)
+        if key not in seen:
+            candidates.append(key)
+            seen.add(key)
+    for h in bin_content_hits:
+        key = rel(h.path)
+        if key not in seen:
+            candidates.append(key)
+            seen.add(key)
 
     if printed_bin:
         offer_view(candidates)
