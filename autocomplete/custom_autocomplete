@@ -53,9 +53,74 @@ _repo() {
   cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=($(compgen -W "${_repo_commands}" -- ${cur}))
 }
+_cl()
+{
+  local cur prev
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  if [[ -z "${_CL_OPTS_CACHE}" ]]; then
+    _CL_OPTS_CACHE=$(cl --help 2>/dev/null | grep -oE -- '(^|[[:space:],])-{1,2}[a-zA-Z][a-zA-Z0-9-]*' | tr -d ' ,' | sort -u | tr '\n' ' ')
+  fi
+  case "${prev}" in
+    -f|--file)
+      COMPREPLY=($(compgen -f -- "${cur}"))
+      return 0
+      ;;
+    -p|--path)
+      COMPREPLY=($(compgen -d -- "${cur}"))
+      return 0
+      ;;
+  esac
+  if [[ "${cur}" == -* ]]; then
+    COMPREPLY=($(compgen -W "${_CL_OPTS_CACHE}" -- "${cur}"))
+    return 0
+  fi
+  COMPREPLY=($(compgen -f -- "${cur}"))
+}
+_ags()
+{
+  local cur prev
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  if [[ -z "${_AGS_OPTS_CACHE}" ]]; then
+    _AGS_OPTS_CACHE=$(ags --help 2>/dev/null | grep -oE -- '(^|[[:space:],])-{1,2}[a-zA-Z][a-zA-Z0-9-]*' | tr -d ' ,' | sort -u | tr '\n' ' ')
+  fi
+  case "${prev}" in
+    -p|--path)
+      COMPREPLY=($(compgen -d -- "${cur}"))
+      return 0
+      ;;
+    -r|--file-regex|-x|--exclude|--exclude-content)
+      return 0
+      ;;
+  esac
+  if [[ "${cur}" == -* ]]; then
+    COMPREPLY=($(compgen -W "${_AGS_OPTS_CACHE}" -- "${cur}"))
+    return 0
+  fi
+}
+_make_targets()
+{
+  local cur makefile
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  for makefile in Makefile makefile GNUmakefile; do
+    if [[ -f "${makefile}" ]]; then
+      local targets
+      targets=$(grep -E '^[a-zA-Z0-9_.-]+:' "${makefile}" | grep -v '^\.PHONY' | sed 's/:.*//' | sort -u)
+      COMPREPLY=($(compgen -W "${targets}" -- "${cur}"))
+      return 0
+    fi
+  done
+}
 complete -o nospace -F _agrep agrep
 complete -o nospace -F _kubeconf kubeconf
 complete -o nospace -F _bundleid bundleid
 complete -o nospace -F _compressvideo compressvideo
 complete -o nospace -F _ef ef
 complete -o nospace -F _repo repo c
+complete -F _cl cl
+complete -F _ags ags
+complete -F _make_targets make

@@ -194,25 +194,30 @@ def _container_path(path: Path, pwd: Path) -> str:
         return path.name
 
 
-def build_dotfiles_volume_args() -> list[str]:
-    """Mount only git-tracked dotfiles content into the container.
+def build_gitignore_aware_volume_args(
+    host_root: Path,
+    container_root: str,
+    cruft_patterns: tuple[str, ...] = (),
+    profile_label: str = "gitignore-mount",
+) -> list[str]:
+    """Mount only git-tracked content from host_root into container_root.
 
-    Walks ~/dotfiles and emits -v args for every tracked file and
-    every directory whose contents are entirely tracked. Directories
-    with a mix of tracked and sensitive gitignored files are drilled
-    into so only the tracked children get mounted - sensitive files
-    never appear in the container's namespace. .git is always mounted
-    so the container can commit back to the host.
+    Walks host_root and emits -v args for every tracked file and every
+    directory whose contents are entirely tracked. Directories with a
+    mix of tracked and gitignored files are drilled into so only the
+    tracked children get mounted - sensitive files never appear in the
+    container's namespace. .git is always mounted so the container can
+    commit back to the host.
 
-    Cruft (build artifacts, OS metadata - see DOTFILES_CRUFT_PATTERNS)
-    does not force drilling. A directory with only cruft mixed in stays
-    a whole-dir mount; the cruft comes along but is harmless.
+    Cruft patterns (build artifacts, OS metadata) do not force drilling.
+    A directory with only cruft mixed in stays a whole-dir mount; the
+    cruft comes along but is harmless.
     """
-    if not (DOTFILES / ".git").is_dir():
+    if not (host_root / ".git").is_dir():
         return []
 
     def git_lines(*args: str) -> set[str]:
-        result = run(["git", "-C", str(DOTFILES), *args], capture_output=True, text=True)
+        result = run(["git", "-C", str(host_root), *args], capture_output=True, text=True)
         return set(result.stdout.splitlines()) if result.returncode == 0 else set()
 
     def is_cruft(path: str) -> bool:
@@ -220,12 +225,12 @@ def build_dotfiles_volume_args() -> list[str]:
             if pattern.startswith("*."):
                 return name.endswith(pattern[1:])
             return name == pattern
-        return any(matches(part, pat) for part in path.split("/") for pat in DOTFILES_CRUFT_PATTERNS)
+        return any(matches(part, pat) for part in path.split("/") for pat in cruft_patterns)
 
     tracked = git_lines("ls-files")
-    _profile("  dotfiles: ls-files tracked")
+    _profile(f"  {profile_label}: ls-files tracked")
     ignored = {f for f in git_lines("ls-files", "--others", "--ignored", "--exclude-standard", "--directory") if not is_cruft(f)}
-    _profile("  dotfiles: ls-files ignored")
+    _profile(f"  {profile_label}: ls-files ignored")
 
     def ancestors(paths: set[str]) -> set[str]:
         out: set[str] = set()
@@ -237,37 +242,54 @@ def build_dotfiles_volume_args() -> list[str]:
 
     tracked_dirs = ancestors(tracked)
     dirty_dirs = ancestors(ignored)
-    _profile("  dotfiles: ancestors sets")
+    _profile(f"  {profile_label}: ancestors sets")
 
-    mounts: list[tuple[Path, str]] = [(DOTFILES / ".git", f"{DOTFILES_CONTAINER}/.git")]
+    mounts: list[tuple[Path, str]] = [(host_root / ".git", f"{container_root}/.git")]
 
     def walk(rel: str) -> None:
-        host_dir = DOTFILES / rel if rel else DOTFILES
+        host_dir = host_root / rel if rel else host_root
         for entry in sorted(host_dir.iterdir()):
             if entry.name == ".git":
                 continue
             rel_entry = f"{rel}/{entry.name}" if rel else entry.name
             if entry.is_file():
                 if rel_entry in tracked:
-                    mounts.append((entry, f"{DOTFILES_CONTAINER}/{rel_entry}"))
+                    mounts.append((entry, f"{container_root}/{rel_entry}"))
             elif entry.is_dir():
                 if rel_entry not in tracked_dirs:
                     continue
                 if rel_entry in dirty_dirs:
                     walk(rel_entry)
                 else:
-                    mounts.append((entry, f"{DOTFILES_CONTAINER}/{rel_entry}"))
+                    mounts.append((entry, f"{container_root}/{rel_entry}"))
 
     walk("")
-    _profile(f"  dotfiles: walk ({len(mounts)} mounts)")
+    _profile(f"  {profile_label}: walk ({len(mounts)} mounts)")
     return [arg for host, container in mounts for arg in ("-v", f"{host}:{container}")]
 
 
-def build_volume_args(files: list[str], paths: list[Path], pwd: Path) -> list[str]:
+def build_dotfiles_volume_args() -> list[str]:
+    return build_gitignore_aware_volume_args(
+        DOTFILES, DOTFILES_CONTAINER,
+        cruft_patterns=DOTFILES_CRUFT_PATTERNS,
+        profile_label="dotfiles",
+    )
+
+
+def build_volume_args(files: list[str], paths: list[Path], pwd: Path, git_ignore_mount: bool = False) -> list[str]:
     if not files and not paths:
         if is_home_dir(pwd):
             print("Error: Refusing to mount home directory - run from a project directory", file=sys.stderr)
             sys.exit(1)
+        if git_ignore_mount:
+            if not (pwd / ".git").is_dir() or not (pwd / ".gitignore").is_file():
+                print(f"Error: --git-ignore-mount requires .git and .gitignore in {pwd}", file=sys.stderr)
+                sys.exit(1)
+            return build_gitignore_aware_volume_args(
+                pwd, f"/workspace/code/{pwd.name}",
+                cruft_patterns=DOTFILES_CRUFT_PATTERNS,
+                profile_label=f"pwd ({pwd.name})",
+            )
         return ["-v", f"{pwd}:/workspace/code/{pwd.name}"]
 
     volume_args: list[str] = []
@@ -319,6 +341,10 @@ def main() -> None:
         help="directory to mount; may be repeated: -p ~/a -p ~/b",
     )
     parser.add_argument("-n", "--no-skip", action="store_true", default=False)
+    parser.add_argument(
+        "--git-ignore-mount", dest="git_ignore_mount", action="store_true", default=False,
+        help="mount only git-tracked files from PWD (respects .gitignore); requires .git and .gitignore",
+    )
     parser.add_argument("-o", "--oc", action="store_true", default=False, help="run opencode instead of claude")
     parser.add_argument(
         "-r", "--resume",
@@ -353,7 +379,7 @@ def main() -> None:
             run([str(sync_script)], cwd=OPENCODE_ROOT)
         _profile("sync-local-models")
 
-    volume_args = build_volume_args(args.files, args.paths, pwd)
+    volume_args = build_volume_args(args.files, args.paths, pwd, git_ignore_mount=args.git_ignore_mount)
     _profile("build_volume_args")
     dotfiles_volume_args = build_dotfiles_volume_args()
     _profile("build_dotfiles_volume_args")

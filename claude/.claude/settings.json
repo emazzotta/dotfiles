@@ -48,6 +48,10 @@
           {
             "type": "command",
             "command": "file=\"${CLAUDE_TOOL_INPUT_FILE_PATH:-}${CLAUDE_TOOL_INPUT_file_path:-}\"; case \"$file\" in */CLAUDE.md|*/AGENTS.md|*/OPENCODE.md) echo 'SYNC REQUIRED: You just edited a synced file. CLAUDE.md, AGENTS.md, and OPENCODE.md must be identical. Update the other two files now.';; esac; exit 0"
+          },
+          {
+            "type": "command",
+            "command": "/workspace/.claude/hooks/post-edit-autocomplete-check.sh"
           }
         ]
       },
@@ -67,8 +71,4 @@
     "command": "/opt/ccline/ccline"
   },
   "enabledPlugins": {
-    "superpowers@claude-plugins-official": true,
-    "code-review@claude-plugins-official": true
-  },
-  "skipDangerousModePermissionPrompt": true
-}
+    "super
