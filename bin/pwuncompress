@@ -15,7 +15,7 @@ Extracts password-protected archive using \$PASSWORD_ZIPS.
 Destination resolution:
   1. -o OUTPUT_DIR       - explicit destination (wins)
   2. archive in \$DESKDIR - extract to \$DESKDIR
-  3. otherwise           - prompt via gum (current dir vs \$DESKDIR)
+  3. otherwise           - prompt via gum (archive dir, current dir, \$DESKDIR)
 
 Environment variables required:
   DESKDIR         - Desktop directory (fallback destination)
@@ -95,10 +95,12 @@ else
         error "gum not found; pass -o OUTPUT_DIR explicitly"
         exit 1
     fi
-    choice=$(gum choose --header "Extract destination:" \
-        "Current directory ($CWD)" \
-        "Desktop ($DESKDIR)")
+    options=("Archive directory ($ARCHIVE_DIR)")
+    [ "$CWD" != "$ARCHIVE_DIR" ] && options+=("Current directory ($CWD)")
+    [ "$DESKDIR_ABS" != "$ARCHIVE_DIR" ] && [ "$DESKDIR_ABS" != "$CWD" ] && options+=("Desktop ($DESKDIR)")
+    choice=$(gum choose --header "Extract destination:" "${options[@]}")
     case "$choice" in
+        "Archive directory"*) DEST="$ARCHIVE_DIR" ;;
         "Current directory"*) DEST="$CWD" ;;
         "Desktop"*) DEST="$DESKDIR" ;;
         *)
