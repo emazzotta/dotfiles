@@ -15,6 +15,7 @@ set -uo pipefail
 
 MARKER_WIN='@overview_window'
 MARKER_PANE='@overview'
+TILE_SOURCE_OPT='@tile_source'
 PREV_WIN_OPT='@overview_prev_win'
 REFRESH_SECONDS=0.5
 LOG="${TMPDIR:-/tmp}/tmux-overview.log"
@@ -104,6 +105,7 @@ open_overview() {
     tmux set-option -wt "$ov_win" "$MARKER_WIN" 1 2>/dev/null || true
     tmux set-option -wt "$ov_win" "$PREV_WIN_OPT" "$prev_win" 2>/dev/null || true
     tmux set-option -pt "$first_pane" "$MARKER_PANE" 1 2>/dev/null || true
+    tmux set-option -pt "$first_pane" "$TILE_SOURCE_OPT" "${sources[0]}" 2>/dev/null || true
 
     if [ "$n" -eq 1 ]; then
         notify "opened (1 tile)"
@@ -145,6 +147,7 @@ open_overview() {
         new_pane=$(tmux split-window -v -t "$first_pane" -P -F '#{pane_id}' -l "${size}%" \
                        "exec $self tile $src_win" 2>/dev/null) || continue
         tmux set-option -pt "$new_pane" "$MARKER_PANE" 1 2>/dev/null || true
+        tmux set-option -pt "$new_pane" "$TILE_SOURCE_OPT" "$src_win" 2>/dev/null || true
         row_heads[row_idx]=$new_pane
     done
 
@@ -167,6 +170,7 @@ open_overview() {
             new_pane=$(tmux split-window -h -t "$row_head" -P -F '#{pane_id}' -l "${size}%" \
                            "exec $self tile $src_win" 2>/dev/null) || continue
             tmux set-option -pt "$new_pane" "$MARKER_PANE" 1 2>/dev/null || true
+            tmux set-option -pt "$new_pane" "$TILE_SOURCE_OPT" "$src_win" 2>/dev/null || true
         done
     done
 
@@ -177,10 +181,17 @@ render_tile() {
     local src_win=$1
     local self_pane=${TMUX_PANE:?TMUX_PANE unset}
 
+    # Detect a dead source window via list-windows instead of display-message:
+    # display-message -t @dead silently returns empty + exit 0 (tmux falls back
+    # to the current pane's window), so it can't be trusted as a liveness check.
+    if ! tmux list-windows -F '#{window_id}' 2>/dev/null | grep -qxF "$src_win"; then
+        return 2
+    fi
+
     local info
-    if ! info=$(tmux display-message -t "$src_win" -p '#{window_index}|#{window_name}|#{pane_id}' 2>/dev/null); then
-        printf '\033[H\033[J[window %s is gone]\n' "$src_win"
-        return
+    info=$(tmux display-message -t "$src_win" -p '#{window_index}|#{window_name}|#{pane_id}' 2>/dev/null)
+    if [ -z "$info" ]; then
+        return 2
     fi
     local win_idx="${info%%|*}"; info="${info#*|}"
     local win_name="${info%%|*}"
@@ -210,16 +221,75 @@ render_tile() {
     printf '\033[0m\033[H\033[J%s\n%s\033[0m' "${header:0:$tile_w}" "$captured"
 }
 
+is_leader_tile() {
+    # The tile at the top-left of the overview window acts as leader. It runs
+    # reconciliation duty so we don't have every tile checking the same thing.
+    local ov_win first_pane
+    ov_win=$(tmux display-message -pt "$TMUX_PANE" -p '#{window_id}' 2>/dev/null) || return 1
+    first_pane=$(tmux list-panes -t "$ov_win" -F '#{pane_id}' 2>/dev/null | head -1)
+    [ "$TMUX_PANE" = "$first_pane" ]
+}
+
+trigger_reconcile_if_stale() {
+    # Compare the set of session windows to the set of @tile_source values on
+    # panes in the overview window. If they differ, kick off a background
+    # reconcile (close + reopen) so the overview matches reality again.
+    local ov_win session tiled self
+    ov_win=$(tmux display-message -pt "$TMUX_PANE" -p '#{window_id}' 2>/dev/null) || return
+    session=$(tmux list-windows -F '#{window_id}' 2>/dev/null | grep -vxF "$ov_win" | sort -u)
+    tiled=$(tmux list-panes -t "$ov_win" -F "#{${TILE_SOURCE_OPT}}" 2>/dev/null \
+            | grep -v '^$' | sort -u)
+    if [ "$session" != "$tiled" ]; then
+        self=$(resolve_self)
+        tmux run-shell -b "$self reconcile" 2>/dev/null || true
+    fi
+}
+
 tile() {
     local src_win=${1:?tile requires a source window id}
     : > "$LOG"
     printf '\033[?25l'
     trap 'printf "\033[?25h\033[H\033[J"' EXIT
 
+    local rc self
     while :; do
-        render_tile "$src_win" 2>>"$LOG" || true
+        render_tile "$src_win" 2>>"$LOG"
+        rc=$?
+        if [ "$rc" -eq 2 ]; then
+            # My source window is gone. Trigger a reconcile so the overview
+            # layout rebalances without me, then exit cleanly.
+            self=$(resolve_self)
+            tmux run-shell -b "$self reconcile" 2>/dev/null || true
+            exit 0
+        fi
+        if is_leader_tile; then
+            trigger_reconcile_if_stale
+        fi
         sleep "$REFRESH_SECONDS"
     done
+}
+
+reconcile() {
+    # Rebuild the overview so tiled sources match the current session windows.
+    # Simple close + reopen keeps the code paths identical to a fresh toggle.
+    # Guarded by a global tmux option to prevent overlapping rebuilds when
+    # multiple triggers fire in the same tick.
+    local existing
+    existing=$(find_overview_window)
+    [ -z "$existing" ] && return 0
+
+    local lock
+    lock=$(tmux show-options -gv "@overview_lock" 2>/dev/null || true)
+    [ "$lock" = "1" ] && return 0
+    tmux set-option -g "@overview_lock" 1 2>/dev/null || true
+
+    local prev
+    prev=$(tmux show-options -wvt "$existing" "$PREV_WIN_OPT" 2>/dev/null || true)
+    close_overview "$existing"
+    [ -n "$prev" ] && tmux select-window -t "$prev" 2>/dev/null || true
+    open_overview
+
+    tmux set-option -gu "@overview_lock" 2>/dev/null || true
 }
 
 status() {
@@ -238,8 +308,9 @@ status() {
 }
 
 case "${1:-toggle}" in
-    toggle) toggle ;;
-    tile)   shift; tile "$@" ;;
-    status) status ;;
-    *)      echo "Usage: $(basename "$0") [toggle|tile|status]" >&2; exit 1 ;;
+    toggle)    toggle ;;
+    tile)      shift; tile "$@" ;;
+    reconcile) reconcile ;;
+    status)    status ;;
+    *)         echo "Usage: $(basename "$0") [toggle|tile|reconcile|status]" >&2; exit 1 ;;
 esac
