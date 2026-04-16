@@ -7,6 +7,8 @@
 # Subcommands:
 #   tmux-overview             toggle the overview window
 #   tmux-overview tile <win>  internal: render loop for one tile
+#   tmux-overview open        internal: build overview (detached post-kill)
+#   tmux-overview reconcile   internal: rebuild when session windows change
 #   tmux-overview status      diagnostic info
 #
 # Debug log (tile mode): $TMPDIR/tmux-overview.log (falls back to /tmp)
@@ -58,18 +60,30 @@ toggle() {
         return 0
     fi
 
-    cleanup_legacy_panes
-
-    # The window running this command is the "launcher". We can't convert it
-    # into the overview in-place (the script itself is running in its pane),
-    # so we build a fresh overview window excluding the launcher, then kill
-    # the launcher from a detached tmux server task so the user ends up with
-    # just the overview and no lingering launcher shell.
-    local launcher_win
-    launcher_win=$(tmux display-message -p '#{window_id}')
-    if open_overview "$launcher_win"; then
-        tmux run-shell -b "sleep 0.2; tmux kill-window -t '$launcher_win'" 2>/dev/null || true
+    # Refuse if this is the only window - killing the launcher would destroy
+    # the session and there'd be nothing to tile anyway.
+    local win_count
+    win_count=$(tmux list-windows -F '.' 2>/dev/null | wc -l)
+    if [ "$win_count" -lt 2 ]; then
+        notify "only one window; nothing to tile"
+        return 1
     fi
+
+    # The window running this command is the "launcher". Killing our own
+    # window in-process is racy (the shell dies mid-script), and opening the
+    # overview first then killing the launcher afterwards creates a transient
+    # mismatch between session windows and tiled sources that the reconcile
+    # loop fights against - producing endless rebuild cycles.
+    #
+    # Instead, detach a tmux server task that kills the launcher and then
+    # reinvokes this script to build the overview against a clean session.
+    # By the time open_overview lists windows, the launcher is already gone,
+    # so the overview is correct from the first frame and no reconcile fires.
+    local launcher_win self
+    launcher_win=$(tmux display-message -p '#{window_id}')
+    self=$(resolve_self)
+    tmux run-shell -b "tmux kill-window -t '$launcher_win' 2>/dev/null; '$self' open" \
+        2>/dev/null || return 1
 }
 
 close_overview() {
@@ -86,7 +100,6 @@ close_overview() {
 }
 
 open_overview() {
-    local exclude_win="${1:-}"
     local self; self=$(resolve_self)
     if [ ! -x "$self" ]; then
         notify "script not executable: $self"; return 1
@@ -98,9 +111,7 @@ open_overview() {
     local -a sources=()
     local w
     while IFS= read -r w; do
-        [ -z "$w" ] && continue
-        [ -n "$exclude_win" ] && [ "$w" = "$exclude_win" ] && continue
-        sources+=("$w")
+        [ -n "$w" ] && sources+=("$w")
     done < <(tmux list-windows -F '#{window_id}')
     local n=${#sources[@]}
     if [ "$n" -eq 0 ]; then
@@ -324,6 +335,17 @@ case "${1:-toggle}" in
     toggle)    toggle ;;
     tile)      shift; tile "$@" ;;
     reconcile) reconcile ;;
+    open)
+        # Internal: invoked by toggle's detached worker after killing the
+        # launcher window. Guarded against double-open in case a second
+        # toggle raced during the kill-and-open gap.
+        if [ -n "$(find_overview_window)" ]; then
+            notify "overview already open"
+            exit 0
+        fi
+        cleanup_legacy_panes
+        open_overview
+        ;;
     status)    status ;;
-    *)         echo "Usage: $(basename "$0") [toggle|tile|reconcile|status]" >&2; exit 1 ;;
+    *)         echo "Usage: $(basename "$0") [toggle|tile|reconcile|open|status]" >&2; exit 1 ;;
 esac
