@@ -1,0 +1,333 @@
+#!/usr/bin/env python3
+"""
+claude-resume: fuzzy session resumer for Claude Code with content search.
+
+Indexes each session's title + full message text into a TSV cache keyed by
+mtime, then hands the result to fzf with a live preview pane. Unlike
+`claude --resume`, the query matches both titles and message bodies.
+
+Usage:
+    claude-resume [SEARCH] [-n COUNT] [-a] [--rebuild] [-- CLAUDE_ARGS...]
+    claude-resume --preview-id <id>   # internal, used by fzf preview
+
+On selection, execs `claude --resume <id> CLAUDE_ARGS...`.
+"""
+
+import argparse
+import json
+import os
+import re
+import shutil
+import sys
+import time
+from pathlib import Path
+from subprocess import PIPE, run
+
+PROJECTS_DIR = Path(os.environ.get("CLAUDE_PROJECTS", Path.home() / ".claude" / "projects"))
+CACHE_NAME = ".claude-resume-index.tsv"
+CACHE_HEADER = "#claude-resume-index v1"
+MAX_CONTENT_CHARS = 4000
+PREVIEW_TURN_LIMIT = 60
+PREVIEW_TEXT_LIMIT = 600
+TITLE_WIDTH = 60
+
+
+def path_to_slug(p: Path) -> str:
+    return str(p).replace("/", "-")
+
+
+def extract_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                parts.append(item["text"])
+        return " ".join(parts)
+    return ""
+
+
+def flatten(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def scan_jsonl(path: Path) -> tuple[str, str]:
+    """Return (title, flat_content) for a session file."""
+    title = ""
+    chunks: list[str] = []
+    total = 0
+    try:
+        with path.open(errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                kind = d.get("type")
+                if kind not in ("user", "assistant"):
+                    continue
+                msg = d.get("message")
+                if not isinstance(msg, dict):
+                    continue
+                text = flatten(extract_text(msg.get("content", "")))
+                if not text:
+                    continue
+                if not title and kind == "user":
+                    title = text
+                if total < MAX_CONTENT_CHARS:
+                    remaining = MAX_CONTENT_CHARS - total
+                    chunks.append(text[:remaining])
+                    total += len(text)
+                elif title:
+                    break
+    except OSError:
+        pass
+    return title or "(no prompt)", " ".join(chunks)[:MAX_CONTENT_CHARS]
+
+
+def load_cache(cache_path: Path) -> dict[str, tuple[int, str, str]]:
+    if not cache_path.exists():
+        return {}
+    out: dict[str, tuple[int, str, str]] = {}
+    try:
+        with cache_path.open() as f:
+            if f.readline().strip() != CACHE_HEADER:
+                return {}
+            for line in f:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) != 4:
+                    continue
+                mtime_s, sid, title, content = parts
+                try:
+                    out[sid] = (int(mtime_s), title, content)
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    return out
+
+
+def save_cache(cache_path: Path, entries: dict[str, tuple[int, str, str]]) -> None:
+    tmp = cache_path.with_suffix(cache_path.suffix + ".tmp")
+    try:
+        with tmp.open("w") as f:
+            f.write(f"{CACHE_HEADER}\n")
+            for sid, (mtime, title, content) in entries.items():
+                title = title.replace("\t", " ").replace("\n", " ")
+                content = content.replace("\t", " ").replace("\n", " ")
+                f.write(f"{mtime}\t{sid}\t{title}\t{content}\n")
+        tmp.replace(cache_path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def build_index(scope_dirs: list[Path], force_rebuild: bool = False) -> list[tuple[str, int, str, str, Path]]:
+    """Return rows [(id, mtime, title, content, jsonl_path)] sorted by mtime desc."""
+    rows: list[tuple[str, int, str, str, Path]] = []
+    for scope in scope_dirs:
+        cache_path = scope / CACHE_NAME
+        cache = {} if force_rebuild else load_cache(cache_path)
+        fresh: dict[str, tuple[int, str, str]] = {}
+        for jsonl in scope.glob("*.jsonl"):
+            sid = jsonl.stem
+            try:
+                mtime = int(jsonl.stat().st_mtime)
+            except OSError:
+                continue
+            cached = cache.get(sid)
+            if cached and cached[0] == mtime:
+                title, content = cached[1], cached[2]
+            else:
+                title, content = scan_jsonl(jsonl)
+            fresh[sid] = (mtime, title, content)
+            rows.append((sid, mtime, title, content, jsonl))
+        save_cache(cache_path, fresh)
+    rows.sort(key=lambda r: r[1], reverse=True)
+    return rows
+
+
+def format_ago(mtime: int) -> str:
+    diff = int(time.time() - mtime)
+    if diff < 60:
+        return "just now"
+    if diff < 3600:
+        return f"{diff // 60}m ago"
+    if diff < 86400:
+        return f"{diff // 3600}h ago"
+    days = diff // 86400
+    if days == 1:
+        return "yesterday"
+    if days < 30:
+        return f"{days}d ago"
+    if days < 365:
+        return f"{days // 30}mo ago"
+    return f"{days // 365}y ago"
+
+
+def format_display(title: str, mtime: int, project: str, show_project: bool) -> str:
+    t = title if len(title) <= TITLE_WIDTH else title[: TITLE_WIDTH - 1] + "\u2026"
+    ago = format_ago(mtime)
+    if show_project:
+        return f"{t:<{TITLE_WIDTH}}  {ago:<12}  {project}"
+    return f"{t:<{TITLE_WIDTH}}  {ago}"
+
+
+def find_jsonl(session_id: str) -> Path | None:
+    if not PROJECTS_DIR.is_dir():
+        return None
+    for scope in PROJECTS_DIR.iterdir():
+        if not scope.is_dir():
+            continue
+        candidate = scope / f"{session_id}.jsonl"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def render_preview(jsonl: Path) -> str:
+    user = "\033[36m"
+    assist = "\033[32m"
+    dim = "\033[2m"
+    reset = "\033[0m"
+    out: list[str] = [f"{dim}{jsonl.parent.name}/{jsonl.name}{reset}", ""]
+    turns = 0
+    try:
+        with jsonl.open(errors="replace") as f:
+            for line in f:
+                if turns >= PREVIEW_TURN_LIMIT:
+                    out.append(f"{dim}\u2026 (truncated){reset}")
+                    break
+                try:
+                    d = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                kind = d.get("type")
+                msg = d.get("message")
+                if kind not in ("user", "assistant") or not isinstance(msg, dict):
+                    continue
+                text = flatten(extract_text(msg.get("content", "")))
+                if not text:
+                    continue
+                if len(text) > PREVIEW_TEXT_LIMIT:
+                    text = text[:PREVIEW_TEXT_LIMIT] + "\u2026"
+                color = user if kind == "user" else assist
+                label = "user" if kind == "user" else "assistant"
+                out.append(f"{color}\u258c {label}{reset} {text}")
+                out.append("")
+                turns += 1
+    except OSError as e:
+        out.append(f"error reading {jsonl}: {e}")
+    return "\n".join(out)
+
+
+def cmd_preview(session_id: str) -> int:
+    jsonl = find_jsonl(session_id)
+    if jsonl is None:
+        print(f"session {session_id} not found", file=sys.stderr)
+        return 1
+    print(render_preview(jsonl))
+    return 0
+
+
+def cmd_pick(search: str, count: int, all_projects: bool, rebuild: bool, claude_args: list[str]) -> int:
+    if not PROJECTS_DIR.is_dir():
+        print(f"projects dir not found: {PROJECTS_DIR}", file=sys.stderr)
+        return 1
+
+    if all_projects:
+        scope_dirs = [d for d in PROJECTS_DIR.iterdir() if d.is_dir()]
+    else:
+        slug = path_to_slug(Path.cwd())
+        scope = PROJECTS_DIR / slug
+        if not scope.is_dir():
+            print(f"No sessions for current project ({slug}). Use -a for all projects.", file=sys.stderr)
+            return 1
+        scope_dirs = [scope]
+
+    rows = build_index(scope_dirs, force_rebuild=rebuild)
+    if not rows:
+        print("No sessions found", file=sys.stderr)
+        return 1
+
+    lines: list[str] = []
+    for sid, mtime, title, content, jsonl in rows[:count]:
+        display = format_display(title, mtime, jsonl.parent.name, all_projects)
+        searchable = f"{title} {content}".replace("\t", " ").replace("\n", " ")
+        lines.append(f"{display}\t{searchable}\t{sid}")
+
+    if not shutil.which("fzf"):
+        print("fzf required for claude-resume", file=sys.stderr)
+        return 2
+
+    self_path = Path(__file__).resolve()
+    preview_cmd = f"{self_path} --preview-id {{3}}"
+
+    fzf_args = [
+        "fzf",
+        "--delimiter", "\t",
+        "--with-nth", "1",
+        "--nth", "1,2",
+        "--height", "100%",
+        "--layout=reverse",
+        "--border=rounded",
+        "--margin=1",
+        "--padding=1",
+        "--no-sort",
+        "--tiebreak=index",
+        "--prompt", "\u25b6 ",
+        "--pointer", "\u276f",
+        "--marker", "\u2713",
+        "--cycle",
+        "--ansi",
+        "--preview", preview_cmd,
+        "--preview-window", "right:60%:wrap",
+        "--header", "Resume session (query matches title + content)",
+        "--color=bg+:#2d1b3d,fg+:#ffffff,hl:#ff69b4,hl+:#ff79c6,prompt:#e75480,pointer:#e75480,marker:#bd93f9,header:#7d56f4,border:#7d56f4,info:#8b8b8b,spinner:#ff69b4",
+    ]
+    if search:
+        fzf_args.extend(["--query", search])
+
+    result = run(fzf_args, input="\n".join(lines), text=True, stdout=PIPE)
+    if result.returncode != 0 or not result.stdout.strip():
+        return 1
+    sid = result.stdout.strip().split("\t")[-1]
+
+    claude = shutil.which("claude")
+    if not claude:
+        print("claude not found on PATH", file=sys.stderr)
+        return 2
+    os.execvp(claude, [claude, "--resume", sid, *claude_args])
+
+
+def split_args(argv: list[str]) -> tuple[list[str], list[str]]:
+    if "--" in argv:
+        idx = argv.index("--")
+        return argv[:idx], argv[idx + 1 :]
+    return argv, []
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="claude-resume", add_help=True)
+    parser.add_argument("search", nargs="?", default="")
+    parser.add_argument("-n", "--count", type=int, default=10000)
+    parser.add_argument("-a", "--all", action="store_true")
+    parser.add_argument("--rebuild", action="store_true", help="force cache rebuild")
+    parser.add_argument("--preview-id", dest="preview_id", default=None, help=argparse.SUPPRESS)
+
+    our_argv, claude_args = split_args(sys.argv[1:])
+    args = parser.parse_args(our_argv)
+
+    if args.preview_id:
+        return cmd_preview(args.preview_id)
+    return cmd_pick(args.search, args.count, args.all, args.rebuild, claude_args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
