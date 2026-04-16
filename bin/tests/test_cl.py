@@ -364,10 +364,12 @@ class TestMain:
             cl.main()
 
     def test_passthrough_args(self, cl, monkeypatch, mock_cl_run):
-        monkeypatch.setattr(sys, "argv", ["cl", "--resume"])
+        monkeypatch.setattr(sys, "argv", ["cl", "--model", "opus"])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
-        assert "--resume" in mock_cl_run[-1]
+        cmd = mock_cl_run[-1]
+        assert "--model" in cmd
+        assert "opus" in cmd
 
     def test_default_includes_skip_permissions(self, cl, monkeypatch, mock_cl_run):
         monkeypatch.setattr(sys, "argv", ["cl"])

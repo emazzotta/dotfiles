@@ -201,7 +201,8 @@ class TestBuildUpdateFields:
     def _ns(self, **overrides):
         defaults = dict(
             issue_type=None, summary=None, description=None,
-            fix_version=None, assignee=None, parent=None,
+            fix_version=None, no_fix_version=False,
+            assignee=None, parent=None,
         )
         defaults.update(overrides)
         return argparse.Namespace(**defaults)
