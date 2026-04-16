@@ -1,0 +1,245 @@
+#!/bin/bash
+# tmux-overview - toggleable grid overview of all tmux windows in the current
+# session. Creates a dedicated overview window where each source tmux window
+# gets one real pane tile, live-capturing that window's active pane. Tiles are
+# arranged via tmux's built-in `tiled` layout for similar real estate.
+#
+# Subcommands:
+#   tmux-overview             toggle the overview window
+#   tmux-overview tile <win>  internal: render loop for one tile
+#   tmux-overview status      diagnostic info
+#
+# Debug log (tile mode): $TMPDIR/tmux-overview.log (falls back to /tmp)
+
+set -uo pipefail
+
+MARKER_WIN='@overview_window'
+MARKER_PANE='@overview'
+PREV_WIN_OPT='@overview_prev_win'
+REFRESH_SECONDS=0.5
+LOG="${TMPDIR:-/tmp}/tmux-overview.log"
+
+resolve_self() {
+    local src="${BASH_SOURCE[0]}"
+    local dir
+    dir=$(cd "$(dirname "$src")" && pwd)
+    printf '%s/%s' "$dir" "$(basename "$src")"
+}
+
+notify() {
+    tmux display-message "overview: $*" 2>/dev/null || true
+}
+
+find_overview_window() {
+    tmux list-windows -F "#{window_id} #{${MARKER_WIN}}" 2>/dev/null \
+        | awk '$2 == "1" { print $1; exit }'
+}
+
+cleanup_legacy_panes() {
+    # Kill any stale @overview panes left over from earlier (single-pane) design.
+    local p
+    while read -r p; do
+        [ -n "$p" ] && tmux kill-pane -t "$p" 2>/dev/null || true
+    done < <(tmux list-panes -s -F "#{pane_id} #{${MARKER_PANE}}" 2>/dev/null \
+             | awk '$2 == "1" { print $1 }')
+}
+
+toggle() {
+    if [ -z "${TMUX:-}" ]; then
+        echo "tmux-overview: not inside a tmux session (TMUX unset)" >&2
+        return 1
+    fi
+
+    local existing
+    existing=$(find_overview_window)
+    if [ -n "$existing" ]; then
+        close_overview "$existing"
+        return 0
+    fi
+
+    cleanup_legacy_panes
+    open_overview
+}
+
+close_overview() {
+    local ov_win=$1
+    local prev
+    prev=$(tmux show-options -wvt "$ov_win" "$PREV_WIN_OPT" 2>/dev/null || true)
+    if [ -n "$prev" ]; then
+        tmux select-window -t "$prev" 2>/dev/null || true
+    else
+        tmux select-window -l 2>/dev/null || true
+    fi
+    tmux kill-window -t "$ov_win"
+    notify "closed"
+}
+
+open_overview() {
+    local self; self=$(resolve_self)
+    if [ ! -x "$self" ]; then
+        notify "script not executable: $self"; return 1
+    fi
+
+    local prev_win
+    prev_win=$(tmux display-message -p '#{window_id}')
+
+    local -a sources=()
+    local w
+    while IFS= read -r w; do
+        [ -n "$w" ] && sources+=("$w")
+    done < <(tmux list-windows -F '#{window_id}')
+    local n=${#sources[@]}
+    if [ "$n" -eq 0 ]; then
+        notify "no windows to tile"; return 1
+    fi
+
+    local out ov_win first_pane
+    if ! out=$(tmux new-window -P -F '#{window_id}|#{pane_id}' -n overview \
+                   "exec $self tile ${sources[0]}" 2>&1); then
+        notify "new-window failed: $out"; return 1
+    fi
+    ov_win="${out%|*}"
+    first_pane="${out#*|}"
+
+    tmux set-option -wt "$ov_win" "$MARKER_WIN" 1 2>/dev/null || true
+    tmux set-option -wt "$ov_win" "$PREV_WIN_OPT" "$prev_win" 2>/dev/null || true
+    tmux set-option -pt "$first_pane" "$MARKER_PANE" 1 2>/dev/null || true
+
+    if [ "$n" -eq 1 ]; then
+        notify "opened (1 tile)"
+        return 0
+    fi
+
+    # Pick columns by scoring each candidate on two axes:
+    #   ratio  = widest_tile / narrowest_tile (penalises lopsided last rows)
+    #   aspect = max(cols/rows, rows/cols)    (penalises long-thin grids)
+    # Score = ratio + 0.2 * aspect. Tiebreak prefers larger cols (wider grid).
+    local cols rows
+    cols=$(awk -v n="$n" 'BEGIN {
+        best_c = 1; best_score = 1e9
+        for (c = 1; c <= n; c++) {
+            r = int((n + c - 1) / c)
+            lc = n - (r - 1) * c
+            ratio = (lc == c) ? 1.0 : (c / lc)
+            aspect = (c > r) ? (c / r) : (r / c)
+            score = ratio + 0.2 * aspect
+            if (score < best_score || (score == best_score && c > best_c)) {
+                best_score = score; best_c = c
+            }
+        }
+        print best_c
+    }')
+    rows=$(( (n + cols - 1) / cols ))
+
+    # Phase 1: (rows - 1) vertical splits of first_pane produce `rows` equal-height rows.
+    # Split k (1..rows-1) adds a pane just below first_pane; because later splits push
+    # earlier ones down, split k ends up at row index (rows - k).
+    local -a row_heads
+    row_heads[0]=$first_pane
+    local k size row_idx src_idx src_win new_pane
+    for (( k = 1; k < rows; k++ )); do
+        size=$(( 100 / (rows - k + 1) ))
+        row_idx=$(( rows - k ))
+        src_idx=$(( row_idx * cols ))
+        src_win="${sources[$src_idx]}"
+        new_pane=$(tmux split-window -v -t "$first_pane" -P -F '#{pane_id}' -l "${size}%" \
+                       "exec $self tile $src_win" 2>/dev/null) || continue
+        tmux set-option -pt "$new_pane" "$MARKER_PANE" 1 2>/dev/null || true
+        row_heads[row_idx]=$new_pane
+    done
+
+    # Phase 2: fill each row with columns via horizontal splits of the row head.
+    local r row_head row_start row_cols col_idx
+    for (( r = 0; r < rows; r++ )); do
+        row_head="${row_heads[$r]}"
+        row_start=$(( r * cols ))
+        if [ "$r" -eq $(( rows - 1 )) ]; then
+            row_cols=$(( n - row_start ))
+        else
+            row_cols=$cols
+        fi
+        [ "$row_cols" -lt 2 ] && continue
+        for (( k = 1; k < row_cols; k++ )); do
+            size=$(( 100 / (row_cols - k + 1) ))
+            col_idx=$(( row_cols - k ))
+            src_idx=$(( row_start + col_idx ))
+            src_win="${sources[$src_idx]}"
+            new_pane=$(tmux split-window -h -t "$row_head" -P -F '#{pane_id}' -l "${size}%" \
+                           "exec $self tile $src_win" 2>/dev/null) || continue
+            tmux set-option -pt "$new_pane" "$MARKER_PANE" 1 2>/dev/null || true
+        done
+    done
+
+    notify "opened ($n tiles, ${cols}x${rows} grid)"
+}
+
+render_tile() {
+    local src_win=$1
+    local self_pane=${TMUX_PANE:?TMUX_PANE unset}
+
+    local info
+    if ! info=$(tmux display-message -t "$src_win" -p '#{window_index}|#{window_name}|#{pane_id}' 2>/dev/null); then
+        printf '\033[H\033[J[window %s is gone]\n' "$src_win"
+        return
+    fi
+    local win_idx="${info%%|*}"; info="${info#*|}"
+    local win_name="${info%%|*}"
+    local active_pane="${info#*|}"
+
+    local dims tile_h tile_w
+    dims=$(tmux display-message -pt "$self_pane" -p '#{pane_height} #{pane_width}' 2>/dev/null) || return
+    tile_h=${dims% *}
+    tile_w=${dims#* }
+
+    local content_lines=$(( tile_h - 1 ))
+    [ "$content_lines" -lt 1 ] && content_lines=1
+
+    local header
+    header=$(printf '── [%s:%s] %s ──' "$win_idx" "$win_name" "$active_pane")
+
+    # -e preserves ANSI escape sequences (colors). cut -c would split mid-escape
+    # and corrupt them, so we skip byte-truncation and let long source lines wrap.
+    local captured
+    captured=$(tmux capture-pane -t "$active_pane" -ep 2>/dev/null \
+        | awk 'BEGIN{last=0} { buf[NR]=$0; if ($0 ~ /[^[:space:]]/) last=NR } END{ for (i=1; i<=last; i++) print buf[i] }' \
+        | tail -n "$content_lines")
+    [ -z "$captured" ] && captured='(empty)'
+
+    # \033[0m resets attributes so a colored tail from last frame doesn't bleed
+    # into this frame's header or into neighbouring tiles.
+    printf '\033[0m\033[H\033[J%s\n%s\033[0m' "${header:0:$tile_w}" "$captured"
+}
+
+tile() {
+    local src_win=${1:?tile requires a source window id}
+    : > "$LOG"
+    printf '\033[?25l'
+    trap 'printf "\033[?25h\033[H\033[J"' EXIT
+
+    while :; do
+        render_tile "$src_win" 2>>"$LOG" || true
+        sleep "$REFRESH_SECONDS"
+    done
+}
+
+status() {
+    printf 'tmux-overview path: %s\n' "$(resolve_self)"
+    printf 'tmux version: '; tmux -V 2>/dev/null || echo '(not found)'
+    printf 'TMUX: %s\n' "${TMUX:-(unset)}"
+    printf 'TMUX_PANE: %s\n' "${TMUX_PANE:-(unset)}"
+    printf 'PATH: %s\n' "$PATH"
+    printf 'log file: %s\n' "$LOG"
+    if [ -f "$LOG" ]; then
+        printf -- '--- last 20 log lines ---\n'
+        tail -n 20 "$LOG"
+    else
+        printf '(no log yet)\n'
+    fi
+}
+
+case "${1:-toggle}" in
+    toggle) toggle ;;
+    tile)   shift; tile "$@" ;;
+    status) status ;;
+    *)      echo "Usage: $(basename "$0") [toggle|tile|status]" >&2; exit 1 ;;
+esac
