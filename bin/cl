@@ -333,7 +333,7 @@ def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
 def main() -> None:
     pwd = Path.cwd()
 
-    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-n] [-r [SEARCH]] [CLAUDE_ARGS...]")
+    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-n] [-r] [CLAUDE_ARGS...]")
     parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
     parser.add_argument(
         "-p", "--path",
@@ -348,8 +348,8 @@ def main() -> None:
     parser.add_argument("-o", "--oc", action="store_true", default=False, help="run opencode instead of claude")
     parser.add_argument(
         "-r", "--resume",
-        nargs="?", const="", default=None, metavar="SEARCH",
-        help="resume a session (opencode: interactive picker; claude: --resume)",
+        action="store_true", default=False,
+        help="resume a session via interactive picker (type your search in fzf)",
     )
     parser.add_argument("--convert", action="store_true", default=False, help="convert sessions between claude and opencode")
     parser.add_argument(
@@ -400,17 +400,15 @@ def main() -> None:
         entrypoint = "session-convert"
         entrypoint_args = claude_args
     elif args.oc:
-        if args.resume is not None:
+        if args.resume:
             entrypoint = "opencode-resume"
-            resume_args = [args.resume] if args.resume else []
-            entrypoint_args = [*resume_args, *claude_args]
+            entrypoint_args = [*claude_args]
         else:
             entrypoint = "opencode"
             entrypoint_args = claude_args
-    elif args.resume is not None:
+    elif args.resume:
         entrypoint = "claude-resume"
-        resume_args = [args.resume] if args.resume else []
-        entrypoint_args = [*resume_args]
+        entrypoint_args = []
     else:
         entrypoint = "claude"
         entrypoint_args = [*skip_args, *claude_args]

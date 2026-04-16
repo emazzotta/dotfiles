@@ -25,8 +25,7 @@ from subprocess import PIPE, run
 
 PROJECTS_DIR = Path(os.environ.get("CLAUDE_PROJECTS", Path.home() / ".claude" / "projects"))
 CACHE_NAME = ".claude-resume-index.tsv"
-CACHE_HEADER = "#claude-resume-index v1"
-MAX_CONTENT_CHARS = 4000
+CACHE_HEADER = "#claude-resume-index v2"
 PREVIEW_TURN_LIMIT = 60
 PREVIEW_TEXT_LIMIT = 600
 TITLE_WIDTH = 60
@@ -53,10 +52,13 @@ def flatten(text: str) -> str:
 
 
 def scan_jsonl(path: Path) -> tuple[str, str]:
-    """Return (title, flat_content) for a session file."""
+    """Return (title, flat_content) for a session file.
+
+    Indexes the full user/assistant text of the session so searches hit
+    content anywhere in the conversation, not just the opening turns.
+    """
     title = ""
     chunks: list[str] = []
-    total = 0
     try:
         with path.open(errors="replace") as f:
             for line in f:
@@ -78,15 +80,10 @@ def scan_jsonl(path: Path) -> tuple[str, str]:
                     continue
                 if not title and kind == "user":
                     title = text
-                if total < MAX_CONTENT_CHARS:
-                    remaining = MAX_CONTENT_CHARS - total
-                    chunks.append(text[:remaining])
-                    total += len(text)
-                elif title:
-                    break
+                chunks.append(text)
     except OSError:
         pass
-    return title or "(no prompt)", " ".join(chunks)[:MAX_CONTENT_CHARS]
+    return title or "(no prompt)", " ".join(chunks)
 
 
 def load_cache(cache_path: Path) -> dict[str, tuple[int, str, str]]:
@@ -191,11 +188,39 @@ def find_jsonl(session_id: str) -> Path | None:
     return None
 
 
-def render_preview(jsonl: Path) -> str:
+def extract_highlight_tokens(query: str) -> list[str]:
+    """Return bare search tokens from an fzf query, stripping operator syntax.
+
+    fzf extended syntax: `'foo` exact, `^foo` prefix, `foo$` suffix, `!foo`
+    exclude, `|` OR separator. Exclusions are skipped; the rest contribute
+    their literal substring for highlighting.
+    """
+    tokens: list[str] = []
+    for raw in query.split():
+        if raw.startswith("!"):
+            continue
+        for part in raw.split("|"):
+            t = part.lstrip("'^")
+            if t.endswith("$"):
+                t = t[:-1]
+            if t:
+                tokens.append(t)
+    return tokens
+
+
+def highlight_matches(text: str, tokens: list[str]) -> str:
+    if not tokens:
+        return text
+    pattern = re.compile("|".join(re.escape(t) for t in tokens), re.IGNORECASE)
+    return pattern.sub(lambda m: f"\033[43m\033[30m{m.group(0)}\033[0m", text)
+
+
+def render_preview(jsonl: Path, query: str = "") -> str:
     user = "\033[36m"
     assist = "\033[32m"
     dim = "\033[2m"
     reset = "\033[0m"
+    tokens = extract_highlight_tokens(query)
     out: list[str] = [f"{dim}{jsonl.parent.name}/{jsonl.name}{reset}", ""]
     turns = 0
     try:
@@ -217,6 +242,7 @@ def render_preview(jsonl: Path) -> str:
                     continue
                 if len(text) > PREVIEW_TEXT_LIMIT:
                     text = text[:PREVIEW_TEXT_LIMIT] + "\u2026"
+                text = highlight_matches(text, tokens)
                 color = user if kind == "user" else assist
                 label = "user" if kind == "user" else "assistant"
                 out.append(f"{color}\u258c {label}{reset} {text}")
@@ -227,12 +253,12 @@ def render_preview(jsonl: Path) -> str:
     return "\n".join(out)
 
 
-def cmd_preview(session_id: str) -> int:
+def cmd_preview(session_id: str, query: str = "") -> int:
     jsonl = find_jsonl(session_id)
     if jsonl is None:
         print(f"session {session_id} not found", file=sys.stderr)
         return 1
-    print(render_preview(jsonl))
+    print(render_preview(jsonl, query))
     return 0
 
 
@@ -257,23 +283,24 @@ def cmd_pick(search: str, count: int, all_projects: bool, rebuild: bool, claude_
         return 1
 
     lines: list[str] = []
+    conceal_on, conceal_off = "\x1b[8m", "\x1b[0m"
     for sid, mtime, title, content, jsonl in rows[:count]:
         display = format_display(title, mtime, jsonl.parent.name, all_projects)
         searchable = f"{title} {content}".replace("\t", " ").replace("\n", " ")
-        lines.append(f"{display}\t{searchable}\t{sid}")
+        lines.append(f"{display} {conceal_on}{searchable}{conceal_off}\t{sid}")
 
     if not shutil.which("fzf"):
         print("fzf required for claude-resume", file=sys.stderr)
         return 2
 
     self_path = Path(__file__).resolve()
-    preview_cmd = f"{self_path} --preview-id {{3}}"
+    preview_cmd = f"{self_path} --preview-id {{2}} --preview-query {{q}}"
 
     fzf_args = [
         "fzf",
         "--delimiter", "\t",
         "--with-nth", "1",
-        "--nth", "1,2",
+        "--exact",
         "--height", "100%",
         "--layout=reverse",
         "--border=rounded",
@@ -288,7 +315,7 @@ def cmd_pick(search: str, count: int, all_projects: bool, rebuild: bool, claude_
         "--ansi",
         "--preview", preview_cmd,
         "--preview-window", "right:60%:wrap",
-        "--header", "Resume session (query matches title + content)",
+        "--header", "Resume session | space = AND, each word matches title OR content | ^prefix  suffix$  !exclude",
         "--color=bg+:#2d1b3d,fg+:#ffffff,hl:#ff69b4,hl+:#ff79c6,prompt:#e75480,pointer:#e75480,marker:#bd93f9,header:#7d56f4,border:#7d56f4,info:#8b8b8b,spinner:#ff69b4",
     ]
     if search:
@@ -315,18 +342,20 @@ def split_args(argv: list[str]) -> tuple[list[str], list[str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="claude-resume", add_help=True)
-    parser.add_argument("search", nargs="?", default="")
+    parser.add_argument("search", nargs="*", default=[])
     parser.add_argument("-n", "--count", type=int, default=10000)
     parser.add_argument("-a", "--all", action="store_true")
     parser.add_argument("--rebuild", action="store_true", help="force cache rebuild")
     parser.add_argument("--preview-id", dest="preview_id", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--preview-query", dest="preview_query", default="", help=argparse.SUPPRESS)
 
     our_argv, claude_args = split_args(sys.argv[1:])
     args = parser.parse_args(our_argv)
 
     if args.preview_id:
-        return cmd_preview(args.preview_id)
-    return cmd_pick(args.search, args.count, args.all, args.rebuild, claude_args)
+        return cmd_preview(args.preview_id, args.preview_query)
+    search = " ".join(args.search)
+    return cmd_pick(search, args.count, args.all, args.rebuild, claude_args)
 
 
 if __name__ == "__main__":
