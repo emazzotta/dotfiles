@@ -59,7 +59,17 @@ toggle() {
     fi
 
     cleanup_legacy_panes
-    open_overview
+
+    # The window running this command is the "launcher". We can't convert it
+    # into the overview in-place (the script itself is running in its pane),
+    # so we build a fresh overview window excluding the launcher, then kill
+    # the launcher from a detached tmux server task so the user ends up with
+    # just the overview and no lingering launcher shell.
+    local launcher_win
+    launcher_win=$(tmux display-message -p '#{window_id}')
+    if open_overview "$launcher_win"; then
+        tmux run-shell -b "sleep 0.2; tmux kill-window -t '$launcher_win'" 2>/dev/null || true
+    fi
 }
 
 close_overview() {
@@ -76,6 +86,7 @@ close_overview() {
 }
 
 open_overview() {
+    local exclude_win="${1:-}"
     local self; self=$(resolve_self)
     if [ ! -x "$self" ]; then
         notify "script not executable: $self"; return 1
@@ -87,7 +98,9 @@ open_overview() {
     local -a sources=()
     local w
     while IFS= read -r w; do
-        [ -n "$w" ] && sources+=("$w")
+        [ -z "$w" ] && continue
+        [ -n "$exclude_win" ] && [ "$w" = "$exclude_win" ] && continue
+        sources+=("$w")
     done < <(tmux list-windows -F '#{window_id}')
     local n=${#sources[@]}
     if [ "$n" -eq 0 ]; then
