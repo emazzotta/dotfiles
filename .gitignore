@@ -31,4 +31,5 @@ vim/.vim_runtime/my_plugins/
 !**/ccline/themes
 !**/.claude/settings.json
 !**/.claude/hooks/**
+!**/.claude/scripts/**
 !**/karabiner/karabiner.json
