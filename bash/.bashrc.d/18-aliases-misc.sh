@@ -26,6 +26,7 @@ alias kn='kubens'
 alias tm='tmux'
 alias tmk='tmux kill-session -t'
 alias tml='tmux ls'
+alias to='tmux-overview'
 alias trp='tmux source-file ~/.tmux.conf' # reload tmux conf
 
 ### FILE UTILS ###
