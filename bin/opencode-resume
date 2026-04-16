@@ -1,164 +1,333 @@
-#!/bin/bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""
+opencode-resume: fuzzy session resumer for opencode with content search.
 
-DB_PATH="${OPENCODE_DB:-${HOME}/.local/share/opencode/opencode.db}"
+Queries the opencode SQLite database, indexes each session's title + full
+text-part content into a TSV cache keyed by time_updated, and hands the
+result to fzf with a live preview pane. Unlike a title-only picker, the
+query matches both titles and message bodies.
 
-show_usage() {
-    cat << EOF
-Usage: $(basename "$0") [-n COUNT] [-f] [SEARCH]
+Usage:
+    opencode-resume [-n COUNT] [-f] [--rebuild] [-- OPENCODE_ARGS...]
+    opencode-resume --preview-id <sid>   # internal, used by fzf preview
 
-Interactive session picker for opencode. Queries the opencode
-SQLite database and launches opencode with the selected session.
+On selection, execs `opencode --session <id> [--fork] OPENCODE_ARGS...`.
+"""
 
-Options:
-  -n COUNT   Number of sessions to show (default: 20)
-  -f         Fork the session instead of resuming in-place
-  -h         Show this help
+import argparse
+import json
+import os
+import re
+import shutil
+import sqlite3
+import sys
+import time
+from collections import defaultdict
+from pathlib import Path
+from subprocess import PIPE, run
 
-Arguments:
-  SEARCH     Optional text to filter sessions by title
+DB_PATH = Path(os.environ.get("OPENCODE_DB", Path.home() / ".local/share/opencode/opencode.db"))
+CACHE_PATH = Path.home() / ".cache" / "opencode-resume-index.tsv"
+CACHE_HEADER = "#opencode-resume-index v1"
+PREVIEW_TURN_LIMIT = 60
+PREVIEW_TEXT_LIMIT = 600
+TITLE_WIDTH = 60
 
-Environment:
-  OPENCODE_DB   Path to opencode.db (default: ~/.local/share/opencode/opencode.db)
 
-If gum is available, uses gum choose for selection.
-Otherwise falls back to a numbered list.
+def flatten(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
 
-Examples:
-  $(basename "$0")
-  $(basename "$0") -n 10
-  $(basename "$0") c2v
-  $(basename "$0") -f c2v
-EOF
-}
 
-fetch_sessions() {
-    local count="$1"
-    local search="$2"
+def connect_ro() -> sqlite3.Connection:
+    if not DB_PATH.exists():
+        raise FileNotFoundError(f"opencode db not found: {DB_PATH}")
+    return sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
 
-    if [ ! -f "$DB_PATH" ]; then
-        echo "Error: database not found at $DB_PATH" >&2
+
+def fetch_session_content(conn: sqlite3.Connection, target_sids: set[str] | None = None) -> dict[str, str]:
+    """Return {session_id: flattened_text} for all (or specified) sessions."""
+    q = (
+        "SELECT p.session_id, p.data "
+        "FROM part p JOIN message m ON p.message_id = m.id "
+        "WHERE p.data LIKE '%\"type\":\"text\"%' "
+        "ORDER BY m.time_created, p.time_created"
+    )
+    chunks: dict[str, list[str]] = defaultdict(list)
+    for sid, data in conn.execute(q):
+        if target_sids is not None and sid not in target_sids:
+            continue
+        try:
+            part = json.loads(data)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if part.get("type") != "text":
+            continue
+        text = flatten(part.get("text", ""))
+        if text:
+            chunks[sid].append(text)
+    return {sid: " ".join(parts) for sid, parts in chunks.items()}
+
+
+def load_cache() -> dict[str, tuple[int, str, str]]:
+    if not CACHE_PATH.exists():
+        return {}
+    out: dict[str, tuple[int, str, str]] = {}
+    try:
+        with CACHE_PATH.open() as f:
+            if f.readline().strip() != CACHE_HEADER:
+                return {}
+            for line in f:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) != 4:
+                    continue
+                tu_s, sid, title, content = parts
+                try:
+                    out[sid] = (int(tu_s), title, content)
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    return out
+
+
+def save_cache(entries: dict[str, tuple[int, str, str]]) -> None:
+    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = CACHE_PATH.with_suffix(CACHE_PATH.suffix + ".tmp")
+    try:
+        with tmp.open("w") as f:
+            f.write(f"{CACHE_HEADER}\n")
+            for sid, (tu, title, content) in entries.items():
+                title = title.replace("\t", " ").replace("\n", " ")
+                content = content.replace("\t", " ").replace("\n", " ")
+                f.write(f"{tu}\t{sid}\t{title}\t{content}\n")
+        tmp.replace(CACHE_PATH)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def build_index(force_rebuild: bool = False) -> list[tuple[str, int, str, str]]:
+    """Return rows [(sid, time_updated, title, content)] sorted by time_updated desc."""
+    conn = connect_ro()
+    try:
+        cache = {} if force_rebuild else load_cache()
+        sessions = conn.execute(
+            "SELECT id, title, time_updated FROM session ORDER BY time_updated DESC"
+        ).fetchall()
+
+        stale = {sid for sid, _title, tu in sessions if not cache.get(sid) or cache[sid][0] != tu}
+        fresh_content = fetch_session_content(conn, stale) if stale else {}
+
+        fresh: dict[str, tuple[int, str, str]] = {}
+        rows: list[tuple[str, int, str, str]] = []
+        for sid, title, tu in sessions:
+            if sid in stale:
+                content = fresh_content.get(sid, "")
+            else:
+                content = cache[sid][2]
+            fresh[sid] = (tu, title, content)
+            rows.append((sid, tu, title, content))
+
+        save_cache(fresh)
+        return rows
+    finally:
+        conn.close()
+
+
+def format_ago(ms: int) -> str:
+    diff = int((time.time() * 1000 - ms) / 1000)
+    if diff < 60:
+        return "just now"
+    if diff < 3600:
+        return f"{diff // 60}m ago"
+    if diff < 86400:
+        return f"{diff // 3600}h ago"
+    days = diff // 86400
+    if days == 1:
+        return "yesterday"
+    if days < 30:
+        return f"{days}d ago"
+    if days < 365:
+        return f"{days // 30}mo ago"
+    return f"{days // 365}y ago"
+
+
+def format_display(title: str, time_updated_ms: int) -> str:
+    t = title if len(title) <= TITLE_WIDTH else title[: TITLE_WIDTH - 1] + "\u2026"
+    return f"{t:<{TITLE_WIDTH}}  {format_ago(time_updated_ms)}"
+
+
+def extract_highlight_tokens(query: str) -> list[str]:
+    """Return bare search tokens from an fzf query, stripping operator syntax."""
+    tokens: list[str] = []
+    for raw in query.split():
+        if raw.startswith("!"):
+            continue
+        for part in raw.split("|"):
+            t = part.lstrip("'^")
+            if t.endswith("$"):
+                t = t[:-1]
+            if t:
+                tokens.append(t)
+    return tokens
+
+
+def highlight_matches(text: str, tokens: list[str]) -> str:
+    if not tokens:
+        return text
+    pattern = re.compile("|".join(re.escape(t) for t in tokens), re.IGNORECASE)
+    return pattern.sub(lambda m: f"\033[43m\033[30m{m.group(0)}\033[0m", text)
+
+
+def render_preview(sid: str, query: str = "") -> str:
+    user = "\033[36m"
+    assist = "\033[32m"
+    dim = "\033[2m"
+    reset = "\033[0m"
+    tokens = extract_highlight_tokens(query)
+    out: list[str] = []
+    try:
+        conn = connect_ro()
+    except FileNotFoundError as e:
+        return str(e)
+    try:
+        sess = conn.execute(
+            "SELECT title, time_updated FROM session WHERE id = ?", (sid,)
+        ).fetchone()
+        if not sess:
+            return f"session {sid} not found"
+        title, tu = sess
+        out.append(f"{dim}{sid}  {format_ago(tu)}{reset}")
+        out.append(f"{dim}{title}{reset}")
+        out.append("")
+        rows = conn.execute(
+            """
+            SELECT m.data, p.data
+            FROM part p JOIN message m ON p.message_id = m.id
+            WHERE p.session_id = ?
+            ORDER BY m.time_created, p.time_created
+            """,
+            (sid,),
+        ).fetchall()
+        turns = 0
+        for msg_data, part_data in rows:
+            if turns >= PREVIEW_TURN_LIMIT:
+                out.append(f"{dim}\u2026 (truncated){reset}")
+                break
+            try:
+                msg = json.loads(msg_data)
+                part = json.loads(part_data)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if part.get("type") != "text":
+                continue
+            text = flatten(part.get("text", ""))
+            if not text:
+                continue
+            if len(text) > PREVIEW_TEXT_LIMIT:
+                text = text[:PREVIEW_TEXT_LIMIT] + "\u2026"
+            text = highlight_matches(text, tokens)
+            role = msg.get("role", "?")
+            color = user if role == "user" else assist
+            out.append(f"{color}\u258c {role}{reset} {text}")
+            out.append("")
+            turns += 1
+    finally:
+        conn.close()
+    return "\n".join(out)
+
+
+def cmd_preview(sid: str, query: str = "") -> int:
+    print(render_preview(sid, query))
+    return 0
+
+
+def cmd_pick(count: int, fork: bool, rebuild: bool, oc_args: list[str]) -> int:
+    try:
+        rows = build_index(force_rebuild=rebuild)
+    except FileNotFoundError as e:
+        print(e, file=sys.stderr)
         return 1
-    fi
-
-    local json
-    json=$(python3 -c "
-import sqlite3, json, sys
-
-db, count, search = sys.argv[1], int(sys.argv[2]), sys.argv[3]
-conn = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
-conn.row_factory = sqlite3.Row
-if search:
-    rows = conn.execute(
-        'SELECT id, title, time_updated FROM session WHERE title LIKE ? COLLATE NOCASE ORDER BY time_updated DESC LIMIT ?',
-        (f'%{search}%', count),
-    ).fetchall()
-else:
-    rows = conn.execute(
-        'SELECT id, title, time_updated FROM session ORDER BY time_updated DESC LIMIT ?',
-        (count,),
-    ).fetchall()
-conn.close()
-print(json.dumps([dict(r) for r in rows]))
-" "$DB_PATH" "$count" "$search" 2>/dev/null) || {
-        echo "Error: failed to query opencode database" >&2
+    if not rows:
+        print("No sessions found", file=sys.stderr)
         return 1
-    }
+    if not shutil.which("fzf"):
+        print("fzf required for opencode-resume", file=sys.stderr)
+        return 2
 
-    if [ -z "$json" ] || [ "$json" = "[]" ]; then
-        if [ -n "$search" ]; then
-            echo "No sessions matching '$search'" >&2
-        else
-            echo "No sessions found" >&2
-        fi
+    lines: list[str] = []
+    conceal_on, conceal_off = "\x1b[8m", "\x1b[0m"
+    for sid, tu, title, content in rows[:count]:
+        display = format_display(title, tu)
+        searchable = f"{title} {content}".replace("\t", " ").replace("\n", " ")
+        lines.append(f"{display} {conceal_on}{searchable}{conceal_off}\t{sid}")
+
+    self_path = Path(__file__).resolve()
+    preview_cmd = f"{self_path} --preview-id {{2}} --preview-query {{q}}"
+
+    fzf_args = [
+        "fzf",
+        "--delimiter", "\t",
+        "--with-nth", "1",
+        "--exact",
+        "--height", "100%",
+        "--layout=reverse",
+        "--border=rounded",
+        "--margin=1",
+        "--padding=1",
+        "--no-sort",
+        "--tiebreak=index",
+        "--prompt", "\u25b6 ",
+        "--pointer", "\u276f",
+        "--marker", "\u2713",
+        "--cycle",
+        "--ansi",
+        "--preview", preview_cmd,
+        "--preview-window", "right:60%:wrap",
+        "--header", "Resume opencode session | space = AND, each word matches title OR content | ^prefix  suffix$  !exclude",
+        "--color=bg+:#2d1b3d,fg+:#ffffff,hl:#ff69b4,hl+:#ff79c6,prompt:#e75480,pointer:#e75480,marker:#bd93f9,header:#7d56f4,border:#7d56f4,info:#8b8b8b,spinner:#ff69b4",
+    ]
+
+    result = run(fzf_args, input="\n".join(lines), text=True, stdout=PIPE)
+    if result.returncode != 0 or not result.stdout.strip():
         return 1
-    fi
+    sid = result.stdout.strip().split("\t")[-1]
 
-    printf '%s' "$json"
-}
+    opencode = shutil.which("opencode")
+    if not opencode:
+        print("opencode not found on PATH", file=sys.stderr)
+        return 2
+    exec_args = [opencode, "--session", sid]
+    if fork:
+        exec_args.append("--fork")
+    exec_args.extend(oc_args)
+    os.execvp(opencode, exec_args)
 
-format_choices() {
-    local json="$1"
-    python3 -c "
-import json, sys, time
 
-now_ms = int(time.time() * 1000)
-for s in json.loads(sys.stdin.read()):
-    sid = s['id']
-    title = s.get('title', 'Untitled')
-    if len(title) > 45:
-        title = title[:42] + '...'
-    diff_s = (now_ms - s['time_updated']) // 1000
-    if diff_s < 60:
-        ago = 'just now'
-    elif diff_s < 3600:
-        ago = f'{diff_s // 60}m ago'
-    elif diff_s < 86400:
-        ago = f'{diff_s // 3600}h ago'
-    else:
-        days = diff_s // 86400
-        if days == 1:
-            ago = 'yesterday'
-        elif days < 30:
-            ago = f'{days}d ago'
-        else:
-            ago = f'{days // 30}mo ago'
-    print(f'{sid}\t{title}\t{ago}')
-" <<< "$json"
-}
+def split_args(argv: list[str]) -> tuple[list[str], list[str]]:
+    if "--" in argv:
+        idx = argv.index("--")
+        return argv[:idx], argv[idx + 1:]
+    return argv, []
 
-select_session() {
-    local json="$1"
-    local choices
-    choices=$(format_choices "$json")
 
-    local display
-    display=$(echo "$choices" | while IFS=$'\t' read -r sid title ago; do
-        printf "%-47s %-12s %s\n" "$title" "$ago" "$sid"
-    done)
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="opencode-resume", add_help=True)
+    parser.add_argument("-n", "--count", type=int, default=10000)
+    parser.add_argument("-f", "--fork", action="store_true", help="fork the session instead of resuming in-place")
+    parser.add_argument("--rebuild", action="store_true", help="force cache rebuild")
+    parser.add_argument("--preview-id", dest="preview_id", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--preview-query", dest="preview_query", default="", help=argparse.SUPPRESS)
 
-    local selected
-    selected=$(echo "$display" | picker --header "Select session to resume:") || return 1
+    our_argv, oc_args = split_args(sys.argv[1:])
+    args = parser.parse_args(our_argv)
 
-    if [ -z "$selected" ]; then
-        echo "No session selected" >&2
-        return 1
-    fi
+    if args.preview_id:
+        return cmd_preview(args.preview_id, args.preview_query)
+    return cmd_pick(args.count, args.fork, args.rebuild, oc_args)
 
-    echo "$selected" | awk '{print $NF}'
-}
 
-main() {
-    local count=20
-    local fork=false
-    local search=""
-
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            -h|--help) show_usage; exit 0 ;;
-            -n) count="$2"; shift 2 ;;
-            -f) fork=true; shift ;;
-            -*) echo "Unknown option: $1" >&2; show_usage >&2; exit 1 ;;
-            *) search="$1"; shift ;;
-        esac
-    done
-
-    local json
-    if ! json=$(fetch_sessions "$count" "$search"); then
-        exit 1
-    fi
-
-    local session_id
-    if ! session_id=$(select_session "$json"); then
-        exit 1
-    fi
-
-    local args=("--session" "$session_id")
-    if [ "$fork" = true ]; then
-        args+=("--fork")
-    fi
-
-    exec opencode "${args[@]}"
-}
-
-main "$@"
+if __name__ == "__main__":
+    sys.exit(main())
