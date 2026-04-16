@@ -269,7 +269,7 @@ def to_adf(text: str) -> dict:
     return {"type": "doc", "version": 1, "content": content}
 
 
-def build_payload(summary: str, description: str, fix_version: str, issue_type: str, sprint_id: str, account_id: str) -> dict:
+def build_payload(summary: str, description: str, fix_version: str, issue_type: str, sprint_id: str, account_id: str, parent_key: str | None = None) -> dict:
     fields: dict = {
         "project": {"key": DEFAULT_PROJECT},
         "summary": summary,
@@ -281,6 +281,8 @@ def build_payload(summary: str, description: str, fix_version: str, issue_type: 
         fields["description"] = to_adf(description)
     if sprint_id:
         fields[SPRINT_FIELD] = int(sprint_id)
+    if parent_key:
+        fields["parent"] = {"key": parent_key}
     return {"fields": fields}
 
 
@@ -296,6 +298,8 @@ def build_update_fields(args: argparse.Namespace) -> dict:
         fields["fixVersions"] = [{"name": args.fix_version}]
     if args.assignee is not None:
         fields["assignee"] = {"accountId": args.assignee}
+    if args.parent is not None:
+        fields["parent"] = {"key": args.parent}
     return fields
 
 
@@ -617,7 +621,7 @@ def run_interactive(args: argparse.Namespace) -> None:
 
     sprint_id = fetch_sprint_id(board_id, sprint) if sprint else ""
     account_id = resolve_account_id()
-    payload = build_payload(summary, description, fix_version, issue_type, sprint_id, account_id)
+    payload = build_payload(summary, description, fix_version, issue_type, sprint_id, account_id, args.parent)
 
     if args.dry_run:
         print(json.dumps(payload, indent=2))
@@ -641,7 +645,7 @@ def run_non_interactive(args: argparse.Namespace) -> None:
 
     fix_version = args.fix_version if args.fix_version is not None else DEFAULT_FIX_VERSION
     issue_type = args.issue_type if args.issue_type is not None else DEFAULT_TYPE
-    payload = build_payload(args.summary, args.description or "", fix_version, issue_type, sprint_id, account_id)
+    payload = build_payload(args.summary, args.description or "", fix_version, issue_type, sprint_id, account_id, args.parent)
 
     if args.dry_run:
         print(json.dumps(payload, indent=2))
@@ -716,6 +720,8 @@ def parse_args() -> argparse.Namespace:
             "  jcr LEO-2584 --update --json              # machine-readable update output\n"
             "  jcr --summary 'Fix bug' --link LEO-2358  # link to existing ticket (Relates)\n"
             "  jcr --summary 'Fix bug' --link LEO-2358 --link LEO-2400 --link-type Blocks\n"
+            "  jcr --summary 'Child task' --parent LEO-2305  # create ticket under epic/parent\n"
+            "  jcr LEO-2597 --update --parent LEO-2305  # set/change parent on existing ticket\n"
             "  jcr LEO-2597 --update --link LEO-2358    # add link to existing ticket\n"
             "  jcr LEO-2597 --update --unlink LEO-2358  # remove link to existing ticket\n"
             "  jcr --setup                               # discover config values\n"
@@ -736,6 +742,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--link", metavar="KEY", action="append", help="Link ticket to KEY (repeatable). E.g. --link LEO-2358")
     parser.add_argument("--link-type", metavar="TYPE", default="Relates", help="Link type (default: Relates). E.g. Blocks, Clones, Duplicate")
     parser.add_argument("--unlink", metavar="KEY", action="append", help="Remove link to KEY (repeatable). Requires --update")
+    parser.add_argument("--parent", metavar="KEY", default=None, help="Set parent/epic for the ticket. E.g. --parent LEO-2305")
     parser.add_argument("--comments", action="store_true", help="(deprecated, comments now shown by default)")
     parser.add_argument("--brief", action="store_true", help="Suppress comments in output")
     parser.add_argument("--setup", action="store_true", help="Discover BOARD_ID, SPRINT_FIELD, ACCOUNT_ID")

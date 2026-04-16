@@ -1,6 +1,12 @@
+import argparse
+import subprocess
+import sys
 from base64 import b64encode
+from pathlib import Path
 
 import pytest
+
+BIN_DIR = Path(__file__).parent.parent
 
 
 @pytest.fixture
@@ -156,3 +162,92 @@ class TestToAdf:
         breaks = [c for c in node["content"] if c["type"] == "hardBreak"]
         assert len(texts) == 3
         assert len(breaks) == 2
+
+
+class TestBuildPayload:
+    def _call(self, jcr, **overrides):
+        defaults = dict(
+            summary="S", description="", fix_version="25.3.0",
+            issue_type="Task", sprint_id="", account_id="acct",
+        )
+        defaults.update(overrides)
+        return jcr.build_payload(**defaults)
+
+    def test_omits_parent_by_default(self, jcr):
+        payload = self._call(jcr)
+        assert "parent" not in payload["fields"]
+
+    def test_omits_parent_when_none(self, jcr):
+        payload = self._call(jcr, parent_key=None)
+        assert "parent" not in payload["fields"]
+
+    def test_omits_parent_when_empty_string(self, jcr):
+        payload = self._call(jcr, parent_key="")
+        assert "parent" not in payload["fields"]
+
+    def test_sets_parent_when_provided(self, jcr):
+        payload = self._call(jcr, parent_key="LEO-2305")
+        assert payload["fields"]["parent"] == {"key": "LEO-2305"}
+
+    def test_parent_coexists_with_other_fields(self, jcr):
+        payload = self._call(jcr, parent_key="LEO-2305", sprint_id="461", description="body")
+        fields = payload["fields"]
+        assert fields["parent"] == {"key": "LEO-2305"}
+        assert fields[jcr.SPRINT_FIELD] == 461
+        assert fields["description"]["type"] == "doc"
+
+
+class TestBuildUpdateFields:
+    def _ns(self, **overrides):
+        defaults = dict(
+            issue_type=None, summary=None, description=None,
+            fix_version=None, assignee=None, parent=None,
+        )
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_empty_namespace_produces_empty_dict(self, jcr):
+        assert jcr.build_update_fields(self._ns()) == {}
+
+    def test_parent_included_when_set(self, jcr):
+        fields = jcr.build_update_fields(self._ns(parent="LEO-2305"))
+        assert fields == {"parent": {"key": "LEO-2305"}}
+
+    def test_parent_omitted_when_none(self, jcr):
+        fields = jcr.build_update_fields(self._ns(summary="new"))
+        assert "parent" not in fields
+
+    def test_parent_with_other_updates(self, jcr):
+        ns = self._ns(parent="LEO-2305", summary="new", fix_version="25.4.0")
+        fields = jcr.build_update_fields(ns)
+        assert fields["parent"] == {"key": "LEO-2305"}
+        assert fields["summary"] == "new"
+        assert fields["fixVersions"] == [{"name": "25.4.0"}]
+
+
+class TestParseArgsParent:
+    """Verify --parent wires into the argparse namespace and reaches build_payload."""
+
+    def test_parent_flag_sets_namespace_attr(self, jcr, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["jcr", "--summary", "S", "--parent", "LEO-2305"])
+        args = jcr.parse_args()
+        assert args.parent == "LEO-2305"
+
+    def test_parent_defaults_to_none(self, jcr, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["jcr", "--summary", "S"])
+        args = jcr.parse_args()
+        assert args.parent is None
+
+    def test_parent_available_on_update(self, jcr, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["jcr", "LEO-100", "--update", "--parent", "LEO-2305"])
+        args = jcr.parse_args()
+        assert args.parent == "LEO-2305"
+        assert args.update is True
+
+    def test_help_output_mentions_parent(self):
+        result = subprocess.run(
+            [sys.executable, str(BIN_DIR / "jcr"), "--help"],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0
+        assert "--parent" in result.stdout
