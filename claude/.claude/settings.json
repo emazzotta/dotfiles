@@ -16,6 +16,10 @@
           {
             "type": "command",
             "command": "/home/opencode/.claude/hooks/stop-verify.sh"
+          },
+          {
+            "type": "command",
+            "command": "printf '\\a'"
           }
         ]
       }
@@ -61,6 +65,16 @@
           {
             "type": "command",
             "command": "/workspace/.claude/hooks/post-tool-commit-observer.sh"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '\\a'"
           }
         ]
       }
