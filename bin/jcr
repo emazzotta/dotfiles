@@ -269,14 +269,15 @@ def to_adf(text: str) -> dict:
     return {"type": "doc", "version": 1, "content": content}
 
 
-def build_payload(summary: str, description: str, fix_version: str, issue_type: str, sprint_id: str, account_id: str, parent_key: str | None = None) -> dict:
+def build_payload(summary: str, description: str, fix_version: str | None, issue_type: str, sprint_id: str, account_id: str, parent_key: str | None = None) -> dict:
     fields: dict = {
         "project": {"key": DEFAULT_PROJECT},
         "summary": summary,
         "issuetype": {"name": issue_type},
-        "fixVersions": [{"name": fix_version}],
         "assignee": {"accountId": account_id},
     }
+    if fix_version:
+        fields["fixVersions"] = [{"name": fix_version}]
     if description:
         fields["description"] = to_adf(description)
     if sprint_id:
@@ -294,7 +295,9 @@ def build_update_fields(args: argparse.Namespace) -> dict:
         fields["summary"] = args.summary
     if args.description is not None:
         fields["description"] = to_adf(args.description)
-    if args.fix_version is not None:
+    if args.no_fix_version:
+        fields["fixVersions"] = []
+    elif args.fix_version is not None:
         fields["fixVersions"] = [{"name": args.fix_version}]
     if args.assignee is not None:
         fields["assignee"] = {"accountId": args.assignee}
@@ -525,7 +528,7 @@ def run_update(args: argparse.Namespace) -> None:
     fields = build_update_fields(args)
 
     if not fields:
-        print("Error: --update requires at least one of: --summary, --description, --type, --fix-version, --assignee", file=sys.stderr)
+        print("Error: --update requires at least one of: --summary, --description, --type, --fix-version, --no-fix-version, --assignee, --parent, --link, --unlink", file=sys.stderr)
         sys.exit(1)
 
     jira_request("PUT", f"api/3/issue/{key}", {"fields": fields})
@@ -636,14 +639,19 @@ def run_non_interactive(args: argparse.Namespace) -> None:
     board_id = resolve_board_id()
     account_id = resolve_account_id(args.assignee)
 
-    if args.sprint:
+    if args.no_sprint:
+        sprint_id = ""
+    elif args.sprint:
         sprint_id = fetch_sprint_id(board_id, args.sprint)
     else:
         print("Fetching active sprint...", file=sys.stderr)
         sprint_name, sprint_id = fetch_active_sprint(board_id)
         print(f"Using sprint: {sprint_name}", file=sys.stderr)
 
-    fix_version = args.fix_version if args.fix_version is not None else DEFAULT_FIX_VERSION
+    if args.no_fix_version:
+        fix_version = None
+    else:
+        fix_version = args.fix_version if args.fix_version is not None else DEFAULT_FIX_VERSION
     issue_type = args.issue_type if args.issue_type is not None else DEFAULT_TYPE
     payload = build_payload(args.summary, args.description or "", fix_version, issue_type, sprint_id, account_id, args.parent)
 
@@ -733,7 +741,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--summary", metavar="TEXT", help="Ticket summary [triggers non-interactive mode]")
     parser.add_argument("--description", metavar="TEXT", help="Description (plain text, converted to ADF)")
     parser.add_argument("--fix-version", metavar="TEXT", default=None, help=f"Fix version. Default for create: {DEFAULT_FIX_VERSION}")
+    parser.add_argument("--no-fix-version", action="store_true", help="Omit fix version entirely (for tickets not targeted at a release)")
     parser.add_argument("--sprint", metavar="TEXT", help="Sprint name. Default: first active sprint")
+    parser.add_argument("--no-sprint", action="store_true", help="Do not assign to any sprint (backlog)")
     parser.add_argument("--type", dest="issue_type", metavar="TEXT", default=None, help=f"Issue type. Default for create: {DEFAULT_TYPE}")
     parser.add_argument("--assignee", metavar="TEXT", default=None, help="Jira accountId. Default: ACCOUNT_ID constant")
     parser.add_argument("--update", action="store_true", help="Update an existing ticket (requires exactly one KEY)")
