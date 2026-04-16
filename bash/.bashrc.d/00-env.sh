@@ -90,3 +90,6 @@ export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
 export KEYGUARD_SECRETS_FILE="$DOCUMENTDIR/Keepass/keyguard.enc"
 export POSH_THEMES_PATH="/opt/homebrew/opt/oh-my-posh/themes"
 export SDKMAN_DIR="$HOME/.sdkman"
+
+### LOAD .env ###
+source "$DOTFILESPATH/.env"
