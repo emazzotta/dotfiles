@@ -100,6 +100,7 @@ close_overview() {
 }
 
 open_overview() {
+    local mode=${1:-attached}
     local self; self=$(resolve_self)
     if [ ! -x "$self" ]; then
         notify "script not executable: $self"; return 1
@@ -118,8 +119,11 @@ open_overview() {
         notify "no windows to tile"; return 1
     fi
 
+    local -a new_win_args=(-P -F '#{window_id}|#{pane_id}' -n overview)
+    [ "$mode" = "detached" ] && new_win_args+=(-d)
+
     local out ov_win first_pane
-    if ! out=$(tmux new-window -P -F '#{window_id}|#{pane_id}' -n overview \
+    if ! out=$(tmux new-window "${new_win_args[@]}" \
                    "exec $self tile ${sources[0]}" 2>&1); then
         notify "new-window failed: $out"; return 1
     fi
@@ -307,11 +311,33 @@ reconcile() {
     [ "$lock" = "1" ] && return 0
     tmux set-option -g "@overview_lock" 1 2>/dev/null || true
 
+    # Capture the user's actual focused window before tearing anything down.
+    # display-message inside run-shell -b reports the invoking pane (a tile),
+    # so query window_active directly instead.
+    local user_win
+    user_win=$(tmux list-windows -F '#{window_active} #{window_id}' 2>/dev/null \
+               | awk '$1=="1" {print $2; exit}')
+    local user_was_watching=0
+    [ "$user_win" = "$existing" ] && user_was_watching=1
+
     local prev
     prev=$(tmux show-options -wvt "$existing" "$PREV_WIN_OPT" 2>/dev/null || true)
     close_overview "$existing"
     [ -n "$prev" ] && tmux select-window -t "$prev" 2>/dev/null || true
-    open_overview
+
+    if [ "$user_was_watching" = "1" ]; then
+        open_overview
+    else
+        open_overview detached
+        # Restore the user's focus if their window still exists. It may have
+        # been the one whose deletion triggered this reconcile in the first
+        # place; in that case tmux has already moved focus elsewhere and we
+        # leave it alone.
+        if [ -n "$user_win" ] \
+           && tmux list-windows -F '#{window_id}' 2>/dev/null | grep -qxF "$user_win"; then
+            tmux select-window -t "$user_win" 2>/dev/null || true
+        fi
+    fi
 
     tmux set-option -gu "@overview_lock" 2>/dev/null || true
 }
