@@ -120,6 +120,51 @@ _make_targets()
     fi
   done
 }
+_envify()
+{
+  local cur prev _py
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  _py="${DOTFILESPATH:-$HOME/dotfiles}/bin/envify.py"
+
+  if [[ -z "${_ENVIFY_OPTS_CACHE}" ]]; then
+    _ENVIFY_OPTS_CACHE=$(python3 "$_py" --help 2>/dev/null \
+      | grep -oE -- '(^|[[:space:],])-{1,2}[a-zA-Z][a-zA-Z0-9-]*' \
+      | tr -d ' ,' | sort -u | tr '\n' ' ')
+  fi
+
+  if [[ "$cur" == -* ]]; then
+    COMPREPLY=($(compgen -W "${_ENVIFY_OPTS_CACHE}" -- "$cur"))
+    return 0
+  fi
+
+  local _ttl="${ENVIFY_COMPLETION_TTL:-3600}"
+  local _now _mtime
+  _now=$(date +%s)
+  mkdir -p "${HOME}/.cache"
+
+  if [[ "$prev" == "--bridge" ]]; then
+    local _bcache="${HOME}/.cache/envify-bridge-endpoints"
+    _mtime=$(date -r "$_bcache" +%s 2>/dev/null || echo 0)
+    if (( _now - _mtime >= _ttl )); then
+      python3 "$_py" --bridge-list 2>/dev/null \
+        | python3 -c "import sys,json; print('\n'.join(e['name'] for e in json.load(sys.stdin)))" \
+        > "$_bcache" 2>/dev/null || true
+    fi
+    [[ -f "$_bcache" ]] && COMPREPLY=($(compgen -W "$(cat "$_bcache")" -- "$cur"))
+    return 0
+  fi
+
+  local _cache="${HOME}/.cache/envify-keys"
+  _mtime=$(date -r "$_cache" +%s 2>/dev/null || echo 0)
+  if (( _now - _mtime >= _ttl )); then
+    python3 "$_py" --list > "$_cache" 2>/dev/null || true
+  fi
+
+  [[ -f "$_cache" ]] && COMPREPLY=($(compgen -W "$(cat "$_cache")" -- "$cur"))
+}
+complete -F _envify envify
 complete -o nospace -F _agrep agrep
 complete -o nospace -F _kubeconf kubeconf
 complete -o nospace -F _bundleid bundleid
