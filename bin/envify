@@ -67,6 +67,42 @@ list_available_params() {
     fi
 }
 
+bridge_resolve_token() {
+    if command -v keyguard > /dev/null 2>&1; then
+        keyguard get MAC_BRIDGE_TOKEN
+    else
+        local host
+        if ! host=$(find_reachable_param_host); then
+            echo "Error: bridge: param server unreachable on localhost:$PARAM_SERVER_PORT and host.docker.internal:$PARAM_SERVER_PORT" >&2
+            return 1
+        fi
+        curl -sf "http://$host:$PARAM_SERVER_PORT/MAC_BRIDGE_TOKEN"
+    fi
+}
+
+list_bridge_endpoints() {
+    local token host
+    token=$(bridge_resolve_token) || return 1
+    if ! host=$(find_reachable_param_host); then
+        echo "Error: bridge: param server unreachable on localhost:$PARAM_SERVER_PORT and host.docker.internal:$PARAM_SERVER_PORT" >&2
+        return 1
+    fi
+    curl -sf "http://$host:$PARAM_SERVER_PORT/_bridge/list" \
+        -H "Authorization: Bearer $token"
+}
+
+call_bridge_endpoint() {
+    local name="$1"
+    local token host
+    token=$(bridge_resolve_token) || return 1
+    if ! host=$(find_reachable_param_host); then
+        echo "Error: bridge: param server unreachable on localhost:$PARAM_SERVER_PORT and host.docker.internal:$PARAM_SERVER_PORT" >&2
+        return 1
+    fi
+    curl -sf -X POST "http://$host:$PARAM_SERVER_PORT/_bridge/$name" \
+        -H "Authorization: Bearer $token"
+}
+
 export_resolved_params() {
     local line key value
     while IFS= read -r line; do
@@ -107,6 +143,14 @@ load_global_env
 if [ $# -gt 0 ]; then
     if [ "$1" = "--list" ]; then
         list_available_params
+    elif [ "$1" = "--bridge-list" ]; then
+        list_bridge_endpoints
+    elif [ "$1" = "--bridge" ]; then
+        if [ $# -lt 2 ]; then
+            echo "Usage: envify --bridge <endpoint-name>" >&2
+            return 1
+        fi
+        call_bridge_endpoint "$2"
     else
         resolve_params "$@"
     fi
