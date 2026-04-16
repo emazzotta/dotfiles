@@ -6,9 +6,14 @@ if test "${ZSH_VERSION}"; then
 fi
 _agrep()
 {
+  local _rcd
+  _rcd="${HOME}/.bashrc.d"
+  [ -d "${_rcd}" ] || _rcd="${HOME}/dotfiles/bash/.bashrc.d"
   _agrep_commands=$(ls ${CUSTOM_BIN_DIR})
-  _agrep_commands+=$(grep -hEo '^(alias ).*' ${HOME}/.bashrc.d/[0-9]*.sh | sed 's/=.*$//g' | sed 's/alias //g')
-  _agrep_commands+=$(grep -hEo '^(export ).*' ${HOME}/.bashrc.d/[0-9]*.sh | sed 's/=.*$//g' | sed 's/export //g')
+  if [ -d "${_rcd}" ]; then
+    _agrep_commands+=$(grep -hEo '^(alias ).*' "${_rcd}"/[0-9]*.sh 2>/dev/null | sed 's/=.*$//g' | sed 's/alias //g')
+    _agrep_commands+=$(grep -hEo '^(export ).*' "${_rcd}"/[0-9]*.sh 2>/dev/null | sed 's/=.*$//g' | sed 's/export //g')
+  fi
   local cur prev
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
