@@ -17,6 +17,7 @@ brew "exiftool"
 brew "fdk-aac" # Git Video
 brew "ffmpeg-full"
 brew "flac"
+brew "fluxcd/tap/flux"
 brew "fzf"
 brew "gcc"
 brew "gh"
