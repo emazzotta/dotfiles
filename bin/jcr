@@ -187,6 +187,8 @@ def _line_type(line: str) -> str:
     stripped = line.strip()
     if not stripped:
         return "blank"
+    if stripped.startswith("```"):
+        return "fence"
     if any(stripped.startswith("#" * n + " ") for n in range(1, 7)):
         return "heading"
     if stripped.startswith("|") and stripped.endswith("|"):
@@ -244,6 +246,27 @@ def _build_paragraph(lines: list[str]) -> dict:
     return {"type": "paragraph", "content": inline}
 
 
+def _build_code_block(body: str, language: str) -> dict:
+    attrs = {"language": language} if language else {}
+    node: dict = {"type": "codeBlock", "content": [{"type": "text", "text": body}] if body else []}
+    if attrs:
+        node["attrs"] = attrs
+    return node
+
+
+def _collect_fenced(lines: list[str], start: int) -> tuple[str, str, int]:
+    opener = lines[start].strip()
+    language = opener[3:].strip()
+    body_lines: list[str] = []
+    i = start + 1
+    while i < len(lines):
+        if lines[i].strip().startswith("```"):
+            return "\n".join(body_lines), language, i + 1
+        body_lines.append(lines[i])
+        i += 1
+    return "\n".join(body_lines), language, i
+
+
 def to_adf(text: str) -> dict:
     lines = text.split("\n")
     content: list[dict] = []
@@ -252,6 +275,9 @@ def to_adf(text: str) -> dict:
         lt = _line_type(lines[i])
         if lt == "blank":
             i += 1
+        elif lt == "fence":
+            body, language, i = _collect_fenced(lines, i)
+            content.append(_build_code_block(body, language))
         elif lt == "heading":
             content.append(_build_heading(lines[i]))
             i += 1
