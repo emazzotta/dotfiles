@@ -164,7 +164,36 @@ _envify()
 
   [[ -f "$_cache" ]] && COMPREPLY=($(compgen -W "$(cat "$_cache")" -- "$cur"))
 }
+_keyguard()
+{
+  local cur prev
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    COMPREPLY=($(compgen -W "get set list" -- "${cur}"))
+    return 0
+  fi
+
+  case "${COMP_WORDS[1]}" in
+    get|set)
+      local _ttl="${KEYGUARD_COMPLETION_TTL:-3600}"
+      local _cache="${HOME}/.cache/keyguard-keys"
+      local _now _mtime
+      _now=$(date +%s)
+      mkdir -p "${HOME}/.cache"
+      _mtime=$(date -r "$_cache" +%s 2>/dev/null || echo 0)
+      if (( _now - _mtime >= _ttl )); then
+        keyguard list > "$_cache" 2>/dev/null || true
+      fi
+      [[ -f "$_cache" ]] && COMPREPLY=($(compgen -W "$(cat "$_cache")" -- "$cur"))
+      return 0
+      ;;
+  esac
+}
 complete -F _envify envify
+complete -F _keyguard keyguard
 complete -o nospace -F _agrep agrep
 complete -o nospace -F _kubeconf kubeconf
 complete -o nospace -F _bundleid bundleid
