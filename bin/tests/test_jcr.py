@@ -163,6 +163,84 @@ class TestToAdf:
         assert len(texts) == 3
         assert len(breaks) == 2
 
+    def test_inline_code_in_paragraph(self, jcr):
+        result = jcr.to_adf("Use `foo` to enable it.")
+        nodes = result["content"][0]["content"]
+        assert nodes[0] == {"type": "text", "text": "Use "}
+        assert nodes[1] == {"type": "text", "text": "foo", "marks": [{"type": "code"}]}
+        assert nodes[2] == {"type": "text", "text": " to enable it."}
+
+    def test_inline_code_in_heading(self, jcr):
+        result = jcr.to_adf("## Property `enableFoo`")
+        heading = result["content"][0]
+        assert heading["type"] == "heading"
+        assert heading["content"][0] == {"type": "text", "text": "Property "}
+        assert heading["content"][1] == {"type": "text", "text": "enableFoo", "marks": [{"type": "code"}]}
+
+    def test_inline_code_in_bullet(self, jcr):
+        result = jcr.to_adf("- Set `debug=true` to see more")
+        item_content = result["content"][0]["content"][0]["content"][0]["content"]
+        assert item_content[0] == {"type": "text", "text": "Set "}
+        assert item_content[1] == {"type": "text", "text": "debug=true", "marks": [{"type": "code"}]}
+        assert item_content[2] == {"type": "text", "text": " to see more"}
+
+    def test_inline_code_in_table_cell(self, jcr):
+        result = jcr.to_adf("| Key | Value |\n| --- | --- |\n| `foo` | bar |")
+        body_row = result["content"][0]["content"][1]
+        first_cell_para = body_row["content"][0]["content"][0]
+        assert first_cell_para["content"][0] == {"type": "text", "text": "foo", "marks": [{"type": "code"}]}
+
+    def test_inline_code_adjacent(self, jcr):
+        result = jcr.to_adf("`a` `b`")
+        nodes = result["content"][0]["content"]
+        assert nodes[0] == {"type": "text", "text": "a", "marks": [{"type": "code"}]}
+        assert nodes[1] == {"type": "text", "text": " "}
+        assert nodes[2] == {"type": "text", "text": "b", "marks": [{"type": "code"}]}
+
+    def test_unmatched_backtick_is_literal(self, jcr):
+        result = jcr.to_adf("before ` after")
+        nodes = result["content"][0]["content"]
+        assert len(nodes) == 1
+        assert nodes[0] == {"type": "text", "text": "before ` after"}
+
+    def test_fenced_code_block_not_treated_as_inline(self, jcr):
+        result = jcr.to_adf("```\nfoo = `bar`\n```")
+        block = result["content"][0]
+        assert block["type"] == "codeBlock"
+        assert block["content"][0] == {"type": "text", "text": "foo = `bar`"}
+
+
+class TestInlineNodes:
+    def test_plain_text(self, jcr):
+        assert jcr._inline_nodes("hello world") == [{"type": "text", "text": "hello world"}]
+
+    def test_empty_string_falls_back_to_single_text_node(self, jcr):
+        assert jcr._inline_nodes("") == [{"type": "text", "text": ""}]
+
+    def test_only_code(self, jcr):
+        assert jcr._inline_nodes("`only`") == [
+            {"type": "text", "text": "only", "marks": [{"type": "code"}]},
+        ]
+
+    def test_code_at_start(self, jcr):
+        nodes = jcr._inline_nodes("`head` rest")
+        assert nodes == [
+            {"type": "text", "text": "head", "marks": [{"type": "code"}]},
+            {"type": "text", "text": " rest"},
+        ]
+
+    def test_code_at_end(self, jcr):
+        nodes = jcr._inline_nodes("rest `tail`")
+        assert nodes == [
+            {"type": "text", "text": "rest "},
+            {"type": "text", "text": "tail", "marks": [{"type": "code"}]},
+        ]
+
+    def test_multiple_code_spans(self, jcr):
+        nodes = jcr._inline_nodes("`a` and `b` and `c`")
+        code_texts = [n["text"] for n in nodes if n.get("marks")]
+        assert code_texts == ["a", "b", "c"]
+
 
 class TestBuildPayload:
     def _call(self, jcr, **overrides):
