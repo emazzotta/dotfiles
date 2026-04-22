@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -179,8 +180,25 @@ def _adf_text(text: str) -> dict:
     return {"type": "text", "text": text}
 
 
+INLINE_CODE_RE = re.compile(r"`([^`\n]+?)`")
+
+
+def _inline_nodes(text: str) -> list[dict]:
+    nodes: list[dict] = []
+    pos = 0
+    for match in INLINE_CODE_RE.finditer(text):
+        start, end = match.span()
+        if start > pos:
+            nodes.append(_adf_text(text[pos:start]))
+        nodes.append({"type": "text", "text": match.group(1), "marks": [{"type": "code"}]})
+        pos = end
+    if pos < len(text):
+        nodes.append(_adf_text(text[pos:]))
+    return nodes or [_adf_text(text)]
+
+
 def _adf_paragraph(text: str) -> dict:
-    return {"type": "paragraph", "content": [_adf_text(text)]}
+    return {"type": "paragraph", "content": _inline_nodes(text)}
 
 
 def _line_type(line: str) -> str:
@@ -212,7 +230,7 @@ def _build_heading(line: str) -> dict:
     for level in range(6, 0, -1):
         prefix = "#" * level + " "
         if stripped.startswith(prefix):
-            return {"type": "heading", "attrs": {"level": level}, "content": [_adf_text(stripped[len(prefix):])]}
+            return {"type": "heading", "attrs": {"level": level}, "content": _inline_nodes(stripped[len(prefix):])}
     return _adf_paragraph(stripped)
 
 
@@ -242,7 +260,7 @@ def _build_paragraph(lines: list[str]) -> dict:
     for j, line in enumerate(lines):
         if j > 0:
             inline.append({"type": "hardBreak"})
-        inline.append(_adf_text(line.strip()))
+        inline.extend(_inline_nodes(line.strip()))
     return {"type": "paragraph", "content": inline}
 
 
