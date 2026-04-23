@@ -130,6 +130,36 @@ def _find_git_crypt_root(path: Path) -> Path | None:
     return None
 
 
+_DESCEND_SKIP_DIRS = {"node_modules", "target", "build", "dist", "vendor"}
+
+
+def _find_git_crypt_roots_descending(root: Path, maxdepth: int = 3) -> list[Path]:
+    """Find directories containing both .git and .git-crypt, up to maxdepth levels below root."""
+    results: list[Path] = []
+    if not root.is_dir():
+        return results
+
+    def walk(path: Path, depth: int) -> None:
+        if (path / ".git").exists() and (path / ".git-crypt").is_dir():
+            results.append(path)
+            return
+        if depth >= maxdepth:
+            return
+        try:
+            entries = list(path.iterdir())
+        except (PermissionError, OSError):
+            return
+        for entry in entries:
+            if not entry.is_dir() or entry.is_symlink():
+                continue
+            if entry.name.startswith(".") or entry.name in _DESCEND_SKIP_DIRS:
+                continue
+            walk(entry, depth + 1)
+
+    walk(root, 0)
+    return results
+
+
 def lock_git_crypt(pwd: Path, repo_root: Path | None = None) -> None:
     if not shutil.which("git-crypt"):
         return
@@ -371,6 +401,10 @@ def main() -> None:
         if root and root not in locked_roots:
             lock_git_crypt(directory, repo_root=root)
             locked_roots.add(root)
+        for descendant in _find_git_crypt_roots_descending(directory):
+            if descendant not in locked_roots:
+                lock_git_crypt(descendant, repo_root=descendant)
+                locked_roots.add(descendant)
     _profile("git-crypt lock (targets)")
 
     if args.oc and args.rm is None:
