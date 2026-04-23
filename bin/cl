@@ -8,7 +8,7 @@ import threading
 import importlib.util
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
-from subprocess import DEVNULL, PIPE, Popen, run
+from subprocess import PIPE, Popen, run
 from time import perf_counter, time, time_ns
 
 INTERNET_CHECK_HOST = "one.one.one.one"
@@ -180,16 +180,17 @@ def lock_git_crypt(pwd: Path, repo_root: Path | None = None) -> None:
         return
 
     stashed = _git_stash_push(repo_root)
-    result = run(["git-crypt", "lock"], cwd=repo_root, capture_output=True, text=True)
-    if result.returncode == 0:
-        print(f"git-crypt: locked {repo_root.name}")
-    elif "already locked" in result.stderr.lower():
-        print(f"git-crypt: {repo_root.name} already locked")
-    else:
+    try:
+        result = run(["git-crypt", "lock"], cwd=repo_root, capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"git-crypt: locked {repo_root.name}")
+        elif "already locked" in result.stderr.lower():
+            print(f"git-crypt: {repo_root.name} already locked")
+        else:
+            print(f"git-crypt: failed to lock {repo_root.name} - {result.stderr.strip()}", file=sys.stderr)
+            sys.exit(1)
+    finally:
         _git_stash_pop(repo_root, stashed)
-        print(f"git-crypt: failed to lock {repo_root.name} - {result.stderr.strip()}", file=sys.stderr)
-        sys.exit(1)
-    _git_stash_pop(repo_root, stashed)
 
 
 def _git_stash_push(pwd: Path) -> bool:
@@ -203,6 +204,31 @@ def _git_stash_pop(pwd: Path, stashed: bool) -> None:
     result = run(["git", "stash", "pop"], cwd=pwd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"git stash pop failed: {result.stderr.strip()}", file=sys.stderr)
+
+
+def _lock_git_crypt_roots(lock_targets: list[Path]) -> set[Path]:
+    """Lock every git-crypt repo under each target (walking up, then down).
+
+    Returns the set of repo roots locked so the caller can deduplicate
+    against e.g. the hardcoded leonardo-commons lock.
+    """
+    locked_roots: set[Path] = set()
+    for directory in lock_targets:
+        root = _find_git_crypt_root(directory)
+        if root and root not in locked_roots:
+            lock_git_crypt(directory, repo_root=root)
+            locked_roots.add(root)
+        for descendant in _find_git_crypt_roots_descending(directory):
+            if descendant not in locked_roots:
+                lock_git_crypt(descendant, repo_root=descendant)
+                locked_roots.add(descendant)
+    return locked_roots
+
+
+def _is_path_mounted(volume_args: list[str], host_path: Path) -> bool:
+    """True if host_path already appears as the source of a -v mount."""
+    prefix = f"{host_path}:"
+    return any(arg.startswith(prefix) for arg in volume_args)
 
 
 def parse_path(path_str: str) -> Path:
@@ -405,16 +431,7 @@ def main() -> None:
     _profile("internet check")
 
     lock_targets = args.paths or [pwd]
-    locked_roots: set[Path] = set()
-    for directory in lock_targets:
-        root = _find_git_crypt_root(directory)
-        if root and root not in locked_roots:
-            lock_git_crypt(directory, repo_root=root)
-            locked_roots.add(root)
-        for descendant in _find_git_crypt_roots_descending(directory):
-            if descendant not in locked_roots:
-                lock_git_crypt(descendant, repo_root=descendant)
-                locked_roots.add(descendant)
+    locked_roots = _lock_git_crypt_roots(lock_targets)
     _profile("git-crypt lock (targets)")
 
     if args.oc and args.rm is None:
@@ -429,8 +446,7 @@ def main() -> None:
     _profile("build_dotfiles_volume_args")
     if LEONARDO_COMMONS.is_dir() and LEONARDO_COMMONS.resolve() not in locked_roots:
         lock_git_crypt(LEONARDO_COMMONS)
-        mounted = any(str(LEONARDO_COMMONS) in v for v in volume_args)
-        if not mounted:
+        if not _is_path_mounted(volume_args, LEONARDO_COMMONS):
             volume_args.extend(["-v", f"{LEONARDO_COMMONS}:/workspace/code/leonardo-commons"])
     _profile("leonardo-commons lock/mount")
     container_name = f"opencode-{int(time())}"

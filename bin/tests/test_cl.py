@@ -11,6 +11,27 @@ def cl(load_script):
     return load_script("cl")
 
 
+class TestIsGitCryptRepo:
+    def test_gpg_user_flow_detected_via_dot_git_crypt(self, cl, tmp_path):
+        (tmp_path / ".git-crypt").mkdir()
+        assert cl._is_git_crypt_repo(tmp_path) is True
+
+    def test_single_user_flow_detected_via_dot_git_git_crypt(self, cl, tmp_path):
+        (tmp_path / ".git" / "git-crypt").mkdir(parents=True)
+        assert cl._is_git_crypt_repo(tmp_path) is True
+
+    def test_plain_git_repo_not_detected(self, cl, tmp_path):
+        (tmp_path / ".git").mkdir()
+        assert cl._is_git_crypt_repo(tmp_path) is False
+
+    def test_empty_dir_not_detected(self, cl, tmp_path):
+        assert cl._is_git_crypt_repo(tmp_path) is False
+
+    def test_dot_git_crypt_as_file_not_detected(self, cl, tmp_path):
+        (tmp_path / ".git-crypt").write_text("not a directory")
+        assert cl._is_git_crypt_repo(tmp_path) is False
+
+
 class TestFindGitCryptRoot:
     def test_returns_same_dir_when_git_crypt_present(self, cl, tmp_path):
         (tmp_path / ".git-crypt").mkdir()
@@ -35,6 +56,46 @@ class TestFindGitCryptRoot:
         subdir = inner / "child"
         subdir.mkdir()
         assert cl._find_git_crypt_root(subdir) == inner
+
+    def test_detects_single_user_flow_via_dot_git_git_crypt(self, cl, tmp_path):
+        (tmp_path / ".git" / "git-crypt").mkdir(parents=True)
+        subdir = tmp_path / "src"
+        subdir.mkdir()
+        assert cl._find_git_crypt_root(subdir) == tmp_path
+
+
+class TestFindGitCryptRootsDescending:
+    def test_finds_gpg_flow_repo_under_root(self, cl, tmp_path):
+        repo = tmp_path / "repo"
+        (repo / ".git-crypt").mkdir(parents=True)
+        (repo / ".git").mkdir()
+        assert cl._find_git_crypt_roots_descending(tmp_path) == [repo]
+
+    def test_finds_single_user_flow_repo_under_root(self, cl, tmp_path):
+        repo = tmp_path / "repo"
+        (repo / ".git" / "git-crypt").mkdir(parents=True)
+        assert cl._find_git_crypt_roots_descending(tmp_path) == [repo]
+
+    def test_ignores_plain_git_repo(self, cl, tmp_path):
+        plain = tmp_path / "plain"
+        (plain / ".git").mkdir(parents=True)
+        assert cl._find_git_crypt_roots_descending(tmp_path) == []
+
+    def test_skips_nonexistent_root(self, cl, tmp_path):
+        assert cl._find_git_crypt_roots_descending(tmp_path / "nope") == []
+
+    def test_respects_maxdepth(self, cl, tmp_path):
+        deep = tmp_path / "a" / "b" / "c" / "d" / "repo"
+        (deep / ".git-crypt").mkdir(parents=True)
+        (deep / ".git").mkdir()
+        assert cl._find_git_crypt_roots_descending(tmp_path, maxdepth=2) == []
+
+    def test_skips_hidden_and_build_dirs(self, cl, tmp_path):
+        for name in (".hidden", "node_modules", "target", "build", "dist", "vendor"):
+            repo = tmp_path / name / "repo"
+            (repo / ".git-crypt").mkdir(parents=True)
+            (repo / ".git").mkdir()
+        assert cl._find_git_crypt_roots_descending(tmp_path) == []
 
 
 class TestLockGitCrypt:
@@ -161,6 +222,82 @@ class TestLockGitCryptMultiplePaths:
         lock_calls = [c for c in mock_cl_run if c[0][:2] == ["git-crypt", "lock"]]
         locked_dirs = {c[1] for c in lock_calls}
         assert locked_dirs == {repo1, repo2}
+
+
+class TestLockGitCryptRoots:
+    @pytest.fixture(autouse=True)
+    def _mock_which(self, cl):
+        with patch.object(cl.shutil, "which", return_value="/usr/bin/git-crypt"):
+            yield
+
+    @pytest.fixture
+    def mock_cl_run(self, cl, monkeypatch):
+        captured = []
+        def mock_run(cmd, **kwargs):
+            captured.append((cmd, kwargs.get("cwd")))
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        monkeypatch.setattr(cl, "run", mock_run)
+        return captured
+
+    def test_empty_targets_locks_nothing(self, cl, mock_cl_run):
+        assert cl._lock_git_crypt_roots([]) == set()
+        assert mock_cl_run == []
+
+    def test_walk_up_discovers_ancestor_root(self, cl, tmp_path, mock_cl_run):
+        repo = tmp_path / "repo"
+        (repo / ".git-crypt").mkdir(parents=True)
+        sub = repo / "src" / "main"
+        sub.mkdir(parents=True)
+        assert cl._lock_git_crypt_roots([sub]) == {repo}
+
+    def test_descend_discovers_nested_roots(self, cl, tmp_path, mock_cl_run):
+        r1 = tmp_path / "a" / "repo"
+        r2 = tmp_path / "b" / "repo"
+        for r in (r1, r2):
+            (r / ".git-crypt").mkdir(parents=True)
+            (r / ".git").mkdir()
+        assert cl._lock_git_crypt_roots([tmp_path]) == {r1, r2}
+
+    def test_deduplicates_across_targets(self, cl, tmp_path, mock_cl_run):
+        repo = tmp_path / "repo"
+        (repo / ".git-crypt").mkdir(parents=True)
+        sub1 = repo / "src"
+        sub2 = repo / "tests"
+        sub1.mkdir()
+        sub2.mkdir()
+        assert cl._lock_git_crypt_roots([sub1, sub2]) == {repo}
+        lock_calls = [c for c in mock_cl_run if c[0][:2] == ["git-crypt", "lock"]]
+        assert len(lock_calls) == 1
+
+    def test_single_user_flow_is_locked(self, cl, tmp_path, mock_cl_run):
+        repo = tmp_path / "repo"
+        (repo / ".git" / "git-crypt").mkdir(parents=True)
+        assert cl._lock_git_crypt_roots([repo]) == {repo}
+        lock_calls = [c for c in mock_cl_run if c[0][:2] == ["git-crypt", "lock"]]
+        assert [c[1] for c in lock_calls] == [repo]
+
+
+class TestIsPathMounted:
+    def test_true_when_path_is_mount_source(self, cl, tmp_path):
+        host = tmp_path / "leonardo-commons"
+        volume_args = ["-v", f"{host}:/workspace/code/leonardo-commons"]
+        assert cl._is_path_mounted(volume_args, host) is True
+
+    def test_false_on_sibling_name_prefix(self, cl, tmp_path):
+        host = tmp_path / "leonardo-commons"
+        sibling = tmp_path / "leonardo-commons-fork"
+        volume_args = ["-v", f"{sibling}:/workspace/code/leonardo-commons-fork"]
+        assert cl._is_path_mounted(volume_args, host) is False
+
+    def test_false_when_path_absent(self, cl, tmp_path):
+        host = tmp_path / "leonardo-commons"
+        assert cl._is_path_mounted([], host) is False
+
+    def test_ignores_container_target_matches(self, cl, tmp_path):
+        host = tmp_path / "leonardo-commons"
+        other = tmp_path / "other"
+        volume_args = ["-v", f"{other}:/workspace/code/leonardo-commons"]
+        assert cl._is_path_mounted(volume_args, host) is False
 
 
 class TestContainerPath:
@@ -405,3 +542,42 @@ class TestMain:
         cmd = mock_cl_run[-1]
         assert f"{dir1}:/workspace/code/dir1" in cmd
         assert f"{dir2}:/workspace/code/dir2" in cmd
+
+
+class TestLeonardoCommonsAutoMount:
+    @pytest.fixture(autouse=True)
+    def _mock_which(self, cl):
+        with patch.object(cl.shutil, "which", return_value="/usr/bin/git-crypt"):
+            yield
+
+    @pytest.fixture
+    def mock_cl_run(self, cl, monkeypatch):
+        captured = []
+        def mock_run(cmd, **kwargs):
+            captured.append(cmd)
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        monkeypatch.setattr(cl, "run", mock_run)
+        return captured
+
+    def test_sibling_name_does_not_suppress_auto_mount(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        leonardo_commons = tmp_path / "leonardo-commons"
+        leonardo_commons.mkdir()
+        sibling = tmp_path / "leonardo-commons-fork"
+        sibling.mkdir()
+        monkeypatch.setattr(cl, "LEONARDO_COMMONS", leonardo_commons)
+        monkeypatch.setattr(sys, "argv", ["cl", "-p", str(sibling)])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert f"{leonardo_commons}:/workspace/code/leonardo-commons" in cmd
+
+    def test_explicit_leonardo_commons_path_is_not_double_mounted(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        leonardo_commons = tmp_path / "leonardo-commons"
+        leonardo_commons.mkdir()
+        monkeypatch.setattr(cl, "LEONARDO_COMMONS", leonardo_commons)
+        monkeypatch.setattr(sys, "argv", ["cl", "-p", str(leonardo_commons)])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        mount_spec = f"{leonardo_commons}:/workspace/code/leonardo-commons"
+        assert cmd.count(mount_spec) == 1
