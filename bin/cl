@@ -121,10 +121,20 @@ DOTFILES_CRUFT_PATTERNS = (
 )
 
 
+def _is_git_crypt_repo(path: Path) -> bool:
+    """True if path is a git-crypt repo root.
+
+    Catches both the GPG-user flow (.git-crypt/ at worktree root) and the
+    single-user symmetric flow (.git/git-crypt/ when unlocked). A locked
+    single-user repo has neither marker, but it also doesn't need locking.
+    """
+    return (path / ".git-crypt").is_dir() or (path / ".git" / "git-crypt").is_dir()
+
+
 def _find_git_crypt_root(path: Path) -> Path | None:
     current = path
     while current != current.parent:
-        if (current / ".git-crypt").is_dir():
+        if _is_git_crypt_repo(current):
             return current
         current = current.parent
     return None
@@ -134,13 +144,13 @@ _DESCEND_SKIP_DIRS = {"node_modules", "target", "build", "dist", "vendor"}
 
 
 def _find_git_crypt_roots_descending(root: Path, maxdepth: int = 3) -> list[Path]:
-    """Find directories containing both .git and .git-crypt, up to maxdepth levels below root."""
+    """Find git-crypt repo roots up to maxdepth levels below root."""
     results: list[Path] = []
     if not root.is_dir():
         return results
 
     def walk(path: Path, depth: int) -> None:
-        if (path / ".git").exists() and (path / ".git-crypt").is_dir():
+        if (path / ".git").exists() and _is_git_crypt_repo(path):
             results.append(path)
             return
         if depth >= maxdepth:
