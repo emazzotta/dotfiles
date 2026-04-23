@@ -1,0 +1,794 @@
+#!/usr/bin/env python3
+# Personal CLI for Thales Sentinel EMS REST API v5 (Leonardo Productions AG internal config).
+# No credentials are stored here - all secrets are loaded at runtime via envify.
+# The EMS endpoint URLs and market group are Leonardo-specific but not secret.
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+from base64 import b64encode
+from datetime import date, timedelta
+from pathlib import Path
+
+DEV_BASE             = "https://leonardo.dev.sentinelcloud.com/ems/api/v5"
+PROD_BASE            = "https://leonardo.prod.sentinelcloud.com/ems/api/v5"
+DEFAULT_BASE         = DEV_BASE
+MARKET_GROUP         = "QQZQI"
+TYPICAL_NAME         = "Emanuele Mazzotta"
+TYPICAL_PRODUCT      = "LEONARDO Abonnement"
+TYPICAL_FEATURE      = "leonardo-subscription"
+TYPICAL_DAYS         = 14
+INTERNAL_DOMAIN      = "leonardo.ag"
+SENTINEL_ADMIN_HOST  = "host.docker.internal"   # overridden to localhost when running on Mac directly
+
+
+# ── HTTP ──────────────────────────────────────────────────────────────────────
+
+class EmsError(Exception):
+    def __init__(self, status: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status = status
+
+
+def _auth_header() -> str:
+    user = os.environ.get("EMS_USER", "")
+    pw   = os.environ.get("EMS_PASSWORD", "")
+    return f"Basic {b64encode(f'{user}:{pw}'.encode()).decode()}"
+
+
+def _request(method: str, url: str, body: dict | None = None, accept: str = "application/json") -> tuple[bytes, str]:
+    """Returns (raw_bytes, content_type)."""
+    data = json.dumps(body, ensure_ascii=False).encode() if body is not None else None
+    headers: dict[str, str] = {"Authorization": _auth_header(), "Accept": accept}
+    if data:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return resp.read(), resp.headers.get("Content-Type", "")
+    except urllib.error.HTTPError as exc:
+        raw = exc.read()
+        try:
+            msg = json.dumps(json.loads(raw))
+        except Exception:
+            msg = raw.decode()
+        raise EmsError(exc.code, msg)
+    except urllib.error.URLError as exc:
+        raise EmsError(0, f"unreachable: {exc.reason}")
+
+
+def ems_get_json(base: str, path: str) -> dict:
+    raw, _ = _request("GET", f"{base}{path}")
+    return json.loads(raw) if raw else {}
+
+
+def ems_get_raw(base: str, path: str) -> bytes:
+    raw, _ = _request("GET", f"{base}{path}", accept="application/xml")
+    return raw
+
+
+def ems_post(base: str, path: str, body: dict) -> dict:
+    raw, _ = _request("POST", f"{base}{path}", body)
+    return json.loads(raw) if raw else {}
+
+
+def ems_patch(base: str, path: str, body: dict) -> dict:
+    raw, _ = _request("PATCH", f"{base}{path}", body)
+    return json.loads(raw) if raw else {}
+
+
+def ems_put(base: str, path: str, body: dict) -> dict:
+    raw, _ = _request("PUT", f"{base}{path}", body)
+    return json.loads(raw) if raw else {}
+
+
+# ── Customer helpers ──────────────────────────────────────────────────────────
+
+def _extract_customer_email(full: dict) -> str:
+    """Extract first contact email from a full customer response."""
+    cust = full.get("customer", full)
+    contacts = cust.get("contacts", {}).get("contact", [])
+    if isinstance(contacts, dict):
+        contacts = [contacts]
+    for c in contacts:
+        email = c.get("emailId", "")
+        if email:
+            return email
+    return ""
+
+
+def find_customer_with_email(base: str, name: str) -> tuple[str, str] | None:
+    """Return (customer_id, email) for an exact-name match, or None."""
+    data  = ems_get_json(base, f"/customers?name={urllib.parse.quote(name)}")
+    custs = data.get("customers", {}).get("customer", [])
+    if isinstance(custs, dict):
+        custs = [custs]
+    for c in custs:
+        if c.get("name", "").lower() == name.lower():
+            cid  = c.get("id", "")
+            full = ems_get_json(base, f"/customers/{cid}")
+            email = _extract_customer_email(full)
+            return cid, email
+    return None
+
+
+# ── Formatters ────────────────────────────────────────────────────────────────
+
+def _print_json(data: dict) -> None:
+    print(json.dumps(data, indent=2))
+
+
+def _state_str(s: object) -> str:
+    return s.get("name", str(s)) if isinstance(s, dict) else str(s)
+
+
+def _print_entitlement(data: dict) -> None:
+    ent   = data.get("entitlement", data)
+    eid   = ent.get("eId", ent.get("id", "?"))
+    cust  = ent.get("customer", {})
+    cust  = cust.get("name", cust.get("id", "none")) if isinstance(cust, dict) else cust
+    cont  = ent.get("contact", {})
+    cont  = cont.get("emailId", "none") if isinstance(cont, dict) else cont
+    print(f"eId:      {eid}")
+    print(f"state:    {_state_str(ent.get('state', '?'))}")
+    print(f"customer: {cust}")
+    print(f"contact:  {cont}")
+    for pk in ent.get("productKeys", {}).get("productKey", []):
+        pkid    = pk.get("pkId") or pk.get("id", "?")
+        product = (
+            pk.get("item", {}).get("itemProduct", {}).get("product", {}).get("nameVersion", {}).get("name")
+            or pk.get("product", {}).get("name", "?")
+        )
+        print(f"  key: {pkid}  product: {product}")
+
+
+def _print_customer(data: dict) -> None:
+    cust = data.get("customer", data)
+    mg   = cust.get("marketGroup", {})
+    mg   = mg.get("name", "?") if isinstance(mg, dict) else mg
+    print(f"id:    {cust.get('id', '?')}")
+    print(f"name:  {cust.get('name', '?')}")
+    print(f"group: {mg}")
+    contacts = cust.get("contacts", {}).get("contact", [])
+    if isinstance(contacts, dict):
+        contacts = [contacts]
+    for c in contacts:
+        print(f"  contact: {c.get('emailId', c)}")
+
+
+def _print_customers(data: dict) -> None:
+    custs = data.get("customers", {}).get("customer", [])
+    if isinstance(custs, dict):
+        custs = [custs]
+    if not custs:
+        print("(no customers found)")
+        return
+    for c in custs:
+        print(f"{c.get('id', '?'):<12} {c.get('name', '?')}")
+
+
+# ── Operations ────────────────────────────────────────────────────────────────
+
+def op_get_entitlement(base: str, eid: str, output_json: bool = False) -> dict:
+    data = ems_get_json(base, f"/entitlements/eid={eid}")
+    _print_json(data) if output_json else _print_entitlement(data)
+    return data
+
+
+def op_list_keys(base: str, eid: str, output_json: bool = False) -> dict:
+    data = ems_get_json(base, f"/keys?eId={eid}")
+    _print_json(data)
+    return data
+
+
+def op_search_customers(base: str, name: str, output_json: bool = False) -> dict:
+    data = ems_get_json(base, f"/customers?name={urllib.parse.quote(name)}")
+    _print_json(data) if output_json else _print_customers(data)
+    return data
+
+
+def op_get_customer(base: str, customer_id: str, output_json: bool = False) -> dict:
+    data = ems_get_json(base, f"/customers/{customer_id}")
+    _print_json(data) if output_json else _print_customer(data)
+    return data
+
+
+def op_search_entitlements(base: str, customer_id: str, product: str, output_json: bool = False) -> dict:
+    enc  = urllib.parse.quote(product)
+    data = ems_get_json(base, f"/entitlements?customerId={customer_id}&productIdentifier={enc}&searchPattern=Exact")
+    if output_json:
+        _print_json(data)
+    else:
+        ents = data.get("entitlements", {}).get("entitlement", [])
+        if not ents:
+            print("(no entitlements found)")
+        for e in (ents if isinstance(ents, list) else [ents]):
+            print(f"{e.get('eId', e.get('id', '?')):<40} {_state_str(e.get('state', '?'))}")
+    return data
+
+
+def op_create_contact(base: str, email: str, name: str, dry_run: bool = False) -> None:
+    payload = {"contact": {"emailId": email, "name": name, "marketGroup": {"name": MARKET_GROUP}}}
+    if dry_run:
+        print(json.dumps(payload, indent=2))
+        return
+    try:
+        ems_post(base, "/contacts", payload)
+        print(f"contact: {email}", file=sys.stderr)
+    except EmsError as e:
+        if e.status == 409:
+            print(f"contact exists: {email}", file=sys.stderr)
+        else:
+            print(f"warn: contact {email}: {e}", file=sys.stderr)
+
+
+def op_create_customer(base: str, name: str, email: str, dry_run: bool = False) -> str:
+    payload = {
+        "customer": {
+            "name": name,
+            "marketGroup": {"name": MARKET_GROUP},
+            "contacts": {"contact": [{"emailId": email}]},
+        }
+    }
+    if dry_run:
+        print(json.dumps(payload, indent=2))
+        return ""
+    try:
+        data = ems_post(base, "/customers", payload)
+        cid  = data.get("customer", {}).get("id", "")
+        print(f"customer created: {name}  id: {cid}", file=sys.stderr)
+        return cid
+    except EmsError as e:
+        print(f"Error creating customer: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def op_resolve_customer(
+    base: str,
+    name: str,
+    fallback_email: str,
+    dry_run: bool = False,
+    interactive: bool = False,
+) -> tuple[str, str]:
+    """Return (customer_id, email). Alerts if not found; creates only with explicit confirmation."""
+    result = find_customer_with_email(base, name)
+    if result:
+        cid, email = result
+        print(f"customer found: {name}  id: {cid}  email: {email}", file=sys.stderr)
+        return cid, email
+
+    msg = f"Customer '{name}' not found in EMS."
+    if interactive and _gum_available():
+        print(msg, file=sys.stderr)
+        action = _gum_choose(["create now", "abort"], "Customer not found - what do you want to do?")
+        if action != "create now":
+            print("Aborted.", file=sys.stderr)
+            sys.exit(0)
+        email = _gum_input("Email for new customer", fallback_email) or fallback_email
+        cid = op_create_customer(base, name, email, dry_run)
+        return cid or "", email
+    else:
+        print(f"Error: {msg} Use --create-customer first or pass --customer-id directly.", file=sys.stderr)
+        sys.exit(1)
+
+
+def _entitlement_payload(product: str, expiry: str, customer_id: str | None, email: str | None, is_test: bool = True, state: str = "ENABLE") -> dict:
+    payload: dict = {
+        "entitlement": {
+            "channel": {"name": MARKET_GROUP},
+            "marketGroup": {"name": MARKET_GROUP},
+            "isTest": is_test,
+            "state": state,
+            "productKeys": {
+                "productKey": [
+                    {
+                        "numberOfKeys": 1,
+                        "totalEntitled": 1,
+                        "item": {
+                            "itemProduct": {
+                                "product": {
+                                    "nameVersion": {"name": product, "version": ""},
+                                },
+                                "itemProductFeatures": {
+                                    "itemProductFeature": [
+                                        {
+                                            "feature": {"nameVersion": {"name": TYPICAL_FEATURE, "version": ""}},
+                                            "itemFeatureLicenseModel": {
+                                                "licenseModel": {"name": "Expiration Date"},
+                                                "attributes": {
+                                                    "attribute": [
+                                                        {"name": "EXPIRATION_DATE", "value": f"{expiry} 00:00"},
+                                                    ]
+                                                },
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        },
+                    }
+                ]
+            },
+        }
+    }
+    if customer_id:
+        payload["entitlement"]["customer"] = {"id": customer_id}
+    if email:
+        payload["entitlement"]["contact"] = {"emailId": email}
+    return payload
+
+
+def op_create_entitlement(
+    base: str,
+    product: str,
+    expiry: str,
+    customer_id: str | None = None,
+    email: str | None = None,
+    dry_run: bool = False,
+    real: bool = False,
+    interactive: bool = False,
+    no_produce: bool = False,
+) -> str:
+    _assert_real_entitlement(email, real, interactive)
+    is_test = not real and (not email or _is_internal_email(email))
+    state   = "DRAFT" if no_produce else "ENABLE"
+    payload = _entitlement_payload(product, expiry, customer_id, email, is_test, state)
+    if dry_run:
+        print(json.dumps(payload, indent=2))
+        return ""
+    try:
+        data  = ems_post(base, "/entitlements", payload)
+        ent   = data.get("entitlement", {})
+        eid   = ent.get("eId", "")
+        state = _state_str(ent.get("state", "?"))
+        print(f"created: eId={eid}  state={state}  isTest={ent.get('isTest')}", file=sys.stderr)
+        return eid
+    except EmsError as e:
+        print(f"Error creating entitlement: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def op_link_customer(base: str, eid: str, customer_id: str, email: str, dry_run: bool = False) -> None:
+    payload = {"entitlement": {"customer": {"id": customer_id}, "contact": {"emailId": email}}}
+    if dry_run:
+        print(json.dumps(payload, indent=2))
+        return
+    try:
+        ems_patch(base, f"/entitlements/eid={eid}", payload)
+        print(f"linked: customer={customer_id} contact={email} -> eid={eid}", file=sys.stderr)
+    except EmsError as e:
+        print(f"Error linking customer: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _is_internal_email(email: str) -> bool:
+    return email.lower().endswith(f"@{INTERNAL_DOMAIN}")
+
+
+def _assert_real_entitlement(email: str | None, real: bool, interactive: bool) -> None:
+    """Warn and require confirmation when creating a production entitlement for a non-internal customer."""
+    if real or not email or _is_internal_email(email):
+        return
+    msg = f"Customer email '{email}' is not an @{INTERNAL_DOMAIN} address - this looks like a production entitlement."
+    if interactive and _gum_available():
+        print(f"Warning: {msg}", file=sys.stderr)
+        if not _gum_confirm("Proceed with production entitlement?"):
+            print("Aborted.", file=sys.stderr)
+            sys.exit(0)
+    else:
+        print(f"Error: {msg}\nUse --real to create a production entitlement.", file=sys.stderr)
+        sys.exit(1)
+
+
+def _pkids_for_entitlement(base: str, eid: str) -> list[str]:
+    data = ems_get_json(base, f"/entitlements/eid={eid}")
+    keys = data.get("entitlement", {}).get("productKeys", {}).get("productKey", [])
+    if isinstance(keys, dict):
+        keys = [keys]
+    return [k["pkId"] for k in keys if k.get("pkId")]
+
+
+def op_v2cp(base: str, eid: str, output_dir: str = ".", dry_run: bool = False) -> None:
+    """Fetch latest V2CP for each key in the entitlement and save to files."""
+    pkids = _pkids_for_entitlement(base, eid)
+    if not pkids:
+        print(f"No keys found for entitlement {eid}", file=sys.stderr)
+        sys.exit(1)
+
+    out = Path(output_dir)
+    for pkid in pkids:
+        fname = out / f"{pkid}.v2cp"
+        print(f"fetching V2CP for key {pkid}...", file=sys.stderr)
+        if dry_run:
+            print(f"would write: {fname}")
+            continue
+        try:
+            raw = ems_get_raw(base, f"/keys/{pkid}/latestV2CP")
+            fname.write_bytes(raw)
+            print(f"saved: {fname}  ({len(raw)} bytes)")
+        except EmsError as e:
+            print(f"Error fetching V2CP for {pkid}: {e}", file=sys.stderr)
+
+
+def _sentinel_host() -> str:
+    """Return 'host.docker.internal' if resolvable (we're in Docker), else 'localhost'."""
+    import socket
+    try:
+        socket.getaddrinfo(SENTINEL_ADMIN_HOST, None)
+        return SENTINEL_ADMIN_HOST
+    except (socket.gaierror, OSError):
+        return "localhost"
+
+
+def _default_output_dir() -> str:
+    desktop = Path("/workspace/code/Desktop")
+    if desktop.is_dir():
+        return str(desktop)
+    fallback = Path(f"/tmp/v2cp-{date.today().isoformat()}")
+    fallback.mkdir(parents=True, exist_ok=True)
+    return str(fallback)
+
+
+def _fetch_personal_c2v() -> str:
+    """Fetch the local Sentinel key fingerprint and build a C2V XML from it."""
+    url = f"http://{_sentinel_host()}:1947/_int_/download/my.id"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as r:
+            xml_data = r.read().decode()
+    except Exception as e:
+        print(f"Error fetching personal C2V from {url}: {e}", file=sys.stderr)
+        sys.exit(1)
+    root = ET.fromstring(xml_data)
+    fp = root.find(".//host_fingerprint")
+    if fp is None:
+        print("Error: host_fingerprint not found in Sentinel Admin my.id response", file=sys.stderr)
+        sys.exit(1)
+    fp_type = fp.get("type", "")
+    fp_crc  = fp.get("crc", "")
+    fp_text = "".join((fp.text or "").split())
+    return (
+        '<?xml version="1.0" encoding="UTF-8" ?>\n'
+        "<hasp_info>\n"
+        f'  <host_fingerprint type="{fp_type}" crc="{fp_crc}">{fp_text}</host_fingerprint>\n'
+        "</hasp_info>\n"
+    )
+
+
+def op_activate(
+    base: str,
+    eid: str,
+    c2v_file: str | None = None,
+    output_dir: str = ".",
+    dry_run: bool = False,
+    personal_c2v: bool = False,
+) -> None:
+    """Bulk-activate the entitlement's key(s); optionally with a C2V file for hardware keys."""
+    pkids = _pkids_for_entitlement(base, eid)
+    if not pkids:
+        print(f"No keys found for entitlement {eid}", file=sys.stderr)
+        sys.exit(1)
+
+    c2v_xml: str | None = None
+    if personal_c2v:
+        print("fetching personal C2V from Sentinel Admin...", file=sys.stderr)
+        c2v_xml = _fetch_personal_c2v()
+    elif c2v_file:
+        c2v_xml = Path(c2v_file).read_text()
+
+    activation_keys = [{"activationQuantity": 1, "pkId": pkid} for pkid in pkids]
+    payload: dict = {
+        "bulkActivation": {
+            "activationProductKeys": {"activationProductKey": activation_keys},
+        }
+    }
+    if c2v_xml:
+        payload["bulkActivation"]["extnLDK"] = {"C2V": c2v_xml}
+
+    if dry_run:
+        print(json.dumps(payload, indent=2))
+        return
+
+    try:
+        data       = ems_post(base, "/activations/bulkActivate", payload)
+        activations = data.get("activations", {}).get("activation", [])
+        if isinstance(activations, dict):
+            activations = [activations]
+
+        out = Path(output_dir)
+        for activation in activations:
+            aid  = activation.get("aId", "?")
+            keys = activation.get("licenseKeys", {}).get("licenseKey", [])
+            if isinstance(keys, dict):
+                keys = [keys]
+            for lk in keys:
+                v2cp_data = lk.get("key", "")
+                fname_hint = lk.get("keyFileName", f"{aid}.v2cp")
+                fname = out / fname_hint
+                if v2cp_data:
+                    fname.write_text(v2cp_data)
+                    print(f"saved: {fname}  (activation {aid})")
+                else:
+                    print(f"warn: empty V2CP in activation {aid}", file=sys.stderr)
+    except EmsError as e:
+        print(f"Error activating entitlement: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def op_typical(base: str, days: int = TYPICAL_DAYS, dry_run: bool = False, no_produce: bool = False) -> None:
+    expiry = (date.today() + timedelta(days=days)).isoformat()
+    print(f"typical: product={TYPICAL_PRODUCT}  expiry={expiry} (+{days}d)  env={'prod' if base == PROD_BASE else 'dev'}", file=sys.stderr)
+    op_create_contact(base, _typical_email(), TYPICAL_NAME, dry_run)
+    customer_id, email = op_resolve_customer(base, TYPICAL_NAME, _typical_email(), dry_run, interactive=True)
+    eid = op_create_entitlement(base, TYPICAL_PRODUCT, expiry, customer_id, email, dry_run=dry_run, real=False, interactive=True, no_produce=no_produce)
+    if eid and not dry_run:
+        print(f"\neId: {eid}")
+
+
+# ── Interactive ───────────────────────────────────────────────────────────────
+
+def _gum_available() -> bool:
+    import shutil
+    return shutil.which("gum") is not None
+
+
+def _gum_input(prompt: str, placeholder: str = "") -> str:
+    r = subprocess.run(["gum", "input", "--placeholder", placeholder, "--prompt", f"{prompt}: "],
+                       capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+def _gum_confirm(prompt: str) -> bool:
+    r = subprocess.run(["gum", "confirm", "--default=false", prompt])
+    return r.returncode == 0
+
+
+def _gum_choose(items: list[str], header: str) -> str:
+    r = subprocess.run(["gum", "choose", "--header", header, *items],
+                       capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+def run_interactive(base: str) -> None:
+    if not _gum_available():
+        print("Error: gum not found. Install: brew install gum", file=sys.stderr)
+        sys.exit(1)
+
+    action = _gum_choose([
+        "get-entitlement", "list-keys", "search-entitlements",
+        "get-customer", "search-customers",
+        "create-customer", "create-contact", "create-entitlement",
+        "link-customer", "v2cp", "activate", "typical",
+    ], "EMS operation")
+
+    if not action:
+        sys.exit(0)
+
+    if action == "get-entitlement":
+        op_get_entitlement(base, _gum_input("eId"))
+    elif action == "list-keys":
+        op_list_keys(base, _gum_input("eId"))
+    elif action == "search-customers":
+        op_search_customers(base, _gum_input("Customer name", TYPICAL_NAME))
+    elif action == "get-customer":
+        op_get_customer(base, _gum_input("Customer ID"))
+    elif action == "search-entitlements":
+        op_search_entitlements(base, _gum_input("Customer ID"), _gum_input("Product name", TYPICAL_PRODUCT))
+    elif action == "create-customer":
+        name  = _gum_input("Name", TYPICAL_NAME)
+        email = _gum_input("Email", _typical_email())
+        op_create_customer(base, name, email, _gum_confirm("Dry run?"))
+    elif action == "create-contact":
+        email = _gum_input("Email", _typical_email())
+        name  = _gum_input("Name", TYPICAL_NAME)
+        op_create_contact(base, email, name, _gum_confirm("Dry run?"))
+    elif action == "create-entitlement":
+        product  = _gum_input("Product name", TYPICAL_PRODUCT)
+        days_s   = _gum_input("Days until expiry", str(TYPICAL_DAYS))
+        days     = int(days_s) if days_s.isdigit() else TYPICAL_DAYS
+        expiry   = (date.today() + timedelta(days=days)).isoformat()
+        cid      = _gum_input("Customer ID (blank to skip)", "") or None
+        email    = _gum_input("Contact email (blank to skip)", "") or None
+        real = False if (not email or _is_internal_email(email or "")) else _gum_confirm("Production entitlement (not test)?")
+        eid  = op_create_entitlement(base, product, expiry, cid, email, dry_run=_gum_confirm("Dry run?"), real=real, interactive=True)
+        if eid:
+            print(f"\neId: {eid}")
+    elif action == "link-customer":
+        eid  = _gum_input("eId")
+        name = _gum_input("Customer name", TYPICAL_NAME)
+        cid, email = op_resolve_customer(base, name, _typical_email(), interactive=True)
+        op_link_customer(base, eid, cid, email, _gum_confirm("Dry run?"))
+    elif action == "v2cp":
+        eid    = _gum_input("eId")
+        outdir = _gum_input("Output directory", ".") or "."
+        op_v2cp(base, eid, outdir, _gum_confirm("Dry run?"))
+    elif action == "activate":
+        eid         = _gum_input("eId")
+        use_personal = _gum_confirm("Use personal C2V from Sentinel Admin?")
+        c2v         = None if use_personal else (_gum_input("C2V file path (blank for softlicense)") or None)
+        outdir      = _gum_input("Output directory", _default_output_dir()) or _default_output_dir()
+        op_activate(base, eid, c2v, outdir, _gum_confirm("Dry run?"), use_personal)
+    elif action == "typical":
+        days_s  = _gum_input("Days until expiry", str(TYPICAL_DAYS))
+        days    = int(days_s) if days_s.isdigit() else TYPICAL_DAYS
+        op_typical(base, days, _gum_confirm("Dry run?"))
+
+
+# ── Bootstrap ─────────────────────────────────────────────────────────────────
+
+def load_envify() -> None:
+    try:
+        script = (
+            "source envify EMS_REST_API_LEONARDO_TECH_USER EMS_REST_API_LEONARDO_TECH_PASSWORD JIRA_EMAIL"
+            ' && printf "%s\\n"'
+            ' "EMS_USER=$EMS_REST_API_LEONARDO_TECH_USER"'
+            ' "EMS_PASSWORD=$EMS_REST_API_LEONARDO_TECH_PASSWORD"'
+            ' "JIRA_EMAIL=$JIRA_EMAIL"'
+        )
+        r = subprocess.run(["bash", "-c", script], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        if r.returncode != 0:
+            return
+        for line in r.stdout.splitlines():
+            if "=" in line:
+                k, _, v = line.partition("=")
+                if k in ("EMS_USER", "EMS_PASSWORD", "JIRA_EMAIL"):
+                    os.environ[k] = v
+    except OSError:
+        pass
+
+
+def _typical_email() -> str:
+    return os.environ.get("JIRA_EMAIL", "")
+
+
+def validate_env() -> None:
+    load_envify()
+    if not os.environ.get("EMS_USER") or not os.environ.get("EMS_PASSWORD"):
+        print("Error: credentials not set. Expected envify vars: EMS_REST_API_LEONARDO_TECH_USER, EMS_REST_API_LEONARDO_TECH_PASSWORD", file=sys.stderr)
+        sys.exit(1)
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="ems",
+        description="ems - Thales Sentinel EMS REST API v5 CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Subcommands:\n"
+            "  get <eid>                                  get entitlement\n"
+            "  keys <eid>                                 list keys for entitlement\n"
+            "  customers <name>                           search customers by name\n"
+            "  customer <id>                              get customer by id\n"
+            "  search --customer-id <id> --product <n>   search entitlements\n"
+            "  create-customer --name <n> --email <e>     create customer\n"
+            "  create-contact --email <e> --name <n>      create contact\n"
+            "  create-entitlement --product <n> [--days N] [--expiry YYYY-MM-DD]\n"
+            "                     [--customer-id <id>] [--email <e>] [--no-produce]\n"
+            "  link-customer --eid <eid> --customer-id <id> --email <e>\n"
+            "  v2cp <eid> [--output-dir <dir>]            download latest V2CP to files\n"
+            "  activate <eid> [--c2v <file>] [--output-dir <dir>]\n"
+            "                                             bulk-activate; save V2CP to files\n"
+            "  typical [--days N] [--dry-run]             QQZQI/Emanuele/LEONARDO Abonnement\n"
+            "\n"
+            "Global flags: --prod  --json  --dry-run / -n\n"
+            "\n"
+            "Credentials: EMS_REST_API_LEONARDO_TECH_USER / EMS_REST_API_LEONARDO_TECH_PASSWORD (envify)\n"
+            "\n"
+            "Note: entitlements are created in state ENABLE (ready to activate) by default."
+        ),
+    )
+    p.add_argument("subcommand", nargs="?", metavar="CMD",
+                   choices=["get", "keys", "customers", "customer", "search",
+                            "create-customer", "create-contact", "create-entitlement",
+                            "link-customer", "v2cp", "activate", "typical"])
+    p.add_argument("arg", nargs="?", metavar="ARG")
+    p.add_argument("--prod", action="store_true", help="Use prod environment (default: dev)")
+    p.add_argument("--json", dest="output_json", action="store_true")
+    p.add_argument("--dry-run", "-n", action="store_true")
+    p.add_argument("--product", metavar="NAME")
+    p.add_argument("--days", type=int, default=TYPICAL_DAYS, metavar="N")
+    p.add_argument("--expiry", metavar="YYYY-MM-DD")
+    p.add_argument("--no-produce", action="store_true", help="Leave entitlement in DRAFT state instead of ENABLE")
+    p.add_argument("--real", action="store_true", help="Mark as production entitlement (skip @leonardo.ag-only check)")
+    p.add_argument("--name", metavar="TEXT")
+    p.add_argument("--email", metavar="EMAIL")
+    p.add_argument("--customer-id", metavar="ID")
+    p.add_argument("--eid", metavar="EID")
+    p.add_argument("--c2v", metavar="FILE", help="C2V file path for hardware key activation")
+    p.add_argument("--personal-c2v", action="store_true", help="Auto-fetch C2V from local Sentinel Admin (host.docker.internal:1947)")
+    p.add_argument("--output-dir", metavar="DIR", default=None, help="Directory for V2CP output files (default: Desktop or /tmp/v2cp-<date>)")
+    return p.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    validate_env()
+    base = PROD_BASE if args.prod else DEFAULT_BASE
+    sub  = args.subcommand
+
+    if sub is None:
+        if not sys.stdin.isatty():
+            print("Error: no subcommand and stdin is not a TTY", file=sys.stderr)
+            sys.exit(2)
+        run_interactive(base)
+        return
+
+    if sub == "get":
+        eid = args.arg or args.eid
+        if not eid:
+            print("Error: eid required", file=sys.stderr); sys.exit(1)
+        op_get_entitlement(base, eid, args.output_json)
+
+    elif sub == "keys":
+        eid = args.arg or args.eid
+        if not eid:
+            print("Error: eid required", file=sys.stderr); sys.exit(1)
+        op_list_keys(base, eid, args.output_json)
+
+    elif sub == "customers":
+        name = args.arg or args.name
+        if not name:
+            print("Error: name required", file=sys.stderr); sys.exit(1)
+        op_search_customers(base, name, args.output_json)
+
+    elif sub == "customer":
+        cid = args.arg or args.customer_id
+        if not cid:
+            print("Error: customer id required", file=sys.stderr); sys.exit(1)
+        op_get_customer(base, cid, args.output_json)
+
+    elif sub == "search":
+        if not args.customer_id or not args.product:
+            print("Error: --customer-id and --product required", file=sys.stderr); sys.exit(1)
+        op_search_entitlements(base, args.customer_id, args.product, args.output_json)
+
+    elif sub == "create-customer":
+        if not args.name or not args.email:
+            print("Error: --name and --email required", file=sys.stderr); sys.exit(1)
+        cid = op_create_customer(base, args.name, args.email, args.dry_run)
+        if cid:
+            print(cid)
+
+    elif sub == "create-contact":
+        if not args.email or not args.name:
+            print("Error: --email and --name required", file=sys.stderr); sys.exit(1)
+        op_create_contact(base, args.email, args.name, args.dry_run)
+
+    elif sub == "create-entitlement":
+        product = args.product or TYPICAL_PRODUCT
+        expiry  = args.expiry or (date.today() + timedelta(days=args.days)).isoformat()
+        eid = op_create_entitlement(base, product, expiry, args.customer_id, args.email, dry_run=args.dry_run, real=args.real, no_produce=args.no_produce)
+        if eid:
+            print(eid)
+
+    elif sub == "link-customer":
+        if not args.eid or not args.customer_id or not args.email:
+            print("Error: --eid, --customer-id, --email required", file=sys.stderr); sys.exit(1)
+        op_link_customer(base, args.eid, args.customer_id, args.email, args.dry_run)
+
+    elif sub == "v2cp":
+        eid    = args.arg or args.eid
+        outdir = args.output_dir or _default_output_dir()
+        if not eid:
+            print("Error: eid required", file=sys.stderr); sys.exit(1)
+        op_v2cp(base, eid, outdir, args.dry_run)
+
+    elif sub == "activate":
+        eid    = args.arg or args.eid
+        outdir = args.output_dir or _default_output_dir()
+        if not eid:
+            print("Error: eid required", file=sys.stderr); sys.exit(1)
+        op_activate(base, eid, args.c2v, outdir, args.dry_run, args.personal_c2v)
+
+    elif sub == "typical":
+        op_typical(base, args.days, args.dry_run, args.no_produce)
+
+
+if __name__ == "__main__":
+    main()
