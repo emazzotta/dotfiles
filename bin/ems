@@ -476,11 +476,11 @@ def op_activate(
         sys.exit(1)
 
     c2v_xml: str | None = None
-    if personal_c2v:
+    if c2v_file:
+        c2v_xml = Path(c2v_file).read_text()
+    else:
         print("fetching personal C2V from Sentinel Admin...", file=sys.stderr)
         c2v_xml = _fetch_personal_c2v()
-    elif c2v_file:
-        c2v_xml = Path(c2v_file).read_text()
 
     activation_keys = [{"activationQuantity": 1, "pkId": pkid} for pkid in pkids]
     payload: dict = {
