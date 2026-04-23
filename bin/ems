@@ -478,7 +478,7 @@ def op_activate(
     c2v_xml: str | None = None
     if c2v_file:
         c2v_xml = Path(c2v_file).read_text()
-    else:
+    elif not dry_run or personal_c2v:
         print("fetching personal C2V from Sentinel Admin...", file=sys.stderr)
         c2v_xml = _fetch_personal_c2v()
 
