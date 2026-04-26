@@ -164,6 +164,20 @@ _envify()
 
   [[ -f "$_cache" ]] && COMPREPLY=($(compgen -W "$(cat "$_cache")" -- "$cur"))
 }
+_keyguard_complete_existing_keys()
+{
+  local _ttl="${KEYGUARD_COMPLETION_TTL:-3600}"
+  local _cache="${HOME}/.cache/keyguard-keys"
+  local _now _mtime
+  _now=$(date +%s)
+  mkdir -p "${HOME}/.cache"
+  _mtime=$(date -r "$_cache" +%s 2>/dev/null || echo 0)
+  if (( _now - _mtime >= _ttl )); then
+    keyguard list > "$_cache" 2>/dev/null || true
+  fi
+  [[ -f "$_cache" ]] && COMPREPLY=($(compgen -W "$(cat "$_cache")" -- "$cur"))
+}
+
 _keyguard()
 {
   local cur prev
@@ -172,22 +186,22 @@ _keyguard()
   prev="${COMP_WORDS[COMP_CWORD-1]}"
 
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "get set list" -- "${cur}"))
+    COMPREPLY=($(compgen -W "get set list mv rename" -- "${cur}"))
     return 0
   fi
 
   case "${COMP_WORDS[1]}" in
     get|set)
-      local _ttl="${KEYGUARD_COMPLETION_TTL:-3600}"
-      local _cache="${HOME}/.cache/keyguard-keys"
-      local _now _mtime
-      _now=$(date +%s)
-      mkdir -p "${HOME}/.cache"
-      _mtime=$(date -r "$_cache" +%s 2>/dev/null || echo 0)
-      if (( _now - _mtime >= _ttl )); then
-        keyguard list > "$_cache" 2>/dev/null || true
+      _keyguard_complete_existing_keys
+      return 0
+      ;;
+    mv|rename)
+      # mv OLD NEW [--force]: complete both positions from existing keys, --force at the end
+      if [[ ${COMP_CWORD} -eq 2 || ${COMP_CWORD} -eq 3 ]]; then
+        _keyguard_complete_existing_keys
+      elif [[ ${COMP_CWORD} -ge 4 ]]; then
+        COMPREPLY=($(compgen -W "--force" -- "${cur}"))
       fi
-      [[ -f "$_cache" ]] && COMPREPLY=($(compgen -W "$(cat "$_cache")" -- "$cur"))
       return 0
       ;;
   esac
