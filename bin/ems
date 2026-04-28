@@ -23,10 +23,42 @@ DEFAULT_BASE         = DEV_BASE
 MARKET_GROUP         = "QQZQI"
 TYPICAL_NAME         = "Emanuele Mazzotta"
 TYPICAL_PRODUCT      = "LEONARDO Abonnement"
-TYPICAL_FEATURE      = "leonardo-subscription"
+DEFAULT_FEATURE      = "leonardo-subscription"
 TYPICAL_DAYS         = 14
 INTERNAL_DOMAIN      = "leonardo.ag"
 SENTINEL_ADMIN_HOST  = "host.docker.internal"   # overridden to localhost when running on Mac directly
+
+# Aliases the user types -> canonical product name in EMS.
+# Order matters: longer keys first so "cap4" wins before "cap" prefix-strips it.
+PRODUCT_ALIASES: dict[str, str] = {
+    "cap4 network":    "capitalisator 4 network",
+    "cap4":            "capitalisator 4",
+    "cap3 network":    "capitalisator 3 network",
+    "cap3 c":          "capitalisator 3 c",
+    "cap3 nc":         "capitalisator 3 nc",
+    "cap3 provisional":"capitalisator 3 provisional",
+    "cap3":            "capitalisator 3",
+    "cap":             "capitalisator 4",   # bare "cap" defaults to capitalisator 4
+    "capx":            "capitalisator 4",
+    "capitalisator":   "capitalisator 4",
+}
+
+# Product name -> feature name. Used when no --feature flag is passed.
+# Falls back to DEFAULT_FEATURE if no rule matches.
+def derive_feature(product: str) -> str:
+    p = product.strip().lower()
+    if p.startswith("capitalisator 4"):
+        return "capitalisator-4"
+    if p.startswith("capitalisator 3"):
+        return "capitalisator-3"
+    return DEFAULT_FEATURE
+
+
+def resolve_product(name: str) -> str:
+    """Resolve an alias (cap, cap4, capx) to the canonical EMS product name."""
+    if not name:
+        return name
+    return PRODUCT_ALIASES.get(name.strip().lower(), name)
 
 
 # ── HTTP ──────────────────────────────────────────────────────────────────────
@@ -279,7 +311,8 @@ def op_resolve_customer(
         sys.exit(1)
 
 
-def _entitlement_payload(product: str, expiry: str, customer_id: str | None, email: str | None, is_test: bool = True, state: str = "ENABLE") -> dict:
+def _entitlement_payload(product: str, expiry: str, customer_id: str | None, email: str | None, is_test: bool = True, state: str = "ENABLE", feature: str | None = None) -> dict:
+    feat = feature or derive_feature(product)
     payload: dict = {
         "entitlement": {
             "channel": {"name": MARKET_GROUP},
@@ -299,7 +332,7 @@ def _entitlement_payload(product: str, expiry: str, customer_id: str | None, ema
                                 "itemProductFeatures": {
                                     "itemProductFeature": [
                                         {
-                                            "feature": {"nameVersion": {"name": TYPICAL_FEATURE, "version": ""}},
+                                            "feature": {"nameVersion": {"name": feat, "version": ""}},
                                             "itemFeatureLicenseModel": {
                                                 "licenseModel": {"name": "Expiration Date"},
                                                 "attributes": {
@@ -335,11 +368,12 @@ def op_create_entitlement(
     real: bool = False,
     interactive: bool = False,
     no_produce: bool = False,
+    feature: str | None = None,
 ) -> str:
     _assert_real_entitlement(email, real, interactive)
     is_test = not real and (not email or _is_internal_email(email))
     state   = "DRAFT" if no_produce else "ENABLE"
-    payload = _entitlement_payload(product, expiry, customer_id, email, is_test, state)
+    payload = _entitlement_payload(product, expiry, customer_id, email, is_test, state, feature)
     if dry_run:
         print(json.dumps(payload, indent=2))
         return ""
@@ -669,7 +703,9 @@ def parse_args() -> argparse.Namespace:
             "  create-customer --name <n> --email <e>     create customer\n"
             "  create-contact --email <e> --name <n>      create contact\n"
             "  create-entitlement --product <n> [--days N] [--expiry YYYY-MM-DD]\n"
-            "                     [--customer-id <id>] [--email <e>] [--no-produce]\n"
+            "                     [--customer-id <id>] [--email <e>] [--feature <n>] [--no-produce]\n"
+            "      Product aliases: cap=cap4=capx=\"capitalisator 4\", cap3=\"capitalisator 3\",\n"
+            "                       cap4 network, cap3 network/c/nc/provisional\n"
             "  link-customer --eid <eid> --customer-id <id> --email <e>\n"
             "  v2cp <eid> [--output-dir <dir>]            download latest V2CP to files\n"
             "  activate <eid> [--c2v <file>] [--output-dir <dir>]\n"
@@ -692,6 +728,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--json", dest="output_json", action="store_true")
     p.add_argument("--dry-run", "-n", action="store_true")
     p.add_argument("--product", metavar="NAME")
+    p.add_argument("--feature", metavar="NAME", help="Feature name override (default: derived from product)")
     p.add_argument("--days", type=int, default=TYPICAL_DAYS, metavar="N")
     p.add_argument("--expiry", metavar="YYYY-MM-DD")
     p.add_argument("--no-produce", action="store_true", help="Leave entitlement in DRAFT state instead of ENABLE")
@@ -761,9 +798,9 @@ def main() -> None:
         op_create_contact(base, args.email, args.name, args.dry_run)
 
     elif sub == "create-entitlement":
-        product = args.product or TYPICAL_PRODUCT
+        product = resolve_product(args.product or TYPICAL_PRODUCT)
         expiry  = args.expiry or (date.today() + timedelta(days=args.days)).isoformat()
-        eid = op_create_entitlement(base, product, expiry, args.customer_id, args.email, dry_run=args.dry_run, real=args.real, no_produce=args.no_produce)
+        eid = op_create_entitlement(base, product, expiry, args.customer_id, args.email, dry_run=args.dry_run, real=args.real, no_produce=args.no_produce, feature=args.feature)
         if eid:
             print(eid)
 
