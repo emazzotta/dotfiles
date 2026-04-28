@@ -19,7 +19,7 @@ Arguments:
     <name>.extension    - Create archive with custom name from specified files/folders
 
 Supported extensions:
-    tar.bz2, tar.gz, bz2, rar, gz, tar, tbz2, tgz, zip, 7z
+    tar.bz2, tar.gz, bz2, rar, gz, tar, tbz2, tgz, zip, 7z, jar
 
 Environment variables:
     DEFAULT_COMPRESSION_LEVEL - Compression level for 7z (default: 5)
@@ -65,6 +65,21 @@ case "${extension}" in
     *tgz) tar cvzf "${name}" "${compressee[@]}" ;;
     *zip) zip -r "${name}" "${compressee[@]}" ;;
     *7z) 7z a -mx="$DEFAULT_COMPRESSION_LEVEL" "${name}" "${compressee[@]}" ;;
+    *jar)
+        if [ ${#compressee[@]} -eq 1 ] && [ -d "${compressee[0]}" ]; then
+            src="${compressee[0]}"
+            manifest="${src}/META-INF/MANIFEST.MF"
+            if [ -f "$manifest" ]; then
+                log "Using existing manifest: ${manifest}"
+                jar cfm "${name}" "${manifest}" -C "${src}" .
+            else
+                log "No MANIFEST.MF found - jar will generate a default one"
+                jar cf "${name}" -C "${src}" .
+            fi
+        else
+            jar cf "${name}" "${compressee[@]}"
+        fi
+        ;;
     *)
         error "Unknown extension: '${extension}'"
         exit 1
