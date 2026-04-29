@@ -64,24 +64,6 @@ class TestIsInternalEmail:
         assert ems._is_internal_email("user@notleonardo.ag") is False
 
 
-# ── _assert_real_entitlement ──────────────────────────────────────────────────
-
-class TestAssertRealEntitlement:
-    def test_internal_email_no_error(self, ems):
-        ems._assert_real_entitlement("test@leonardo.ag", real=False, interactive=False)
-
-    def test_real_flag_no_error(self, ems):
-        ems._assert_real_entitlement("client@acme.com", real=True, interactive=False)
-
-    def test_no_email_no_error(self, ems):
-        ems._assert_real_entitlement(None, real=False, interactive=False)
-
-    def test_external_email_non_interactive_exits(self, ems):
-        with pytest.raises(SystemExit) as exc:
-            ems._assert_real_entitlement("client@acme.com", real=False, interactive=False)
-        assert exc.value.code == 1
-
-
 # ── _extract_customer_email ───────────────────────────────────────────────────
 
 class TestExtractCustomerEmail:
@@ -163,19 +145,29 @@ class TestOpCreateEntitlementDryRun:
         data = json.loads(out)
         assert data["entitlement"]["productKeys"]["productKey"][0]["item"]["itemProduct"]["product"]["nameVersion"]["name"] == "LEONARDO Abonnement"
 
-    def test_dry_run_external_email_with_real_flag(self, ems, capsys):
-        result = ems.op_create_entitlement(
+    def test_dry_run_defaults_to_real(self, ems, capsys):
+        ems.op_create_entitlement(
             "https://example.com", "LEONARDO Abonnement", "2026-05-07",
-            email="client@acme.com", dry_run=True, real=True,
+            email="client@acme.com", dry_run=True,
         )
-        assert result == ""
+        data = json.loads(capsys.readouterr().out)
+        assert data["entitlement"]["isTest"] is False
 
-    def test_external_email_non_interactive_exits(self, ems):
-        with pytest.raises(SystemExit):
-            ems.op_create_entitlement(
-                "https://example.com", "LEONARDO Abonnement", "2026-05-07",
-                email="client@acme.com", dry_run=True, real=False, interactive=False,
-            )
+    def test_dry_run_internal_email_defaults_to_real(self, ems, capsys):
+        ems.op_create_entitlement(
+            "https://example.com", "LEONARDO Abonnement", "2026-05-07",
+            email="test@leonardo.ag", dry_run=True,
+        )
+        data = json.loads(capsys.readouterr().out)
+        assert data["entitlement"]["isTest"] is False
+
+    def test_dry_run_test_flag_marks_as_test(self, ems, capsys):
+        ems.op_create_entitlement(
+            "https://example.com", "LEONARDO Abonnement", "2026-05-07",
+            email="test@leonardo.ag", dry_run=True, test=True,
+        )
+        data = json.loads(capsys.readouterr().out)
+        assert data["entitlement"]["isTest"] is True
 
 
 # ── op_link_customer dry-run ──────────────────────────────────────────────────
