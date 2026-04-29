@@ -470,8 +470,9 @@ def main() -> None:
     _profile("build_volume_args")
     dotfiles_volume_args = build_dotfiles_volume_args()
     _profile("build_dotfiles_volume_args")
-    if LEONARDO_COMMONS.is_dir() and LEONARDO_COMMONS.resolve() not in locked_roots:
-        lock_git_crypt(LEONARDO_COMMONS)
+    if LEONARDO_COMMONS.is_dir():
+        if LEONARDO_COMMONS.resolve() not in locked_roots:
+            lock_git_crypt(LEONARDO_COMMONS)
         if not _is_path_mounted(volume_args, LEONARDO_COMMONS):
             volume_args = _remove_submounts(volume_args, LEONARDO_COMMONS)
             volume_args.extend(["-v", f"{LEONARDO_COMMONS}:/workspace/code/leonardo-commons"])

@@ -695,6 +695,22 @@ class TestLeonardoCommonsAutoMount:
         cmd = mock_cl_run[-1]
         assert f"{leonardo_commons}:/workspace/code/leonardo-commons" in cmd
 
+    def should_mount_commons_even_when_already_locked_by_parent_scan(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        # Reproduces the bug where running from a parent of leonardo-commons causes
+        # _lock_git_crypt_roots to add it to locked_roots, which then skipped the mount entirely.
+        parent = tmp_path / "leo-productions"
+        parent.mkdir()
+        leonardo_commons = parent / "leonardo-commons"
+        leonardo_commons.mkdir()
+        (leonardo_commons / ".git-crypt").mkdir()
+        monkeypatch.setattr(cl, "LEONARDO_COMMONS", leonardo_commons)
+        monkeypatch.chdir(parent)
+        monkeypatch.setattr(sys, "argv", ["cl"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert f"{leonardo_commons}:/workspace/code/leonardo-commons" in cmd
+
     def should_strip_commons_file_submounts_before_directory_mount(self, cl, monkeypatch, mock_cl_run, tmp_path):
         leonardo_commons = tmp_path / "leonardo-commons"
         leonardo_commons.mkdir()
