@@ -231,6 +231,27 @@ def _is_path_mounted(volume_args: list[str], host_path: Path) -> bool:
     return any(arg.startswith(prefix) for arg in volume_args)
 
 
+def _remove_submounts(volume_args: list[str], directory: Path) -> list[str]:
+    """Remove individual file mounts that are subpaths of directory.
+
+    Glob patterns can match files inside a directory that will also be
+    mounted as a whole. Individual file mounts at subpaths conflict with
+    the directory mount - remove them so the directory mount wins cleanly.
+    """
+    prefix = str(directory) + "/"
+    result: list[str] = []
+    i = 0
+    while i < len(volume_args):
+        if volume_args[i] == "-v" and i + 1 < len(volume_args):
+            host_path = volume_args[i + 1].split(":")[0]
+            if host_path.startswith(prefix):
+                i += 2
+                continue
+        result.append(volume_args[i])
+        i += 1
+    return result
+
+
 def parse_path(path_str: str) -> Path:
     path = Path(path_str).resolve()
     if not path.exists():
@@ -359,6 +380,11 @@ def build_volume_args(files: list[str], paths: list[Path], pwd: Path, git_ignore
         return ["-v", f"{pwd}:/workspace/code/{pwd.name}"]
 
     volume_args: list[str] = []
+    if files and not paths:
+        if is_home_dir(pwd):
+            print("Error: Refusing to mount home directory - run from a project directory", file=sys.stderr)
+            sys.exit(1)
+        volume_args.extend(["-v", f"{pwd}:/workspace/code/{pwd.name}"])
     for path in paths:
         if is_home_dir(path):
             print(f"Skipping home directory mount: {path}", file=sys.stderr)
@@ -447,6 +473,7 @@ def main() -> None:
     if LEONARDO_COMMONS.is_dir() and LEONARDO_COMMONS.resolve() not in locked_roots:
         lock_git_crypt(LEONARDO_COMMONS)
         if not _is_path_mounted(volume_args, LEONARDO_COMMONS):
+            volume_args = _remove_submounts(volume_args, LEONARDO_COMMONS)
             volume_args.extend(["-v", f"{LEONARDO_COMMONS}:/workspace/code/leonardo-commons"])
     _profile("leonardo-commons lock/mount")
     container_name = f"opencode-{int(time())}"

@@ -277,6 +277,53 @@ class TestLockGitCryptRoots:
         assert [c[1] for c in lock_calls] == [repo]
 
 
+class TestRemoveSubmounts:
+    def test_removes_file_within_directory(self, cl, tmp_path):
+        directory = tmp_path / "leonardo-commons"
+        volume_args = ["-v", f"{directory}/pom.xml:/workspace/code/leonardo-commons/pom.xml"]
+        result = cl._remove_submounts(volume_args, directory)
+        assert result == []
+
+    def test_removes_nested_file_within_directory(self, cl, tmp_path):
+        directory = tmp_path / "leonardo-commons"
+        volume_args = [
+            "-v", f"{directory}/java-commons/pom.xml:/workspace/code/leonardo-commons/java-commons/pom.xml",
+        ]
+        result = cl._remove_submounts(volume_args, directory)
+        assert result == []
+
+    def test_removes_multiple_subpath_mounts(self, cl, tmp_path):
+        directory = tmp_path / "leonardo-commons"
+        volume_args = [
+            "-v", f"{directory}/pom.xml:/workspace/code/leonardo-commons/pom.xml",
+            "-v", f"{directory}/.gitlab-ci.yml:/workspace/code/leonardo-commons/.gitlab-ci.yml",
+            "-v", f"{directory}/java-commons/pom.xml:/workspace/code/leonardo-commons/java-commons/pom.xml",
+        ]
+        result = cl._remove_submounts(volume_args, directory)
+        assert result == []
+
+    def test_preserves_mounts_outside_directory(self, cl, tmp_path):
+        directory = tmp_path / "leonardo-commons"
+        other = tmp_path / "capitalisatorx"
+        volume_args = [
+            "-v", f"{other}/pom.xml:/workspace/code/capitalisatorx/pom.xml",
+            "-v", f"{directory}/pom.xml:/workspace/code/leonardo-commons/pom.xml",
+        ]
+        result = cl._remove_submounts(volume_args, directory)
+        assert result == ["-v", f"{other}/pom.xml:/workspace/code/capitalisatorx/pom.xml"]
+
+    def test_preserves_sibling_directory_with_same_prefix(self, cl, tmp_path):
+        directory = tmp_path / "leonardo-commons"
+        sibling = tmp_path / "leonardo-commons-fork"
+        volume_args = ["-v", f"{sibling}/pom.xml:/workspace/code/leonardo-commons-fork/pom.xml"]
+        result = cl._remove_submounts(volume_args, directory)
+        assert result == volume_args
+
+    def test_empty_volume_args(self, cl, tmp_path):
+        directory = tmp_path / "leonardo-commons"
+        assert cl._remove_submounts([], directory) == []
+
+
 class TestIsPathMounted:
     def test_true_when_path_is_mount_source(self, cl, tmp_path):
         host = tmp_path / "leonardo-commons"
@@ -371,7 +418,27 @@ class TestBuildVolumeArgs:
         for name in ("file1.txt", "file2.txt"):
             (pwd / name).write_text("content")
         result = cl.build_volume_args(["file1.txt", "file2.txt"], [], pwd)
-        assert ["-v", f"{pwd / 'file1.txt'}:/workspace/code/file1.txt"] == result[:2]
+        assert result[:2] == ["-v", f"{pwd}:/workspace/code/{pwd.name}"]
+        mounts = " ".join(result)
+        assert f"{pwd / 'file1.txt'}:/workspace/code/file1.txt" in mounts
+        assert f"{pwd / 'file2.txt'}:/workspace/code/file2.txt" in mounts
+
+    def should_include_full_pwd_mount_when_files_only(self, cl, tmp_path):
+        pwd = tmp_path / "myproject"
+        pwd.mkdir()
+        (pwd / "pom.xml").write_text("<project/>")
+        result = cl.build_volume_args(["pom.xml"], [], pwd)
+        assert result[:2] == ["-v", f"{pwd}:/workspace/code/myproject"]
+
+    def should_not_include_full_pwd_mount_when_paths_and_files_combined(self, cl, tmp_path):
+        pwd = tmp_path / "myproject"
+        pwd.mkdir()
+        (pwd / "pom.xml").write_text("<project/>")
+        extra = tmp_path / "capitalisator-core"
+        extra.mkdir()
+        result = cl.build_volume_args(["pom.xml"], [extra], pwd)
+        assert f"{pwd}:/workspace/code/myproject" not in " ".join(result)
+        assert f"{extra}:/workspace/code/capitalisator-core" in " ".join(result)
 
     @pytest.mark.parametrize("file_path,expected_container_path", [
         ("subdir/file.txt", "subdir/file.txt"),
@@ -385,7 +452,8 @@ class TestBuildVolumeArgs:
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text("content")
         result = cl.build_volume_args([file_path], [], pwd)
-        assert result == ["-v", f"{pwd / expected_container_path}:/workspace/code/{expected_container_path}"]
+        assert result[:2] == ["-v", f"{pwd}:/workspace/code/{pwd.name}"]
+        assert f"{pwd / expected_container_path}:/workspace/code/{expected_container_path}" in " ".join(result)
 
     def test_absolute_path(self, cl, tmp_path):
         pwd = tmp_path / "workspace"
@@ -393,7 +461,8 @@ class TestBuildVolumeArgs:
         test_file = pwd / "file.txt"
         test_file.write_text("content")
         result = cl.build_volume_args([str(test_file)], [], pwd)
-        assert result == ["-v", f"{pwd / 'file.txt'}:/workspace/code/file.txt"]
+        assert result[:2] == ["-v", f"{pwd}:/workspace/code/{pwd.name}"]
+        assert f"{pwd / 'file.txt'}:/workspace/code/file.txt" in " ".join(result)
 
     def test_nonexistent_file_exits(self, cl, tmp_path):
         pwd = tmp_path / "workspace"
@@ -543,6 +612,31 @@ class TestMain:
         assert f"{dir1}:/workspace/code/dir1" in cmd
         assert f"{dir2}:/workspace/code/dir2" in cmd
 
+    def should_mount_full_pwd_when_files_only(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        pwd = tmp_path / "myproject"
+        pwd.mkdir()
+        (pwd / "pom.xml").write_text("<project/>")
+        monkeypatch.chdir(pwd)
+        monkeypatch.setattr(sys, "argv", ["cl", "-f", "pom.xml"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert f"{pwd}:/workspace/code/myproject" in cmd
+
+    def should_not_mount_full_pwd_when_files_and_explicit_paths_combined(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        pwd = tmp_path / "myproject"
+        pwd.mkdir()
+        (pwd / "pom.xml").write_text("<project/>")
+        monkeypatch.chdir(pwd)
+        cap_core = tmp_path / "capitalisator-core"
+        cap_core.mkdir()
+        monkeypatch.setattr(sys, "argv", ["cl", "-f", "pom.xml", "-p", str(cap_core)])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert f"{pwd}:/workspace/code/myproject" not in cmd
+        assert f"{cap_core}:/workspace/code/capitalisator-core" in cmd
+
 
 class TestLeonardoCommonsAutoMount:
     @pytest.fixture(autouse=True)
@@ -570,6 +664,52 @@ class TestLeonardoCommonsAutoMount:
             cl.main()
         cmd = mock_cl_run[-1]
         assert f"{leonardo_commons}:/workspace/code/leonardo-commons" in cmd
+
+    def should_remain_fully_mounted_when_files_only(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        leonardo_commons = tmp_path / "leonardo-commons"
+        leonardo_commons.mkdir()
+        monkeypatch.setattr(cl, "LEONARDO_COMMONS", leonardo_commons)
+        pwd = tmp_path / "myproject"
+        pwd.mkdir()
+        (pwd / "pom.xml").write_text("<project/>")
+        monkeypatch.chdir(pwd)
+        monkeypatch.setattr(sys, "argv", ["cl", "-f", "pom.xml"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert f"{leonardo_commons}:/workspace/code/leonardo-commons" in cmd
+
+    def should_remain_fully_mounted_when_files_and_paths_combined(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        leonardo_commons = tmp_path / "leonardo-commons"
+        leonardo_commons.mkdir()
+        monkeypatch.setattr(cl, "LEONARDO_COMMONS", leonardo_commons)
+        pwd = tmp_path / "myproject"
+        pwd.mkdir()
+        (pwd / "pom.xml").write_text("<project/>")
+        monkeypatch.chdir(pwd)
+        cap_core = tmp_path / "capitalisator-core"
+        cap_core.mkdir()
+        monkeypatch.setattr(sys, "argv", ["cl", "-f", "pom.xml", "-p", str(cap_core)])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert f"{leonardo_commons}:/workspace/code/leonardo-commons" in cmd
+
+    def should_strip_commons_file_submounts_before_directory_mount(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        leonardo_commons = tmp_path / "leonardo-commons"
+        leonardo_commons.mkdir()
+        (leonardo_commons / "pom.xml").write_text("<project/>")
+        (leonardo_commons / ".gitlab-ci.yml").write_text("stages: []")
+        monkeypatch.setattr(cl, "LEONARDO_COMMONS", leonardo_commons)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(sys, "argv", ["cl", "-f", "leonardo-commons/pom.xml", "-f", "leonardo-commons/.gitlab-ci.yml"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        full_mount = f"{leonardo_commons}:/workspace/code/leonardo-commons"
+        assert full_mount in cmd
+        individual_pom = f"{leonardo_commons}/pom.xml:"
+        assert not any(arg.startswith(individual_pom) for arg in cmd)
 
     def test_explicit_leonardo_commons_path_is_not_double_mounted(self, cl, monkeypatch, mock_cl_run, tmp_path):
         leonardo_commons = tmp_path / "leonardo-commons"
