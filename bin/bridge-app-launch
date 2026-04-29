@@ -1,0 +1,29 @@
+#!/bin/bash
+set -euo pipefail
+
+read -r app_name
+
+if [[ -z "$app_name" ]]; then
+    echo "app name required in POST body" >&2
+    exit 1
+fi
+
+# Covers /Applications/ and Spotlight-indexed Parallels apps
+if open -a "$app_name" 2>/dev/null; then
+    echo "Launched: $app_name"
+    exit 0
+fi
+
+# Fallback: Parallels apps not yet indexed by Spotlight
+parallels_dir="${HOME}/Applications (Parallels)"
+if [[ -d "$parallels_dir" ]]; then
+    app_path=$(find "$parallels_dir" -name "${app_name}.app" -maxdepth 3 2>/dev/null | head -1)
+    if [[ -n "$app_path" ]]; then
+        open "$app_path"
+        echo "Launched (Parallels): $app_name"
+        exit 0
+    fi
+fi
+
+echo "Application not found: $app_name" >&2
+exit 1
