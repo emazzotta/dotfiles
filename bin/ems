@@ -311,7 +311,7 @@ def op_resolve_customer(
         sys.exit(1)
 
 
-def _entitlement_payload(product: str, expiry: str, customer_id: str | None, email: str | None, is_test: bool = True, state: str = "ENABLE", feature: str | None = None) -> dict:
+def _entitlement_payload(product: str, expiry: str, customer_id: str | None, email: str | None, is_test: bool = False, state: str = "ENABLE", feature: str | None = None) -> dict:
     feat = feature or derive_feature(product)
     payload: dict = {
         "entitlement": {
@@ -365,15 +365,12 @@ def op_create_entitlement(
     customer_id: str | None = None,
     email: str | None = None,
     dry_run: bool = False,
-    real: bool = False,
-    interactive: bool = False,
+    test: bool = False,
     no_produce: bool = False,
     feature: str | None = None,
 ) -> str:
-    _assert_real_entitlement(email, real, interactive)
-    is_test = not real and (not email or _is_internal_email(email))
     state   = "DRAFT" if no_produce else "ENABLE"
-    payload = _entitlement_payload(product, expiry, customer_id, email, is_test, state, feature)
+    payload = _entitlement_payload(product, expiry, customer_id, email, test, state, feature)
     if dry_run:
         print(json.dumps(payload, indent=2))
         return ""
@@ -404,21 +401,6 @@ def op_link_customer(base: str, eid: str, customer_id: str, email: str, dry_run:
 
 def _is_internal_email(email: str) -> bool:
     return email.lower().endswith(f"@{INTERNAL_DOMAIN}")
-
-
-def _assert_real_entitlement(email: str | None, real: bool, interactive: bool) -> None:
-    """Warn and require confirmation when creating a production entitlement for a non-internal customer."""
-    if real or not email or _is_internal_email(email):
-        return
-    msg = f"Customer email '{email}' is not an @{INTERNAL_DOMAIN} address - this looks like a production entitlement."
-    if interactive and _gum_available():
-        print(f"Warning: {msg}", file=sys.stderr)
-        if not _gum_confirm("Proceed with production entitlement?"):
-            print("Aborted.", file=sys.stderr)
-            sys.exit(0)
-    else:
-        print(f"Error: {msg}\nUse --real to create a production entitlement.", file=sys.stderr)
-        sys.exit(1)
 
 
 def _pkids_for_entitlement(base: str, eid: str) -> list[str]:
@@ -555,12 +537,12 @@ def op_activate(
         sys.exit(1)
 
 
-def op_typical(base: str, days: int = TYPICAL_DAYS, dry_run: bool = False, no_produce: bool = False) -> None:
+def op_typical(base: str, days: int = TYPICAL_DAYS, dry_run: bool = False, no_produce: bool = False, test: bool = False) -> None:
     expiry = (date.today() + timedelta(days=days)).isoformat()
     print(f"typical: product={TYPICAL_PRODUCT}  expiry={expiry} (+{days}d)  env={'prod' if base == PROD_BASE else 'dev'}", file=sys.stderr)
     op_create_contact(base, _typical_email(), TYPICAL_NAME, dry_run)
     customer_id, email = op_resolve_customer(base, TYPICAL_NAME, _typical_email(), dry_run, interactive=True)
-    eid = op_create_entitlement(base, TYPICAL_PRODUCT, expiry, customer_id, email, dry_run=dry_run, real=False, interactive=True, no_produce=no_produce)
+    eid = op_create_entitlement(base, TYPICAL_PRODUCT, expiry, customer_id, email, dry_run=dry_run, test=test, no_produce=no_produce)
     if eid and not dry_run:
         print(f"\neId: {eid}")
 
@@ -629,8 +611,8 @@ def run_interactive(base: str) -> None:
         expiry   = (date.today() + timedelta(days=days)).isoformat()
         cid      = _gum_input("Customer ID (blank to skip)", "") or None
         email    = _gum_input("Contact email (blank to skip)", "") or None
-        real = False if (not email or _is_internal_email(email or "")) else _gum_confirm("Production entitlement (not test)?")
-        eid  = op_create_entitlement(base, product, expiry, cid, email, dry_run=_gum_confirm("Dry run?"), real=real, interactive=True)
+        test     = _gum_confirm("Test entitlement? (default: real)")
+        eid  = op_create_entitlement(base, product, expiry, cid, email, dry_run=_gum_confirm("Dry run?"), test=test)
         if eid:
             print(f"\neId: {eid}")
     elif action == "link-customer":
@@ -651,7 +633,8 @@ def run_interactive(base: str) -> None:
     elif action == "typical":
         days_s  = _gum_input("Days until expiry", str(TYPICAL_DAYS))
         days    = int(days_s) if days_s.isdigit() else TYPICAL_DAYS
-        op_typical(base, days, _gum_confirm("Dry run?"))
+        test    = _gum_confirm("Test entitlement? (default: real)")
+        op_typical(base, days, _gum_confirm("Dry run?"), test=test)
 
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
@@ -703,7 +686,7 @@ def parse_args() -> argparse.Namespace:
             "  create-customer --name <n> --email <e>     create customer\n"
             "  create-contact --email <e> --name <n>      create contact\n"
             "  create-entitlement --product <n> [--days N] [--expiry YYYY-MM-DD]\n"
-            "                     [--customer-id <id>] [--email <e>] [--feature <n>] [--no-produce]\n"
+            "                     [--customer-id <id>] [--email <e>] [--feature <n>] [--no-produce] [--test]\n"
             "      Product aliases: cap=cap4=capx=\"capitalisator 4\", cap3=\"capitalisator 3\",\n"
             "                       cap4 network, cap3 network/c/nc/provisional\n"
             "  link-customer --eid <eid> --customer-id <id> --email <e>\n"
@@ -716,7 +699,8 @@ def parse_args() -> argparse.Namespace:
             "\n"
             "Credentials: EMS_REST_API_LEONARDO_TECH_USER / EMS_REST_API_LEONARDO_TECH_PASSWORD (envify)\n"
             "\n"
-            "Note: entitlements are created in state ENABLE (ready to activate) by default."
+            "Note: entitlements are created in state ENABLE (ready to activate) by default,\n"
+            "and as real (isTest=false) by default. Pass --test to create a test entitlement."
         ),
     )
     p.add_argument("subcommand", nargs="?", metavar="CMD",
@@ -732,7 +716,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--days", type=int, default=TYPICAL_DAYS, metavar="N")
     p.add_argument("--expiry", metavar="YYYY-MM-DD")
     p.add_argument("--no-produce", action="store_true", help="Leave entitlement in DRAFT state instead of ENABLE")
-    p.add_argument("--real", action="store_true", help="Mark as production entitlement (skip @leonardo.ag-only check)")
+    p.add_argument("--test", action="store_true", help="Mark entitlement as test (isTest=true). Default is real (isTest=false).")
     p.add_argument("--name", metavar="TEXT")
     p.add_argument("--email", metavar="EMAIL")
     p.add_argument("--customer-id", metavar="ID")
@@ -800,7 +784,7 @@ def main() -> None:
     elif sub == "create-entitlement":
         product = resolve_product(args.product or TYPICAL_PRODUCT)
         expiry  = args.expiry or (date.today() + timedelta(days=args.days)).isoformat()
-        eid = op_create_entitlement(base, product, expiry, args.customer_id, args.email, dry_run=args.dry_run, real=args.real, no_produce=args.no_produce, feature=args.feature)
+        eid = op_create_entitlement(base, product, expiry, args.customer_id, args.email, dry_run=args.dry_run, test=args.test, no_produce=args.no_produce, feature=args.feature)
         if eid:
             print(eid)
 
@@ -824,7 +808,7 @@ def main() -> None:
         op_activate(base, eid, args.c2v, outdir, args.dry_run, args.personal_c2v)
 
     elif sub == "typical":
-        op_typical(base, args.days, args.dry_run, args.no_produce)
+        op_typical(base, args.days, args.dry_run, args.no_produce, args.test)
 
 
 if __name__ == "__main__":
