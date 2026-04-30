@@ -126,3 +126,10 @@ export AD_PASSWORD
 
 VPN_SHARED_SECRET="$(get_keychain_password "$VPN_SHARED_SECRET_NAME" "VPN:$VPN_SHARED_SECRET_NAME")"
 export VPN_SHARED_SECRET
+
+print_password_rotation_hint() {
+    printf "${YELLOW}●${RESET} Most likely cause: AD password rotated. Recover with:\n"
+    printf "    leonardo_password_refresh                  # update keychain\n"
+    printf "    sudo macosvpn delete --name LeonardoVPN    # drop stale L2TP config\n"
+    printf "    leo                                        # reconnect VPN (if needed), then mount\n"
+}

@@ -36,16 +36,38 @@ create_vpn_config() {
     fi
 }
 
+wait_for_connection() {
+    local deadline=$((SECONDS + 15))
+    while [ $SECONDS -lt $deadline ]; do
+        if is_leonardo_vpn_connected; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
 connect_vpn() {
     if is_leonardo_vpn_connected; then
         printf "${YELLOW}●${RESET} $VPN_NAME is already connected\n"
-    else
-        if ! is_leonardo_vpn_configured; then
-            create_vpn_config
-        fi
-        printf "${YELLOW}●${RESET} Connecting to $VPN_NAME...\n"
-        scutil --nc start --secret "$VPN_SHARED_SECRET" "$VPN_NAME"
+        return 0
     fi
+    if ! is_leonardo_vpn_configured; then
+        create_vpn_config
+    fi
+    printf "${YELLOW}●${RESET} Connecting to $VPN_NAME...\n"
+    scutil --nc start --secret "$VPN_SHARED_SECRET" "$VPN_NAME"
+
+    if wait_for_connection; then
+        printf "${GREEN}●${RESET} $VPN_NAME connected\n"
+        return 0
+    fi
+
+    local state
+    state=$(vpn_status | head -n1 | tr -d '[:space:]')
+    printf "${RED}●${RESET} $VPN_NAME did not connect within 15s (state: %s)\n" "${state:-unknown}"
+    print_password_rotation_hint
+    return 1
 }
 
 disconnect_vpn() {

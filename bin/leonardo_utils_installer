@@ -13,6 +13,7 @@ readonly SCRIPTS=(
     "showip"
     "leonardo_account"
     "leonardo_drive"
+    "leonardo_password_refresh"
     "leonardo_start"
     "leonardo_vpn_toggle"
     "prettyprint"
@@ -60,6 +61,7 @@ Scripts installed:
   - showip
   - leonardo_account
   - leonardo_drive
+  - leonardo_password_refresh
   - leonardo_start
   - leonardo_vpn_toggle
   - prettyprint
