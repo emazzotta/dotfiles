@@ -737,3 +737,310 @@ class TestLeonardoCommonsAutoMount:
         cmd = mock_cl_run[-1]
         mount_spec = f"{leonardo_commons}:/workspace/code/leonardo-commons"
         assert cmd.count(mount_spec) == 1
+
+
+class TestIgnorePath:
+    def test_should_store_path(self, cl, tmp_path):
+        ip = cl.IgnorePath(tmp_path)
+        assert ip.path == tmp_path
+
+    def test_should_be_distinct_from_plain_path(self, cl, tmp_path):
+        ip = cl.IgnorePath(tmp_path)
+        assert not isinstance(ip, Path)
+
+
+class TestParsePathOrIgnore:
+    def test_should_return_path_for_normal_dir(self, cl, tmp_path):
+        test_dir = tmp_path / "myproject"
+        test_dir.mkdir()
+        result = cl.parse_path_or_ignore(str(test_dir))
+        assert isinstance(result, Path)
+        assert result == test_dir
+
+    def test_should_return_ignore_path_for_bang_prefix(self, cl, tmp_path):
+        result = cl.parse_path_or_ignore(f"!{tmp_path}/secrets")
+        assert isinstance(result, cl.IgnorePath)
+        assert result.path == tmp_path / "secrets"
+
+    def test_should_expand_tilde_in_ignore(self, cl):
+        result = cl.parse_path_or_ignore("!~/some/path")
+        assert isinstance(result, cl.IgnorePath)
+        assert result.path == Path.home() / "some" / "path"
+
+    def test_should_reject_nonexistent_normal_path(self, cl, tmp_path):
+        with pytest.raises(argparse.ArgumentTypeError):
+            cl.parse_path_or_ignore(str(tmp_path / "nonexistent"))
+
+    def test_should_accept_nonexistent_ignore_path(self, cl, tmp_path):
+        result = cl.parse_path_or_ignore(f"!{tmp_path}/nonexistent")
+        assert isinstance(result, cl.IgnorePath)
+
+
+class TestEntryIsIgnored:
+    def test_should_match_absolute_path_ignore_exact(self, cl, tmp_path):
+        target = tmp_path / "secrets"
+        assert cl._entry_is_ignored("secrets", target, [target]) is True
+
+    def test_should_match_absolute_path_ignore_child(self, cl, tmp_path):
+        parent = tmp_path / "secrets"
+        child = parent / "key.pem"
+        assert cl._entry_is_ignored("secrets/key.pem", child, [parent]) is True
+
+    def test_should_not_match_sibling_of_absolute_ignore(self, cl, tmp_path):
+        secrets = tmp_path / "secrets"
+        other = tmp_path / "src"
+        assert cl._entry_is_ignored("src", other, [secrets]) is False
+
+    def test_should_match_name_only_pattern_anywhere(self, cl, tmp_path):
+        entry = tmp_path / "src" / "node_modules"
+        entry.mkdir(parents=True)
+        assert cl._entry_is_ignored("src/node_modules", entry, ["node_modules"]) is True
+
+    def test_should_match_name_only_glob(self, cl, tmp_path):
+        entry = tmp_path / "app.pyc"
+        entry.write_text("")
+        assert cl._entry_is_ignored("app.pyc", entry, ["*.pyc"]) is True
+
+    def test_should_not_match_name_only_wrong_name(self, cl, tmp_path):
+        entry = tmp_path / "src"
+        entry.mkdir()
+        assert cl._entry_is_ignored("src", entry, ["node_modules"]) is False
+
+    def test_should_match_relative_path_pattern_exact(self, cl, tmp_path):
+        entry = tmp_path / "src" / "generated"
+        entry.mkdir(parents=True)
+        assert cl._entry_is_ignored("src/generated", entry, ["src/generated"]) is True
+
+    def test_should_match_relative_path_pattern_child(self, cl, tmp_path):
+        entry = tmp_path / "src" / "generated" / "Foo.java"
+        entry.parent.mkdir(parents=True)
+        entry.write_text("")
+        assert cl._entry_is_ignored("src/generated/Foo.java", entry, ["src/generated"]) is True
+
+    def test_should_match_relative_path_glob(self, cl, tmp_path):
+        entry = tmp_path / "src" / "test" / "Foo.java"
+        entry.parent.mkdir(parents=True)
+        entry.write_text("")
+        assert cl._entry_is_ignored("src/test/Foo.java", entry, ["src/test/*.java"]) is True
+
+    def test_should_return_false_with_empty_ignores(self, cl, tmp_path):
+        entry = tmp_path / "anything"
+        assert cl._entry_is_ignored("anything", entry, []) is False
+
+
+class TestAnyIgnoreTargetsInside:
+    def test_should_detect_absolute_path_inside_dir(self, cl, tmp_path):
+        parent = tmp_path / "myproject"
+        parent.mkdir()
+        child_ignore = parent / "secrets"
+        assert cl._any_ignore_targets_inside("myproject", parent, [child_ignore]) is True
+
+    def test_should_not_match_absolute_ignore_outside(self, cl, tmp_path):
+        parent = tmp_path / "myproject"
+        parent.mkdir()
+        other = tmp_path / "other" / "secrets"
+        assert cl._any_ignore_targets_inside("myproject", parent, [other]) is False
+
+    def test_should_detect_relative_path_with_slash_inside(self, cl, tmp_path):
+        parent = tmp_path / "src"
+        parent.mkdir()
+        assert cl._any_ignore_targets_inside("src", parent, ["src/generated"]) is True
+
+    def test_should_not_match_relative_path_of_different_subtree(self, cl, tmp_path):
+        parent = tmp_path / "src"
+        parent.mkdir()
+        assert cl._any_ignore_targets_inside("src", parent, ["tests/fixtures"]) is False
+
+    def test_should_not_match_name_only_patterns(self, cl, tmp_path):
+        parent = tmp_path / "src"
+        parent.mkdir()
+        assert cl._any_ignore_targets_inside("src", parent, ["node_modules"]) is False
+
+
+class TestHasNameOnlyIgnores:
+    def test_should_return_true_for_name_only_string(self, cl):
+        assert cl._has_name_only_ignores(["secrets"]) is True
+
+    def test_should_return_true_for_glob_without_slash(self, cl):
+        assert cl._has_name_only_ignores(["*.pyc"]) is True
+
+    def test_should_return_false_for_path_with_slash(self, cl):
+        assert cl._has_name_only_ignores(["src/generated"]) is False
+
+    def test_should_return_false_for_absolute_path(self, cl, tmp_path):
+        assert cl._has_name_only_ignores([tmp_path / "secrets"]) is False
+
+    def test_should_return_false_for_empty_list(self, cl):
+        assert cl._has_name_only_ignores([]) is False
+
+    def test_should_return_true_when_mixed_and_any_name_only(self, cl, tmp_path):
+        assert cl._has_name_only_ignores(["src/ok", "secrets"]) is True
+
+
+class TestBuildIgnoreAwareVolumeArgs:
+    def test_should_mount_all_entries_with_no_ignores(self, cl, tmp_path):
+        (tmp_path / "src").mkdir()
+        (tmp_path / "README.md").write_text("")
+        result = cl.build_ignore_aware_volume_args(tmp_path, "/workspace/code/proj", [])
+        mounts = {v.split(":")[1] for v in result if v.startswith("/")}
+        assert "/workspace/code/proj/src" in mounts
+        assert "/workspace/code/proj/README.md" in mounts
+
+    def test_should_exclude_absolute_path_ignore(self, cl, tmp_path):
+        secrets = tmp_path / "secrets"
+        secrets.mkdir()
+        (tmp_path / "src").mkdir()
+        result = cl.build_ignore_aware_volume_args(tmp_path, "/workspace/code/proj", [secrets])
+        mounts = {v.split(":")[1] for v in result if v.startswith("/")}
+        assert "/workspace/code/proj/secrets" not in mounts
+        assert "/workspace/code/proj/src" in mounts
+
+    def test_should_exclude_name_only_pattern_at_any_depth(self, cl, tmp_path):
+        (tmp_path / "src" / "node_modules").mkdir(parents=True)
+        (tmp_path / "src" / "index.js").write_text("")
+        result = cl.build_ignore_aware_volume_args(tmp_path, "/workspace/code/proj", ["node_modules"])
+        container_paths = [v.split(":")[1] for v in result if v.startswith("/")]
+        assert not any("node_modules" in p for p in container_paths)
+        assert any("src/index.js" in p for p in container_paths)
+
+    def test_should_exclude_nested_absolute_path(self, cl, tmp_path):
+        secrets = tmp_path / "config" / "secrets"
+        secrets.mkdir(parents=True)
+        (tmp_path / "config" / "app.conf").write_text("")
+        result = cl.build_ignore_aware_volume_args(tmp_path, "/workspace/code/proj", [secrets])
+        container_paths = [v.split(":")[1] for v in result if v.startswith("/")]
+        assert not any("secrets" in p for p in container_paths)
+        assert any("app.conf" in p for p in container_paths)
+
+    def test_should_mount_dir_whole_when_no_ignores_inside(self, cl, tmp_path):
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "main.py").write_text("")
+        secrets = tmp_path / "secrets"
+        secrets.mkdir()
+        result = cl.build_ignore_aware_volume_args(tmp_path, "/workspace/code/proj", [secrets])
+        mounts = {v.split(":")[1] for v in result if v.startswith("/")}
+        assert "/workspace/code/proj/src" in mounts
+        assert "/workspace/code/proj/src/main.py" not in mounts
+
+    def test_should_exclude_relative_path_pattern(self, cl, tmp_path):
+        generated = tmp_path / "src" / "generated"
+        generated.mkdir(parents=True)
+        (tmp_path / "src" / "main.py").write_text("")
+        result = cl.build_ignore_aware_volume_args(tmp_path, "/workspace/code/proj", ["src/generated"])
+        container_paths = [v.split(":")[1] for v in result if v.startswith("/")]
+        assert not any("generated" in p for p in container_paths)
+        assert any("main.py" in p for p in container_paths)
+
+    def test_should_exclude_glob_pattern(self, cl, tmp_path):
+        (tmp_path / "secret.env").write_text("")
+        (tmp_path / "app.py").write_text("")
+        result = cl.build_ignore_aware_volume_args(tmp_path, "/workspace/code/proj", ["*.env"])
+        container_paths = [v.split(":")[1] for v in result if v.startswith("/")]
+        assert not any(".env" in p for p in container_paths)
+        assert any("app.py" in p for p in container_paths)
+
+
+class TestBuildVolumeArgsWithIgnores:
+    def test_should_switch_to_ignore_walk_when_ignores_present(self, cl, tmp_path):
+        pwd = tmp_path / "project"
+        pwd.mkdir()
+        secrets = pwd / "secrets"
+        secrets.mkdir()
+        (pwd / "src").mkdir()
+        result = cl.build_volume_args([], [], pwd, ignores=[secrets])
+        mounts = {v.split(":")[1] for v in result if v.startswith("/")}
+        assert not any("secrets" in p for p in mounts)
+        assert any("src" in p for p in mounts)
+
+    def test_should_mount_whole_dir_with_no_ignores(self, cl, tmp_path):
+        pwd = tmp_path / "project"
+        pwd.mkdir()
+        result = cl.build_volume_args([], [], pwd, ignores=[])
+        assert result == ["-v", f"{pwd}:/workspace/code/project"]
+
+    def test_should_skip_ignored_path_from_paths_list(self, cl, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        secrets = tmp_path / "secrets"
+        secrets.mkdir()
+        result = cl.build_volume_args([], [project, secrets], tmp_path, ignores=[secrets])
+        mounts = {v.split(":")[1] for v in result if v.startswith("/")}
+        assert any("project" in p for p in mounts)
+        assert not any("secrets" in p for p in mounts)
+
+    def test_should_filter_ignored_files_from_file_list(self, cl, tmp_path):
+        pwd = tmp_path / "project"
+        pwd.mkdir()
+        (pwd / "main.py").write_text("")
+        (pwd / "secret.env").write_text("")
+        result = cl.build_volume_args(["main.py", "secret.env"], [], pwd, ignores=["*.env"])
+        mounts = {v for v in result if v.startswith("/")}
+        assert any("main.py" in m for m in mounts)
+        assert not any(".env" in m for m in mounts)
+
+    def test_should_use_ignore_walk_for_path_with_nested_absolute_ignore(self, cl, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        secrets = project / "secrets"
+        secrets.mkdir()
+        (project / "src").mkdir()
+        result = cl.build_volume_args([], [project], tmp_path, ignores=[secrets])
+        container_paths = [v.split(":")[1] for v in result if v.startswith("/")]
+        assert not any("secrets" in p for p in container_paths)
+
+
+class TestMainWithIgnores:
+    @pytest.fixture(autouse=True)
+    def _no_leonardo_commons(self, cl, monkeypatch, tmp_path):
+        monkeypatch.setattr(cl, "LEONARDO_COMMONS", tmp_path / "nonexistent")
+
+    @pytest.fixture
+    def mock_cl_run(self, cl, monkeypatch):
+        captured = []
+        def mock_run(cmd, **kwargs):
+            captured.append(cmd)
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        monkeypatch.setattr(cl, "run", mock_run)
+        return captured
+
+    def test_should_exclude_bang_path_from_mounts(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        secrets = project / "secrets"
+        secrets.mkdir()
+        (project / "src").mkdir()
+        monkeypatch.chdir(project)
+        monkeypatch.setattr(sys, "argv", ["cl", "-p", f"!{secrets}"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert not any("secrets" in arg for arg in cmd)
+        assert any("src" in arg for arg in cmd)
+
+    def test_should_exclude_bang_file_from_mounts(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        pwd = tmp_path / "project"
+        pwd.mkdir()
+        (pwd / "main.py").write_text("")
+        (pwd / "secret.env").write_text("")
+        monkeypatch.chdir(pwd)
+        monkeypatch.setattr(sys, "argv", ["cl", "-f", "main.py", "-f", "!*.env"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert any("main.py" in arg for arg in cmd)
+        assert not any(".env" in arg for arg in cmd)
+
+    def test_should_not_lock_git_crypt_for_ignored_paths(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        from unittest.mock import patch
+        dir1 = tmp_path / "dir1"
+        dir1.mkdir()
+        dir2 = tmp_path / "dir2"
+        dir2.mkdir()
+        monkeypatch.setattr(sys, "argv", ["cl", "-p", str(dir1), "-p", f"!{dir2}"])
+        with patch.object(cl.shutil, "which", return_value="/usr/bin/git-crypt"):
+            with pytest.raises(SystemExit, match="0"):
+                cl.main()
+        lock_calls = [c for c in mock_cl_run if "git-crypt" in str(c)]
+        locked_paths = {c[1].get("cwd") for c in [(cmd, kw) for cmd, *_ in [(c,) for c in lock_calls] for kw in [{}]]}
+        assert not any(str(dir2) in str(c) for c in mock_cl_run if "git-crypt" in str(c))

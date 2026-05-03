@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import fnmatch
 import os
 import shutil
 import sys
@@ -273,6 +274,97 @@ def is_home_dir(path: Path) -> bool:
     return path == Path.home()
 
 
+class IgnorePath:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+
+def parse_path_or_ignore(path_str: str) -> "Path | IgnorePath":
+    if path_str.startswith("!"):
+        return IgnorePath(Path(path_str[1:]).expanduser().resolve())
+    return parse_path(path_str)
+
+
+def _entry_is_ignored(rel_entry: str, abs_entry: Path, ignores: list) -> bool:
+    for ig in ignores:
+        if isinstance(ig, Path):
+            if abs_entry == ig or abs_entry.is_relative_to(ig):
+                return True
+        else:
+            ig_str = ig.rstrip("/")
+            if "/" not in ig_str:
+                if fnmatch.fnmatch(abs_entry.name, ig_str):
+                    return True
+            else:
+                if rel_entry == ig_str or rel_entry.startswith(ig_str + "/"):
+                    return True
+                if fnmatch.fnmatch(rel_entry, ig_str):
+                    return True
+    return False
+
+
+def _any_ignore_targets_inside(rel_entry: str, abs_entry: Path, ignores: list) -> bool:
+    for ig in ignores:
+        if isinstance(ig, Path):
+            try:
+                ig.relative_to(abs_entry)
+                return True
+            except ValueError:
+                pass
+        elif isinstance(ig, str):
+            ig_str = ig.rstrip("/")
+            if "/" in ig_str and ig_str.startswith(rel_entry + "/"):
+                return True
+    return False
+
+
+def _has_name_only_ignores(ignores: list) -> bool:
+    return any(isinstance(ig, str) and "/" not in ig.rstrip("/") for ig in ignores)
+
+
+def _path_needs_ignore_walk(abs_path: Path, ignores: list) -> bool:
+    for ig in ignores:
+        if isinstance(ig, Path):
+            try:
+                ig.relative_to(abs_path)
+                return True
+            except ValueError:
+                pass
+        elif isinstance(ig, str):
+            return True
+    return False
+
+
+def build_ignore_aware_volume_args(
+    host_root: Path,
+    container_root: str,
+    ignores: list,
+) -> list[str]:
+    always_recurse = _has_name_only_ignores(ignores)
+    mounts: list[tuple[Path, str]] = []
+
+    def walk(rel: str) -> None:
+        host_dir = host_root / rel if rel else host_root
+        try:
+            entries = sorted(host_dir.iterdir())
+        except (PermissionError, OSError):
+            return
+        for entry in entries:
+            rel_entry = f"{rel}/{entry.name}" if rel else entry.name
+            if _entry_is_ignored(rel_entry, entry, ignores):
+                continue
+            if entry.is_file():
+                mounts.append((entry, f"{container_root}/{rel_entry}"))
+            elif entry.is_dir():
+                if always_recurse or _any_ignore_targets_inside(rel_entry, entry, ignores):
+                    walk(rel_entry)
+                else:
+                    mounts.append((entry, f"{container_root}/{rel_entry}"))
+
+    walk("")
+    return [arg for host, container in mounts for arg in ("-v", f"{host}:{container}")]
+
+
 def _container_path(path: Path, pwd: Path) -> str:
     try:
         rel = path.relative_to(pwd)
@@ -286,6 +378,7 @@ def build_gitignore_aware_volume_args(
     container_root: str,
     cruft_patterns: tuple[str, ...] = (),
     profile_label: str = "gitignore-mount",
+    extra_ignores: list | None = None,
 ) -> list[str]:
     """Mount only git-tracked content from host_root into container_root.
 
@@ -339,13 +432,21 @@ def build_gitignore_aware_volume_args(
             if entry.name == ".git":
                 continue
             rel_entry = f"{rel}/{entry.name}" if rel else entry.name
+            if extra_ignores and _entry_is_ignored(rel_entry, entry, extra_ignores):
+                continue
             if entry.is_file():
                 if rel_entry in tracked:
                     mounts.append((entry, f"{container_root}/{rel_entry}"))
             elif entry.is_dir():
                 if rel_entry not in tracked_dirs:
                     continue
-                if rel_entry in dirty_dirs:
+                should_recurse = rel_entry in dirty_dirs
+                if extra_ignores and not should_recurse:
+                    should_recurse = (
+                        _any_ignore_targets_inside(rel_entry, entry, extra_ignores)
+                        or _has_name_only_ignores(extra_ignores)
+                    )
+                if should_recurse:
                     walk(rel_entry)
                 else:
                     mounts.append((entry, f"{container_root}/{rel_entry}"))
@@ -363,7 +464,14 @@ def build_dotfiles_volume_args() -> list[str]:
     )
 
 
-def build_volume_args(files: list[str], paths: list[Path], pwd: Path, git_ignore_mount: bool = False) -> list[str]:
+def build_volume_args(
+    files: list[str],
+    paths: list[Path],
+    pwd: Path,
+    git_ignore_mount: bool = False,
+    ignores: list | None = None,
+) -> list[str]:
+    ignores = ignores or []
     if not files and not paths:
         if is_home_dir(pwd):
             print("Error: Refusing to mount home directory - run from a project directory", file=sys.stderr)
@@ -376,7 +484,10 @@ def build_volume_args(files: list[str], paths: list[Path], pwd: Path, git_ignore
                 pwd, f"/workspace/code/{pwd.name}",
                 cruft_patterns=DOTFILES_CRUFT_PATTERNS,
                 profile_label=f"pwd ({pwd.name})",
+                extra_ignores=ignores or None,
             )
+        if ignores:
+            return build_ignore_aware_volume_args(pwd, f"/workspace/code/{pwd.name}", ignores)
         return ["-v", f"{pwd}:/workspace/code/{pwd.name}"]
 
     volume_args: list[str] = []
@@ -389,10 +500,38 @@ def build_volume_args(files: list[str], paths: list[Path], pwd: Path, git_ignore
         if is_home_dir(path):
             print(f"Skipping home directory mount: {path}", file=sys.stderr)
             continue
-        volume_args.extend(["-v", f"{path}:/workspace/code/{_container_path(path, pwd)}"])
+        if ignores and _entry_is_ignored(path.name, path, ignores):
+            continue
+        container = f"/workspace/code/{_container_path(path, pwd)}"
+        if ignores and _path_needs_ignore_walk(path, ignores):
+            volume_args.extend(build_ignore_aware_volume_args(path, container, ignores))
+        else:
+            volume_args.extend(["-v", f"{path}:{container}"])
     for file_path in files:
-        volume_args.extend(resolve_file_volume_args(file_path, pwd))
+        raw_args = resolve_file_volume_args(file_path, pwd)
+        if ignores:
+            raw_args = _filter_file_mounts(raw_args, pwd, ignores)
+        volume_args.extend(raw_args)
     return volume_args
+
+
+def _filter_file_mounts(volume_args: list[str], pwd: Path, ignores: list) -> list[str]:
+    result: list[str] = []
+    i = 0
+    while i < len(volume_args):
+        if volume_args[i] == "-v" and i + 1 < len(volume_args):
+            host_path = Path(volume_args[i + 1].split(":")[0])
+            try:
+                rel = str(host_path.relative_to(pwd))
+            except ValueError:
+                rel = host_path.name
+            if not _entry_is_ignored(rel, host_path, ignores):
+                result.extend([volume_args[i], volume_args[i + 1]])
+            i += 2
+        else:
+            result.append(volume_args[i])
+            i += 1
+    return result
 
 
 def resolve_file_volume_args(file_path: str, pwd: Path) -> list[str]:
@@ -429,8 +568,8 @@ def main() -> None:
     parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
     parser.add_argument(
         "-p", "--path",
-        dest="paths", action="append", type=parse_path, default=[], metavar="PATH",
-        help="directory to mount; may be repeated: -p ~/a -p ~/b",
+        dest="paths", action="append", type=parse_path_or_ignore, default=[], metavar="PATH",
+        help="directory to mount; prefix with ! to exclude: -p ~/a -p !~/a/secrets",
     )
     parser.add_argument("-n", "--no-skip", action="store_true", default=False)
     parser.add_argument(
@@ -454,10 +593,16 @@ def main() -> None:
     args, claude_args = parser.parse_known_args()
     _profile("argparse")
 
+    include_paths = [p for p in args.paths if isinstance(p, Path)]
+    ignore_paths = [p.path for p in args.paths if isinstance(p, IgnorePath)]
+    include_files = [f for f in args.files if not f.startswith("!")]
+    ignore_file_patterns = [f[1:] for f in args.files if f.startswith("!")]
+    ignores: list = ignore_paths + ignore_file_patterns
+
     warn_if_offline()
     _profile("internet check")
 
-    lock_targets = args.paths or [pwd]
+    lock_targets = include_paths or [pwd]
     locked_roots = _lock_git_crypt_roots(lock_targets)
     _profile("git-crypt lock (targets)")
 
@@ -467,7 +612,7 @@ def main() -> None:
             run([str(sync_script)], cwd=OPENCODE_ROOT)
         _profile("sync-local-models")
 
-    volume_args = build_volume_args(args.files, args.paths, pwd, git_ignore_mount=args.git_ignore_mount)
+    volume_args = build_volume_args(include_files, include_paths, pwd, git_ignore_mount=args.git_ignore_mount, ignores=ignores)
     _profile("build_volume_args")
     dotfiles_volume_args = build_dotfiles_volume_args()
     _profile("build_dotfiles_volume_args")
