@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# sops-seal <plaintext-source> <encrypted-target>
+#
+# Encrypts a plaintext YAML secret to an .enc.yaml target using the nearest
+# .sops.yaml. Places a temp file adjacent to the target so sops walks up to
+# the right .sops.yaml and the .enc.yaml suffix matches the creation rules.
+set -euo pipefail
+
+src="${1:?usage: sops-seal <plaintext-source> <encrypted-target>}"
+dst="${2:?usage: sops-seal <plaintext-source> <encrypted-target>}"
+
+mkdir -p "$(dirname "$dst")"
+
+tmp="$(dirname "$dst")/.sops-seal-$$.enc.yaml"
+trap 'rm -f "$tmp"' EXIT
+cp "$src" "$tmp"
+sops --encrypt "$tmp" > "$dst"
+echo "sealed: $dst"
