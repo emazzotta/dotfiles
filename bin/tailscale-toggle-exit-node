@@ -2,8 +2,6 @@
 
 set -euo pipefail
 
-EXIT_NODE_NAME="ubuntu-devserver"
-
 source prettyprint
 
 WORK_IP="46.245.188.32"
@@ -22,6 +20,7 @@ TS_JSON=$(tailscale status --json 2>/dev/null || true)
 state=$(printf '%s' "$TS_JSON" | jq -r '.BackendState' 2>/dev/null || true)
 
 if [ "$state" = "Running" ]; then
+    EXIT_NODE_NAME=$(printf '%s' "$TS_JSON" | jq -r '[.Peer[] | select(.HostName | test("^ubuntu-devserver"))] | .[0].HostName // "ubuntu-devserver"' 2>/dev/null || echo "ubuntu-devserver")
     printf "${GREEN}●${RESET} Tailscale is connected\n"
 else
     printf "${RED}●${RESET} Tailscale not connected\n"
