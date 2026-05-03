@@ -271,9 +271,9 @@ bind -n M-Up select-pane -U
 bind -n M-Down select-pane -D
 
 set -g base-index 1
-set-option -g set-titles on
-set-option -g display-time 400
-set-option -s escape-time 10
+set -g set-titles on
+set -g display-time 400
+set -s escape-time 10
 set -g default-terminal screen-256color
 set -g status-keys vi
 set -g history-limit 10000
@@ -281,6 +281,9 @@ set -sg escape-time 0
 set -g default-command "reattach-to-user-namespace -l ${SHELL}"
 setw -g mode-keys vi
 setw -g mouse on
+
+set -g bell-action any
+set -g status-interval 1
+set -g visual-bell on
 setw -g monitor-activity on
 setw -g monitor-bell on
-set -g bell-action other
