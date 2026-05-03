@@ -112,6 +112,7 @@ def _print_docker_events(monitor: tuple[Popen, threading.Thread] | None) -> None
 OPENCODE_ROOT = Path.home() / "Projects" / "private" / "opencode"
 COMPOSE_FILE = OPENCODE_ROOT / "docker-compose.yml"
 LEONARDO_COMMONS = Path.home() / "Projects" / "leo-productions" / "leonardo-commons"
+KEYGUARD = Path.home() / "Projects" / "private" / "keyguard"
 DOTFILES = Path.home() / "dotfiles"
 DOTFILES_CONTAINER = "/home/opencode/dotfiles"
 DOTFILES_CRUFT_PATTERNS = (
@@ -620,6 +621,13 @@ def main() -> None:
             volume_args = _remove_submounts(volume_args, LEONARDO_COMMONS)
             volume_args.extend(["-v", f"{LEONARDO_COMMONS}:/workspace/code/leonardo-commons"])
     _profile("leonardo-commons lock/mount")
+    if KEYGUARD.is_dir():
+        if KEYGUARD.resolve() not in locked_roots:
+            lock_git_crypt(KEYGUARD)
+        if not _is_path_mounted(volume_args, KEYGUARD):
+            volume_args = _remove_submounts(volume_args, KEYGUARD)
+            volume_args.extend(["-v", f"{KEYGUARD}:/workspace/code/keyguard"])
+    _profile("keyguard lock/mount")
     container_name = f"opencode-{int(time())}"
     skip_args = [] if args.no_skip else ["--dangerously-skip-permissions"]
 
