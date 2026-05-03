@@ -1,0 +1,3 @@
+#!/bin/bash
+pts=$(readlink /proc/1/fd/1 2>/dev/null)
+[[ "$pts" == /dev/pts/* ]] && printf '\a' > "$pts" || true

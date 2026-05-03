@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+read -r message || true
+message="${message:-Claude: done}"
+
+tmux_bin=/opt/homebrew/bin/tmux
+[[ -x "$tmux_bin" ]] || tmux_bin=/usr/local/bin/tmux
+[[ -x "$tmux_bin" ]] || exit 0
+
+socket_dir="/private/tmp/tmux-$(id -u)"
+[[ -d "$socket_dir" ]] || exit 0
+
+for socket in "$socket_dir"/*; do
+    [[ -S "$socket" ]] && "$tmux_bin" -S "$socket" display-message "$message" 2>/dev/null || true
+done
