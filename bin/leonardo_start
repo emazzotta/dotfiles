@@ -2,6 +2,7 @@
 set -euo pipefail
 
 source leonardo_account
+source envify PRIMARY_EMAIL
 
 STATUS_HOST="updates.leonardo.local"
 TIMEOUT_IN_MS=350
@@ -28,15 +29,18 @@ disconnect() {
     leonardo_drive --unmount
 
     if command -v tailscale > /dev/null 2>&1; then
-        local ts_json ts_state
+        local ts_json ts_state ts_user
         ts_json=$(tailscale status --json 2>/dev/null || true)
         ts_state=$(echo "$ts_json" | jq -r '.BackendState // empty' 2>/dev/null || true)
-        if [ "$ts_state" = "Running" ]; then
+        ts_user=$(echo "$ts_json" | jq -r '.User[(.Self.UserID | tostring)].LoginName // empty' 2>/dev/null || true)
+        if [ "$ts_state" = "Running" ] && [ "$ts_user" != "$PRIMARY_EMAIL" ]; then
             tailscale set --exit-node=
             tailscale down
             scutil --nc stop "Tailscale" 2>/dev/null || true
             printf "${RED}●${RESET} Tailscale disconnected\n"
             disconnected=true
+        elif [ "$ts_user" = "$PRIMARY_EMAIL" ]; then
+            printf "${YELLOW}●${RESET} Tailscale on personal account - skipping disconnect\n"
         fi
     fi
 
