@@ -1,4 +1,5 @@
 {
+  "model": "opusplan",
   "hooks": {
     "SessionStart": [
       {
@@ -93,6 +94,5 @@
     "superpowers@claude-plugins-official": true,
     "code-review@claude-plugins-official": true
   },
-  "skipDangerousModePermissionPrompt": true,
-  "model": "opus[1m]"
+  "skipDangerousModePermissionPrompt": true
 }
