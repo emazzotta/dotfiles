@@ -282,6 +282,7 @@ set -g default-command "reattach-to-user-namespace -l ${SHELL}"
 setw -g mode-keys vi
 setw -g mouse on
 
+# Bell (not strictly needed)
 set -g bell-action any
 set -g status-interval 1
 set -g visual-bell on
