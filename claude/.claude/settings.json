@@ -20,6 +20,11 @@
           {
             "type": "command",
             "command": "printf '\\a'"
+          },
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/envify --bridge chime-purr >/dev/null 2>&1 || true",
+            "async": true
           }
         ]
       }
