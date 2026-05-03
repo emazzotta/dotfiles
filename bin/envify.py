@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import json
 import os
 import shlex
 import shutil
@@ -180,13 +181,14 @@ def _resolve_bridge_token() -> str:
     return _server_get(host, _BRIDGE_TOKEN_KEY).strip()
 
 
-def _bridge_request(path: str, *, method: str = "GET") -> str:
-    token = _resolve_bridge_token()
-    host = _require_host()
+def _bridge_call(host: str, path: str, *, method: str = "GET", token: str | None = None) -> str:
+    headers: dict[str, str] = {}
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(
         f"http://{host}:{_SERVER_PORT}/_bridge/{path}",
         method=method,
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -197,12 +199,31 @@ def _bridge_request(path: str, *, method: str = "GET") -> str:
         _die(f"bridge unreachable: {e.reason}")
 
 
-def list_bridge_endpoints() -> None:
-    print(_bridge_request("list"), end="")
+def _public_bridge_names(host: str) -> set[str]:
+    raw = _bridge_call(host, "list")
+    try:
+        items = json.loads(raw)
+    except json.JSONDecodeError:
+        return set()
+    return {
+        item["name"] for item in items
+        if isinstance(item, dict) and "name" in item
+    }
+
+
+def list_bridge_endpoints(*, include_private: bool = False) -> None:
+    host = _require_host()
+    token = _resolve_bridge_token() if include_private else None
+    print(_bridge_call(host, "list", token=token), end="")
 
 
 def call_bridge_endpoint(name: str) -> None:
-    print(_bridge_request(name, method="POST"), end="")
+    host = _require_host()
+    if name in _public_bridge_names(host):
+        print(_bridge_call(host, name, method="POST"), end="")
+        return
+    token = _resolve_bridge_token()
+    print(_bridge_call(host, name, method="POST", token=token), end="")
 
 
 # ---------------------------------------------------------------------------
@@ -224,11 +245,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     group.add_argument(
         "--bridge-list", action="store_true", dest="bridge_list",
-        help="list configured Mac bridge endpoints (JSON)",
+        help="list public Mac bridge endpoints (JSON; no auth)",
     )
     group.add_argument(
         "--bridge", metavar="ENDPOINT",
-        help="call a Mac bridge endpoint via POST",
+        help="call a Mac bridge endpoint via POST (auth resolved only if private)",
+    )
+    parser.add_argument(
+        "--all", action="store_true", dest="all_endpoints",
+        help="with --bridge-list: include private endpoints (requires auth token)",
     )
     parser.add_argument(
         "vars", nargs="*", metavar="VAR",
@@ -244,7 +269,7 @@ def main() -> None:
     if args.list_keys:
         list_params()
     elif args.bridge_list:
-        list_bridge_endpoints()
+        list_bridge_endpoints(include_private=args.all_endpoints)
     elif args.bridge:
         call_bridge_endpoint(args.bridge)
     elif args.vars:
