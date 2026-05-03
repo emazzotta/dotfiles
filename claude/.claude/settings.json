@@ -21,11 +21,6 @@
           {
             "type": "command",
             "command": "/home/opencode/dotfiles/bin/stop-bell"
-          },
-          {
-            "type": "command",
-            "command": "/home/opencode/dotfiles/bin/envify --bridge tmux-notify >/dev/null 2>&1 || true",
-            "async": true
           }
         ]
       }
