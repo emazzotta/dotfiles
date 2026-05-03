@@ -274,15 +274,11 @@ def is_home_dir(path: Path) -> bool:
     return path == Path.home()
 
 
-class IgnorePath:
-    def __init__(self, path: Path) -> None:
-        self.path = path
-
-
-def parse_path_or_ignore(path_str: str) -> "Path | IgnorePath":
-    if path_str.startswith("!"):
-        return IgnorePath(Path(path_str[1:]).expanduser().resolve())
-    return parse_path(path_str)
+def parse_exclude(value: str) -> "Path | str":
+    expanded = Path(value).expanduser()
+    if expanded.is_absolute():
+        return expanded.resolve()
+    return value
 
 
 def _entry_is_ignored(rel_entry: str, abs_entry: Path, ignores: list) -> bool:
@@ -564,12 +560,17 @@ def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
 def main() -> None:
     pwd = Path.cwd()
 
-    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-n] [-r] [CLAUDE_ARGS...]")
+    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n] [-r] [CLAUDE_ARGS...]")
     parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
     parser.add_argument(
         "-p", "--path",
-        dest="paths", action="append", type=parse_path_or_ignore, default=[], metavar="PATH",
-        help="directory to mount; prefix with ! to exclude: -p ~/a -p !~/a/secrets",
+        dest="paths", action="append", type=parse_path, default=[], metavar="PATH",
+        help="directory to mount; may be repeated: -p ~/a -p ~/b",
+    )
+    parser.add_argument(
+        "-x", "--exclude",
+        dest="excludes", action="append", type=parse_exclude, default=[], metavar="EXCLUDE",
+        help="path or pattern to exclude from mounts; may be repeated: -x ~/a/secrets -x '*.env'",
     )
     parser.add_argument("-n", "--no-skip", action="store_true", default=False)
     parser.add_argument(
@@ -593,16 +594,12 @@ def main() -> None:
     args, claude_args = parser.parse_known_args()
     _profile("argparse")
 
-    include_paths = [p for p in args.paths if isinstance(p, Path)]
-    ignore_paths = [p.path for p in args.paths if isinstance(p, IgnorePath)]
-    include_files = [f for f in args.files if not f.startswith("!")]
-    ignore_file_patterns = [f[1:] for f in args.files if f.startswith("!")]
-    ignores: list = ignore_paths + ignore_file_patterns
+    ignores: list = args.excludes
 
     warn_if_offline()
     _profile("internet check")
 
-    lock_targets = include_paths or [pwd]
+    lock_targets = args.paths or [pwd]
     locked_roots = _lock_git_crypt_roots(lock_targets)
     _profile("git-crypt lock (targets)")
 
@@ -612,7 +609,7 @@ def main() -> None:
             run([str(sync_script)], cwd=OPENCODE_ROOT)
         _profile("sync-local-models")
 
-    volume_args = build_volume_args(include_files, include_paths, pwd, git_ignore_mount=args.git_ignore_mount, ignores=ignores)
+    volume_args = build_volume_args(args.files, args.paths, pwd, git_ignore_mount=args.git_ignore_mount, ignores=ignores)
     _profile("build_volume_args")
     dotfiles_volume_args = build_dotfiles_volume_args()
     _profile("build_dotfiles_volume_args")

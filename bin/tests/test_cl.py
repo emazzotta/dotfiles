@@ -739,41 +739,31 @@ class TestLeonardoCommonsAutoMount:
         assert cmd.count(mount_spec) == 1
 
 
-class TestIgnorePath:
-    def test_should_store_path(self, cl, tmp_path):
-        ip = cl.IgnorePath(tmp_path)
-        assert ip.path == tmp_path
-
-    def test_should_be_distinct_from_plain_path(self, cl, tmp_path):
-        ip = cl.IgnorePath(tmp_path)
-        assert not isinstance(ip, Path)
-
-
-class TestParsePathOrIgnore:
-    def test_should_return_path_for_normal_dir(self, cl, tmp_path):
-        test_dir = tmp_path / "myproject"
-        test_dir.mkdir()
-        result = cl.parse_path_or_ignore(str(test_dir))
+class TestParseExclude:
+    def test_should_return_resolved_path_for_absolute_input(self, cl, tmp_path):
+        result = cl.parse_exclude(str(tmp_path / "secrets"))
         assert isinstance(result, Path)
-        assert result == test_dir
+        assert result == tmp_path / "secrets"
 
-    def test_should_return_ignore_path_for_bang_prefix(self, cl, tmp_path):
-        result = cl.parse_path_or_ignore(f"!{tmp_path}/secrets")
-        assert isinstance(result, cl.IgnorePath)
-        assert result.path == tmp_path / "secrets"
+    def test_should_expand_tilde_to_absolute_path(self, cl):
+        result = cl.parse_exclude("~/some/path")
+        assert isinstance(result, Path)
+        assert result == Path.home() / "some" / "path"
 
-    def test_should_expand_tilde_in_ignore(self, cl):
-        result = cl.parse_path_or_ignore("!~/some/path")
-        assert isinstance(result, cl.IgnorePath)
-        assert result.path == Path.home() / "some" / "path"
+    def test_should_return_string_for_name_only_pattern(self, cl):
+        result = cl.parse_exclude("secrets")
+        assert result == "secrets"
+        assert isinstance(result, str)
 
-    def test_should_reject_nonexistent_normal_path(self, cl, tmp_path):
-        with pytest.raises(argparse.ArgumentTypeError):
-            cl.parse_path_or_ignore(str(tmp_path / "nonexistent"))
+    def test_should_return_string_for_glob_pattern(self, cl):
+        result = cl.parse_exclude("*.env")
+        assert result == "*.env"
+        assert isinstance(result, str)
 
-    def test_should_accept_nonexistent_ignore_path(self, cl, tmp_path):
-        result = cl.parse_path_or_ignore(f"!{tmp_path}/nonexistent")
-        assert isinstance(result, cl.IgnorePath)
+    def test_should_return_string_for_relative_path(self, cl):
+        result = cl.parse_exclude("src/generated")
+        assert result == "src/generated"
+        assert isinstance(result, str)
 
 
 class TestEntryIsIgnored:
@@ -1004,43 +994,46 @@ class TestMainWithIgnores:
         monkeypatch.setattr(cl, "run", mock_run)
         return captured
 
-    def test_should_exclude_bang_path_from_mounts(self, cl, monkeypatch, mock_cl_run, tmp_path):
+    def test_should_exclude_path_via_x_flag(self, cl, monkeypatch, mock_cl_run, tmp_path):
         project = tmp_path / "project"
         project.mkdir()
         secrets = project / "secrets"
         secrets.mkdir()
         (project / "src").mkdir()
         monkeypatch.chdir(project)
-        monkeypatch.setattr(sys, "argv", ["cl", "-p", f"!{secrets}"])
+        monkeypatch.setattr(sys, "argv", ["cl", "-x", str(secrets)])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
         cmd = mock_cl_run[-1]
         assert not any("secrets" in arg for arg in cmd)
         assert any("src" in arg for arg in cmd)
 
-    def test_should_exclude_bang_file_from_mounts(self, cl, monkeypatch, mock_cl_run, tmp_path):
+    def test_should_exclude_file_pattern_via_x_flag(self, cl, monkeypatch, mock_cl_run, tmp_path):
         pwd = tmp_path / "project"
         pwd.mkdir()
         (pwd / "main.py").write_text("")
         (pwd / "secret.env").write_text("")
         monkeypatch.chdir(pwd)
-        monkeypatch.setattr(sys, "argv", ["cl", "-f", "main.py", "-f", "!*.env"])
+        monkeypatch.setattr(sys, "argv", ["cl", "-f", "main.py", "-f", "secret.env", "-x", "*.env"])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
         cmd = mock_cl_run[-1]
         assert any("main.py" in arg for arg in cmd)
         assert not any(".env" in arg for arg in cmd)
 
-    def test_should_not_lock_git_crypt_for_ignored_paths(self, cl, monkeypatch, mock_cl_run, tmp_path):
-        from unittest.mock import patch
-        dir1 = tmp_path / "dir1"
-        dir1.mkdir()
-        dir2 = tmp_path / "dir2"
-        dir2.mkdir()
-        monkeypatch.setattr(sys, "argv", ["cl", "-p", str(dir1), "-p", f"!{dir2}"])
-        with patch.object(cl.shutil, "which", return_value="/usr/bin/git-crypt"):
-            with pytest.raises(SystemExit, match="0"):
-                cl.main()
-        lock_calls = [c for c in mock_cl_run if "git-crypt" in str(c)]
-        locked_paths = {c[1].get("cwd") for c in [(cmd, kw) for cmd, *_ in [(c,) for c in lock_calls] for kw in [{}]]}
-        assert not any(str(dir2) in str(c) for c in mock_cl_run if "git-crypt" in str(c))
+    def test_should_support_multiple_x_flags(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        src = project / "src"
+        src.mkdir()
+        (src / "main.py").write_text("")
+        (project / "secrets").mkdir()
+        (project / "build").mkdir()
+        monkeypatch.chdir(project)
+        monkeypatch.setattr(sys, "argv", ["cl", "-x", str(project / "secrets"), "-x", "build"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert not any("secrets" in arg for arg in cmd)
+        assert not any("build" in arg for arg in cmd)
+        assert any("src" in arg for arg in cmd)
