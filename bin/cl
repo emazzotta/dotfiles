@@ -437,7 +437,8 @@ def main() -> None:
         "--git-ignore-mount", dest="git_ignore_mount", action="store_true", default=False,
         help="mount only git-tracked files from PWD (respects .gitignore); requires .git and .gitignore",
     )
-    parser.add_argument("-o", "--oc", action="store_true", default=False, help="run opencode instead of claude")
+    parser.add_argument("-o", "--opencode", action="store_true", default=False, help="run opencode instead of claude")
+    parser.add_argument("-m", "--hermes", action="store_true", default=False, help="run hermes agent")
     parser.add_argument(
         "-r", "--resume",
         action="store_true", default=False,
@@ -460,7 +461,7 @@ def main() -> None:
     locked_roots = _lock_git_crypt_roots(lock_targets)
     _profile("git-crypt lock (targets)")
 
-    if args.oc and args.rm is None:
+    if args.opencode and args.rm is None:
         sync_script = OPENCODE_ROOT / "opencode" / "workspace" / ".claude" / "scripts" / "sync-local-models"
         if sync_script.is_file():
             run([str(sync_script)], cwd=OPENCODE_ROOT)
@@ -481,19 +482,22 @@ def main() -> None:
     skip_args = [] if args.no_skip else ["--dangerously-skip-permissions"]
 
     if args.rm is not None:
-        entrypoint = "opencode-rm" if args.oc else "claude-rm"
+        entrypoint = "opencode-rm" if args.opencode else "claude-rm"
         rm_args = [args.rm] if args.rm else []
         entrypoint_args = [*rm_args, *claude_args]
     elif args.convert:
         entrypoint = "session-convert"
         entrypoint_args = claude_args
-    elif args.oc:
+    elif args.opencode:
         if args.resume:
             entrypoint = "opencode-resume"
             entrypoint_args = [*claude_args]
         else:
             entrypoint = "opencode"
             entrypoint_args = claude_args
+    elif args.hermes:
+        entrypoint = "hermes"
+        entrypoint_args = claude_args
     elif args.resume:
         entrypoint = "claude-resume"
         entrypoint_args = []
