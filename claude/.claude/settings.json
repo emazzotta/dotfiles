@@ -1,9 +1,13 @@
 {
-  "model": "opusplan",
+  "model": "opus[1m]",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/.claude/hooks/session-start-git-safe-dirs.sh"
+          },
           {
             "type": "command",
             "command": "/workspace/.claude/hooks/session-start-memory.sh"

@@ -4,22 +4,27 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/shelllog.sh"
+source "$SCRIPT_DIR/7zpw.sh"
 
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") [-o OUTPUT_DIR] <archive-file>
+Usage: $(basename "$0") [-o OUTPUT_DIR] [-h] <archive-file>
 
-Extracts password-protected archive using \$PASSWORD_ZIPS.
+Extracts a password-protected 7z archive.
+Password is never passed as a command-line argument - fed via expect.
 
-Destination resolution:
-  1. -o OUTPUT_DIR       - explicit destination (wins)
-  2. archive in \$DESKDIR - extract to \$DESKDIR
-  3. otherwise           - prompt via gum (archive dir, current dir, \$DESKDIR)
+Options:
+  -o OUTPUT_DIR  Extract to this directory (skips destination prompt)
+  -h             Show this help
 
-Environment variables required:
-  DESKDIR         - Desktop directory (fallback destination)
-  PASSWORD_ZIPS   - Password for the archive
-  GLOBAL_ENV_FILE - (optional) File to source for environment variables
+Destination resolution (when -o is omitted):
+  1. Archive is in \$DESKDIR  -> extract to \$DESKDIR
+  2. Otherwise               -> prompt via gum (archive dir / cwd / \$DESKDIR)
+
+Environment:
+  DESKDIR          Desktop directory used as default destination
+  PASSWORD_ZIPS    Archive password (loaded via envify)
+  GLOBAL_ENV_FILE  Optional env file sourced before extraction
 
 Examples:
   $(basename "$0") archive.7z
@@ -119,7 +124,7 @@ fi
 log "Extracting archive: $ARCHIVE"
 log "Destination: $DEST"
 
-if 7z x "$ARCHIVE" -o"$DEST" -p"$PASSWORD_ZIPS"; then
+if _7zpw_run 1 "$PASSWORD_ZIPS" x "$ARCHIVE" -o"$DEST"; then
     success "Archive extracted successfully"
 else
     error "Extraction failed"

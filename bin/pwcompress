@@ -3,21 +3,43 @@
 set -e
 
 source "$(dirname "${BASH_SOURCE[0]}")/shelllog.sh"
-source envify PASSWORD_ZIPS
+source "$(dirname "${BASH_SOURCE[0]}")/7zpw.sh"
 
 usage() {
-    log "usage: $(basename "${0}") [-c compression_level] [-p password] <file1> [file2 ...]"
-    log "Optional parameters:"
-    log "  -c  Compression level (0-9). Default is 5 (normal)."
-    log "  -p  Password for the archive. Default is value from \$PASSWORD_ZIPS."
-    exit 1
+    cat << EOF
+Usage: $(basename "${0}") [-c LEVEL] [-p PASSWORD] [-h] <file1> [file2 ...]
+
+Creates a password-protected, header-encrypted 7z archive.
+Password is never passed as a command-line argument - fed via expect.
+
+Options:
+  -c LEVEL    Compression level 0-9 (default: 5)
+  -p PASSWORD Password (default: \$PASSWORD_ZIPS from keyguard)
+  -h          Show this help
+
+Environment:
+  PASSWORD_ZIPS  Archive password (loaded via envify)
+
+Archive naming:
+  Single input  -> strips extension, adds .7z  (report.pdf -> report.7z)
+  Multiple      -> parent directory name + .7z  (src/a src/b -> src.7z)
+
+Examples:
+  $(basename "${0}") report.pdf
+  $(basename "${0}") -c 0 BigFolder/
+  $(basename "${0}") -p mypass file1.txt file2.txt
+EOF
+    exit "${1:-1}"
 }
 
 COMPRESSION_LEVEL=5
-PASSWORD="$PASSWORD_ZIPS"
+PASSWORD=""
 
-while getopts ":c:p:" opt; do
+while getopts ":c:p:h" opt; do
     case $opt in
+        h)
+            usage 0
+            ;;
         c)
             COMPRESSION_LEVEL=$OPTARG
             if ! [[ $COMPRESSION_LEVEL =~ ^[0-9]$ ]]; then
@@ -44,6 +66,11 @@ if [ "$#" -lt 1 ]; then
     usage
 fi
 
+if [ -z "$PASSWORD" ]; then
+    source envify PASSWORD_ZIPS
+    PASSWORD="$PASSWORD_ZIPS"
+fi
+
 if [ "$#" -eq 1 ]; then
     ARCHIVE_NAME="${1%.*}.7z"
 else
@@ -51,5 +78,5 @@ else
 fi
 
 log "Archive creation in progress, please wait... (compression level $COMPRESSION_LEVEL)"
-7z a -mx=$COMPRESSION_LEVEL -p"$PASSWORD" -mhe=on "$ARCHIVE_NAME" "$@"
+_7zpw_run 2 "$PASSWORD" a -mx="$COMPRESSION_LEVEL" -p -mhe=on "$ARCHIVE_NAME" "$@"
 success "Archive $ARCHIVE_NAME created successfully with compression level $COMPRESSION_LEVEL!"
