@@ -63,27 +63,36 @@ log_user 0
 send -- "$env(PASSWORD)\r"
 
 # Confirmation prompt: standard 7z asks twice on compress, Keka asks once.
-# Try briefly; move on if no second prompt appears.
+# Try briefly; move on if no second prompt appears. Catch swallows
+# "spawn id not open" - Keka's shim can close the spawn fast on small inputs,
+# and expect auto-closes the spawn id on EOF.
 if {$env(PROMPTS) > 1} {
     set timeout 3
-    expect {
-        $env(PROMPT) { send -- "$env(PASSWORD)\r" }
-        timeout { }
+    catch {
+        expect {
+            $env(PROMPT) { send -- "$env(PASSWORD)\r" }
+            timeout { }
+        }
     }
     set timeout -1
 }
 
 # Keka echoes the password back as plain text; consume it before re-enabling output.
+# Catch the spawn-already-closed error - on small archives the shim exits and
+# expect auto-closes the spawn id before we get here.
 if {$env(IS_KEKA) eq "1"} {
     set timeout 2
-    expect -re "\r?\n"
+    catch {expect -re "\r?\n"}
     set timeout -1
 }
 
 log_user 1
-expect eof
-catch wait result
-exit [lindex $result 3]
+catch {expect eof}
+set rc 0
+if {![catch {wait} result]} {
+    set rc [lindex $result 3]
+}
+exit $rc
 EXPECT
 
     # Snapshot existing keka7zz PIDs so we can identify the one we're about to launch.

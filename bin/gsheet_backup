@@ -88,8 +88,8 @@ if [ "$FILE_SIZE" -lt 100 ]; then
 fi
 
 if [ "$ENCRYPT" = true ]; then
+    trap '/bin/rm -f "$OUTPUT_FILE"' EXIT
     (cd "$BACKUP_DIR" && pwcompress "$(basename "$OUTPUT_FILE")")
-    /bin/rm -f "$OUTPUT_FILE"
 fi
 
 EXISTING=$(find "$BACKUP_DIR" -name "sheet_${SHEET_ID}_*.${EXT}" -type f | sort)
