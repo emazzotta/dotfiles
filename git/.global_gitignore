@@ -1,4 +1,3 @@
-C:
 *.iml
 *.paw
 *.sqlite
@@ -9,9 +8,11 @@ C:
 ._*
 .env
 .idea
+.obsidian
 .project
 .run
 .vscode
+C:
 Thumbs.db
 builds
 generated
