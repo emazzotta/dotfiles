@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# shellcheck source=dockerlib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/dockerlib.sh"
+
 show_usage() {
     cat << EOF
 Usage: $(basename "$0") [container1 container2 ...]
@@ -16,53 +19,6 @@ Examples:
   $(basename "$0") nginx
   $(basename "$0") nginx postgres redis
 EOF
-}
-
-validate_docker() {
-    if ! command -v docker >/dev/null 2>&1; then
-        echo "Error: docker not found" >&2
-        exit 1
-    fi
-}
-
-select_containers() {
-    local running
-    running=$(docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}' 2>/dev/null)
-
-    if [ -z "$running" ]; then
-        echo "Error: no running containers found" >&2
-        return 1
-    fi
-
-    local count
-    count=$(echo "$running" | wc -l | tr -d ' ')
-
-    if [ "$count" -eq 1 ]; then
-        echo "$running" | cut -f1
-        return
-    fi
-
-    if ! command -v picker >/dev/null 2>&1; then
-        echo "Error: multiple containers running but no interactive picker backend found" >&2
-        echo "Install: brew install fzf (or gum)" >&2
-        echo "" >&2
-        echo "Running containers:" >&2
-        echo "$running" | column -t -s $'\t' >&2
-        return 1
-    fi
-
-    local choices
-    choices=$(echo "$running" | awk -F'\t' '{printf "%-30s %-35s %s\n", $1, $2, $3}')
-
-    local selected
-    selected=$(echo "$choices" | picker --header "Select containers to inspect:")
-
-    if [ -z "$selected" ]; then
-        echo "No containers selected" >&2
-        return 1
-    fi
-
-    echo "$selected" | awk '{print $1}'
 }
 
 inspect_container() {
@@ -90,13 +46,13 @@ main() {
         exit 0
     fi
 
-    validate_docker
+    dh_require_docker
 
     local containers=()
 
     if [ $# -eq 0 ]; then
         local selected
-        if ! selected=$(select_containers); then
+        if ! selected=$(dh_pick_container "Select containers to inspect:"); then
             exit 1
         fi
         while IFS= read -r name; do
