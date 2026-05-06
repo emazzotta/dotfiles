@@ -1,0 +1,41 @@
+#!/bin/bash
+set -uo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: agedist <path> [glob] [bucket-days...]
+
+Show file count and total size in <path>, bucketed by age in days.
+
+  agedist /var/log
+  agedist ~/Downloads '*.dmg'
+  agedist /opt/data '*' 7 30 90
+
+Default buckets: 30 90 180 365 730
+EOF
+}
+
+[ $# -lt 1 ] && { usage; exit 1; }
+case "$1" in -h|--help) usage; exit 0;; esac
+
+path="$1"
+glob="${2:-*}"
+if [ $# -ge 2 ]; then shift 2; else shift; fi
+# shellcheck disable=SC2206
+buckets=( ${@:-30 90 180 365 730} )
+
+[ -d "$path" ] || { echo "agedist: not a directory: $path" >&2; exit 1; }
+
+for d in "${buckets[@]}"; do
+    find "$path" -type f -name "$glob" -mtime "+$d" -ls 2>/dev/null | \
+        awk -v d="$d" '
+            BEGIN { u[0]="B"; u[1]="KB"; u[2]="MB"; u[3]="GB"; u[4]="TB" }
+            { count++; size+=$7 }
+            END {
+                s = size + 0
+                n = 0
+                while (s >= 1024 && n < 4) { s /= 1024; n++ }
+                printf "older than %4d days: %6d files, %7.1f %-2s\n", d, count+0, s, u[n]
+            }
+        '
+done
