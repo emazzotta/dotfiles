@@ -4,6 +4,7 @@ alias dc='docker-compose'
 alias dps='docker ps'
 alias dexe='docker-exec'
 alias din='docker-inspect'
+alias dcp='docker-cp'
 alias ddbg='docker-debug'
 
 ### TUI / INSPECTION ###

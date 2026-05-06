@@ -1,0 +1,172 @@
+#!/bin/bash
+set -euo pipefail
+
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") [-c CONTAINER] SRC DEST
+
+Copy files between the host and a running Docker container.
+
+Use a leading colon on the container side to refer to the auto/selected
+container: ':/path/in/container'. Or pass an explicit 'name:/path' form
+to bypass selection (same as raw 'docker cp').
+
+If no container is specified via -c or an explicit 'name:' prefix:
+  - Single running container: selects it automatically
+  - Multiple running containers: interactive selection via picker
+
+Examples:
+  $(basename "$0") ./local.txt :/tmp/                     # host -> container
+  $(basename "$0") :/var/log/app.log ./app.log            # container -> host
+  $(basename "$0") -c nginx ./nginx.conf :/etc/nginx/     # explicit container
+  $(basename "$0") ./file.txt nginx:/tmp/file.txt         # raw docker cp form
+EOF
+}
+
+validate_docker() {
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "Error: docker not found" >&2
+        exit 1
+    fi
+}
+
+select_container() {
+    local running
+    running=$(docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}' 2>/dev/null)
+
+    if [ -z "$running" ]; then
+        echo "Error: no running containers found" >&2
+        return 1
+    fi
+
+    local count
+    count=$(echo "$running" | wc -l | tr -d ' ')
+
+    if [ "$count" -eq 1 ]; then
+        echo "$running" | cut -f1
+        return
+    fi
+
+    if ! command -v picker >/dev/null 2>&1; then
+        echo "Error: multiple containers running but no interactive picker backend found" >&2
+        echo "Install: brew install fzf (or gum)" >&2
+        echo "" >&2
+        echo "Running containers:" >&2
+        echo "$running" | column -t -s $'\t' >&2
+        return 1
+    fi
+
+    local choices
+    choices=$(echo "$running" | awk -F'\t' '{printf "%-30s %-35s %s\n", $1, $2, $3}')
+
+    local selected
+    selected=$(echo "$choices" | picker --header "Select container:")
+
+    if [ -z "$selected" ]; then
+        echo "No container selected" >&2
+        return 1
+    fi
+
+    echo "$selected" | awk '{print $1}'
+}
+
+# Returns 0 if the path looks like a container-qualified path:
+#   ':/path'      -> leading colon (uses selected/forced container)
+#   'name:/path'  -> explicit container name
+# Windows-style 'C:\foo' is rejected (single-letter prefix).
+is_container_path() {
+    local path="$1"
+    case "$path" in
+        :*) return 0 ;;
+        ?:*) return 1 ;;        # 'C:foo' - drive letter, treat as host path
+        *:*) return 0 ;;        # 'name:/path' - container ref
+        *)   return 1 ;;
+    esac
+}
+
+# Replace a leading-colon path with 'container:rest'. Other forms passthrough.
+qualify_path() {
+    local path="$1" container="$2"
+    case "$path" in
+        :*) echo "${container}${path}" ;;
+        *)  echo "$path" ;;
+    esac
+}
+
+main() {
+    if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+        show_usage
+        exit 0
+    fi
+
+    validate_docker
+
+    local container=""
+    local args=()
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -c)
+                if [ -z "${2:-}" ]; then
+                    echo "Error: -c requires a container name" >&2
+                    exit 1
+                fi
+                container="$2"
+                shift 2
+                ;;
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    if [ ${#args[@]} -ne 2 ]; then
+        echo "Error: expected SRC and DEST (got ${#args[@]} positional args)" >&2
+        echo "" >&2
+        show_usage >&2
+        exit 1
+    fi
+
+    local src="${args[0]}"
+    local dest="${args[1]}"
+
+    local src_is_container dest_is_container
+    is_container_path "$src" && src_is_container=1 || src_is_container=0
+    is_container_path "$dest" && dest_is_container=1 || dest_is_container=0
+
+    if [ "$src_is_container" -eq 0 ] && [ "$dest_is_container" -eq 0 ]; then
+        echo "Error: no container side - mark one path with ':' (e.g. ':/tmp/foo')" >&2
+        exit 1
+    fi
+
+    if [ "$src_is_container" -eq 1 ] && [ "$dest_is_container" -eq 1 ]; then
+        echo "Error: both paths refer to a container - docker cp supports only one side" >&2
+        exit 1
+    fi
+
+    # Resolve container only if a leading-colon shorthand is used.
+    if [[ "$src" == :* || "$dest" == :* ]] && [ -z "$container" ]; then
+        if ! container=$(select_container); then
+            exit 1
+        fi
+    fi
+
+    if [ -n "$container" ] && ! docker inspect "$container" >/dev/null 2>&1; then
+        echo "Error: container '$container' not found" >&2
+        exit 1
+    fi
+
+    if [ -n "$container" ]; then
+        src=$(qualify_path "$src" "$container")
+        dest=$(qualify_path "$dest" "$container")
+    fi
+
+    exec docker cp "$src" "$dest"
+}
+
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
