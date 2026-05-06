@@ -170,4 +170,4 @@ fi
         create_mock_bin("picker", 'cat >/dev/null; echo -n ""')
         result = run_script(SCRIPT)
         assert result.returncode == 1
-        assert "No containers selected" in result.stderr
+        assert "No container selected" in result.stderr
