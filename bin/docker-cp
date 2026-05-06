@@ -1,9 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
+overwrite_mode="ask"   # ask | force | no-clobber
+
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") [-c CONTAINER] SRC DEST
+Usage: $(basename "$0") [-c CONTAINER] [-f|-n] SRC [SRC...] DEST
 
 Copy files between the host and a running Docker container.
 
@@ -15,11 +17,24 @@ If no container is specified via -c or an explicit 'name:' prefix:
   - Single running container: selects it automatically
   - Multiple running containers: interactive selection via picker
 
+Globs:
+  Container-side globs (*, ?, [abc]) expand inside the container.
+  In zsh, quote them so the host shell doesn't try to match locally:
+      $(basename "$0") ':/tmp/claude*' .
+  Host-side globs are expanded by your shell before invocation.
+
+Overwrite handling:
+  Default is to ask before overwriting an existing target.
+    -f, --force        overwrite without asking
+    -n, --no-clobber   skip if target exists
+
 Examples:
   $(basename "$0") ./local.txt :/tmp/                     # host -> container
   $(basename "$0") :/var/log/app.log ./app.log            # container -> host
+  $(basename "$0") ':/tmp/log-*.txt' ./logs/              # container glob
+  $(basename "$0") ./*.conf :/etc/myapp/                  # host glob (zsh expands)
   $(basename "$0") -c nginx ./nginx.conf :/etc/nginx/     # explicit container
-  $(basename "$0") ./file.txt nginx:/tmp/file.txt         # raw docker cp form
+  $(basename "$0") -f ./file.txt nginx:/tmp/file.txt      # force overwrite
 EOF
 }
 
@@ -70,16 +85,13 @@ select_container() {
     echo "$selected" | awk '{print $1}'
 }
 
-# Returns 0 if the path looks like a container-qualified path:
-#   ':/path'      -> leading colon (uses selected/forced container)
-#   'name:/path'  -> explicit container name
-# Windows-style 'C:\foo' is rejected (single-letter prefix).
+# Returns 0 if path is container-qualified ('name:path' or ':path').
+# Single-letter prefix like 'C:foo' is treated as a host path (Windows drive).
 is_container_path() {
-    local path="$1"
-    case "$path" in
+    case "$1" in
         :*) return 0 ;;
-        ?:*) return 1 ;;        # 'C:foo' - drive letter, treat as host path
-        *:*) return 0 ;;        # 'name:/path' - container ref
+        ?:*) return 1 ;;
+        *:*) return 0 ;;
         *)   return 1 ;;
     esac
 }
@@ -93,12 +105,113 @@ qualify_path() {
     esac
 }
 
-main() {
-    if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
-        show_usage
-        exit 0
+has_glob() {
+    case "$1" in
+        *\**|*\?*|*\[*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Expand a 'name:pattern' glob inside the container into 'name:match' lines.
+expand_container_glob() {
+    local cp="$1"
+    local name="${cp%%:*}"
+    local pattern="${cp#*:}"
+
+    local matches
+    matches=$(docker exec "$name" sh -c 'ls -d -- $1 2>/dev/null' _ "$pattern") || true
+
+    if [ -z "$matches" ]; then
+        echo "Error: no matches in container '$name' for pattern '$pattern'" >&2
+        return 1
     fi
 
+    while IFS= read -r m; do
+        [ -n "$m" ] && printf '%s:%s\n' "$name" "$m"
+    done <<< "$matches"
+}
+
+# Probe an arbitrary path. Echoes any of: "exists", "dir".
+probe_path() {
+    local p="$1"
+    if is_container_path "$p"; then
+        local name="${p%%:*}" path="${p#*:}"
+        docker exec "$name" sh -c '
+            [ -e "$1" ] && echo exists
+            [ -d "$1" ] && echo dir
+        ' _ "$path" 2>/dev/null || true
+    else
+        [ -e "$p" ] && echo exists
+        [ -d "$p" ] && echo dir
+    fi
+}
+
+# Compute where docker cp will actually land src under dest.
+# If dest is/looks like a directory, target is dest/basename(src).
+resolve_target() {
+    local src="$1" dest="$2"
+    local src_path="${src##*:}"
+    local base="${src_path##*/}"
+
+    local probe
+    probe=$(probe_path "$dest")
+    local dest_is_dir=0
+    case "$probe" in *dir*) dest_is_dir=1 ;; esac
+
+    if [ "$dest_is_dir" = "1" ] || [[ "$dest" == */ ]]; then
+        local trimmed="${dest%/}"
+        printf '%s/%s\n' "$trimmed" "$base"
+    else
+        printf '%s\n' "$dest"
+    fi
+}
+
+prompt_overwrite() {
+    local target="$1"
+    local resp
+    while true; do
+        printf 'overwrite %s? [y/N/a=all/s=skip-all/q=quit] ' "$target" >/dev/tty
+        if ! read -r resp </dev/tty; then
+            echo "" >/dev/tty
+            return 1
+        fi
+        case "$resp" in
+            y|Y|yes)         return 0 ;;
+            ""|n|N|no)       return 1 ;;
+            a|A|all)         overwrite_mode="force"; return 0 ;;
+            s|S|skip)        overwrite_mode="no-clobber"; return 1 ;;
+            q|Q|quit)        echo "aborted" >&2; exit 130 ;;
+        esac
+    done
+}
+
+copy_one() {
+    local src="$1" dest="$2"
+
+    local target target_exists=0
+    target=$(resolve_target "$src" "$dest")
+    case "$(probe_path "$target")" in *exists*) target_exists=1 ;; esac
+
+    if [ "$target_exists" = "1" ]; then
+        case "$overwrite_mode" in
+            force) ;;
+            no-clobber)
+                echo "skip (exists): $target" >&2
+                return 0
+                ;;
+            ask)
+                if ! prompt_overwrite "$target"; then
+                    echo "skip: $target" >&2
+                    return 0
+                fi
+                ;;
+        esac
+    fi
+
+    docker cp "$src" "$dest"
+}
+
+main() {
     validate_docker
 
     local container=""
@@ -114,9 +227,21 @@ main() {
                 container="$2"
                 shift 2
                 ;;
+            -f|--force)
+                overwrite_mode="force"
+                shift
+                ;;
+            -n|--no-clobber)
+                overwrite_mode="no-clobber"
+                shift
+                ;;
             -h|--help)
                 show_usage
                 exit 0
+                ;;
+            --)
+                shift
+                while [ $# -gt 0 ]; do args+=("$1"); shift; done
                 ;;
             *)
                 args+=("$1")
@@ -125,32 +250,49 @@ main() {
         esac
     done
 
-    if [ ${#args[@]} -ne 2 ]; then
-        echo "Error: expected SRC and DEST (got ${#args[@]} positional args)" >&2
+    if [ ${#args[@]} -lt 2 ]; then
+        echo "Error: expected SRC [SRC...] DEST (got ${#args[@]} positional args)" >&2
         echo "" >&2
         show_usage >&2
         exit 1
     fi
 
-    local src="${args[0]}"
-    local dest="${args[1]}"
+    local last=$((${#args[@]} - 1))
+    local dest="${args[$last]}"
+    local srcs=("${args[@]:0:$last}")
 
-    local src_is_container dest_is_container
-    is_container_path "$src" && src_is_container=1 || src_is_container=0
-    is_container_path "$dest" && dest_is_container=1 || dest_is_container=0
+    if is_container_path "$dest" && has_glob "$dest"; then
+        echo "Error: glob in DEST is not supported - DEST is a single target path" >&2
+        exit 1
+    fi
 
-    if [ "$src_is_container" -eq 0 ] && [ "$dest_is_container" -eq 0 ]; then
+    local any_container_src=0 any_host_src=0
+    for s in "${srcs[@]}"; do
+        if is_container_path "$s"; then any_container_src=1; else any_host_src=1; fi
+    done
+
+    local dest_is_container=0
+    is_container_path "$dest" && dest_is_container=1
+
+    if [ "$any_container_src" = "1" ] && [ "$any_host_src" = "1" ]; then
+        echo "Error: SRCs must all be on the same side (host or container)" >&2
+        exit 1
+    fi
+    if [ "$any_container_src" = "0" ] && [ "$dest_is_container" = "0" ]; then
         echo "Error: no container side - mark one path with ':' (e.g. ':/tmp/foo')" >&2
         exit 1
     fi
-
-    if [ "$src_is_container" -eq 1 ] && [ "$dest_is_container" -eq 1 ]; then
-        echo "Error: both paths refer to a container - docker cp supports only one side" >&2
+    if [ "$any_container_src" = "1" ] && [ "$dest_is_container" = "1" ]; then
+        echo "Error: both ends are container - docker cp supports only one side" >&2
         exit 1
     fi
 
-    # Resolve container only if a leading-colon shorthand is used.
-    if [[ "$src" == :* || "$dest" == :* ]] && [ -z "$container" ]; then
+    local needs_resolution=0
+    for p in "${srcs[@]}" "$dest"; do
+        [[ "$p" == :* ]] && needs_resolution=1
+    done
+
+    if [ "$needs_resolution" = "1" ] && [ -z "$container" ]; then
         if ! container=$(select_container); then
             exit 1
         fi
@@ -162,11 +304,50 @@ main() {
     fi
 
     if [ -n "$container" ]; then
-        src=$(qualify_path "$src" "$container")
         dest=$(qualify_path "$dest" "$container")
+        local i
+        for i in "${!srcs[@]}"; do
+            srcs[i]=$(qualify_path "${srcs[i]}" "$container")
+        done
     fi
 
-    exec docker cp "$src" "$dest"
+    # Expand container-side globs.
+    local final_srcs=()
+    for s in "${srcs[@]}"; do
+        if is_container_path "$s" && has_glob "$s"; then
+            local expanded
+            if ! expanded=$(expand_container_glob "$s"); then
+                exit 1
+            fi
+            while IFS= read -r m; do
+                [ -n "$m" ] && final_srcs+=("$m")
+            done <<< "$expanded"
+        else
+            final_srcs+=("$s")
+        fi
+    done
+
+    if [ ${#final_srcs[@]} -gt 1 ]; then
+        local probe
+        probe=$(probe_path "$dest")
+        case "$probe" in
+            *dir*) ;;
+            *)
+                if [[ "$dest" != */ ]]; then
+                    echo "Error: multiple sources require DEST to be an existing directory" >&2
+                    exit 1
+                fi
+                ;;
+        esac
+    fi
+
+    local rc=0
+    for s in "${final_srcs[@]}"; do
+        if ! copy_one "$s" "$dest"; then
+            rc=1
+        fi
+    done
+    exit "$rc"
 }
 
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
