@@ -1,17 +1,18 @@
 #!/bin/bash
 
 # Re-runs the Leonardo utils installer in --force mode, refreshing every
-# installed script from master. Defaults to /usr/local/bin; if leonardo_updater
+# installed script from master. Defaults to /usr/local/bin; if leonardo_account
 # is already on PATH elsewhere, updates that directory in place instead.
 
 set -euo pipefail
 
 readonly INSTALLER_URL="https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/leonardo_utils_installer"
 readonly DEFAULT_INSTALL_DIR="/usr/local/bin"
+readonly ANCHOR_SCRIPT="leonardo_account"
 
 resolve_install_dir() {
     local existing
-    existing="$(command -v leonardo_updater 2>/dev/null || true)"
+    existing="$(command -v "$ANCHOR_SCRIPT" 2>/dev/null || true)"
     if [ -n "$existing" ]; then
         dirname "$existing"
     else
