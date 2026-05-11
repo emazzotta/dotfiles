@@ -15,6 +15,7 @@ readonly SCRIPTS=(
     "leonardo_drive"
     "leonardo_password_refresh"
     "leonardo_start"
+    "leonardo_updater"
     "leonardo_vpn_toggle"
     "prettyprint"
     "tailscale-toggle-exit-node"
@@ -63,6 +64,7 @@ Scripts installed:
   - leonardo_drive
   - leonardo_password_refresh
   - leonardo_start
+  - leonardo_updater
   - leonardo_vpn_toggle
   - prettyprint
   - tailscale-toggle-exit-node

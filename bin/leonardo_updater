@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# Re-runs the Leonardo utils installer in --force mode against the directory
+# this script lives in, refreshing every installed script from master.
+
+set -euo pipefail
+
+readonly INSTALLER_URL="https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin/leonardo_utils_installer"
+
+main() {
+    local install_dir
+    install_dir="$(cd "$(dirname "$0")" && pwd)"
+
+    curl -fsSL -H "Cache-Control: no-cache, no-store" "$INSTALLER_URL" \
+        | sudo bash -s -- "$install_dir" --force
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
