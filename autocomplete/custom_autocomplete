@@ -2,8 +2,28 @@
 if test "${ZSH_VERSION}"; then
     autoload bashcompinit
     bashcompinit
+    autoload -U add-zsh-hook
     compdef sshrc=ssh
+    # Drop the cached dcp container pick on every new prompt (after Enter or
+    # Ctrl-C), so each dcp invocation forces a fresh pick if ambiguous.
+    _dcp_clear_picked() { rm -f "/tmp/.dcp_picked_$$"; }
+    add-zsh-hook precmd _dcp_clear_picked
 fi
+# zsh's bashcompinit runs completion functions under `emulate -L sh` with a
+# restricted PATH, so plain command names ("docker", "picker") fail to resolve
+# inside _dcp. Snapshot the real PATH and the absolute docker binary at source
+# time and reuse them from the completion functions.
+_DCP_PATH="$PATH"
+if command -v docker >/dev/null 2>&1; then
+    _DCP_DOCKER=$(command -v docker)
+elif [ -x /usr/local/bin/docker ]; then
+    _DCP_DOCKER=/usr/local/bin/docker
+elif [ -x /opt/homebrew/bin/docker ]; then
+    _DCP_DOCKER=/opt/homebrew/bin/docker
+else
+    _DCP_DOCKER=docker
+fi
+export _DCP_PATH _DCP_DOCKER
 _agrep()
 {
   local _rcd
@@ -206,6 +226,146 @@ _keyguard()
       ;;
   esac
 }
+_dcp_running_containers() { "${_DCP_DOCKER:-docker}" ps --format '{{.Names}}' 2>/dev/null; }
+
+# Token under the cursor, treating ':' as part of the word so leading-colon
+# and 'name:path' forms come through whole (bash splits on ':', zsh doesn't).
+_dcp_realword()
+{
+  local line="${COMP_LINE}" point="${COMP_POINT}" start="${COMP_POINT}" ch
+  while (( start > 0 )); do
+    ch="${line:$((start - 1)):1}"
+    [[ "$ch" == " " || "$ch" == $'\t' ]] && break
+    start=$(( start - 1 ))
+  done
+  printf '%s' "${line:$start:$((point - start))}"
+}
+
+# Resolve the container to use: -c flag, $DCP_CONTAINER, cached pick, single
+# running container, otherwise pop fzf to force a pick (cached per command
+# line via a tempfile that the precmd hook clears).
+_dcp_selected_container()
+{
+  local prev_w="" word
+  for word in "${COMP_WORDS[@]}"; do
+    if [[ "$prev_w" == "-c" ]]; then printf '%s' "$word"; return 0; fi
+    prev_w="$word"
+  done
+
+  if [[ -n "${DCP_CONTAINER:-}" ]]; then
+    printf '%s' "$DCP_CONTAINER"
+    return 0
+  fi
+
+  local cache="/tmp/.dcp_picked_$$" cached=""
+  [[ -r "$cache" ]] && read -r cached < "$cache"
+  if [[ -n "$cached" ]] && "${_DCP_DOCKER:-docker}" inspect "$cached" >/dev/null 2>&1; then
+    printf '%s' "$cached"
+    return 0
+  fi
+  rm -f "$cache"
+
+  local running line count=0 only=""
+  running="$(_dcp_running_containers)"
+  [[ -z "$running" ]] && return 1
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    count=$((count + 1)); only="$line"
+  done <<< "$running"
+  if [[ "$count" -eq 1 ]]; then printf '%s' "$only"; return 0; fi
+
+  # Multi-container: force a pick. Set PATH inline so picker and its fzf/gum
+  # subprocess inherit the real PATH (local PATH doesn't reach children).
+  PATH="${_DCP_PATH:-$PATH}" command -v picker >/dev/null 2>&1 || return 1
+  local choices selected picked rest
+  choices=$("${_DCP_DOCKER:-docker}" ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}' 2>/dev/null)
+  selected=$(printf '%s\n' "$choices" | PATH="${_DCP_PATH:-$PATH}" picker --header "dcp: pick a container") || return 1
+  [[ -z "$selected" ]] && return 1
+  read -r picked rest <<< "$selected"
+  printf '%s\n' "$picked" > "$cache"
+  printf '%s' "$picked"
+}
+
+# List container-side entries matching path prefix $2 inside container $1.
+# Directories are suffixed with '/'. Dot-entries (., ..) are skipped.
+_dcp_container_list()
+{
+  "${_DCP_DOCKER:-docker}" exec "$1" sh -c '
+    p="$1"
+    [ -z "$p" ] && p="/"
+    case "$p" in
+      */)  dir="$p";       base="";;
+      */*) dir="${p%/*}/"; base="${p##*/}";;
+      *)   dir="";         base="$p";;
+    esac
+    cd_dir="${dir:-.}"
+    [ -d "$cd_dir" ] || exit 0
+    for e in "$cd_dir"/"${base}"*; do
+      [ -e "$e" ] || continue
+      name="${e##*/}"
+      case "$name" in .|..) continue;; esac
+      if [ -d "$e" ]; then
+        printf "%s%s/\n" "$dir" "$name"
+      else
+        printf "%s%s\n" "$dir" "$name"
+      fi
+    done
+  ' _ "$2" 2>/dev/null
+}
+
+_dcp()
+{
+  local PATH="${_DCP_PATH:-$PATH}"
+  local cur prev realword
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  realword="$(_dcp_realword)"
+
+  if [[ "$prev" == "-c" ]]; then
+    COMPREPLY=($(compgen -W "$(_dcp_running_containers)" -- "$cur"))
+    return 0
+  fi
+
+  if [[ "$cur" == -* ]]; then
+    COMPREPLY=($(compgen -W "-c -f --force -n --no-clobber -h --help" -- "$cur"))
+    return 0
+  fi
+
+  # Container-side path: leading ':' (auto/pick a container) or 'name:path'.
+  if [[ "$realword" == *:* ]]; then
+    local container path intended_prefix
+    if [[ "$realword" == :* ]]; then
+      container="$(_dcp_selected_container)" || return 0
+      intended_prefix=":"
+      path="${realword#:}"
+    else
+      container="${realword%%:*}"
+      intended_prefix="${container}:"
+      path="${realword#*:}"
+    fi
+
+    # Each candidate must start with cur so the shell's prefix filter accepts
+    # it. cur differs by shell (bash splits on ':', zsh keeps it), so strip
+    # whatever sits before cur in realword from the intended full path.
+    local fixed="${realword%"$cur"}"
+    local entries entry intended
+    entries=$(_dcp_container_list "$container" "$path")
+    while IFS= read -r entry; do
+      [[ -z "$entry" ]] && continue
+      intended="${intended_prefix}${entry}"
+      COMPREPLY+=("${intended#"$fixed"}")
+    done <<< "$entries"
+
+    if [[ ${#COMPREPLY[@]} -eq 1 && "${COMPREPLY[0]}" == */ ]]; then
+      compopt -o nospace 2>/dev/null
+    fi
+    return 0
+  fi
+
+  COMPREPLY=($(compgen -f -- "$cur"))
+}
+complete -F _dcp dcp docker-cp
 complete -F _envify envify
 complete -F _keyguard keyguard
 complete -o nospace -F _agrep agrep
