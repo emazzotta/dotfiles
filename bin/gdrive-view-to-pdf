@@ -1,0 +1,212 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["playwright", "img2pdf"]
+# ///
+"""Render a view-only Google Drive document via headful Chrome and rebuild it as a PDF.
+
+Use for documents where the owner has disabled download. The script attaches to
+the existing CDP Chrome instance, opens the preview, scrolls through every page,
+captures each rendered page image, and re-assembles them into a PDF via img2pdf.
+
+Pre-req: headful Chrome must already be running with CDP enabled. From inside the
+Claude Code container that is: `envify --bridge playwright-launch-chrome`.
+On the Mac host directly: `playwright-launch-chrome-claude`.
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import base64
+import re
+import sys
+from pathlib import Path
+from typing import Final
+
+import img2pdf
+from playwright.async_api import async_playwright
+
+FILE_ID_RE: Final = re.compile(r"/d/([a-zA-Z0-9_-]{20,})")
+BARE_ID_RE: Final = re.compile(r"^[a-zA-Z0-9_-]{20,}$")
+TITLE_SUFFIX_RE: Final = re.compile(r"\s*-\s*Google Drive\s*$")
+PDF_EXT_RE: Final = re.compile(r"\.pdf$", re.IGNORECASE)
+UNSAFE_NAME_CHARS: Final = re.compile(r"[\x00-\x1f/]")
+
+# Drive viewer renders each fully-rendered page as <img alt="Seite N von M"> (DE)
+# or "Page N of M" (EN) with a blob: src. Other locales would need adding here.
+# Arrow-function form is required - Drive's Trusted Types CSP blocks string eval.
+PAGE_INDICATOR_JS: Final = (
+    "() => Array.from(document.querySelectorAll('img')).some(i => "
+    "/^(Seite|Page) 1 (von|of) \\d+$/.test(i.alt) && "
+    "i.src.startsWith('blob:') && i.naturalWidth > 100)"
+)
+
+CAPTURE_JS: Final = r"""
+async (quality) => {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const pageAltRe = /^(Seite|Page) (\d+) (von|of) (\d+)$/;
+    const findRendered = (n) => {
+        const imgs = Array.from(document.querySelectorAll('img'));
+        return imgs.find(i => {
+            const m = pageAltRe.exec(i.alt);
+            return m && Number(m[2]) === n && i.src.startsWith('blob:') && i.naturalWidth > 100;
+        });
+    };
+    let total = 0;
+    for (const i of document.querySelectorAll('img')) {
+        const m = pageAltRe.exec(i.alt);
+        if (m) total = Math.max(total, Number(m[4]));
+    }
+    if (!total) return [{ error: 'no page indicator found - viewer not ready or document not paginated' }];
+
+    let scroller = null;
+    for (const el of document.querySelectorAll('*')) {
+        if (el.scrollHeight > el.clientHeight + 1000 && el.scrollHeight > 5000) {
+            scroller = el; break;
+        }
+    }
+    if (!scroller) return [{ error: 'no scrollable viewer element' }];
+
+    const results = [];
+    const totalH = scroller.scrollHeight;
+    for (let n = 1; n <= total; n++) {
+        scroller.scrollTop = Math.floor((n - 1) / total * totalH);
+        let img = null;
+        for (let i = 0; i < 60; i++) {
+            img = findRendered(n);
+            if (img) break;
+            await sleep(100);
+        }
+        if (!img) { results.push({ page: n, error: 'not rendered' }); continue; }
+        await sleep(150);
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        const dataUrl = c.toDataURL('image/jpeg', quality);
+        results.push({ page: n, w: c.width, h: c.height, b64: dataUrl.split(',', 2)[1] });
+    }
+    return results;
+}
+"""
+
+
+def extract_file_id(url_or_id: str) -> str:
+    match = FILE_ID_RE.search(url_or_id)
+    if match:
+        return match.group(1)
+    if BARE_ID_RE.match(url_or_id):
+        return url_or_id
+    raise ValueError(f"Could not extract Google Drive file id from: {url_or_id!r}")
+
+
+def derive_output_path(title: str) -> Path:
+    base = TITLE_SUFFIX_RE.sub("", title).strip()
+    base = PDF_EXT_RE.sub("", base)
+    safe = UNSAFE_NAME_CHARS.sub(" ", base).strip() or "gdrive-file"
+    return Path.cwd() / f"{safe}.pdf"
+
+
+def default_cdp_url() -> str:
+    return "http://192.168.65.254:9222" if Path("/.dockerenv").exists() else "http://localhost:9222"
+
+
+async def capture(file_id: str, output: Path | None, quality: float, cdp_url: str) -> Path:
+    async with async_playwright() as p:
+        try:
+            browser = await p.chromium.connect_over_cdp(cdp_url)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not connect to Chrome via CDP at {cdp_url}. "
+                "Launch it first: `envify --bridge playwright-launch-chrome` (container) "
+                "or `playwright-launch-chrome-claude` (Mac)."
+            ) from exc
+
+        context = browser.contexts[0] if browser.contexts else await browser.new_context()
+        page = await context.new_page()
+        try:
+            await page.goto(
+                f"https://drive.google.com/file/d/{file_id}/view",
+                wait_until="domcontentloaded",
+            )
+            try:
+                await page.wait_for_function(PAGE_INDICATOR_JS, timeout=30_000)
+            except Exception as exc:
+                title = await page.title()
+                raise RuntimeError(
+                    f"Viewer did not render page 1 within 30s (title: {title!r}). "
+                    "The file may be restricted, require login in this Chrome profile, "
+                    "or not be a paginated document."
+                ) from exc
+
+            title = await page.title()
+            results = await page.evaluate(CAPTURE_JS, quality)
+
+            errors = [r for r in results if "error" in r]
+            if errors:
+                raise RuntimeError(f"Capture failed: {errors}")
+
+            ordered = sorted(results, key=lambda r: r["page"])
+            page_bytes = [base64.b64decode(r["b64"]) for r in ordered]
+            print(f"Captured {len(page_bytes)} pages from {title!r}", file=sys.stderr)
+
+            destination = output or derive_output_path(title)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(img2pdf.convert(page_bytes))
+            return destination
+        finally:
+            await page.close()
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="gdrive-view-to-pdf",
+        description=(
+            "Rebuild a view-only Google Drive document as a PDF by capturing the "
+            "rendered preview in headful Chrome."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  gdrive-view-to-pdf https://drive.google.com/file/d/FILE_ID/view\n"
+            "  gdrive-view-to-pdf FILE_ID -o ~/Desktop/out.pdf\n\n"
+            "Locale: page-indicator regex matches DE ('Seite N von M') and "
+            "EN ('Page N of M'). Other languages need adding to CAPTURE_JS."
+        ),
+    )
+    parser.add_argument("url_or_id", help="Google Drive share URL or bare file ID")
+    parser.add_argument(
+        "-o", "--output", type=Path,
+        help="Output PDF path (default: '<document title>.pdf' in CWD)",
+    )
+    parser.add_argument(
+        "-q", "--quality", type=float, default=0.9,
+        help="JPEG quality 0.1-1.0 (default: 0.9)",
+    )
+    parser.add_argument(
+        "--cdp", default=default_cdp_url(),
+        help="CDP URL of headful Chrome (default: container IP if in Docker, else localhost)",
+    )
+    return parser.parse_args(argv)
+
+
+def main() -> int:
+    args = parse_args()
+    if not 0.1 <= args.quality <= 1.0:
+        print("--quality must be between 0.1 and 1.0", file=sys.stderr)
+        return 2
+    try:
+        file_id = extract_file_id(args.url_or_id)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    try:
+        destination = asyncio.run(capture(file_id, args.output, args.quality, args.cdp))
+    except RuntimeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(destination)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
