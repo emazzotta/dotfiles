@@ -3,14 +3,12 @@
 set -e
 
 source "$(dirname "${BASH_SOURCE[0]}")/shelllog.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/7zpw.sh"
 
 usage() {
     cat << EOF
 Usage: $(basename "${0}") [-c LEVEL] [-p PASSWORD] [-h] <file1> [file2 ...]
 
-Creates a password-protected, header-encrypted 7z archive.
-Password is never passed as a command-line argument - fed via expect.
+Creates a password-protected, header-encrypted 7z archive using \$PASSWORD_ZIPS.
 
 Options:
   -c LEVEL    Compression level 0-9 (default: 5)
@@ -78,5 +76,5 @@ else
 fi
 
 log "Archive creation in progress, please wait... (compression level $COMPRESSION_LEVEL)"
-_7zpw_run 2 "$PASSWORD" a -mx="$COMPRESSION_LEVEL" -p -mhe=on "$ARCHIVE_NAME" "$@"
+7z a -mx="$COMPRESSION_LEVEL" -p"$PASSWORD" -mhe=on "$ARCHIVE_NAME" "$@"
 success "Archive $ARCHIVE_NAME created successfully with compression level $COMPRESSION_LEVEL!"

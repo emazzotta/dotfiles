@@ -2,12 +2,11 @@
 
 set -e
 
-source "$(dirname "${BASH_SOURCE[0]}")/7zpw.sh"
 source envify PASSWORD_ZIPS
 
 EXTRACTION_PATH="${DESKDIR}/data.txt"
 if [[ ! -f "${EXTRACTION_PATH}" ]]; then
-    _7zpw_run 1 "${PASSWORD_ZIPS}" x "${ZIPS_DIR}/data.txt.7z" -o"${DESKDIR}"
+    7z x "${ZIPS_DIR}/data.txt.7z" -o"${DESKDIR}" -p"${PASSWORD_ZIPS}"
 fi
 
 URL=$(cat "${EXTRACTION_PATH}" | tail -n+1 | head -n 1)
