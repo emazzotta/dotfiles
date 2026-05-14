@@ -70,7 +70,6 @@ alias cronlist='crontab -l'
 
 ### YARN / NODE ###
 alias y='yarn'
-alias yarnupdate='curl --compressed -o- -L https://yarnpkg.com/install.sh | bash'
 alias wscat='npx wscat'
 
 ### DOWNLOADS / ARCHIVES ###
