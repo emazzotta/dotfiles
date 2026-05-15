@@ -8,7 +8,7 @@ overwrite_mode="ask"   # ask | force | no-clobber
 
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") [-c CONTAINER] [-f|-n] SRC [SRC...] DEST
+Usage: $(basename "$0") [-s SERVER] [-c CONTAINER] [-f|-n] SRC [SRC...] DEST
 
 Copy files between the host and a running Docker container.
 
@@ -31,6 +31,9 @@ Overwrite handling:
     -f, --force        overwrite without asking
     -n, --no-clobber   skip if target exists
 
+With -s/--server, the docker daemon on that host (resolved via ssh) is
+used. The server name must resolve through ~/.ssh/config or DNS.
+
 Examples:
   $(basename "$0") ./local.txt :/tmp/                     # host -> container
   $(basename "$0") :/var/log/app.log ./app.log            # container -> host
@@ -38,6 +41,7 @@ Examples:
   $(basename "$0") ./*.conf :/etc/myapp/                  # host glob (zsh expands)
   $(basename "$0") -c nginx ./nginx.conf :/etc/nginx/     # explicit container
   $(basename "$0") -f ./file.txt nginx:/tmp/file.txt      # force overwrite
+  $(basename "$0") -s dev ./local.txt :/tmp/              # remote daemon
 EOF
 }
 
@@ -168,9 +172,8 @@ copy_one() {
 }
 
 main() {
-    dh_require_docker
-
     local container=""
+    local server=""
     local args=()
 
     while [ $# -gt 0 ]; do
@@ -181,6 +184,14 @@ main() {
                     exit 1
                 fi
                 container="$2"
+                shift 2
+                ;;
+            -s|--server)
+                if [ -z "${2:-}" ]; then
+                    echo "Error: $1 requires a server name" >&2
+                    exit 1
+                fi
+                server="$2"
                 shift 2
                 ;;
             -f|--force)
@@ -205,6 +216,10 @@ main() {
                 ;;
         esac
     done
+
+    [ -n "$server" ] && dh_use_remote_server "$server"
+
+    dh_require_docker
 
     if [ ${#args[@]} -lt 2 ]; then
         echo "Error: expected SRC [SRC...] DEST (got ${#args[@]} positional args)" >&2

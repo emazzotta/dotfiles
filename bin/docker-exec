@@ -6,7 +6,7 @@ source "${BASH_SOURCE[0]%/*}/dockerlib.sh"
 
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") [-c CONTAINER] [COMMAND...]
+Usage: $(basename "$0") [-s SERVER] [-c CONTAINER] [COMMAND...]
 
 Execute a command in a running Docker container.
 
@@ -15,10 +15,15 @@ If no container is specified:
   - Single running container: selects it automatically
   - Multiple running containers: interactive selection via gum
 
+With -s/--server, the docker daemon on that host (resolved via ssh) is
+used. The server name must resolve through ~/.ssh/config or DNS.
+
 Examples:
   $(basename "$0")
   $(basename "$0") -c nginx
   $(basename "$0") -c nginx ls -la
+  $(basename "$0") -s dev
+  $(basename "$0") -s dev -c nginx ls -la
   $(basename "$0") python3 -c 'print("hi")'
 EOF
 }
@@ -38,22 +43,38 @@ main() {
         exit 0
     fi
 
+    local container=""
+    local server=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -c)
+                if [ -z "${2:-}" ]; then
+                    echo "Error: -c requires a container name" >&2
+                    exit 1
+                fi
+                container="$2"
+                shift 2
+                ;;
+            -s|--server)
+                if [ -z "${2:-}" ]; then
+                    echo "Error: $1 requires a server name" >&2
+                    exit 1
+                fi
+                server="$2"
+                shift 2
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    [ -n "$server" ] && dh_use_remote_server "$server"
+
     dh_require_docker
 
-    local container=""
-    local cmd=()
-
-    if [ "${1:-}" = "-c" ]; then
-        if [ -z "${2:-}" ]; then
-            echo "Error: -c requires a container name" >&2
-            exit 1
-        fi
-        container="$2"
-        shift 2
-        cmd=("$@")
-    else
-        cmd=("$@")
-    fi
+    local cmd=("$@")
 
     if [ -z "$container" ]; then
         container=$(dh_pick_container) || exit 1

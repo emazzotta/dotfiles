@@ -6,7 +6,7 @@ source "${BASH_SOURCE[0]%/*}/dockerlib.sh"
 
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") [container1 container2 ...]
+Usage: $(basename "$0") [-s SERVER] [container1 container2 ...]
 
 Inspect running Docker containers and display their configuration.
 
@@ -14,10 +14,15 @@ If no container is specified:
   - Single running container: inspects it automatically
   - Multiple running containers: interactive selection via gum
 
+With -s/--server, the docker daemon on that host (resolved via ssh) is
+used. The server name must resolve through ~/.ssh/config or DNS.
+
 Examples:
   $(basename "$0")
   $(basename "$0") nginx
   $(basename "$0") nginx postgres redis
+  $(basename "$0") -s dev
+  $(basename "$0") -s dev nginx
 EOF
 }
 
@@ -45,6 +50,25 @@ main() {
         show_usage
         exit 0
     fi
+
+    local server=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -s|--server)
+                if [ -z "${2:-}" ]; then
+                    echo "Error: $1 requires a server name" >&2
+                    exit 1
+                fi
+                server="$2"
+                shift 2
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    [ -n "$server" ] && dh_use_remote_server "$server"
 
     dh_require_docker
 

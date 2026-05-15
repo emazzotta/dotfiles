@@ -71,3 +71,15 @@ dh_assert_container_exists() {
         exit 1
     fi
 }
+
+# Point subsequent docker calls at a remote daemon over SSH.
+# The server name is passed straight through to ssh, so it must
+# resolve via ~/.ssh/config or DNS (e.g. 'dev', 'user@host').
+dh_use_remote_server() {
+    local server="$1"
+    if [ -z "$server" ]; then
+        echo "Error: -s/--server requires a server name" >&2
+        exit 1
+    fi
+    export DOCKER_HOST="ssh://$server"
+}
