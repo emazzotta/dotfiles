@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -41,7 +42,22 @@ PRODUCT_ALIASES: dict[str, str] = {
     "cap":             "capitalisator 4",   # bare "cap" defaults to capitalisator 4
     "capx":            "capitalisator 4",
     "capitalisator":   "capitalisator 4",
+    "leo23":           "LEONARDO 23 Standard",   # "standard" variant has no optional extras
+    "leo23 standard":  "LEONARDO 23 Standard",
+    "leo23 network":   "LEONARDO 23 Netzwerk",
+    "leo23 provisional":"LEONARDO 23 provisional",
+    "leo24":           "LEONARDO 24 Standard",
+    "leo24 standard":  "LEONARDO 24 Standard",
+    "leo24 network":   "LEONARDO 24 Netzwerk",
+    "leo24 provisional":"LEONARDO 24 provisional",
+    "leo25":           "LEONARDO Abonnement",   # current subscription product - no per-version SKU
+    "leo25 network":   "LEONARDO Abonnement Netzwerk",
+    "leo25 provisional":"LEONARDO Abonnement Provisional",
 }
+
+# Major-version LEONARDO products (LEONARDO 23, 24, ...) are Perpetual with
+# mandatory feature "leonardo-<N>". Captures the version number for feature derivation.
+LEONARDO_MAJOR_RE = re.compile(r"^leonardo\s+(\d+)\b")
 
 # Product name -> feature name. Used when no --feature flag is passed.
 # Falls back to DEFAULT_FEATURE if no rule matches.
@@ -51,7 +67,19 @@ def derive_feature(product: str) -> str:
         return "capitalisator-4"
     if p.startswith("capitalisator 3"):
         return "capitalisator-3"
+    m = LEONARDO_MAJOR_RE.match(p)
+    if m:
+        return f"leonardo-{m.group(1)}"
     return DEFAULT_FEATURE
+
+
+# Product name -> (license model name, baseline attributes). LEONARDO <N> variants
+# are Perpetual with all attributes isFixed at the product level - EMS fills them in.
+def derive_license_model(product: str) -> tuple[str, list[dict]]:
+    p = product.strip().lower()
+    if LEONARDO_MAJOR_RE.match(p):
+        return "Perpetual", [{"name": "LIC_TYPE", "value": "Perpetual"}]
+    return "Expiration Date", []
 
 
 def resolve_product(name: str) -> str:
@@ -313,6 +341,9 @@ def op_resolve_customer(
 
 def _entitlement_payload(product: str, expiry: str, customer_id: str | None, email: str | None, is_test: bool = False, state: str = "ENABLE", feature: str | None = None) -> dict:
     feat = feature or derive_feature(product)
+    model_name, attrs = derive_license_model(product)
+    if model_name == "Expiration Date":
+        attrs = [*attrs, {"name": "EXPIRATION_DATE", "value": f"{expiry} 00:00"}]
     payload: dict = {
         "entitlement": {
             "channel": {"name": MARKET_GROUP},
@@ -334,12 +365,8 @@ def _entitlement_payload(product: str, expiry: str, customer_id: str | None, ema
                                         {
                                             "feature": {"nameVersion": {"name": feat, "version": ""}},
                                             "itemFeatureLicenseModel": {
-                                                "licenseModel": {"name": "Expiration Date"},
-                                                "attributes": {
-                                                    "attribute": [
-                                                        {"name": "EXPIRATION_DATE", "value": f"{expiry} 00:00"},
-                                                    ]
-                                                },
+                                                "licenseModel": {"name": model_name},
+                                                "attributes": {"attribute": attrs},
                                             },
                                         }
                                     ]
@@ -688,7 +715,9 @@ def parse_args() -> argparse.Namespace:
             "  create-entitlement --product <n> [--days N] [--expiry YYYY-MM-DD]\n"
             "                     [--customer-id <id>] [--email <e>] [--feature <n>] [--no-produce] [--test]\n"
             "      Product aliases: cap=cap4=capx=\"capitalisator 4\", cap3=\"capitalisator 3\",\n"
-            "                       cap4 network, cap3 network/c/nc/provisional\n"
+            "                       cap4 network, cap3 network/c/nc/provisional,\n"
+            "                       leo23/leo24=\"LEONARDO <N> Standard\" (also network/provisional),\n"
+            "                       leo25=\"LEONARDO Abonnement\" (also leo25 network/provisional)\n"
             "  link-customer --eid <eid> --customer-id <id> --email <e>\n"
             "  v2cp <eid> [--output-dir <dir>]            download latest V2CP to files\n"
             "  activate <eid> [--c2v <file>] [--output-dir <dir>]\n"
