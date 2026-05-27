@@ -260,6 +260,47 @@ def op_get_customer(base: str, customer_id: str, output_json: bool = False) -> d
     return data
 
 
+def op_list_features(base: str, output_json: bool = False, xml: bool = False) -> dict:
+    data = ems_get_json(base, "/features?pageSize=500")
+    if output_json:
+        _print_json(data); return data
+    feats = data.get("features", {}).get("feature", [])
+    feats = feats if isinstance(feats, list) else [feats]
+    rows = sorted(((int(f.get("identifier", 0)), f.get("nameVersion", {}).get("name", ""), f.get("state", "")) for f in feats), key=lambda r: r[0])
+    if xml:
+        for fid, name, _ in rows:
+            print(f"    <tns:Feature>\n        <tns:FeatureName>{name}</tns:FeatureName>\n        <tns:FeatureID>{fid}</tns:FeatureID>\n    </tns:Feature>")
+        return data
+    for fid, name, state in rows:
+        print(f"{fid:>3}  {name:<28} {state}")
+    return data
+
+
+def op_list_products(base: str, output_json: bool = False, xml: bool = False) -> dict:
+    data = ems_get_json(base, "/products?pageSize=500")
+    if output_json:
+        _print_json(data); return data
+    prods = data.get("products", {}).get("product", [])
+    prods = prods if isinstance(prods, list) else [prods]
+    rows = []
+    for p in prods:
+        try: pid = int(p.get("identifier", 0))
+        except (TypeError, ValueError): continue
+        rows.append((pid, p.get("nameVersion", {}).get("name", ""), p.get("state", ""), bool(p.get("deployed"))))
+    rows.sort(key=lambda r: (r[0], 0 if (r[2] == "ENABLE" and r[3]) else 1, r[1]))
+    if xml:
+        seen: set[int] = set()
+        for pid, name, state, deployed in rows:
+            if pid in seen or not (state == "ENABLE" and deployed):
+                continue
+            seen.add(pid)
+            print(f"    <tns:Product>\n        <tns:ProductName>{name}</tns:ProductName>\n        <tns:ProductID>{pid}</tns:ProductID>\n    </tns:Product>")
+        return data
+    for pid, name, state, deployed in rows:
+        print(f"{pid:>3}  {name:<48} {state:<8} deployed={deployed}")
+    return data
+
+
 def op_search_entitlements(base: str, customer_id: str, product: str, output_json: bool = False) -> dict:
     enc  = urllib.parse.quote(product)
     data = ems_get_json(base, f"/entitlements?customerId={customer_id}&productIdentifier={enc}&searchPattern=Exact")
@@ -710,6 +751,8 @@ def parse_args() -> argparse.Namespace:
             "  customers <name>                           search customers by name\n"
             "  customer <id>                              get customer by id\n"
             "  search --customer-id <id> --product <n>   search entitlements\n"
+            "  features [--xml]                           list vendor features (id, name, state); --xml emits 114211.xml fragment\n"
+            "  products [--xml]                           list vendor products (id, name, state, deployed); --xml emits 114211.xml fragment\n"
             "  create-customer --name <n> --email <e>     create customer\n"
             "  create-contact --email <e> --name <n>      create contact\n"
             "  create-entitlement --product <n> [--days N] [--expiry YYYY-MM-DD]\n"
@@ -734,6 +777,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("subcommand", nargs="?", metavar="CMD",
                    choices=["get", "keys", "customers", "customer", "search",
+                            "features", "products",
                             "create-customer", "create-contact", "create-entitlement",
                             "link-customer", "v2cp", "activate", "typical"])
     p.add_argument("arg", nargs="?", metavar="ARG")
@@ -753,6 +797,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--c2v", metavar="FILE", help="C2V file path for hardware key activation")
     p.add_argument("--personal-c2v", action="store_true", help="Auto-fetch C2V from local Sentinel Admin (host.docker.internal:1947)")
     p.add_argument("--output-dir", metavar="DIR", default=None, help="Directory for V2CP output files (default: Desktop or /tmp/v2cp-<date>)")
+    p.add_argument("--xml", action="store_true", help="(features/products) emit catalog XML fragment for license-manager 114211.xml")
     return p.parse_args()
 
 
@@ -792,6 +837,12 @@ def main() -> None:
         if not cid:
             print("Error: customer id required", file=sys.stderr); sys.exit(1)
         op_get_customer(base, cid, args.output_json)
+
+    elif sub == "features":
+        op_list_features(base, args.output_json, args.xml)
+
+    elif sub == "products":
+        op_list_products(base, args.output_json, args.xml)
 
     elif sub == "search":
         if not args.customer_id or not args.product:
