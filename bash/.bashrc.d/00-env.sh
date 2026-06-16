@@ -86,6 +86,7 @@ export KEYTIMEOUT=1
 ### TOOL CONFIG ###
 export BREW_CASK_IGNORELIST="mixed-in-key\\|my-cask-to-pin"
 export HOMEBREW_CASK_OPTS="--appdir=/Applications"
+export HOMEBREW_NO_ASK=1
 export CRONTAB_FILE="$DOTFILESPATH/cron/crontab"
 export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
 export KEYGUARD_BRIDGE_CONFIG_FILE="$DOCUMENTDIR/Keepass/bridge.yaml"
