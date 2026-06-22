@@ -552,19 +552,28 @@ def op_activate(
     output_dir: str = ".",
     dry_run: bool = False,
     personal_c2v: bool = False,
+    key_id: str | None = None,
 ) -> None:
-    """Bulk-activate the entitlement's key(s); optionally with a C2V file for hardware keys."""
+    """Bulk-activate the entitlement's key(s).
+
+    Key target precedence: --key-id (re-activate onto an existing key already
+    registered in EMS, no C2V needed) > --c2v file > personal C2V from the local
+    Sentinel Admin. Use --key-id to extend/add a license on a customer's existing
+    SL key without asking them for a fresh C2V.
+    """
     pkids = _pkids_for_entitlement(base, eid)
     if not pkids:
         print(f"No keys found for entitlement {eid}", file=sys.stderr)
         sys.exit(1)
 
-    c2v_xml: str | None = None
-    if c2v_file:
-        c2v_xml = Path(c2v_file).read_text()
+    extn_ldk: dict | None = None
+    if key_id:
+        extn_ldk = {"keyId": key_id}
+    elif c2v_file:
+        extn_ldk = {"C2V": Path(c2v_file).read_text()}
     elif not dry_run or personal_c2v:
         print("fetching personal C2V from Sentinel Admin...", file=sys.stderr)
-        c2v_xml = _fetch_personal_c2v()
+        extn_ldk = {"C2V": _fetch_personal_c2v()}
 
     activation_keys = [{"activationQuantity": 1, "pkId": pkid} for pkid in pkids]
     payload: dict = {
@@ -572,8 +581,8 @@ def op_activate(
             "activationProductKeys": {"activationProductKey": activation_keys},
         }
     }
-    if c2v_xml:
-        payload["bulkActivation"]["extnLDK"] = {"C2V": c2v_xml}
+    if extn_ldk:
+        payload["bulkActivation"]["extnLDK"] = extn_ldk
 
     if dry_run:
         print(json.dumps(payload, indent=2))
@@ -694,10 +703,11 @@ def run_interactive(base: str) -> None:
         op_v2cp(base, eid, outdir, _gum_confirm("Dry run?"))
     elif action == "activate":
         eid         = _gum_input("eId")
-        use_personal = _gum_confirm("Use personal C2V from Sentinel Admin?")
-        c2v         = None if use_personal else (_gum_input("C2V file path (blank for softlicense)") or None)
+        key_id      = _gum_input("Existing keyId (blank to use a C2V instead)") or None
+        use_personal = False if key_id else _gum_confirm("Use personal C2V from Sentinel Admin?")
+        c2v         = None if (key_id or use_personal) else (_gum_input("C2V file path (blank for softlicense)") or None)
         outdir      = _gum_input("Output directory", _default_output_dir()) or _default_output_dir()
-        op_activate(base, eid, c2v, outdir, _gum_confirm("Dry run?"), use_personal)
+        op_activate(base, eid, c2v, outdir, _gum_confirm("Dry run?"), use_personal, key_id)
     elif action == "typical":
         days_s  = _gum_input("Days until expiry", str(TYPICAL_DAYS))
         days    = int(days_s) if days_s.isdigit() else TYPICAL_DAYS
@@ -763,8 +773,9 @@ def parse_args() -> argparse.Namespace:
             "                       leo25=\"LEONARDO Abonnement\" (also leo25 network/provisional)\n"
             "  link-customer --eid <eid> --customer-id <id> --email <e>\n"
             "  v2cp <eid> [--output-dir <dir>]            download latest V2CP to files\n"
-            "  activate <eid> [--c2v <file>] [--output-dir <dir>]\n"
+            "  activate <eid> [--c2v <file> | --key-id <id>] [--output-dir <dir>]\n"
             "                                             bulk-activate; save V2CP to files\n"
+            "                                             --key-id: re-activate onto an existing EMS key, no C2V\n"
             "  typical [--days N] [--dry-run]             QQZQI/Emanuele/LEONARDO Abonnement\n"
             "\n"
             "Global flags: --prod  --json  --dry-run / -n\n"
@@ -796,6 +807,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--eid", metavar="EID")
     p.add_argument("--c2v", metavar="FILE", help="C2V file path for hardware key activation")
     p.add_argument("--personal-c2v", action="store_true", help="Auto-fetch C2V from local Sentinel Admin (host.docker.internal:1947)")
+    p.add_argument("--key-id", metavar="ID", help="(activate) Re-activate onto an existing EMS key by its keyId, no C2V needed")
     p.add_argument("--output-dir", metavar="DIR", default=None, help="Directory for V2CP output files (default: Desktop or /tmp/v2cp-<date>)")
     p.add_argument("--xml", action="store_true", help="(features/products) emit catalog XML fragment for license-manager 114211.xml")
     return p.parse_args()
@@ -885,7 +897,7 @@ def main() -> None:
         outdir = args.output_dir or _default_output_dir()
         if not eid:
             print("Error: eid required", file=sys.stderr); sys.exit(1)
-        op_activate(base, eid, args.c2v, outdir, args.dry_run, args.personal_c2v)
+        op_activate(base, eid, args.c2v, outdir, args.dry_run, args.personal_c2v, args.key_id)
 
     elif sub == "typical":
         op_typical(base, args.days, args.dry_run, args.no_produce, args.test)

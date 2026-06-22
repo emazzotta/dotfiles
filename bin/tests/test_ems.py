@@ -231,6 +231,58 @@ class TestOpActivateDryRun:
         assert fake_c2v in data["bulkActivation"]["extnLDK"]["C2V"]
 
 
+class TestOpActivateKeyId:
+    def test_dry_run_targets_existing_key_without_c2v(self, ems, capsys):
+        with patch.object(ems, "ems_get_json") as mock_get:
+            mock_get.return_value = _ENT_WITH_KEY
+            ems.op_activate("https://example.com", "eid-123", output_dir="/tmp",
+                            dry_run=True, key_id="739623837256276974")
+        data = json.loads(capsys.readouterr().out)
+        extn = data["bulkActivation"]["extnLDK"]
+        assert extn == {"keyId": "739623837256276974"}
+        assert "C2V" not in extn
+
+    def test_key_id_takes_precedence_over_c2v_file(self, ems, capsys, tmp_path):
+        c2v_file = tmp_path / "key.c2v"
+        c2v_file.write_text("<hasp_info>SHOULD_BE_IGNORED</hasp_info>")
+        with patch.object(ems, "ems_get_json") as mock_get:
+            mock_get.return_value = _ENT_WITH_KEY
+            ems.op_activate("https://example.com", "eid-123", str(c2v_file), "/tmp",
+                            dry_run=True, key_id="739623837256276974")
+        extn = json.loads(capsys.readouterr().out)["bulkActivation"]["extnLDK"]
+        assert extn == {"keyId": "739623837256276974"}
+
+    def test_key_id_never_fetches_personal_c2v_even_when_executing(self, ems, tmp_path):
+        fetch = MagicMock()
+        with patch.object(ems, "ems_get_json", return_value=_ENT_WITH_KEY), \
+             patch.object(ems, "_fetch_personal_c2v", fetch), \
+             patch.object(ems, "ems_post", return_value={"activations": {"activation": []}}):
+            ems.op_activate("https://example.com", "eid-123", output_dir=str(tmp_path),
+                            dry_run=False, key_id="739623837256276974")
+        fetch.assert_not_called()
+
+    def test_posts_keyid_payload_and_saves_v2c(self, ems, tmp_path):
+        captured = {}
+
+        def fake_post(base, path, body):
+            captured["path"] = path
+            captured["body"] = body
+            return {"activations": {"activation": [
+                {"aId": "a-1", "licenseKeys": {"licenseKey": [
+                    {"key": "<hasp_info>V2C</hasp_info>", "keyFileName": "739623837256276974.v2cp"}]}}]}}
+
+        with patch.object(ems, "ems_get_json", return_value=_ENT_WITH_KEY), \
+             patch.object(ems, "ems_post", side_effect=fake_post):
+            ems.op_activate("https://example.com", "eid-123", output_dir=str(tmp_path),
+                            dry_run=False, key_id="739623837256276974")
+
+        assert captured["path"] == "/activations/bulkActivate"
+        assert captured["body"]["bulkActivation"]["extnLDK"] == {"keyId": "739623837256276974"}
+        assert captured["body"]["bulkActivation"]["activationProductKeys"]["activationProductKey"][0]["pkId"] == "pk-001"
+        saved = tmp_path / "739623837256276974.v2cp"
+        assert saved.read_text() == "<hasp_info>V2C</hasp_info>"
+
+
 # ── _fetch_personal_c2v ───────────────────────────────────────────────────────
 
 class TestFetchPersonalC2v:
