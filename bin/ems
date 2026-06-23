@@ -20,7 +20,7 @@ from pathlib import Path
 
 DEV_BASE             = "https://leonardo.dev.sentinelcloud.com/ems/api/v5"
 PROD_BASE            = "https://leonardo.prod.sentinelcloud.com/ems/api/v5"
-DEFAULT_BASE         = DEV_BASE
+DEFAULT_BASE         = PROD_BASE
 MARKET_GROUP         = "QQZQI"
 TYPICAL_NAME         = "Emanuele Mazzotta"
 TYPICAL_PRODUCT      = "LEONARDO Abonnement"
@@ -380,7 +380,7 @@ def op_resolve_customer(
         sys.exit(1)
 
 
-def _entitlement_payload(product: str, expiry: str, customer_id: str | None, email: str | None, is_test: bool = False, state: str = "ENABLE", feature: str | None = None) -> dict:
+def _entitlement_payload(product: str, expiry: str, customer_id: str | None, email: str | None, is_test: bool = True, state: str = "ENABLE", feature: str | None = None) -> dict:
     feat = feature or derive_feature(product)
     model_name, attrs = derive_license_model(product)
     if model_name == "Expiration Date":
@@ -433,7 +433,7 @@ def op_create_entitlement(
     customer_id: str | None = None,
     email: str | None = None,
     dry_run: bool = False,
-    test: bool = False,
+    test: bool = True,
     no_produce: bool = False,
     feature: str | None = None,
 ) -> str:
@@ -614,7 +614,7 @@ def op_activate(
         sys.exit(1)
 
 
-def op_typical(base: str, days: int = TYPICAL_DAYS, dry_run: bool = False, no_produce: bool = False, test: bool = False) -> None:
+def op_typical(base: str, days: int = TYPICAL_DAYS, dry_run: bool = False, no_produce: bool = False, test: bool = True) -> None:
     expiry = (date.today() + timedelta(days=days)).isoformat()
     print(f"typical: product={TYPICAL_PRODUCT}  expiry={expiry} (+{days}d)  env={'prod' if base == PROD_BASE else 'dev'}", file=sys.stderr)
     op_create_contact(base, _typical_email(), TYPICAL_NAME, dry_run)
@@ -766,7 +766,7 @@ def parse_args() -> argparse.Namespace:
             "  create-customer --name <n> --email <e>     create customer\n"
             "  create-contact --email <e> --name <n>      create contact\n"
             "  create-entitlement --product <n> [--days N] [--expiry YYYY-MM-DD]\n"
-            "                     [--customer-id <id>] [--email <e>] [--feature <n>] [--no-produce] [--test]\n"
+            "                     [--customer-id <id>] [--email <e>] [--feature <n>] [--no-produce] [--real]\n"
             "      Product aliases: cap=cap4=capx=\"capitalisator 4\", cap3=\"capitalisator 3\",\n"
             "                       cap4 network, cap3 network/c/nc/provisional,\n"
             "                       leo23/leo24=\"LEONARDO <N> Standard\" (also network/provisional),\n"
@@ -778,12 +778,13 @@ def parse_args() -> argparse.Namespace:
             "                                             --key-id: re-activate onto an existing EMS key, no C2V\n"
             "  typical [--days N] [--dry-run]             QQZQI/Emanuele/LEONARDO Abonnement\n"
             "\n"
-            "Global flags: --prod  --json  --dry-run / -n\n"
+            "Global flags: --prod (default) / --dev  --json  --dry-run / -n\n"
             "\n"
             "Credentials: EMS_REST_API_LEONARDO_TECH_USER / EMS_REST_API_LEONARDO_TECH_PASSWORD (envify)\n"
             "\n"
-            "Note: entitlements are created in state ENABLE (ready to activate) by default,\n"
-            "and as real (isTest=false) by default. Pass --test to create a test entitlement."
+            "Note: defaults are prod environment and test (isTest=true) entitlements.\n"
+            "Pass --dev to target dev, and --real to create a genuine (isTest=false) customer entitlement.\n"
+            "Entitlements are created in state ENABLE (ready to activate) by default."
         ),
     )
     p.add_argument("subcommand", nargs="?", metavar="CMD",
@@ -792,7 +793,8 @@ def parse_args() -> argparse.Namespace:
                             "create-customer", "create-contact", "create-entitlement",
                             "link-customer", "v2cp", "activate", "typical"])
     p.add_argument("arg", nargs="?", metavar="ARG")
-    p.add_argument("--prod", action="store_true", help="Use prod environment (default: dev)")
+    p.add_argument("--prod", action="store_true", help="Use prod environment (now the default)")
+    p.add_argument("--dev", action="store_true", help="Use dev environment (opt-out of the prod default)")
     p.add_argument("--json", dest="output_json", action="store_true")
     p.add_argument("--dry-run", "-n", action="store_true")
     p.add_argument("--product", metavar="NAME")
@@ -800,7 +802,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--days", type=int, default=TYPICAL_DAYS, metavar="N")
     p.add_argument("--expiry", metavar="YYYY-MM-DD")
     p.add_argument("--no-produce", action="store_true", help="Leave entitlement in DRAFT state instead of ENABLE")
-    p.add_argument("--test", action="store_true", help="Mark entitlement as test (isTest=true). Default is real (isTest=false).")
+    p.add_argument("--test", action="store_true", help="Mark entitlement as test (isTest=true). This is now the default.")
+    p.add_argument("--real", action="store_true", help="Mark entitlement as real/production (isTest=false). Opt-out of the test default.")
     p.add_argument("--name", metavar="TEXT")
     p.add_argument("--email", metavar="EMAIL")
     p.add_argument("--customer-id", metavar="ID")
@@ -816,7 +819,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     validate_env()
-    base = PROD_BASE if args.prod else DEFAULT_BASE
+    base = DEV_BASE if args.dev else (PROD_BASE if args.prod else DEFAULT_BASE)
+    is_test = not args.real
     sub  = args.subcommand
 
     if sub is None:
@@ -876,7 +880,7 @@ def main() -> None:
     elif sub == "create-entitlement":
         product = resolve_product(args.product or TYPICAL_PRODUCT)
         expiry  = args.expiry or (date.today() + timedelta(days=args.days)).isoformat()
-        eid = op_create_entitlement(base, product, expiry, args.customer_id, args.email, dry_run=args.dry_run, test=args.test, no_produce=args.no_produce, feature=args.feature)
+        eid = op_create_entitlement(base, product, expiry, args.customer_id, args.email, dry_run=args.dry_run, test=is_test, no_produce=args.no_produce, feature=args.feature)
         if eid:
             print(eid)
 
@@ -900,7 +904,7 @@ def main() -> None:
         op_activate(base, eid, args.c2v, outdir, args.dry_run, args.personal_c2v, args.key_id)
 
     elif sub == "typical":
-        op_typical(base, args.days, args.dry_run, args.no_produce, args.test)
+        op_typical(base, args.days, args.dry_run, args.no_produce, is_test)
 
 
 if __name__ == "__main__":

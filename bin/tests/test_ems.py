@@ -107,6 +107,10 @@ class TestEntitlementPayload:
         assert "customer" not in ent
         assert "contact" not in ent
 
+    def test_defaults_to_test(self, ems):
+        p = ems._entitlement_payload("LEONARDO Abonnement", "2026-05-07", None, None)
+        assert p["entitlement"]["isTest"] is True
+
 
 # ── op_create_contact dry-run ─────────────────────────────────────────────────
 
@@ -145,21 +149,21 @@ class TestOpCreateEntitlementDryRun:
         data = json.loads(out)
         assert data["entitlement"]["productKeys"]["productKey"][0]["item"]["itemProduct"]["product"]["nameVersion"]["name"] == "LEONARDO Abonnement"
 
-    def test_dry_run_defaults_to_real(self, ems, capsys):
+    def test_dry_run_defaults_to_test(self, ems, capsys):
         ems.op_create_entitlement(
             "https://example.com", "LEONARDO Abonnement", "2026-05-07",
             email="client@acme.com", dry_run=True,
         )
         data = json.loads(capsys.readouterr().out)
-        assert data["entitlement"]["isTest"] is False
+        assert data["entitlement"]["isTest"] is True
 
-    def test_dry_run_internal_email_defaults_to_real(self, ems, capsys):
+    def test_dry_run_internal_email_defaults_to_test(self, ems, capsys):
         ems.op_create_entitlement(
             "https://example.com", "LEONARDO Abonnement", "2026-05-07",
             email="test@leonardo.ag", dry_run=True,
         )
         data = json.loads(capsys.readouterr().out)
-        assert data["entitlement"]["isTest"] is False
+        assert data["entitlement"]["isTest"] is True
 
     def test_dry_run_test_flag_marks_as_test(self, ems, capsys):
         ems.op_create_entitlement(
@@ -168,6 +172,14 @@ class TestOpCreateEntitlementDryRun:
         )
         data = json.loads(capsys.readouterr().out)
         assert data["entitlement"]["isTest"] is True
+
+    def test_dry_run_real_flag_marks_as_real(self, ems, capsys):
+        ems.op_create_entitlement(
+            "https://example.com", "LEONARDO Abonnement", "2026-05-07",
+            email="test@leonardo.ag", dry_run=True, test=False,
+        )
+        data = json.loads(capsys.readouterr().out)
+        assert data["entitlement"]["isTest"] is False
 
 
 # ── op_link_customer dry-run ──────────────────────────────────────────────────
@@ -395,6 +407,9 @@ class TestUrlConstruction:
 
     def test_dev_base(self, ems):
         assert ems.DEV_BASE == "https://leonardo.dev.sentinelcloud.com/ems/api/v5"
+
+    def test_default_base_is_prod(self, ems):
+        assert ems.DEFAULT_BASE == ems.PROD_BASE
 
     def test_typical_email_is_internal(self, ems):
         assert ems._is_internal_email(ems._typical_email()) is True
