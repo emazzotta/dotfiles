@@ -1,9 +1,34 @@
+import sys
+
 import pytest
 
 
 @pytest.fixture
 def ags(load_script):
     return load_script("ags")
+
+
+class TestRun:
+    def test_should_decode_non_utf8_output_without_raising(self, ags):
+        cmd = [sys.executable, "-c", r"import sys; sys.stdout.buffer.write(b'25.0 f\xe4llig')"]
+
+        result = ags._run(cmd)
+
+        assert result.stdout == "25.0 f�llig"
+
+    def test_should_capture_stdout_and_return_code(self, ags):
+        cmd = [sys.executable, "-c", "print('hello')"]
+
+        result = ags._run(cmd)
+
+        assert result.stdout == "hello\n"
+        assert result.returncode == 0
+
+    def test_should_raise_when_check_is_true_and_command_fails(self, ags):
+        cmd = [sys.executable, "-c", "import sys; sys.exit(1)"]
+
+        with pytest.raises(ags.subprocess.CalledProcessError):
+            ags._run(cmd, check=True)
 
 
 class TestFilterOutput:
