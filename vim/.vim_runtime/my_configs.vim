@@ -66,6 +66,7 @@ let g:NERDTreeWinPos = "left"
 let g:airline_powerline_fonts = 1
 let g:toggle_autosave = 0
 let g:user_emmet_leader_key='<tab>'
+let g:loaded_copilot = 1
 
 " CoC Completion Config
 inoremap <silent><expr> <TAB>
