@@ -1,4 +1,5 @@
 import argparse
+import json
 import subprocess
 import sys
 from base64 import b64encode
@@ -330,3 +331,283 @@ class TestParseArgsParent:
         )
         assert result.returncode == 0
         assert "--parent" in result.stdout
+
+
+class TestParseArgsAttach:
+    def test_should_collect_attach_paths_into_list(self, jcr, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["jcr", "LEO-1", "--attach", "a.xml", "--attach", "b.xml"])
+        args = jcr.parse_args()
+        assert args.attach == ["a.xml", "b.xml"]
+
+    def test_should_default_attach_to_none(self, jcr, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["jcr", "LEO-1"])
+        args = jcr.parse_args()
+        assert args.attach is None
+
+    def test_should_set_yes_flag_with_short_option(self, jcr, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["jcr", "LEO-1", "--attach", "a.xml", "-y"])
+        args = jcr.parse_args()
+        assert args.yes is True
+
+    def test_should_default_yes_to_false(self, jcr, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["jcr", "LEO-1", "--attach", "a.xml"])
+        args = jcr.parse_args()
+        assert args.yes is False
+
+    def test_should_mention_attach_in_help(self):
+        result = subprocess.run(
+            [sys.executable, str(BIN_DIR / "jcr"), "--help"],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0
+        assert "--attach" in result.stdout
+
+
+class TestRunAttach:
+    def _ns(self, **overrides):
+        defaults = dict(keys=["LEO-1"], attach=["f.xml"], dry_run=False, yes=True, output_json=False)
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_should_exit_when_more_than_one_key(self, jcr):
+        with pytest.raises(SystemExit):
+            jcr.run_attach(self._ns(keys=["LEO-1", "LEO-2"]))
+
+    def test_should_exit_when_file_missing(self, jcr, tmp_path):
+        with pytest.raises(SystemExit):
+            jcr.run_attach(self._ns(attach=[str(tmp_path / "nope.xml")]))
+
+    def test_should_not_upload_on_dry_run(self, jcr, tmp_path, monkeypatch, capsys):
+        target = tmp_path / "f.xml"
+        target.write_text("<x/>")
+
+        def boom(*args, **kwargs):
+            raise AssertionError("upload must not run on dry-run")
+
+        monkeypatch.setattr(jcr, "upload_attachments", boom)
+        jcr.run_attach(self._ns(attach=[str(target)], dry_run=True))
+        assert "f.xml" in capsys.readouterr().out
+
+    def test_should_upload_when_file_exists_and_confirmed(self, jcr, tmp_path, monkeypatch, capsys):
+        target = tmp_path / "f.xml"
+        target.write_text("<x/>")
+        captured: dict = {}
+
+        def fake_upload(key, paths):
+            captured["key"] = key
+            captured["paths"] = paths
+            return [{"id": "42", "filename": "f.xml", "size": 4}]
+
+        monkeypatch.setattr(jcr, "upload_attachments", fake_upload)
+        jcr.run_attach(self._ns(attach=[str(target)], yes=True))
+        out = capsys.readouterr().out
+        assert captured["key"] == "LEO-1"
+        assert "Attached f.xml" in out
+        assert "id 42" in out
+
+
+class TestConfirmAttachments:
+    def test_should_return_without_prompt_when_yes(self, jcr, tmp_path, monkeypatch):
+        target = tmp_path / "f.xml"
+        target.write_text("x")
+
+        def boom(_message):
+            raise AssertionError("must not prompt when --yes")
+
+        monkeypatch.setattr(jcr, "gum_confirm", boom)
+        jcr.confirm_attachments("LEO-1", [target], assume_yes=True)
+
+    def test_should_exit_when_no_tty_and_not_yes(self, jcr, tmp_path, monkeypatch):
+        target = tmp_path / "f.xml"
+        target.write_text("x")
+        monkeypatch.setattr(jcr.sys.stdin, "isatty", lambda: False)
+        with pytest.raises(SystemExit):
+            jcr.confirm_attachments("LEO-1", [target], assume_yes=False)
+
+
+class TestUploadAttachments:
+    def _result(self, stdout, returncode=0):
+        return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout)
+
+    def test_should_return_parsed_list_on_http_200(self, jcr, monkeypatch):
+        monkeypatch.setattr(
+            jcr.subprocess, "run",
+            lambda cmd, **kwargs: self._result('[{"id":"9","filename":"f.xml","size":3}]\n200'),
+        )
+        result = jcr.upload_attachments("LEO-1", [Path("f.xml")])
+        assert result == [{"id": "9", "filename": "f.xml", "size": 3}]
+
+    def test_should_send_no_check_token_and_file_field(self, jcr, monkeypatch):
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return self._result("[]\n200")
+
+        monkeypatch.setattr(jcr.subprocess, "run", fake_run)
+        jcr.upload_attachments("LEO-1", [Path("/x/f.xml")])
+        assert "X-Atlassian-Token: no-check" in captured["cmd"]
+        assert "file=@/x/f.xml" in captured["cmd"]
+        assert captured["cmd"][-1].endswith("/issue/LEO-1/attachments")
+
+    def test_should_exit_on_non_200(self, jcr, monkeypatch):
+        monkeypatch.setattr(jcr.subprocess, "run", lambda cmd, **kwargs: self._result("nope\n401"))
+        with pytest.raises(SystemExit):
+            jcr.upload_attachments("LEO-1", [Path("f.xml")])
+
+
+class TestReportAndDescribeAttachments:
+    def test_should_describe_file_name_size_and_key(self, jcr, tmp_path):
+        target = tmp_path / "f.xml"
+        target.write_text("abcd")
+        desc = jcr.describe_attachments("LEO-1", [target])
+        assert "LEO-1" in desc
+        assert "f.xml" in desc
+        assert "4 bytes" in desc
+
+    def test_should_emit_json_when_requested(self, jcr, capsys):
+        jcr.report_attachments("LEO-1", [{"id": "7", "filename": "f.xml", "size": 4}], output_json=True)
+        assert json.loads(capsys.readouterr().out) == [{"id": "7", "filename": "f.xml", "size": 4}]
+
+
+class TestParseArgsComment:
+    def test_should_capture_comment_text(self, jcr, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["jcr", "LEO-1", "--comment", "hello"])
+        args = jcr.parse_args()
+        assert args.comment == "hello"
+
+    def test_should_default_comment_to_none(self, jcr, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["jcr", "LEO-1"])
+        args = jcr.parse_args()
+        assert args.comment is None
+
+    def test_should_mention_comment_in_help(self):
+        result = subprocess.run(
+            [sys.executable, str(BIN_DIR / "jcr"), "--help"],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0
+        assert "--comment" in result.stdout
+
+
+class TestAddComment:
+    def test_should_post_adf_body_to_comment_endpoint(self, jcr, monkeypatch):
+        captured: dict = {}
+
+        def fake_request(method, path, data=None):
+            captured.update(method=method, path=path, data=data)
+            return {"id": "555"}
+
+        monkeypatch.setattr(jcr, "jira_request", fake_request)
+        result = jcr.add_comment("LEO-1", "Use `x` now")
+        assert captured["method"] == "POST"
+        assert captured["path"] == "api/3/issue/LEO-1/comment"
+        assert captured["data"]["body"]["type"] == "doc"
+        assert result == {"id": "555"}
+
+
+class TestRunComment:
+    def _ns(self, **overrides):
+        defaults = dict(keys=["LEO-1"], comment="hi", dry_run=False, yes=True, output_json=False)
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_should_exit_when_more_than_one_key(self, jcr):
+        with pytest.raises(SystemExit):
+            jcr.run_comment(self._ns(keys=["LEO-1", "LEO-2"]))
+
+    def test_should_not_post_on_dry_run(self, jcr, monkeypatch, capsys):
+        def boom(*args, **kwargs):
+            raise AssertionError("must not post on dry-run")
+
+        monkeypatch.setattr(jcr, "add_comment", boom)
+        jcr.run_comment(self._ns(dry_run=True))
+        assert '"type": "doc"' in capsys.readouterr().out
+
+    def test_should_post_when_confirmed(self, jcr, monkeypatch, capsys):
+        captured: dict = {}
+
+        def fake_add(key, text):
+            captured.update(key=key, text=text)
+            return {"id": "777"}
+
+        monkeypatch.setattr(jcr, "add_comment", fake_add)
+        jcr.run_comment(self._ns(comment="body text", yes=True))
+        out = capsys.readouterr().out
+        assert captured["key"] == "LEO-1"
+        assert captured["text"] == "body text"
+        assert "Comment 777 posted" in out
+
+    def test_should_exit_when_no_tty_and_not_yes(self, jcr, monkeypatch):
+        monkeypatch.setattr(jcr.sys.stdin, "isatty", lambda: False)
+        with pytest.raises(SystemExit):
+            jcr.confirm_comment("LEO-1", "text", assume_yes=False)
+
+
+class TestParseArgsDeleteComment:
+    def test_should_capture_delete_comment_id(self, jcr, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["jcr", "LEO-1", "--delete-comment", "999"])
+        args = jcr.parse_args()
+        assert args.delete_comment == "999"
+
+    def test_should_default_delete_comment_to_none(self, jcr, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["jcr", "LEO-1"])
+        args = jcr.parse_args()
+        assert args.delete_comment is None
+
+    def test_should_mention_delete_comment_in_help(self):
+        result = subprocess.run(
+            [sys.executable, str(BIN_DIR / "jcr"), "--help"],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0
+        assert "--delete-comment" in result.stdout
+
+
+class TestDeleteComment:
+    def test_should_call_delete_endpoint(self, jcr, monkeypatch):
+        captured: dict = {}
+
+        def fake_request(method, path, data=None):
+            captured.update(method=method, path=path)
+            return {}
+
+        monkeypatch.setattr(jcr, "jira_request", fake_request)
+        jcr.delete_comment("LEO-1", "555")
+        assert captured["method"] == "DELETE"
+        assert captured["path"] == "api/3/issue/LEO-1/comment/555"
+
+
+class TestRunDeleteComment:
+    def _ns(self, **overrides):
+        defaults = dict(keys=["LEO-1"], delete_comment="555", dry_run=False, yes=True, output_json=False)
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_should_exit_when_more_than_one_key(self, jcr):
+        with pytest.raises(SystemExit):
+            jcr.run_delete_comment(self._ns(keys=["LEO-1", "LEO-2"]))
+
+    def test_should_not_delete_on_dry_run(self, jcr, monkeypatch, capsys):
+        def boom(*args, **kwargs):
+            raise AssertionError("must not delete on dry-run")
+
+        monkeypatch.setattr(jcr, "delete_comment", boom)
+        jcr.run_delete_comment(self._ns(dry_run=True))
+        assert "555" in capsys.readouterr().out
+
+    def test_should_delete_when_confirmed(self, jcr, monkeypatch, capsys):
+        captured: dict = {}
+
+        def fake_delete(key, comment_id):
+            captured.update(key=key, comment_id=comment_id)
+
+        monkeypatch.setattr(jcr, "delete_comment", fake_delete)
+        jcr.run_delete_comment(self._ns(delete_comment="555", yes=True))
+        assert captured == {"key": "LEO-1", "comment_id": "555"}
+        assert "deleted" in capsys.readouterr().out
+
+    def test_should_exit_when_no_tty_and_not_yes(self, jcr, monkeypatch):
+        monkeypatch.setattr(jcr.sys.stdin, "isatty", lambda: False)
+        with pytest.raises(SystemExit):
+            jcr.confirm_delete_comment("LEO-1", "555", assume_yes=False)

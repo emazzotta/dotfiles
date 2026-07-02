@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 JIRA_URL = "https://leonardo-productions.atlassian.net"
 DEFAULT_PROJECT = "LEO"
@@ -589,6 +590,164 @@ def run_update(args: argparse.Namespace) -> None:
         print(f"{key} updated")
 
 
+# ── Attachments ─────────────────────────────────────────────────────────────
+
+ATTACHMENT_OK_STATUS = "200"
+
+
+def upload_attachments(key: str, paths: list[Path]) -> list[dict]:
+    url = f"{JIRA_URL}/rest/api/3/issue/{key}/attachments"
+    cmd = [
+        "curl", "-s", "-w", "\n%{http_code}",
+        "-H", f"Authorization: {build_auth_header()}",
+        "-H", "X-Atlassian-Token: no-check",
+        "-H", "Accept: application/json",
+    ]
+    for path in paths:
+        cmd += ["-F", f"file=@{path}"]
+    cmd.append(url)
+
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        print("Error: attachment upload request failed", file=sys.stderr)
+        sys.exit(1)
+
+    body, _, status = result.stdout.rpartition("\n")
+    if status != ATTACHMENT_OK_STATUS:
+        print(f"Error: attachment upload returned HTTP {status}: {body}", file=sys.stderr)
+        sys.exit(1)
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        print(f"Error: invalid attachment response: {body}", file=sys.stderr)
+        sys.exit(1)
+
+
+def describe_attachments(key: str, paths: list[Path]) -> str:
+    lines = [f"Attach to {key} ({JIRA_URL}/browse/{key}):"]
+    lines += [f"  {p.name} ({p.stat().st_size} bytes)" for p in paths]
+    return "\n".join(lines)
+
+
+def confirm_attachments(key: str, paths: list[Path], assume_yes: bool) -> None:
+    print(describe_attachments(key, paths), file=sys.stderr)
+    if assume_yes:
+        return
+    if not sys.stdin.isatty():
+        print("Error: refusing to attach without confirmation — re-run with --yes.", file=sys.stderr)
+        sys.exit(1)
+    check_gum()
+    if not gum_confirm(f"Attach {len(paths)} file(s) to {key}?"):
+        print("Aborted.", file=sys.stderr)
+        sys.exit(0)
+
+
+def report_attachments(key: str, uploaded: list[dict], output_json: bool) -> None:
+    if output_json:
+        print(json.dumps([
+            {"id": a.get("id"), "filename": a.get("filename"), "size": a.get("size")}
+            for a in uploaded
+        ]))
+        return
+    for a in uploaded:
+        print(f"Attached {a.get('filename')} ({a.get('size')} bytes) → {key} (id {a.get('id')})")
+
+
+def run_attach(args: argparse.Namespace) -> None:
+    if len(args.keys) != 1:
+        print("Error: --attach requires exactly one issue key", file=sys.stderr)
+        sys.exit(1)
+
+    paths = [Path(p) for p in args.attach]
+    missing = [str(p) for p in paths if not p.is_file()]
+    if missing:
+        print(f"Error: file(s) not found: {', '.join(missing)}", file=sys.stderr)
+        sys.exit(1)
+
+    key = args.keys[0]
+    if args.dry_run:
+        print(describe_attachments(key, paths))
+        return
+
+    confirm_attachments(key, paths, args.yes)
+    uploaded = upload_attachments(key, paths)
+    report_attachments(key, uploaded, args.output_json)
+
+
+# ── Comments ────────────────────────────────────────────────────────────────
+
+def add_comment(key: str, text: str) -> dict:
+    return jira_request("POST", f"api/3/issue/{key}/comment", {"body": to_adf(text)})
+
+
+def confirm_comment(key: str, text: str, assume_yes: bool) -> None:
+    print(f"Comment on {key} ({JIRA_URL}/browse/{key}):", file=sys.stderr)
+    print(textwrap.indent(text, "  "), file=sys.stderr)
+    if assume_yes:
+        return
+    if not sys.stdin.isatty():
+        print("Error: refusing to comment without confirmation — re-run with --yes.", file=sys.stderr)
+        sys.exit(1)
+    check_gum()
+    if not gum_confirm(f"Post comment to {key}?"):
+        print("Aborted.", file=sys.stderr)
+        sys.exit(0)
+
+
+def run_comment(args: argparse.Namespace) -> None:
+    if len(args.keys) != 1:
+        print("Error: --comment requires exactly one issue key", file=sys.stderr)
+        sys.exit(1)
+
+    key = args.keys[0]
+    if args.dry_run:
+        print(json.dumps({"body": to_adf(args.comment)}, indent=2, ensure_ascii=False))
+        return
+
+    confirm_comment(key, args.comment, args.yes)
+    comment_id = add_comment(key, args.comment).get("id", "")
+    if args.output_json:
+        print(json.dumps({"key": key, "commentId": comment_id, "url": f"{JIRA_URL}/browse/{key}"}))
+    else:
+        print(f"Comment {comment_id} posted → {key}")
+
+
+def delete_comment(key: str, comment_id: str) -> None:
+    jira_request("DELETE", f"api/3/issue/{key}/comment/{comment_id}")
+
+
+def confirm_delete_comment(key: str, comment_id: str, assume_yes: bool) -> None:
+    print(f"Delete comment {comment_id} on {key} ({JIRA_URL}/browse/{key}) — irreversible.", file=sys.stderr)
+    if assume_yes:
+        return
+    if not sys.stdin.isatty():
+        print("Error: refusing to delete without confirmation — re-run with --yes.", file=sys.stderr)
+        sys.exit(1)
+    check_gum()
+    if not gum_confirm(f"Delete comment {comment_id} from {key}?"):
+        print("Aborted.", file=sys.stderr)
+        sys.exit(0)
+
+
+def run_delete_comment(args: argparse.Namespace) -> None:
+    if len(args.keys) != 1:
+        print("Error: --delete-comment requires exactly one issue key", file=sys.stderr)
+        sys.exit(1)
+
+    key = args.keys[0]
+    comment_id = args.delete_comment
+    if args.dry_run:
+        print(f"Would delete comment {comment_id} on {key}")
+        return
+
+    confirm_delete_comment(key, comment_id, args.yes)
+    delete_comment(key, comment_id)
+    if args.output_json:
+        print(json.dumps({"key": key, "deletedCommentId": comment_id}))
+    else:
+        print(f"Comment {comment_id} deleted from {key}")
+
+
 def run_setup() -> None:
     print()
     gum_style("--bold", "jcr setup — discovering Jira configuration")
@@ -776,6 +935,9 @@ def parse_args() -> argparse.Namespace:
             "  jcr LEO-2597 --update --parent LEO-2305  # set/change parent on existing ticket\n"
             "  jcr LEO-2597 --update --link LEO-2358    # add link to existing ticket\n"
             "  jcr LEO-2597 --update --unlink LEO-2358  # remove link to existing ticket\n"
+            "  jcr LEO-2518 --attach ./message_00001.xml --yes  # attach file(s) to a ticket\n"
+            "  jcr LEO-2518 --comment 'Works `now`' --yes       # post a comment (markdown → ADF)\n"
+            "  jcr LEO-2518 --delete-comment 36597 --yes        # delete a comment by id\n"
             "  jcr --setup                               # discover config values\n"
             "\n"
             "Requires: export JIRA_EMAIL='...' JIRA_TOKEN='...' in your shell profile"
@@ -797,6 +959,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--link-type", metavar="TYPE", default="Relates", help="Link type (default: Relates). E.g. Blocks, Clones, Duplicate")
     parser.add_argument("--unlink", metavar="KEY", action="append", help="Remove link to KEY (repeatable). Requires --update")
     parser.add_argument("--parent", metavar="KEY", default=None, help="Set parent/epic for the ticket. E.g. --parent LEO-2305")
+    parser.add_argument("--attach", metavar="FILE", action="append", help="Attach FILE to the issue (repeatable). Requires exactly one KEY; needs --yes when non-interactive")
+    parser.add_argument("--comment", metavar="TEXT", default=None, help="Post a comment (markdown → ADF) on the issue. Requires exactly one KEY; needs --yes when non-interactive")
+    parser.add_argument("--delete-comment", metavar="ID", default=None, help="Delete comment ID from the issue (irreversible). Requires exactly one KEY; needs --yes when non-interactive")
+    parser.add_argument("--yes", "-y", action="store_true", help="Skip the interactive confirmation (required to attach/comment/delete non-interactively)")
     parser.add_argument("--comments", action="store_true", help="(deprecated, comments now shown by default)")
     parser.add_argument("--brief", action="store_true", help="Suppress comments in output")
     parser.add_argument("--setup", action="store_true", help="Discover BOARD_ID, SPRINT_FIELD, ACCOUNT_ID")
@@ -814,6 +980,18 @@ def main() -> None:
 
     if args.update:
         run_update(args)
+        return
+
+    if args.attach:
+        run_attach(args)
+        return
+
+    if args.comment is not None:
+        run_comment(args)
+        return
+
+    if args.delete_comment is not None:
+        run_delete_comment(args)
         return
 
     if args.keys:
