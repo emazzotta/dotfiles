@@ -126,6 +126,34 @@ _ags()
     return 0
   fi
 }
+_fileserver_remote_files()
+{
+  # Non-interactive exec, bounded so an unreachable cluster can't hang the shell.
+  kubectl --request-timeout=5s -n personal-homepage \
+    exec deployment/personal-homepage-file-server \
+    -- /bin/sh -c 'cd /usr/share/caddy && ls -1' 2>/dev/null
+}
+_fileserver()
+{
+  local cur
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    COMPREPLY=($(compgen -W "list upload download remove -h --help" -- "${cur}"))
+    return 0
+  fi
+
+  case "${COMP_WORDS[1]}" in
+    upload)
+      COMPREPLY=($(compgen -f -- "${cur}"))
+      compopt -o filenames 2>/dev/null
+      ;;
+    remove|download)
+      COMPREPLY=($(compgen -W "$(_fileserver_remote_files)" -- "${cur}"))
+      ;;
+  esac
+}
 _make_targets()
 {
   local cur makefile
@@ -377,3 +405,4 @@ complete -o nospace -F _repo repo c
 complete -o filenames -F _cl cl
 complete -F _ags ags
 complete -F _make_targets make m
+complete -F _fileserver fileserver

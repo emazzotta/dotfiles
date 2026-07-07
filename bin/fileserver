@@ -1,0 +1,148 @@
+#!/bin/bash
+set -uo pipefail
+
+readonly namespace="personal-homepage"
+readonly app="personal-homepage-file-server"
+readonly deployment="deployment/${app}"
+readonly webroot="/usr/share/caddy"
+readonly sidecar="rsync"
+
+# When rsync runs us as its remote shell (--rsh "<self> __tunnel__"), tunnel into
+# the sidecar container over kubectl exec instead of ssh. rsync appends the host
+# (the pod name from the destination spec) and the remote command: [-l user] <pod> <cmd...>.
+if [ "${1:-}" = "__tunnel__" ]; then
+    shift
+    [ "${1:-}" = "-l" ] && shift 2
+    tunnel_pod="${1:?fileserver: tunnel mode requires a pod}"
+    shift
+    exec kubectl -n "$namespace" exec -i -c "$sidecar" "$tunnel_pod" -- "$@"
+fi
+
+self_path="$0"
+case "$self_path" in
+    */*) ;;
+    *) self_path="$(command -v -- "$self_path" 2>/dev/null || printf '%s' "$self_path")" ;;
+esac
+readonly self_path
+
+print_help() {
+    local self
+    self=$(basename "$0")
+    cat <<EOF
+${self} - manage files on the personal-homepage file-server pod.
+
+Usage:
+  ${self} <command> [file...]
+
+Commands:
+  list                 List files stored on the server
+  upload   <file>...   Copy one or more local files to the server
+  download <file>...   Copy one or more files from the server into the current directory
+  remove   <file>...   Delete one or more files on the server
+
+Options:
+  -h, --help           Show this help and exit
+
+Transfers:
+  upload/download use rsync over the "${sidecar}" sidecar container and resume
+  interrupted transfers on re-run. Falls back to kubectl cp when rsync is
+  not installed locally.
+
+Target:
+  namespace  ${namespace}
+  deployment ${deployment}
+  directory  ${webroot}
+
+Examples:
+  ${self} list
+  ${self} upload report.pdf photo.jpg
+  ${self} download report.pdf
+  ${self} remove old.txt stale.log
+EOF
+}
+
+find_pod() {
+    kubectl get pod -n "$namespace" -l "app=${app}" \
+        -o jsonpath='{.items[0].metadata.name}'
+}
+
+# Resumable transfer over the rsync sidecar. --partial keeps interrupted files so
+# a re-run continues instead of restarting; --partial-dir keeps them out of the
+# served web root until complete.
+rsync_transfer() {
+    rsync -a --partial --partial-dir=.fileserver-partial --progress \
+        --rsh "$self_path __tunnel__" "$@"
+}
+
+list_files() {
+    # $0/$@ are expanded by the remote sh, not bash - single quotes are intentional.
+    # shellcheck disable=SC2016
+    kubectl -n "$namespace" exec -ti "$deployment" -- /bin/sh -c 'cd "$0" && ls -al' "$webroot"
+}
+
+remove_files() {
+    if [ "$#" -lt 1 ]; then
+        echo "usage: $(basename "$0") remove <file> [file...]" >&2
+        exit 1
+    fi
+    # shellcheck disable=SC2016
+    kubectl -n "$namespace" exec -ti "$deployment" -- /bin/sh -c 'cd "$0" && rm -rf "$@"' "$webroot" "$@"
+}
+
+upload_files() {
+    if [ "$#" -lt 1 ]; then
+        echo "usage: $(basename "$0") upload <file> [file...]" >&2
+        exit 1
+    fi
+    local pod file
+    pod=$(find_pod)
+    if command -v rsync >/dev/null 2>&1; then
+        rsync_transfer "$@" "${pod}:${webroot}/"
+    else
+        for file in "$@"; do
+            kubectl -n "$namespace" cp "$file" "${pod}:${webroot}/$(basename "$file")"
+        done
+    fi
+}
+
+download_files() {
+    if [ "$#" -lt 1 ]; then
+        echo "usage: $(basename "$0") download <file> [file...]" >&2
+        exit 1
+    fi
+    local pod file
+    pod=$(find_pod)
+    for file in "$@"; do
+        if command -v rsync >/dev/null 2>&1; then
+            rsync_transfer "${pod}:${webroot}/${file}" .
+        else
+            kubectl -n "$namespace" cp "${pod}:${webroot}/${file}" .
+        fi
+    done
+}
+
+case "${1:-}" in
+    list)
+        list_files
+        ;;
+    remove)
+        shift
+        remove_files "$@"
+        ;;
+    upload)
+        shift
+        upload_files "$@"
+        ;;
+    download)
+        shift
+        download_files "$@"
+        ;;
+    -h | --help | "")
+        print_help
+        ;;
+    *)
+        echo "Invalid command: $1" >&2
+        print_help >&2
+        exit 1
+        ;;
+esac
