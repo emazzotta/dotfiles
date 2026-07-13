@@ -6,15 +6,20 @@ source "$(dirname "$0")/shelllog.sh"
 
 output_filename="merged"
 output_format="wav"
+attach=0
 
 show_help() {
     log "Merge multiple audio files into a single audio file and convert it to the specified format."
     log ""
-    log "Usage: $(basename $0) [-o <output_filename>] [-f <format>] <audio files...>"
+    log "Usage: $(basename "$0") [-o <output_filename>] [-f <format>] <audio files...>"
+    log "       $(basename "$0") -a [-o <output_filename>] <audio files...>"
     log ""
     log "Options:"
     log "  -o, --output FILENAME    Specify the output file name (default is 'merged.wav')."
     log "  -f, --format FORMAT      Specify the audio format (e.g., mp3, ogg) after merging."
+    log "  -a, --attach             Byte-concatenate the files as-is (no re-encoding)."
+    log "                           Output size equals the sum of the inputs. Same-format inputs"
+    log "                           only (e.g. mp3+mp3); the output keeps the first file's extension."
     log ""
     log "<audio files...>    Space-separated list of audio files to merge."
 }
@@ -32,6 +37,10 @@ while [[ $# -gt 0 ]]; do
             shift
             shift
             ;;
+        -a|--attach)
+            attach=1
+            shift
+            ;;
         -h|--help)
             show_help
             exit 0
@@ -46,6 +55,24 @@ if [ $# -eq 0 ]; then
     error "No audio files specified."
     show_help
     exit 1
+fi
+
+if [ "$attach" -eq 1 ]; then
+    first_ext="${1##*.}"
+    attach_output="${output_filename}.${first_ext}"
+    for file in "$@"; do
+        if [ ! -f "$file" ]; then
+            error "File '$file' not found."
+            exit 1
+        fi
+        if [ "$file" -ef "$attach_output" ] 2>/dev/null; then
+            error "Input '$file' is the same file as the output '$attach_output'; aborting to avoid clobbering."
+            exit 1
+        fi
+    done
+    cat -- "$@" > "$attach_output"
+    success "Attached $# file(s) into '$attach_output' ($(du -h "$attach_output" | cut -f1))."
+    exit 0
 fi
 
 TEMP_FILE="$(mktemp)"
