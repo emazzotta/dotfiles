@@ -1,0 +1,24 @@
+#!/bin/bash
+# Resolve keyguard secrets and re-export them under alternate env var names.
+# Useful when a tool expects DIFFERENT variable names than the ones you store in keyguard.
+#
+# Usage:   eval "$(envify-as DEST_VAR=SRC_VAR [DEST_VAR2=SRC_VAR2 ...])"
+# Example: eval "$(envify-as ATLASSIAN_EMAIL=JIRA_EMAIL ATLASSIAN_TOKEN=JIRA_TOKEN)"
+#          (loads JIRA_EMAIL/JIRA_TOKEN from keyguard, exports them as ATLASSIAN_EMAIL/ATLASSIAN_TOKEN)
+set -uo pipefail
+
+[ $# -eq 0 ] && { echo "usage: eval \"\$(envify-as DEST=SRC ...)\"" >&2; exit 2; }
+
+srcs=()
+for pair in "$@"; do srcs+=("${pair#*=}"); done
+
+# shellcheck disable=SC1090,SC1091
+source envify "${srcs[@]}" >/dev/null 2>&1
+
+for pair in "$@"; do
+  dst="${pair%%=*}"
+  src="${pair#*=}"
+  val="${!src:-}"
+  [ -z "$val" ] && { echo "envify-as: source var '$src' is empty (Touch ID dismissed?)" >&2; exit 1; }
+  printf 'export %s=%q\n' "$dst" "$val"
+done

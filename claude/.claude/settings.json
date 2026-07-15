@@ -99,7 +99,31 @@
   },
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true,
-    "code-review@claude-plugins-official": true
+    "code-review@claude-plugins-official": true,
+    "leonardo-common@leonardo-skills": true,
+    "jira-workflow@leonardo-skills": true,
+    "email-calendar@leonardo-skills": true,
+    "meeting@leonardo-skills": true,
+    "gitlab-workflow@leonardo-skills": true,
+    "nexus-workflow@leonardo-skills": true,
+    "sonarqube-workflow@leonardo-skills": true,
+    "confluence-workflow@leonardo-skills": true,
+    "leonardo-readme@leonardo-skills": true,
+    "token-renewal@leonardo-skills": true,
+    "leonardo-support@leonardo-skills": true,
+    "thales-ems@leonardo-skills": true,
+    "ferienplan@leonardo-skills": true,
+    "spesen@leonardo-skills": true,
+    "uptime-kuma@leonardo-skills": true
+  },
+  "extraKnownMarketplaces": {
+    "leonardo-skills": {
+      "source": {
+        "source": "git",
+        "url": "git@gitlab.leonardo.local:leonardo-developers/leonardo-ai.git"
+      },
+      "autoUpdate": false
+    }
   },
   "effortLevel": "xhigh",
   "tui": "fullscreen",

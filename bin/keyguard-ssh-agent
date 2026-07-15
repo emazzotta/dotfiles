@@ -1,0 +1,68 @@
+#!/bin/bash
+# Set up SSH for an ephemeral container from a keyguard-stored key: load a base64-encoded
+# (optionally passphrase-protected) private key into a persistent ssh-agent WITHOUT writing it to
+# disk, and trust the given host(s) so git/ssh work non-interactively.
+#
+# Usage:   eval "$(keyguard-ssh-agent KEY_B64_VAR [PASSPHRASE_VAR] [HOST ...])"
+# Example: eval "$(keyguard-ssh-agent GITLAB_SSH_KEY_BASE64 GITLAB_SSH_KEY_PASSPHRASE gitlab.example.local)"
+#          (passphraseless key: pass "" for PASSPHRASE_VAR)
+# Prints an `export SSH_AUTH_SOCK=...` line for the caller to eval.
+# Idempotent: reuses the agent and only fetches from keyguard when no key is loaded yet.
+set -uo pipefail
+
+key_var="${1:-}"
+pass_var="${2:-}"
+hosts=("${@:3}")
+if [ -z "$key_var" ]; then
+  echo "usage: eval \"\$(keyguard-ssh-agent KEY_B64_VAR [PASSPHRASE_VAR] [HOST ...])\"" >&2
+  exit 2
+fi
+
+mkdir -p "$HOME/.ssh"
+chmod 700 "$HOME/.ssh"
+
+# Trust host keys (ephemeral known_hosts, so re-check every run; only scan when missing).
+kh="$HOME/.ssh/known_hosts"
+touch "$kh"
+chmod 600 "$kh"
+for h in ${hosts[@]+"${hosts[@]}"}; do
+  ssh-keygen -F "$h" >/dev/null 2>&1 || ssh-keyscan -T 5 "$h" 2>/dev/null >> "$kh"
+done
+
+sock="$HOME/.ssh/keyguard-agent.sock"
+export SSH_AUTH_SOCK="$sock"
+ssh-add -l >/dev/null 2>&1
+rc=$?
+if [ "$rc" -eq 2 ]; then
+  /bin/rm -f "$sock"
+  ssh-agent -a "$sock" >/dev/null
+  rc=1
+fi
+if [ "$rc" -eq 0 ]; then
+  printf 'export SSH_AUTH_SOCK=%s\n' "$sock"
+  exit 0
+fi
+
+# shellcheck disable=SC1090,SC1091
+source envify "$key_var" ${pass_var:+"$pass_var"} >/dev/null 2>&1
+key_b64="${!key_var:-}"
+if [ -z "$key_b64" ]; then
+  echo "keyguard-ssh-agent: var '$key_var' came back empty (Touch ID dismissed?)" >&2
+  exit 1
+fi
+
+if [ -n "$pass_var" ]; then
+  askpass="$(mktemp)"
+  trap '/bin/rm -f "$askpass"' EXIT
+  # shellcheck disable=SC2016
+  printf '#!/bin/sh\nprintf "%%s\\n" "${%s}"\n' "$pass_var" > "$askpass"
+  chmod +x "$askpass"
+  export SSH_ASKPASS="$askpass" SSH_ASKPASS_REQUIRE=force DISPLAY=:0
+fi
+
+if printf '%s' "$key_b64" | base64 -d | ssh-add - >/dev/null 2>&1; then
+  printf 'export SSH_AUTH_SOCK=%s\n' "$sock"
+else
+  echo "keyguard-ssh-agent: failed to load key from '$key_var'" >&2
+  exit 1
+fi
