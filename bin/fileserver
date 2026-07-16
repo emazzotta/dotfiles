@@ -25,6 +25,97 @@ case "$self_path" in
 esac
 readonly self_path
 
+# ---------------------------------------------------------------------------
+# Container mode: kubectl/rsync only work on the Mac, so inside the dev
+# container (/.dockerenv) forward every command to the Mac's fileserver over the
+# keyguard bridge (endpoint: fileserver). The request is sent newline-separated
+# (first line = subcommand); the Mac-side fileserver-bridge turns it back into
+# `fileserver <args>`. Files for upload cross via the shared Desktop mount.
+# ---------------------------------------------------------------------------
+readonly bridge_staging="${FILESERVER_BRIDGE_STAGING:-/workspace/code/Desktop/.fileserver-staging}"
+readonly bridge_url="http://host.docker.internal:7777/_bridge/fileserver"
+
+bridge_token() {
+    if [ -n "${MAC_BRIDGE_TOKEN:-}" ]; then
+        printf '%s' "$MAC_BRIDGE_TOKEN"
+        return 0
+    fi
+    # `envify VAR` evals internally and prints nothing; `source envify VAR`
+    # exports it into this shell (one Touch ID on the Mac).
+    # shellcheck disable=SC1091
+    source envify MAC_BRIDGE_TOKEN 2>/dev/null || true
+    printf '%s' "${MAC_BRIDGE_TOKEN:-}"
+}
+
+bridge_call() {
+    # Args to forward are the positional params; token goes via curl --config
+    # (process substitution) so it never lands in the process list.
+    local token
+    token=$(bridge_token)
+    if [ -z "$token" ]; then
+        echo "fileserver: no MAC_BRIDGE_TOKEN - run 'source envify MAC_BRIDGE_TOKEN' or finish bridge setup" >&2
+        return 1
+    fi
+    printf '%s\n' "$@" | curl -sS --fail-with-body -X POST --data-binary @- \
+        --config <(printf 'header = "Authorization: Bearer %s"' "$token") \
+        "$bridge_url"
+}
+
+bridge_upload() {
+    /bin/mkdir -p "$bridge_staging"
+    local names=() f base src
+    for f in "$@"; do
+        [ -f "$f" ] || { echo "fileserver: no such file: $f" >&2; exit 1; }
+        base=$(basename "$f")
+        src="$(cd "$(dirname "$f")" && pwd)/${base}"
+        [ "$src" = "${bridge_staging}/${base}" ] || /bin/cp "$f" "${bridge_staging}/${base}"
+        names+=("$base")
+    done
+    # Clean up the staged copies here (the container can write the mount); the Mac
+    # side must not, since ~/Desktop is TCC-protected for the launchd process.
+    if bridge_call upload "${names[@]}"; then
+        for base in "${names[@]}"; do /bin/rm -f "${bridge_staging}/${base}"; done
+    else
+        return 1
+    fi
+}
+
+bridge_download() {
+    /bin/mkdir -p "$bridge_staging"
+    bridge_call download "$@"
+    local n
+    for n in "$@"; do
+        if [ -f "${bridge_staging}/${n}" ]; then
+            /bin/mv "${bridge_staging}/${n}" "./${n}"
+        fi
+    done
+}
+
+forward_via_bridge() {
+    local sub="${1:-}"
+    [ -n "$sub" ] || { echo "usage: fileserver <list|upload|download|remove> [args...]" >&2; exit 2; }
+    shift
+    case "$sub" in
+        list)     bridge_call list ;;
+        remove)   [ "$#" -ge 1 ] || { echo "fileserver: remove needs a filename" >&2; exit 2; }; bridge_call remove "$@" ;;
+        upload)   [ "$#" -ge 1 ] || { echo "fileserver: upload needs a file" >&2; exit 2; }; bridge_upload "$@" ;;
+        download) [ "$#" -ge 1 ] || { echo "fileserver: download needs a filename" >&2; exit 2; }; bridge_download "$@" ;;
+        -h | --help | "") echo "fileserver (via bridge): list | upload <file>... | download <name>... | remove <name>..." ;;
+        *)        echo "fileserver: unsupported subcommand: ${sub}" >&2; exit 2 ;;
+    esac
+}
+
+if [ -f /.dockerenv ]; then
+    forward_via_bridge "$@"
+    exit $?
+fi
+
+# kubectl exec needs a TTY only when we have one; the bridge runs us headless,
+# where -t would fail with "the input device is not a TTY".
+kube_exec_flags() {
+    if [ -t 0 ] && [ -t 1 ]; then printf '%s' '-ti'; else printf '%s' '-i'; fi
+}
+
 print_help() {
     local self
     self=$(basename "$0")
@@ -66,6 +157,13 @@ find_pod() {
         -o jsonpath='{.items[0].metadata.name}'
 }
 
+# True when the pod actually carries the rsync sidecar. Some rollouts ship only
+# the caddy container; there we fall back to `kubectl cp` (caddy's busybox tar).
+pod_has_sidecar() {
+    kubectl -n "$namespace" get pod "$1" \
+        -o jsonpath='{.spec.containers[*].name}' 2>/dev/null | tr ' ' '\n' | grep -qx "$sidecar"
+}
+
 # Resumable transfer over the rsync sidecar. --partial keeps interrupted files so
 # a re-run continues instead of restarting; --partial-dir keeps them out of the
 # served web root until complete.
@@ -77,7 +175,7 @@ rsync_transfer() {
 list_files() {
     # $0/$@ are expanded by the remote sh, not bash - single quotes are intentional.
     # shellcheck disable=SC2016
-    kubectl -n "$namespace" exec -ti "$deployment" -- /bin/sh -c 'cd "$0" && ls -al' "$webroot"
+    kubectl -n "$namespace" exec "$(kube_exec_flags)" "$deployment" -- /bin/sh -c 'cd "$0" && ls -al' "$webroot"
 }
 
 remove_files() {
@@ -86,7 +184,7 @@ remove_files() {
         exit 1
     fi
     # shellcheck disable=SC2016
-    kubectl -n "$namespace" exec -ti "$deployment" -- /bin/sh -c 'cd "$0" && rm -rf "$@"' "$webroot" "$@"
+    kubectl -n "$namespace" exec "$(kube_exec_flags)" "$deployment" -- /bin/sh -c 'cd "$0" && rm -rf "$@"' "$webroot" "$@"
 }
 
 upload_files() {
@@ -96,7 +194,7 @@ upload_files() {
     fi
     local pod file
     pod=$(find_pod)
-    if command -v rsync >/dev/null 2>&1; then
+    if command -v rsync >/dev/null 2>&1 && pod_has_sidecar "$pod"; then
         rsync_transfer "$@" "${pod}:${webroot}/"
     else
         for file in "$@"; do
@@ -110,10 +208,13 @@ download_files() {
         echo "usage: $(basename "$0") download <file> [file...]" >&2
         exit 1
     fi
-    local pod file
+    local pod file use_rsync=0
     pod=$(find_pod)
+    if command -v rsync >/dev/null 2>&1 && pod_has_sidecar "$pod"; then
+        use_rsync=1
+    fi
     for file in "$@"; do
-        if command -v rsync >/dev/null 2>&1; then
+        if [ "$use_rsync" -eq 1 ]; then
             rsync_transfer "${pod}:${webroot}/${file}" .
         else
             kubectl -n "$namespace" cp "${pod}:${webroot}/${file}" .
@@ -121,7 +222,60 @@ download_files() {
     done
 }
 
+# Bridge-serve mode: invoked by the keyguard bridge as `fileserver __bridge_serve__`
+# with the request piped to stdin (newline-separated; first line = subcommand).
+# Turns it back into a native call, resolving upload/download files against the
+# shared staging dir. Only the four allowlisted subcommands run - anything else
+# is rejected, so the bridge cannot drive arbitrary commands.
+serve_bridge() {
+    # launchd runs the keyguard server with a minimal env - no PATH to Homebrew
+    # and none of the shell-rc exports, so kubectl would default to localhost:8080.
+    # Restore the bits the native path needs.
+    export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH}"
+    [ -n "${KUBECONFIG:-}" ] || export KUBECONFIG="${HOME}/.kube/personal-infra.yaml"
+    local staging="${FILESERVER_BRIDGE_STAGING:-${HOME}/Desktop/.fileserver-staging}"
+    local args=() line
+    while IFS= read -r line; do args+=("$line"); done
+    [ "${#args[@]}" -ge 1 ] || { echo "fileserver: empty bridge request" >&2; exit 1; }
+
+    local sub="${args[0]}" rest=() i
+    for ((i = 1; i < ${#args[@]}; i++)); do rest+=("${args[$i]}"); done
+
+    case "$sub" in
+        list)
+            list_files
+            ;;
+        remove)
+            [ "${#rest[@]}" -ge 1 ] || { echo "fileserver: remove needs filenames" >&2; exit 1; }
+            remove_files "${rest[@]}"
+            ;;
+        upload)
+            [ "${#rest[@]}" -ge 1 ] || { echo "fileserver: upload needs filenames" >&2; exit 1; }
+            local paths=() n
+            for n in "${rest[@]}"; do
+                [ -f "${staging}/${n}" ] || { echo "fileserver: not staged: ${n}" >&2; exit 1; }
+                paths+=("${staging}/${n}")
+            done
+            upload_files "${paths[@]}"
+            # Cleanup is the container's job (it can write the Desktop mount; the
+            # launchd process cannot, due to macOS TCC).
+            ;;
+        download)
+            [ "${#rest[@]}" -ge 1 ] || { echo "fileserver: download needs filenames" >&2; exit 1; }
+            /bin/mkdir -p "$staging"
+            ( cd "$staging" && download_files "${rest[@]}" )
+            ;;
+        *)
+            echo "fileserver: unsupported bridge subcommand: ${sub}" >&2
+            exit 1
+            ;;
+    esac
+}
+
 case "${1:-}" in
+    __bridge_serve__)
+        serve_bridge
+        ;;
     list)
         list_files
         ;;

@@ -1,0 +1,76 @@
+#!/bin/bash
+# claude-transcript - render a Claude Code session's JSONL to a self-contained
+# HTML transcript and publish it to the file-server. Prints the public URL.
+#
+# Runs INSIDE the dev container (needs ~/.claude/projects and uvx). Upload goes
+# through `fileserver upload`, which forwards to the Mac over the keyguard bridge.
+#
+# Usage:
+#   claude-transcript <SESSION_ID>   render that session (id from the caller's
+#                                    scratchpad path: .../-workspace/<id>/...)
+#   claude-transcript --latest       render the most recently updated session
+set -euo pipefail
+
+readonly projects="${HOME}/.claude/projects"
+readonly staging="${FILESERVER_BRIDGE_STAGING:-/workspace/code/Desktop/.fileserver-staging}"
+readonly base_url="${FILESERVER_PUBLIC_BASE:-https://emanuelemazzotta.com/downloads}"
+
+error() { echo "claude-transcript: $*" >&2; }
+
+show_usage() {
+    cat <<EOF
+Usage: claude-transcript <SESSION_ID | --latest>
+
+Render a Claude Code session transcript to HTML and publish it to the
+file-server, printing the public URL.
+
+  SESSION_ID   UUID of the session (the id in your scratchpad path)
+  --latest     use the most recently updated session JSONL
+EOF
+}
+
+find_session_jsonl() {
+    find "$projects" -maxdepth 2 -name "${1}.jsonl" -not -path '*/subagents/*' 2>/dev/null | head -1
+}
+
+find_latest_jsonl() {
+    find "$projects" -maxdepth 2 -name '*.jsonl' -not -path '*/subagents/*' -printf '%T@ %p\n' 2>/dev/null \
+        | sort -rn | head -1 | cut -d' ' -f2-
+}
+
+main() {
+    local selector="${1:-}"
+    case "$selector" in
+        -h | --help | "") show_usage; [ -z "$selector" ] && exit 2 || exit 0 ;;
+    esac
+
+    for cmd in uvx fileserver; do
+        command -v "$cmd" >/dev/null 2>&1 || { error "missing required command: ${cmd}"; exit 1; }
+    done
+
+    local jsonl id
+    if [ "$selector" = "--latest" ]; then
+        jsonl=$(find_latest_jsonl)
+        [ -n "$jsonl" ] || { error "no session transcripts under ${projects}"; exit 1; }
+        id=$(basename "$jsonl" .jsonl)
+    else
+        id="$selector"
+        jsonl=$(find_session_jsonl "$id")
+        [ -n "$jsonl" ] || { error "no transcript for session ${id} under ${projects}"; exit 1; }
+    fi
+
+    local name
+    name="claude-transcript-$(date -u +%Y-%m-%dT%H-%M-%SZ)-${id}.html"
+
+    /bin/mkdir -p "$staging"
+    uvx --from claude-code-log claude-code-log "$jsonl" -o "${staging}/${name}" >&2
+
+    # fileserver (container) forwards the upload over the bridge; progress -> stderr.
+    fileserver upload "${staging}/${name}" >&2
+
+    printf '%s/%s\n' "$base_url" "$name"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
