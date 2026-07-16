@@ -22,6 +22,7 @@ logging.basicConfig(level=logging.WARNING)
 
 TRACKS_PATH = os.environ.get('DJ_TRACKS')
 SPOTIFY_ENV_VARS: Final[tuple[str, ...]] = ('SPOTIFY_CLIENT_ID', 'SPOTIFY_CLIENT_SECRET')
+WHERE_FROM_ATTRIBUTE: Final = 'com.apple.metadata:kMDItemWhereFroms'
 
 
 def load_env_via_envify(vars: tuple[str, ...]) -> None:
@@ -316,8 +317,15 @@ def to_path(src):
         raise TypeError(f"Expected str or Path, got {type(src).__name__}")
 
 
-def remove_where_from(file_path):
-    os.system(f'xattr -d com.apple.metadata:kMDItemWhereFroms "{file_path}" 2>/dev/null')
+def remove_where_from(file_path: str | Path) -> None:
+    try:
+        subprocess.run(
+            ['xattr', '-d', WHERE_FROM_ATTRIBUTE, str(file_path)],
+            stderr=subprocess.DEVNULL,
+            check=False
+        )
+    except FileNotFoundError:
+        logger.debug("xattr unavailable, skipping where-from removal")
 
 
 if __name__ == '__main__':

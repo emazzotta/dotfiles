@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -56,3 +56,44 @@ class TestCleanString:
     def test_preserves_named_mixes(self, atm):
         result = atm.clean_string("Track (Club Mix)")
         assert "Club Mix" in result
+
+
+class TestRemoveWhereFrom:
+    def test_should_pass_filename_as_literal_argv_without_invoking_a_shell(self, atm):
+        hostile = "/tracks/x$(id -un > /tmp/pwned)`whoami`.mp3"
+
+        with patch.object(atm.subprocess, "run") as run:
+            atm.remove_where_from(hostile)
+
+        args, kwargs = run.call_args
+        assert args[0] == [
+            "xattr", "-d", "com.apple.metadata:kMDItemWhereFroms", hostile
+        ]
+        assert kwargs.get("shell") is not True
+
+    @pytest.mark.parametrize("filename", [
+        "/tracks/Ke$ha - Tik Tok.mp3",
+        "/tracks/Artist - $HOME.mp3",
+        '/tracks/a"b.mp3',
+        "/tracks/Bjork - Joga `whoami`.mp3",
+        "/tracks/50% Off (Remix).wav",
+    ])
+    def test_should_preserve_shell_metacharacters_in_the_filename(self, atm, filename):
+        with patch.object(atm.subprocess, "run") as run:
+            atm.remove_where_from(filename)
+
+        assert run.call_args[0][0][3] == filename
+
+    def test_should_accept_a_path_and_stringify_it(self, atm, tmp_path):
+        track = tmp_path / "track.mp3"
+
+        with patch.object(atm.subprocess, "run") as run:
+            atm.remove_where_from(track)
+
+        assert run.call_args[0][0][3] == str(track)
+
+    def test_should_not_raise_when_attribute_is_absent(self, atm, tmp_path):
+        track = tmp_path / "no-such-attribute.mp3"
+        track.write_bytes(b"")
+
+        atm.remove_where_from(track)
