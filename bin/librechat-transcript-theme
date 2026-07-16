@@ -1,0 +1,414 @@
+#!/usr/bin/env python3
+"""Restyle a claude-code-log HTML transcript to look like LibreChat.
+
+claude-code-log emits a self-contained HTML file whose look (rainbow gradient,
+1200px column, drop-shadowed cards) is not to taste. Rather than fork the
+generator, this injects a theme stylesheet just before </head> so it wins on
+cascade order: it retargets the generator's own CSS variables and adds
+LibreChat's layout (centered ~48rem column, right-aligned user bubbles,
+full-width assistant turns, muted tool/thinking cards, sticky header, and a
+light/dark theme that follows the reader's system preference).
+
+It also injects a small companion script for the two things CSS can't do here:
+recolour the fold chips (their background is painted by a runtime stylesheet
+that outranks any CSS override) and force long assistant replies open.
+
+Idempotent: re-running on an already-themed file is a no-op.
+
+Usage:
+    librechat-transcript-theme <FILE.html>   restyle in place
+"""
+from pathlib import Path
+import argparse
+import sys
+
+THEME_ID = "librechat-theme"
+
+LIBRECHAT_THEME_CSS = """
+/* LibreChat-style overlay for claude-code-log transcripts.
+   Injected after the generator's stylesheet, so equal-specificity rules win on
+   order; !important is used only where the generator is more specific. */
+:root {
+  color-scheme: light dark;
+
+  --lc-green: #10a37f;
+  --lc-green-link: #126e6b;
+  --lc-purple: #ab68ff;
+
+  /* Light surfaces (LibreChat light theme) */
+  --lc-app-bg: #ffffff;
+  --lc-user-bubble: #f4f4f4;
+  --lc-card-bg: #f7f7f8;
+  --lc-border: #e3e3e3;
+  --lc-text: #0d0d0d;
+  --lc-text-muted: #595959;
+  --lc-header-bg: #ffffffe6;
+  --lc-code-bg: #f7f7f8;
+  --lc-link: var(--lc-green-link);
+
+  /* Retarget the generator's own variables */
+  --text-primary: var(--lc-text);
+  --text-muted: var(--lc-text-muted);
+  --text-secondary: var(--lc-text-muted);
+  --code-bg-color: var(--lc-code-bg);
+  --border-light: var(--lc-border);
+  --border-separator: var(--lc-border);
+  --bg-card: transparent;
+  --bg-hover: var(--lc-card-bg);
+  --bg-neutral: var(--lc-card-bg);
+  --font-ui: "Soehne", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --lc-app-bg: #212121;
+    --lc-user-bubble: #2f2f2f;
+    --lc-card-bg: #171717;
+    --lc-border: #2f2f2f;
+    --lc-text: #ececec;
+    --lc-text-muted: #b4b4b4;
+    --lc-header-bg: #171717e6;
+    --lc-code-bg: #0d0d0d;
+    --lc-link: #6dc8b9;
+  }
+}
+
+/* App shell */
+body {
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 0 6rem !important;
+  background: var(--lc-app-bg) !important;
+  color: var(--lc-text) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Sticky header bar */
+h1#title {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  margin: 0 0 1rem !important;
+  padding: 14px 20px !important;
+  font-size: 1rem !important;
+  font-weight: 600 !important;
+  text-align: center !important;
+  color: var(--lc-text) !important;
+  background: var(--lc-header-bg) !important;
+  border-bottom: 1px solid var(--lc-border);
+  backdrop-filter: saturate(180%) blur(8px);
+}
+
+/* Centered conversation column (top-level nodes only) */
+body > .message-node {
+  max-width: 48rem;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  padding: 0 1rem;
+}
+
+/* Neutralize the generator's drop-shadow cards; roles re-add their own look */
+.message {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: .5rem .25rem !important;
+  margin-bottom: .25rem !important;
+}
+.message .header { font-weight: 600; font-size: .8rem; }
+.message .content { line-height: 1.65; }
+.children { border-left-color: var(--lc-border) !important; }
+
+/* Collapse/fold controls. The generator pins height:28px + overflow:hidden
+   (clipping two-line labels like "...2 more total") and paints the chips with a
+   light gradient whose background-colour is wired at runtime and can't be
+   reliably overridden from CSS. So: unclip and shrink the labels, round the
+   bar, and keep the text dark so it stays readable on the light chip in both
+   themes (a light muted colour here disappears against the chip). */
+.fold-bar {
+  height: auto !important;
+  min-height: 30px;
+  overflow: visible !important;
+  border-radius: .5rem !important;
+  margin: .5rem 0 !important;
+}
+.fold-bar-section,
+.fold-bar-section.folded,
+.fold-bar-section:hover {
+  overflow: visible !important;
+  font-size: .74rem !important;
+  font-weight: 500 !important;
+  line-height: 1.3;
+  padding: .45rem .8rem !important;
+}
+.fold-bar-section, .fold-label, .fold-icon { color: #3f3f46 !important; }
+.fold-icon { font-size: .7rem; }
+.fold-one-level { border-right: 1px solid rgba(0, 0, 0, .12) !important; }
+.token-usage, .debug-info { color: var(--lc-text-muted) !important; opacity: .7; }
+.timestamp { color: var(--lc-text-muted) !important; font-weight: 400; }
+
+/* User: right-aligned rounded bubble, no role label */
+.message.user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.message.user > .header {
+  order: 2;
+  justify-content: flex-end;
+  margin: 6px 10px 0 0;
+  font-weight: 400;
+}
+.message.user > .header > span:first-child { display: none; }
+.message.user > .content {
+  order: 1;
+  background: var(--lc-user-bubble) !important;
+  border-radius: 1.5rem !important;
+  padding: .625rem 1.125rem !important;
+  max-width: min(85%, 60ch);
+}
+
+/* Assistant: full width, green name row */
+.message.assistant > .header > span:first-child { color: var(--lc-green); }
+/* Long replies are force-opened by the companion script, so the "N lines"
+   collapse toggle is dead weight - hide it for a cleaner, fully-open reply. */
+.message.assistant details > summary { display: none !important; }
+
+/* Thinking: quiet italic reasoning */
+.message.thinking {
+  border-left: 2px solid var(--lc-border) !important;
+  opacity: .9;
+}
+.message.thinking .content { font-style: italic; color: var(--lc-text-muted) !important; }
+
+/* Tool calls: one cohesive card (call on top, result below).
+   Reset the generator's asymmetric 2em/6em margins and hardcoded-dark text. */
+.message.tool_use,
+.message.tool_result {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  background: var(--lc-card-bg) !important;
+  border: 1px solid var(--lc-border) !important;
+  border-radius: .7rem !important;
+  padding: .5rem .85rem !important;
+  font-size: .92em;
+}
+.message.tool_use { margin: .5rem 0 0 !important; }
+.message.tool_result { margin: 0 0 .6rem !important; }
+
+/* Join a call+result pair into a single panel */
+.message.tool_use.pair_first {
+  border-bottom: 0 !important;
+  border-bottom-left-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  margin-bottom: 0 !important;
+}
+.message.tool_result.pair_last {
+  border-top: 1px solid var(--lc-border) !important;
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+  margin-top: 0 !important;
+}
+
+/* Call header: monospace tool name with a subtle wrench chip */
+.message.tool_use > .header { align-items: center; margin-bottom: 6px; }
+.message.tool_use > .header > span:first-child {
+  font-family: var(--font-monospace);
+  font-weight: 600;
+  font-size: .82rem;
+  color: var(--lc-text);
+  letter-spacing: .01em;
+}
+.tool-summary { color: var(--lc-text-muted) !important; font-family: var(--font-monospace); }
+
+/* Result header: quiet "output" affordance since the label span is empty */
+.message.tool_result > .header { margin-bottom: 6px; }
+.message.tool_result > .header > span:first-child::before {
+  content: "output";
+  font-family: var(--font-monospace);
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--lc-text-muted);
+}
+
+/* Params table: flat key/value, muted monospace keys, readable values */
+.tool-params-table { font-size: .85rem; border-collapse: collapse; }
+.tool-param-key {
+  color: var(--lc-text-muted) !important;
+  font-weight: 500 !important;
+  font-family: var(--font-monospace);
+  width: 9em;
+  padding: 3px 10px 3px 0 !important;
+  vertical-align: top;
+}
+.tool-param-value {
+  color: var(--lc-text) !important;
+  font-family: var(--font-monospace);
+  padding: 3px 0 !important;
+  vertical-align: top;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tool-params-nested { border-left: 2px solid var(--lc-border); }
+
+/* Fold/expand controls and previews inside tool output */
+.tool-params-expand-all,
+.tool-param-key-toggle {
+  color: var(--lc-text-muted) !important;
+  font-family: var(--font-monospace);
+}
+.tool-param-fold-glyph,
+.tool-param-fold-label { color: var(--lc-text-muted) !important; }
+.tool-param-preview {
+  color: var(--lc-text-muted) !important;
+  font-family: var(--font-monospace);
+}
+
+/* Bash tool command block: terminal-style, theme-aware (was hardcoded #2c3e50) */
+.content pre.bash-tool-command {
+  background: var(--lc-code-bg) !important;
+  color: var(--lc-text) !important;
+  border: 1px solid var(--lc-border) !important;
+  border-radius: .45rem !important;
+}
+.bash-tool-content, .tool-result-json { color: var(--lc-text) !important; }
+
+/* System / hook lines: small and unobtrusive */
+.message.system {
+  background: transparent !important;
+  border: 0 !important;
+  color: var(--lc-text-muted) !important;
+  font-size: .8rem;
+}
+
+/* Session header: section divider */
+.message.session-header {
+  border-bottom: 1px solid var(--lc-border) !important;
+}
+.message.session-header .header { color: var(--lc-text); font-size: .9rem; }
+.message-model { color: var(--lc-text-muted); font-weight: 400; }
+
+/* Code + links */
+pre {
+  background: var(--lc-code-bg) !important;
+  border: 1px solid var(--lc-border);
+  border-radius: .5rem;
+  overflow-x: auto;
+}
+:not(pre) > code { background: var(--lc-code-bg) !important; border-radius: .3rem; }
+a { color: var(--lc-link) !important; }
+
+/* Keep the (default-hidden) timeline panel on-theme if toggled on */
+#timeline-container {
+  background: var(--lc-app-bg) !important;
+  border-bottom-color: var(--lc-border) !important;
+}
+"""
+
+SCRIPT_ID = "librechat-theme-js"
+
+# Two things CSS alone can't do on this generator:
+#  1. The fold chips ("2 systems", "32 lines") get a light gradient painted by a
+#     runtime-injected stylesheet whose background-color a CSS override (even
+#     high-specificity !important) can't beat. Inline styles set from JS carry
+#     !important priority that always wins, so recolour the chips there instead.
+#  2. Long assistant replies are wrapped in a collapsed <details> ("32 lines");
+#     force them open so replies always render in full.
+# Re-applied on load and on colour-scheme change; inline styles survive the
+# generator's stylesheet rules, so a single pass after render is enough.
+LIBRECHAT_THEME_JS = """
+(function () {
+  var setp = function (el, prop, val) { el.style.setProperty(prop, val, 'important'); };
+
+  function foldTheme() {
+    var dark = matchMedia('(prefers-color-scheme: dark)').matches;
+    var t = dark
+      ? { bg: '#1c1c1c', fg: '#a1a1aa', bd: 'rgba(255,255,255,.08)' }
+      : { bg: '#f2f2f3', fg: '#52525b', bd: 'rgba(0,0,0,.10)' };
+    document.querySelectorAll('.fold-bar-section').forEach(function (s) {
+      setp(s, 'background', 'none');
+      setp(s, 'background-color', t.bg);
+      setp(s, 'color', t.fg);
+    });
+    document.querySelectorAll('.fold-label, .fold-icon').forEach(function (e) {
+      setp(e, 'color', t.fg);
+    });
+    document.querySelectorAll('.fold-bar').forEach(function (b) {
+      setp(b, 'border', '1px solid ' + t.bd);
+    });
+    document.querySelectorAll('.fold-one-level').forEach(function (e) {
+      setp(e, 'border-right', '1px solid ' + t.bd);
+    });
+  }
+
+  function openAssistantReplies() {
+    document.querySelectorAll('.message.assistant details').forEach(function (d) {
+      d.open = true;
+    });
+  }
+
+  function run() { foldTheme(); openAssistantReplies(); }
+
+  if (document.readyState !== 'loading') run();
+  else document.addEventListener('DOMContentLoaded', run);
+  window.addEventListener('load', run);
+  try {
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', foldTheme);
+  } catch (e) { /* older Safari: no matchMedia change events */ }
+})();
+"""
+
+
+def is_themed(html: str, theme_id: str = THEME_ID) -> bool:
+    return f'id="{theme_id}"' in html or f"id='{theme_id}'" in html
+
+
+def build_theme_block(css: str = LIBRECHAT_THEME_CSS, js: str = LIBRECHAT_THEME_JS,
+                      theme_id: str = THEME_ID, script_id: str = SCRIPT_ID) -> str:
+    return (f'<style id="{theme_id}">{css}</style>\n'
+            f'<script id="{script_id}">{js}</script>\n')
+
+
+def inject_theme(html: str, css: str = LIBRECHAT_THEME_CSS, js: str = LIBRECHAT_THEME_JS,
+                 theme_id: str = THEME_ID) -> tuple[str, bool]:
+    """Return (html, changed). Idempotent; inserts before </head>."""
+    if is_themed(html, theme_id):
+        return html, False
+    block = build_theme_block(css, js, theme_id)
+    if "</head>" in html:
+        return html.replace("</head>", block + "</head>", 1), True
+    if "<body>" in html:
+        return html.replace("<body>", "<body>\n" + block, 1), True
+    return block + html, True
+
+
+def process_file(path: Path) -> bool:
+    html = path.read_text(encoding="utf-8")
+    new_html, changed = inject_theme(html)
+    if changed:
+        path.write_text(new_html, encoding="utf-8")
+    return changed
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Restyle a claude-code-log HTML transcript to look like LibreChat.")
+    parser.add_argument("html", type=Path, help="HTML transcript to restyle in place")
+    args = parser.parse_args(argv)
+
+    if not args.html.is_file():
+        print(f"librechat-transcript-theme: not a file: {args.html}", file=sys.stderr)
+        return 1
+
+    changed = process_file(args.html)
+    print("themed" if changed else "already themed", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

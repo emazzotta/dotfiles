@@ -44,7 +44,7 @@ main() {
         -h | --help | "") show_usage; [ -z "$selector" ] && exit 2 || exit 0 ;;
     esac
 
-    for cmd in uvx fileserver; do
+    for cmd in uvx fileserver librechat-transcript-theme; do
         command -v "$cmd" >/dev/null 2>&1 || { error "missing required command: ${cmd}"; exit 1; }
     done
 
@@ -64,6 +64,9 @@ main() {
 
     /bin/mkdir -p "$staging"
     uvx --from claude-code-log claude-code-log "$jsonl" -o "${staging}/${name}" >&2
+
+    # Restyle the generated HTML to a LibreChat look (idempotent, in place).
+    librechat-transcript-theme "${staging}/${name}" >&2
 
     # fileserver (container) forwards the upload over the bridge; progress -> stderr.
     fileserver upload "${staging}/${name}" >&2
