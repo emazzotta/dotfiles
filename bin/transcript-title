@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""Set the title of a claude-code-log HTML transcript.
+
+claude-code-log derives its title from the session's project path, so every
+transcript ends up called the same thing ("Claude Transcript - -workspace") and
+browser tabs, bookmarks and link previews carry no hint of what the session was
+about. Its CLI has no --title flag and both the <title> element and the
+<h1 id="title"> header render the same template variable, so this rewrites both
+in place to a caller-supplied summary title.
+
+Usage:
+    transcript-title <FILE.html> <TITLE>   retitle in place
+"""
+from html import escape
+from pathlib import Path
+import argparse
+import re
+import sys
+
+DOC_TITLE_PATTERN = re.compile(r"(<title[^>]*>).*?(</title>)", re.DOTALL | re.IGNORECASE)
+HEADER_PATTERN = re.compile(
+    r"(<h1[^>]*\sid=[\"']title[\"'][^>]*>).*?(</h1>)", re.DOTALL | re.IGNORECASE
+)
+
+
+def set_title(html: str, title: str) -> tuple[str, int]:
+    """Return (html, replacements). Rewrites <title> and <h1 id="title">."""
+    safe = escape(title)
+
+    def replace(match: re.Match[str]) -> str:
+        return match.group(1) + safe + match.group(2)
+
+    html, doc_hits = DOC_TITLE_PATTERN.subn(replace, html, count=1)
+    html, header_hits = HEADER_PATTERN.subn(replace, html, count=1)
+    return html, doc_hits + header_hits
+
+
+def process_file(path: Path, title: str) -> int:
+    html = path.read_text(encoding="utf-8")
+    new_html, replacements = set_title(html, title)
+    if replacements:
+        path.write_text(new_html, encoding="utf-8")
+    return replacements
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Set the title of a claude-code-log HTML transcript."
+    )
+    parser.add_argument("html", type=Path, help="HTML transcript to retitle in place")
+    parser.add_argument("title", help="title to use for the document and header")
+    args = parser.parse_args(argv)
+
+    if not args.html.is_file():
+        print(f"transcript-title: not a file: {args.html}", file=sys.stderr)
+        return 1
+    if not args.title.strip():
+        print("transcript-title: title must not be blank", file=sys.stderr)
+        return 2
+
+    replacements = process_file(args.html, args.title)
+    if not replacements:
+        print(f"transcript-title: no title element found in {args.html}", file=sys.stderr)
+        return 1
+
+    print(f"titled: {args.title}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

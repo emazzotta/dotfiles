@@ -58,6 +58,20 @@ class TestInjectTheme:
         assert "foldTheme" in mod.LIBRECHAT_THEME_JS
         assert "prefers-color-scheme" in mod.LIBRECHAT_THEME_JS
 
+    def should_scroll_to_top_imperatively_because_sticky_header_kills_the_anchor(self, mod):
+        assert "fixScrollTop" in mod.LIBRECHAT_THEME_JS
+        assert "a.scroll-top" in mod.LIBRECHAT_THEME_JS
+        assert "preventDefault" in mod.LIBRECHAT_THEME_JS
+        assert "window.scrollTo" in mod.LIBRECHAT_THEME_JS
+
+    def should_guard_scroll_top_against_double_binding(self, mod):
+        assert "dataset.lcScrollTop" in mod.LIBRECHAT_THEME_JS
+
+    def should_run_scroll_top_fix_on_load(self, mod):
+        run_body = mod.LIBRECHAT_THEME_JS.split("function run()")[1].split("}")[0]
+
+        assert "fixScrollTop()" in run_body
+
 
 class TestIsThemed:
     @pytest.mark.parametrize("html,expected", [

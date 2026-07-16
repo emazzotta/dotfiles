@@ -312,13 +312,18 @@ a { color: var(--lc-link) !important; }
 
 SCRIPT_ID = "librechat-theme-js"
 
-# Two things CSS alone can't do on this generator:
+# Three things CSS alone can't do on this generator:
 #  1. The fold chips ("2 systems", "32 lines") get a light gradient painted by a
 #     runtime-injected stylesheet whose background-color a CSS override (even
 #     high-specificity !important) can't beat. Inline styles set from JS carry
 #     !important priority that always wins, so recolour the chips there instead.
 #  2. Long assistant replies are wrapped in a collapsed <details> ("32 lines");
 #     force them open so replies always render in full.
+#  3. The "scroll to top" button is a bare <a href="#title">, and our own sticky
+#     header makes that a no-op: #title is already parked at the top of the
+#     viewport, so the browser computes zero scroll distance and does nothing.
+#     Verified in Chrome - unsticking the header restores the jump. Keep the
+#     sticky header and scroll imperatively instead.
 # Re-applied on load and on colour-scheme change; inline styles survive the
 # generator's stylesheet rules, so a single pass after render is enough.
 LIBRECHAT_THEME_JS = """
@@ -352,7 +357,17 @@ LIBRECHAT_THEME_JS = """
     });
   }
 
-  function run() { foldTheme(); openAssistantReplies(); }
+  function fixScrollTop() {
+    var btn = document.querySelector('a.scroll-top');
+    if (!btn || btn.dataset.lcScrollTop) return;
+    btn.dataset.lcScrollTop = '1';
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
+
+  function run() { foldTheme(); openAssistantReplies(); fixScrollTop(); }
 
   if (document.readyState !== 'loading') run();
   else document.addEventListener('DOMContentLoaded', run);

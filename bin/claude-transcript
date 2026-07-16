@@ -5,27 +5,39 @@
 # Runs INSIDE the dev container (needs ~/.claude/projects and uvx). Upload goes
 # through `fileserver upload`, which forwards to the Mac over the keyguard bridge.
 #
+# Re-publishing a session reuses the name it already has on the server (date
+# included), so the URL you shared once keeps working and shows the new content.
+#
 # Usage:
 #   claude-transcript <SESSION_ID>   render that session (id from the caller's
 #                                    scratchpad path: .../-workspace/<id>/...)
 #   claude-transcript --latest       render the most recently updated session
+#   --title "<TITLE>"                set the document title (default: generator's)
 set -euo pipefail
 
 readonly projects="${HOME}/.claude/projects"
 readonly staging="${FILESERVER_BRIDGE_STAGING:-/workspace/code/Desktop/.fileserver-staging}"
-readonly base_url="${FILESERVER_PUBLIC_BASE:-https://emanuelemazzotta.com/downloads}"
+# /share and /downloads both reach the same file-server (nginx rewrites /share/
+# onto /downloads/), so old /downloads links stay valid; /share is the one to hand out.
+readonly base_url="${FILESERVER_PUBLIC_BASE:-https://emanuelemazzotta.com/share}"
+readonly stamp_pattern='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z'
 
 error() { echo "claude-transcript: $*" >&2; }
 
 show_usage() {
     cat <<EOF
-Usage: claude-transcript <SESSION_ID | --latest>
+Usage: claude-transcript [--title "<TITLE>"] <SESSION_ID | --latest>
 
 Render a Claude Code session transcript to HTML and publish it to the
 file-server, printing the public URL.
 
-  SESSION_ID   UUID of the session (the id in your scratchpad path)
-  --latest     use the most recently updated session JSONL
+  SESSION_ID      UUID of the session (the id in your scratchpad path)
+  --latest        use the most recently updated session JSONL
+  --title TITLE   document title (browser tab + page header). Defaults to the
+                  generator's project-path title.
+
+Re-publishing a session overwrites the file it already has on the server, so
+its URL (timestamp included) stays valid.
 EOF
 }
 
@@ -38,13 +50,55 @@ find_latest_jsonl() {
         | sort -rn | head -1 | cut -d' ' -f2-
 }
 
-main() {
-    local selector="${1:-}"
-    case "$selector" in
-        -h | --help | "") show_usage; [ -z "$selector" ] && exit 2 || exit 0 ;;
-    esac
+# One Touch ID for the whole run: `fileserver` reads MAC_BRIDGE_TOKEN from the
+# environment when set, so resolving it once here spares the name lookup and the
+# upload a prompt each. Deferred until after arg validation on purpose.
+export_bridge_token() {
+    [ -f /.dockerenv ] || return 0
+    [ -z "${MAC_BRIDGE_TOKEN:-}" ] || return 0
+    # shellcheck disable=SC1091
+    source envify MAC_BRIDGE_TOKEN 2>/dev/null || true
+    export MAC_BRIDGE_TOKEN="${MAC_BRIDGE_TOKEN:-}"
+}
 
-    for cmd in uvx fileserver librechat-transcript-theme; do
+# The published name of an earlier run for this session, if any. Reusing it keeps
+# a shared URL alive; a miss (or an unreachable server) just mints a fresh name.
+find_published_name() {
+    local id="$1"
+    fileserver list 2>/dev/null \
+        | grep -oE "claude-transcript-${stamp_pattern}-${id}\.html" \
+        | head -1 || true
+}
+
+resolve_name() {
+    local id="$1" published
+    published=$(find_published_name "$id")
+    if [ -n "$published" ]; then
+        error "re-publishing over ${published}"
+        printf '%s' "$published"
+    else
+        printf 'claude-transcript-%s-%s.html' "$(date -u +%Y-%m-%dT%H-%M-%SZ)" "$id"
+    fi
+}
+
+main() {
+    local title="" selector=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -h | --help) show_usage; exit 0 ;;
+            --title)
+                title="${2:-}"
+                [ -n "$title" ] || { error "--title needs a value"; exit 2; }
+                shift 2
+                ;;
+            --latest) selector="$1"; shift ;;
+            -*) error "unknown option: $1"; show_usage >&2; exit 2 ;;
+            *) selector="$1"; shift ;;
+        esac
+    done
+    [ -n "$selector" ] || { show_usage >&2; exit 2; }
+
+    for cmd in uvx fileserver librechat-transcript-theme transcript-title; do
         command -v "$cmd" >/dev/null 2>&1 || { error "missing required command: ${cmd}"; exit 1; }
     done
 
@@ -59,14 +113,20 @@ main() {
         [ -n "$jsonl" ] || { error "no transcript for session ${id} under ${projects}"; exit 1; }
     fi
 
+    export_bridge_token
+
     local name
-    name="claude-transcript-$(date -u +%Y-%m-%dT%H-%M-%SZ)-${id}.html"
+    name=$(resolve_name "$id")
 
     /bin/mkdir -p "$staging"
     uvx --from claude-code-log claude-code-log "$jsonl" -o "${staging}/${name}" >&2
 
     # Restyle the generated HTML to a LibreChat look (idempotent, in place).
     librechat-transcript-theme "${staging}/${name}" >&2
+
+    if [ -n "$title" ]; then
+        transcript-title "${staging}/${name}" "$title" >&2
+    fi
 
     # fileserver (container) forwards the upload over the bridge; progress -> stderr.
     fileserver upload "${staging}/${name}" >&2
