@@ -146,6 +146,7 @@ class TestLockGitCryptMultiplePaths:
     @pytest.fixture(autouse=True)
     def _no_leonardo_commons(self, cl, monkeypatch, tmp_path):
         monkeypatch.setattr(cl, "LEONARDO_COMMONS", tmp_path / "nonexistent")
+        monkeypatch.setattr(cl, "LEONARDO_AI", tmp_path / "nonexistent")
 
     @pytest.fixture
     def mock_cl_run(self, cl, monkeypatch):
@@ -528,6 +529,7 @@ class TestMain:
     @pytest.fixture(autouse=True)
     def _no_leonardo_commons(self, cl, monkeypatch, tmp_path):
         monkeypatch.setattr(cl, "LEONARDO_COMMONS", tmp_path / "nonexistent")
+        monkeypatch.setattr(cl, "LEONARDO_AI", tmp_path / "nonexistent")
 
     @pytest.fixture
     def mock_cl_run(self, cl, monkeypatch):
@@ -737,6 +739,86 @@ class TestLeonardoCommonsAutoMount:
         cmd = mock_cl_run[-1]
         mount_spec = f"{leonardo_commons}:/workspace/code/leonardo-commons"
         assert cmd.count(mount_spec) == 1
+
+
+class TestLeonardoAiAutoMount:
+    @pytest.fixture(autouse=True)
+    def _mock_which(self, cl):
+        with patch.object(cl.shutil, "which", return_value="/usr/bin/git-crypt"):
+            yield
+
+    @pytest.fixture(autouse=True)
+    def _no_leonardo_commons(self, cl, monkeypatch, tmp_path):
+        monkeypatch.setattr(cl, "LEONARDO_COMMONS", tmp_path / "nonexistent")
+
+    @pytest.fixture
+    def mock_cl_run(self, cl, monkeypatch):
+        captured = []
+        def mock_run(cmd, **kwargs):
+            captured.append(cmd)
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        monkeypatch.setattr(cl, "run", mock_run)
+        return captured
+
+    @pytest.fixture
+    def leonardo_ai(self, cl, monkeypatch, tmp_path):
+        directory = tmp_path / "leonardo-ai"
+        directory.mkdir()
+        monkeypatch.setattr(cl, "LEONARDO_AI", directory)
+        return directory
+
+    def should_mount_leonardo_ai_when_running_from_an_unrelated_project(
+        self, cl, monkeypatch, mock_cl_run, tmp_path, leonardo_ai,
+    ):
+        pwd = tmp_path / "myproject"
+        pwd.mkdir()
+        monkeypatch.chdir(pwd)
+        monkeypatch.setattr(sys, "argv", ["cl"])
+
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+
+        assert f"{leonardo_ai}:/workspace/code/leonardo-ai" in mock_cl_run[-1]
+
+    def should_not_double_mount_when_leonardo_ai_passed_explicitly(
+        self, cl, monkeypatch, mock_cl_run, leonardo_ai,
+    ):
+        monkeypatch.setattr(sys, "argv", ["cl", "-p", str(leonardo_ai)])
+
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+
+        mount_spec = f"{leonardo_ai}:/workspace/code/leonardo-ai"
+        assert mock_cl_run[-1].count(mount_spec) == 1
+
+    def should_mount_leonardo_ai_even_when_already_locked_by_parent_scan(
+        self, cl, monkeypatch, mock_cl_run, tmp_path,
+    ):
+        parent = tmp_path / "leo-productions"
+        parent.mkdir()
+        leonardo_ai = parent / "leonardo-ai"
+        leonardo_ai.mkdir()
+        (leonardo_ai / ".git-crypt").mkdir()
+        monkeypatch.setattr(cl, "LEONARDO_AI", leonardo_ai)
+        monkeypatch.chdir(parent)
+        monkeypatch.setattr(sys, "argv", ["cl"])
+
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+
+        assert f"{leonardo_ai}:/workspace/code/leonardo-ai" in mock_cl_run[-1]
+
+    def should_not_mount_leonardo_ai_when_directory_is_absent(
+        self, cl, monkeypatch, mock_cl_run, tmp_path,
+    ):
+        monkeypatch.setattr(cl, "LEONARDO_AI", tmp_path / "nonexistent")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(sys, "argv", ["cl"])
+
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+
+        assert not any("leonardo-ai" in arg for arg in mock_cl_run[-1])
 
 
 class TestParseExclude:
@@ -984,6 +1066,7 @@ class TestMainWithIgnores:
     @pytest.fixture(autouse=True)
     def _no_leonardo_commons(self, cl, monkeypatch, tmp_path):
         monkeypatch.setattr(cl, "LEONARDO_COMMONS", tmp_path / "nonexistent")
+        monkeypatch.setattr(cl, "LEONARDO_AI", tmp_path / "nonexistent")
 
     @pytest.fixture
     def mock_cl_run(self, cl, monkeypatch):
