@@ -47,6 +47,7 @@ alias bom='echo -ne "\xEF\xBB\xBF"'
 alias autoc='find . -iname *.h -o -iname *.c -o -iname *.cpp | xargs clang-format -style=file -i'
 
 ### SHORTCUTS ###
+alias claude='cl'
 alias e='exit'
 alias mc='m clean'
 alias mci='mc install'
