@@ -17,6 +17,10 @@ alias autopep='av;find . -name "*py" | xargs -I {} autopep8 -i {};dv'
 alias jv='java -version'
 alias sdkmanupdate='yes | sdk update;rmjsdk'
 
+### GRADLE ###
+alias gb='./gradlew build'
+alias gbrun='./gradlew bootRun'
+
 ### KUBERNETES ###
 alias k='kubectl'
 alias kc='kubeconf'
