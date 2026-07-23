@@ -13,6 +13,9 @@ quality=""
 preset=slow
 scale=""
 scale_height=""
+fps_target=""
+fps_half=no
+computed_fps=""
 use_hw=no
 tonemap=no
 copy_audio=no
@@ -29,6 +32,8 @@ src_pix_fmt=""
 src_transfer=""
 src_primaries=""
 src_space=""
+src_fps_num=""
+src_fps_den=""
 
 cmd=()
 enc_args=()
@@ -46,6 +51,8 @@ print_help() {
     log "                                   With hardware encode this is videotoolbox -q:v (higher = better, default 55)."
     log "  -p, --preset <name>              x264/x265 preset ultrafast..placebo (default: ${preset}). Ignored for av1 and hardware encode."
     log "  -s, --scale <2160p|1080p|720p|N> Downscale to a max height (never upscales)."
+    log "  --fps <n>                        Re-time to N fps by dropping/duplicating frames (e.g. 24, 25, 30)."
+    log "  --fps-half                       Halve the frame rate: exact 2:1 frame drop, no blending (60->30, 30->15)."
     log "  --hw                             Hardware encode (videotoolbox, Apple Silicon): far faster, larger files."
     log "  --tonemap                        Tonemap HDR (HLG/PQ) footage to SDR Rec.709."
     log "  --copy-audio                     Copy the audio stream instead of re-encoding to AAC 128k."
@@ -102,6 +109,8 @@ parse_args() {
             -c|--codec) [[ $# -ge 2 ]] || die "--codec requires a value"; codec="$2"; shift 2 ;;
             -p|--preset) [[ $# -ge 2 ]] || die "--preset requires a value"; preset="$2"; shift 2 ;;
             -s|--scale) [[ $# -ge 2 ]] || die "--scale requires a value"; scale="$2"; shift 2 ;;
+            --fps) [[ $# -ge 2 ]] || die "--fps requires a value"; fps_target="$2"; shift 2 ;;
+            --fps-half) fps_half=yes; shift ;;
             --hw) use_hw=yes; shift ;;
             --tonemap) tonemap=yes; shift ;;
             --copy-audio) copy_audio=yes; shift ;;
@@ -161,6 +170,13 @@ normalize_and_validate() {
             || die "invalid --scale '${scale}' (use 2160p/1440p/1080p/720p/480p or a height in px)"
     fi
 
+    if [[ "${fps_half}" == yes && -n "${fps_target}" ]]; then
+        die "--fps and --fps-half are mutually exclusive"
+    fi
+    if [[ -n "${fps_target}" && ! "${fps_target}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        die "invalid --fps '${fps_target}' (use a positive number like 24, 25, 30)"
+    fi
+
     if [[ -z "${quality}" ]]; then
         if [[ "${use_hw}" == yes ]]; then
             quality=55
@@ -212,6 +228,13 @@ detect_source() {
     src_primaries="$(probe_field color_primaries)"
     src_space="$(probe_field color_space)"
 
+    local rfr
+    rfr="$(probe_field r_frame_rate)"
+    if [[ "${rfr}" == */* ]]; then
+        src_fps_num="${rfr%%/*}"
+        src_fps_den="${rfr##*/}"
+    fi
+
     case "${src_transfer}" in
         smpte2084|arib-std-b67) is_hdr=yes ;;
         *) is_hdr=no ;;
@@ -222,10 +245,24 @@ detect_source() {
     esac
 }
 
+resolve_fps() {
+    if [[ "${fps_half}" == yes ]]; then
+        if [[ ! "${src_fps_num}" =~ ^[0-9]+$ || ! "${src_fps_den}" =~ ^[0-9]+$ || "${src_fps_num}" == 0 ]]; then
+            die "--fps-half needs a detectable source frame rate; ffprobe reported '${src_fps_num:-?}/${src_fps_den:-?}'"
+        fi
+        computed_fps="${src_fps_num}/$(( src_fps_den * 2 ))"
+    elif [[ -n "${fps_target}" ]]; then
+        computed_fps="${fps_target}"
+    fi
+}
+
 build_video_filter() {
     local filters=()
     if [[ "${tonemap}" == yes ]]; then
         filters+=("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
+    fi
+    if [[ -n "${computed_fps}" ]]; then
+        filters+=("fps=${computed_fps}")
     fi
     if [[ -n "${scale_height}" ]]; then
         filters+=("scale=-2:min(ih\\,${scale_height})")
@@ -367,6 +404,7 @@ main() {
         select_av1_encoder
     fi
     detect_source
+    resolve_fps
     build_command
 
     if [[ "${dry_run}" == yes ]]; then
@@ -376,7 +414,7 @@ main() {
         exit 0
     fi
 
-    log "codec=${codec} quality=${quality} preset=${preset} scale=${scale:-none} hw=${use_hw} tonemap=${tonemap} hdr=${is_hdr}"
+    log "codec=${codec} quality=${quality} preset=${preset} scale=${scale:-none} fps=${computed_fps:-source} hw=${use_hw} tonemap=${tonemap} hdr=${is_hdr}"
     trap 'echo; warn "interrupted"; cleanup_partial; exit 130' INT TERM
     run_compression
 }

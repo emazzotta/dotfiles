@@ -4,6 +4,7 @@ FFPROBE_MOCK = """for a in "$@"; do
     stream=color_transfer) echo "${MOCK_TRANSFER:-bt709}";;
     stream=color_primaries) echo "${MOCK_PRIMARIES:-bt709}";;
     stream=color_space) echo "${MOCK_SPACE:-bt709}";;
+    stream=r_frame_rate) echo "${MOCK_RFR:-60/1}";;
   esac
 done"""
 
@@ -72,6 +73,39 @@ class TestScale:
         result = _dry_run(run_bash, tmp_path, ["-s", "huge"])
         assert result.returncode == 2
         assert "invalid --scale" in result.stderr
+
+
+class TestFps:
+    def test_fps_half_halves_integer_source(self, run_bash, tmp_path):
+        result = _dry_run(run_bash, tmp_path, ["--fps-half"])
+        assert "-vf fps=60/2" in result.stdout
+
+    def test_fps_half_stays_exact_on_fractional_source(self, run_bash, tmp_path):
+        result = _dry_run(run_bash, tmp_path, ["--fps-half"], env_extra={"MOCK_RFR": "60000/1001"})
+        assert "fps=60000/2002" in result.stdout
+
+    def test_fps_explicit_target(self, run_bash, tmp_path):
+        result = _dry_run(run_bash, tmp_path, ["--fps", "24"])
+        assert "-vf fps=24" in result.stdout
+
+    def test_fps_decimates_before_scaling(self, run_bash, tmp_path):
+        result = _dry_run(run_bash, tmp_path, ["--fps-half", "-s", "1080p"])
+        assert r"-vf fps=60/2,scale=-2:min(ih\,1080)" in result.stdout
+
+    def test_fps_and_fps_half_are_mutually_exclusive(self, run_bash, tmp_path):
+        result = _dry_run(run_bash, tmp_path, ["--fps-half", "--fps", "24"])
+        assert result.returncode == 2
+        assert "mutually exclusive" in result.stderr
+
+    def test_invalid_fps_exits_two(self, run_bash, tmp_path):
+        result = _dry_run(run_bash, tmp_path, ["--fps", "fast"])
+        assert result.returncode == 2
+        assert "invalid --fps" in result.stderr
+
+    def test_fps_half_fails_without_detectable_source_rate(self, run_bash, tmp_path):
+        result = _dry_run(run_bash, tmp_path, ["--fps-half"], env_extra={"MOCK_RFR": "0/0"})
+        assert result.returncode == 2
+        assert "detectable source frame rate" in result.stderr
 
 
 class TestCodecs:
