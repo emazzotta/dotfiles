@@ -23,6 +23,7 @@ VENV: Final = CACHE / "venv"
 SENTENCE_END: Final = re.compile(r"[.!?]$")
 STRIP_TRAILING: Final = re.compile(r"[.,;:]+$")
 BOOTSTRAP_FLAG: Final = "CAPTIONS_BOOTSTRAPPED"
+LAST_WORD_TAIL: Final = 0.15
 
 
 @dataclass(frozen=True)
@@ -54,13 +55,21 @@ class Style:
 
 
 def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, check=True, capture_output=True, text=True)
+    try:
+        return subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        raise SystemExit(f"{cmd[0]} failed (exit {exc.returncode}): {detail}")
 
 
 def provision_python() -> str:
     """Create a cached uv venv with faster-whisper and return its interpreter."""
     print("Setting up local transcription runtime (one-time)...", file=sys.stderr)
-    run(["uv", "venv", str(VENV)])
+    VENV.parent.mkdir(parents=True, exist_ok=True)
+    create = ["uv", "venv", str(VENV)]
+    if VENV.exists():
+        create.insert(2, "--clear")
+    run(create)
     env = {**os.environ, "UV_HTTP_TIMEOUT": "120", "VIRTUAL_ENV": str(VENV)}
     subprocess.run(
         ["uv", "pip", "install", "-q", "faster-whisper"],
@@ -75,12 +84,33 @@ def ensure_runtime() -> None:
         import faster_whisper  # noqa: F401
         return
     except ImportError:
-        if os.environ.get(BOOTSTRAP_FLAG):
-            sys.exit("faster-whisper unavailable even after bootstrap")
-        python = provision_python()
-        os.execve(
-            python, [python, str(Path(__file__).resolve()), *sys.argv[1:]],
-            {**os.environ, BOOTSTRAP_FLAG: "1"},
+        pass
+    if os.environ.get(BOOTSTRAP_FLAG):
+        sys.exit(
+            f"faster-whisper unavailable even after bootstrap; remove {VENV} and retry"
+        )
+    venv_python = VENV / "bin" / "python"
+    python = str(venv_python) if venv_python.exists() else provision_python()
+    os.execve(
+        python, [python, str(Path(__file__).resolve()), *sys.argv[1:]],
+        {**os.environ, BOOTSTRAP_FLAG: "1"},
+    )
+
+
+def ensure_subtitles_filter() -> None:
+    """Fail fast when ffmpeg was built without libass (no subtitles filter)."""
+    filters = run(["ffmpeg", "-hide_banner", "-filters"]).stdout
+    available = any(
+        len(fields) >= 2 and fields[1] == "subtitles"
+        for fields in (line.split() for line in filters.splitlines())
+    )
+    if not available:
+        sys.exit(
+            "ffmpeg has no 'subtitles' filter (built without libass). "
+            "Homebrew's core ffmpeg no longer ships it; install a full build:\n"
+            "  brew uninstall ffmpeg\n"
+            "  brew tap homebrew-ffmpeg/ffmpeg\n"
+            "  brew install homebrew-ffmpeg/ffmpeg/ffmpeg"
         )
 
 
@@ -166,17 +196,28 @@ def _dialogue_line(words: list[Word], active: int, highlight: str) -> str:
     return " ".join(tokens)
 
 
-def _group_events(group: list[Word], style: Style) -> list[str]:
+def _group_events(
+    group: list[Word], style: Style, next_start: float | None
+) -> list[str]:
     highlight = _ass_colour(style.highlight, style_field=False)
     events: list[str] = []
     for index, word in enumerate(group):
         start = group[0].start if index == 0 else word.start
-        end = group[index + 1].start if index + 1 < len(group) else word.end + 0.15
+        end = _word_end(group, index, word, next_start)
         text = _dialogue_line(group, index, highlight)
         events.append(
             f"Dialogue: 0,{_fmt_time(start)},{_fmt_time(end)},Default,,0,0,0,,{text}"
         )
     return events
+
+
+def _word_end(
+    group: list[Word], index: int, word: Word, next_start: float | None
+) -> float:
+    if index + 1 < len(group):
+        return group[index + 1].start
+    tail = word.end + LAST_WORD_TAIL
+    return tail if next_start is None else min(tail, next_start)
 
 
 def build_ass(groups: list[list[Word]], style: Style) -> str:
@@ -203,7 +244,10 @@ def build_ass(groups: list[list[Word]], style: Style) -> str:
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
         "MarginV, Effect, Text",
     ]
-    events = [event for group in groups for event in _group_events(group, style)]
+    events: list[str] = []
+    for index, group in enumerate(groups):
+        next_start = groups[index + 1][0].start if index + 1 < len(groups) else None
+        events.extend(_group_events(group, style, next_start))
     return "\n".join(header + events) + "\n"
 
 
@@ -216,19 +260,23 @@ def ensure_font() -> Path:
     return font_dir
 
 
-def _escape_filter_path(path: Path) -> str:
-    text = str(path)
-    for char in ("\\", ":", "'"):
-        text = text.replace(char, f"\\{char}")
-    return text
+def _quote_filter_path(path: Path) -> str:
+    """Single-quote a path for an ffmpeg filtergraph option value.
+
+    The plain positional form (subtitles=<path>:fontsdir=<path>) is rejected by
+    ffmpeg 7/8's filtergraph parser even for ordinary paths; wrapping each value
+    in single quotes and naming the option explicitly is the portable form.
+    Backslashes are doubled; the controlled cache paths never contain quotes.
+    """
+    return "'" + str(path).replace("\\", "\\\\") + "'"
 
 
 def burn(video: Path, ass_path: Path, font_dir: Path, out: Path) -> None:
-    subs = _escape_filter_path(ass_path)
-    fonts = _escape_filter_path(font_dir)
+    subs = _quote_filter_path(ass_path)
+    fonts = _quote_filter_path(font_dir)
     run([
         "ffmpeg", "-y", "-loglevel", "error", "-i", str(video),
-        "-vf", f"subtitles={subs}:fontsdir={fonts}",
+        "-vf", f"subtitles=filename={subs}:fontsdir={fonts}",
         "-c:a", "copy", str(out),
     ])
 
@@ -275,6 +323,7 @@ def main(argv: list[str]) -> int:
     if not args.video.exists():
         sys.exit(f"no such file: {args.video}")
     ensure_runtime()
+    ensure_subtitles_filter()
     CACHE.mkdir(parents=True, exist_ok=True)
     work = CACHE / "work"
     work.mkdir(exist_ok=True)
