@@ -310,11 +310,37 @@ class TestParseArgs:
             "#ff0000",
         )
 
-    def should_default_alignment_to_bottom_centre(self, mod):
-        assert mod.parse_args(["clip.mp4"]).alignment == 2
+    def should_default_alignment_to_top_centre(self, mod):
+        assert mod.parse_args(["clip.mp4"]).alignment == 8
 
-    def should_accept_top_centre_alignment(self, mod):
-        assert mod.parse_args(["clip.mp4", "--alignment", "8"]).alignment == 8
+    def should_default_position_high_near_the_top(self, mod):
+        assert mod.parse_args(["clip.mp4"]).position == 0.10
+
+    def should_accept_bottom_centre_alignment_override(self, mod):
+        assert mod.parse_args(["clip.mp4", "--alignment", "2"]).alignment == 2
+
+
+class TestEmitCompletions:
+    def should_print_whisper_models_one_per_line(self, mod, capsys):
+        mod.emit_completions("models")
+        printed = capsys.readouterr().out.split()
+        assert list(mod.WHISPER_MODELS) == printed
+
+    def should_print_alignment_values_one_to_nine(self, mod, capsys):
+        mod.emit_completions("alignment")
+        assert capsys.readouterr().out.split() == [str(n) for n in range(1, 10)]
+
+    def should_print_common_languages(self, mod, capsys):
+        mod.emit_completions("langs")
+        assert capsys.readouterr().out.split() == list(mod.COMMON_LANGS)
+
+    def should_print_nothing_for_unknown_field(self, mod, capsys):
+        mod.emit_completions("bogus")
+        assert capsys.readouterr().out == ""
+
+    def should_route_complete_flag_through_main(self, mod, capsys):
+        assert mod.main(["--complete", "models"]) == 0
+        assert capsys.readouterr().out.split() == list(mod.WHISPER_MODELS)
 
 
 class TestQuoteFilterPath:

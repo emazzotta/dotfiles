@@ -393,6 +393,35 @@ _dcp()
 
   COMPREPLY=($(compgen -f -- "$cur"))
 }
+_captions()
+{
+  local cur prev
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  case "${prev}" in
+    -o|--output)
+      COMPREPLY=($(compgen -f -- "${cur}")); return 0 ;;
+    --model)
+      [[ -z "${_CAPTIONS_MODELS}" ]] && _CAPTIONS_MODELS=$(captions --complete models 2>/dev/null | tr '\n' ' ')
+      COMPREPLY=($(compgen -W "${_CAPTIONS_MODELS}" -- "${cur}")); return 0 ;;
+    --lang)
+      [[ -z "${_CAPTIONS_LANGS}" ]] && _CAPTIONS_LANGS=$(captions --complete langs 2>/dev/null | tr '\n' ' ')
+      COMPREPLY=($(compgen -W "${_CAPTIONS_LANGS}" -- "${cur}")); return 0 ;;
+    --alignment)
+      [[ -z "${_CAPTIONS_ALIGN}" ]] && _CAPTIONS_ALIGN=$(captions --complete alignment 2>/dev/null | tr '\n' ' ')
+      COMPREPLY=($(compgen -W "${_CAPTIONS_ALIGN}" -- "${cur}")); return 0 ;;
+    --highlight|--words|--gap|--scale|--position) return 0 ;;
+  esac
+  if [[ -z "${_CAPTIONS_OPTS_CACHE}" ]]; then
+    _CAPTIONS_OPTS_CACHE=$(captions --help 2>/dev/null | grep -oE -- '(^|[[:space:],])-{1,2}[a-zA-Z][a-zA-Z0-9-]*' | tr -d ' ,' | sort -u | tr '\n' ' ')
+  fi
+  if [[ "${cur}" == -* ]]; then
+    COMPREPLY=($(compgen -W "${_CAPTIONS_OPTS_CACHE}" -- "${cur}"))
+    return 0
+  fi
+  COMPREPLY=($(compgen -f -- "${cur}"))
+}
 complete -F _dcp dcp docker-cp
 complete -F _envify envify
 complete -F _keyguard keyguard
@@ -403,6 +432,7 @@ complete -o nospace -F _compressvideo compressvideo
 complete -o nospace -F _ef ef
 complete -o nospace -F _repo repo c
 complete -o filenames -F _cl cl
+complete -o filenames -F _captions captions
 complete -F _ags ags
 complete -F _make_targets make m
 complete -F _fileserver fileserver

@@ -35,8 +35,19 @@ DEFAULT_PALETTE: Final = (
     "#A24BFF",  # violet
     "#FF2E9A",  # pink
     "#FF3B30",  # red
-    "#FFC400",  # amber
+    # "#FFC400",  # amber
 )
+WHISPER_MODELS: Final = (
+    "tiny", "tiny.en", "base", "base.en", "small", "small.en",
+    "medium", "medium.en", "large-v1", "large-v2", "large-v3", "large",
+)
+COMMON_LANGS: Final = ("en", "de", "fr", "it", "es", "pt", "nl", "ru", "ja", "zh")
+ALIGNMENTS: Final = tuple(str(n) for n in range(1, 10))
+COMPLETIONS: Final = {
+    "models": WHISPER_MODELS,
+    "langs": COMMON_LANGS,
+    "alignment": ALIGNMENTS,
+}
 
 
 @dataclass(frozen=True)
@@ -385,19 +396,19 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     add(
         "--alignment",
         type=int,
-        default=2,
+        default=8,
         help="which screen zone the captions anchor to (ASS numpad layout): "
         "1-3 = bottom left/centre/right, 4-6 = middle left/centre/right, "
-        "7-9 = top left/centre/right. E.g. 2 = bottom-centre (default), "
-        "8 = top-centre, 5 = dead-centre",
+        "7-9 = top left/centre/right. E.g. 8 = top-centre (default), "
+        "2 = bottom-centre, 5 = dead-centre",
     )
     add(
         "--position",
         type=float,
-        default=0.30,
+        default=0.10,
         help="fine offset from the --alignment edge, as a fraction of video "
-        "height: gap above the bottom edge for 1-3, gap below the top edge "
-        "for 7-9, ignored for the vertically-centred row 4-6",
+        "height: gap below the top edge for 7-9, gap above the bottom edge "
+        "for 1-3, ignored for the vertically-centred row 4-6",
     )
     add("--model", default="small", help="faster-whisper model (default small)")
     add("--lang", default=None, help="force language code (default auto-detect)")
@@ -413,7 +424,16 @@ def default_output(video: Path) -> Path:
     return video.with_name(f"{video.stem}_captioned.mp4")
 
 
+def emit_completions(field: str) -> int:
+    """Print candidate values for a flag so shell completion can source them."""
+    for value in COMPLETIONS.get(field, ()):
+        print(value)
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["--complete"]:
+        return emit_completions(argv[1] if len(argv) > 1 else "")
     args = parse_args(argv)
     if not args.video.exists():
         sys.exit(f"no such file: {args.video}")
