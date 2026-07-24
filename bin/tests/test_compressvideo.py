@@ -41,10 +41,10 @@ class TestHelp:
 
 
 class TestDefaults:
-    def test_default_uses_libx265_slow_crf28(self, run_bash, tmp_path):
+    def test_default_uses_libx265_medium_crf28(self, run_bash, tmp_path):
         result = _dry_run(run_bash, tmp_path, [])
         assert result.returncode == 0
-        assert "-c:v libx265 -preset slow -crf 28 -tag:v hvc1" in result.stdout
+        assert "-c:v libx265 -preset medium -crf 28 -tag:v hvc1" in result.stdout
 
     def test_default_adds_faststart_and_aac_audio(self, run_bash, tmp_path):
         result = _dry_run(run_bash, tmp_path, [])
@@ -111,7 +111,7 @@ class TestFps:
 class TestCodecs:
     def test_h264_default_crf_and_8bit(self, run_bash, tmp_path):
         result = _dry_run(run_bash, tmp_path, ["-c", "h264"])
-        assert "-c:v libx264 -preset slow -crf 23" in result.stdout
+        assert "-c:v libx264 -preset medium -crf 23" in result.stdout
         assert "-pix_fmt yuv420p" in result.stdout
 
     def test_av1_default_crf_and_svt(self, run_bash, tmp_path):
