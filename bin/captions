@@ -369,12 +369,16 @@ def video_encoder_args() -> list[str]:
 def burn(video: Path, ass_path: Path, font_dir: Path, out: Path) -> None:
     subs = _quote_filter_path(ass_path)
     fonts = _quote_filter_path(font_dir)
-    run([
-        "ffmpeg", "-y", "-loglevel", "error", "-i", str(video),
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error", "-stats", "-i", str(video),
         "-vf", f"subtitles=filename={subs}:fontsdir={fonts}",
         *video_encoder_args(),
         "-c:a", "copy", str(out),
-    ])
+    ]
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"ffmpeg failed (exit {exc.returncode})")
 
 
 def build_style(width: int, height: int, args: argparse.Namespace) -> Style:
