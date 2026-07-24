@@ -186,7 +186,7 @@ def obtain_words(video: Path, work: Path, args: argparse.Namespace) -> list[Word
     if not args.no_cache:
         cached = _load_transcript(cache_path)
         if cached is not None:
-            log(f"Reusing cached transcript ({len(cached)} words, {cache_path.name})")
+            log(f"Reusing cached transcript ({len(cached)} words, {cache_path})")
             return cached
     log(f"Transcribing (local whisper, model={args.model})...")
     started = time.perf_counter()
@@ -194,7 +194,7 @@ def obtain_words(video: Path, work: Path, args: argparse.Namespace) -> list[Word
     log(f"Transcribed {len(words)} words in {time.perf_counter() - started:.1f}s")
     if words and not args.no_cache:
         _save_transcript(cache_path, words)
-        log(f"Cached transcript to {cache_path.name} (rerun resumes at rendering)")
+        log(f"Cached transcript to {cache_path} (rerun resumes at rendering)")
     return words
 
 
