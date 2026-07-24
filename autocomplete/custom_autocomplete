@@ -395,13 +395,14 @@ _dcp()
 }
 _captions()
 {
-  local cur prev
+  local cur prev line
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
   case "${prev}" in
     -o|--output)
-      COMPREPLY=($(compgen -f -- "${cur}")); return 0 ;;
+      while IFS= read -r line; do COMPREPLY+=("$line"); done < <(compgen -f -- "${cur}")
+      return 0 ;;
     --model)
       [[ -z "${_CAPTIONS_MODELS}" ]] && _CAPTIONS_MODELS=$(captions --complete models 2>/dev/null | tr '\n' ' ')
       COMPREPLY=($(compgen -W "${_CAPTIONS_MODELS}" -- "${cur}")); return 0 ;;
@@ -420,7 +421,7 @@ _captions()
     COMPREPLY=($(compgen -W "${_CAPTIONS_OPTS_CACHE}" -- "${cur}"))
     return 0
   fi
-  COMPREPLY=($(compgen -f -- "${cur}"))
+  while IFS= read -r line; do COMPREPLY+=("$line"); done < <(compgen -f -- "${cur}")
 }
 complete -F _dcp dcp docker-cp
 complete -F _envify envify
