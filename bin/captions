@@ -1,0 +1,298 @@
+#!/usr/bin/env python3
+"""Burn Hormozi-style karaoke captions into a short-form video, fully local.
+
+Pipeline: extract audio -> faster-whisper word timestamps -> styled .ass
+(one word highlighted at a time) -> ffmpeg burn-in. No cloud, no upload.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Final
+
+FONT_URL: Final = "https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf"
+FONT_NAME: Final = "Anton"
+CACHE: Final = Path.home() / ".cache" / "captions"
+VENV: Final = CACHE / "venv"
+SENTENCE_END: Final = re.compile(r"[.!?]$")
+STRIP_TRAILING: Final = re.compile(r"[.,;:]+$")
+BOOTSTRAP_FLAG: Final = "CAPTIONS_BOOTSTRAPPED"
+
+
+@dataclass(frozen=True)
+class Word:
+    text: str
+    start: float
+    end: float
+
+    @property
+    def display(self) -> str:
+        return STRIP_TRAILING.sub("", self.text).upper()
+
+    @property
+    def ends_sentence(self) -> bool:
+        return SENTENCE_END.search(self.text) is not None
+
+
+@dataclass(frozen=True)
+class Style:
+    font_size: int
+    outline: int
+    highlight: str
+    max_words: int
+    max_gap: float
+    play_w: int
+    play_h: int
+    margin_v: int
+    alignment: int
+
+
+def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+
+def provision_python() -> str:
+    """Create a cached uv venv with faster-whisper and return its interpreter."""
+    print("Setting up local transcription runtime (one-time)...", file=sys.stderr)
+    run(["uv", "venv", str(VENV)])
+    env = {**os.environ, "UV_HTTP_TIMEOUT": "120", "VIRTUAL_ENV": str(VENV)}
+    subprocess.run(
+        ["uv", "pip", "install", "-q", "faster-whisper"],
+        check=True, env=env, text=True,
+    )
+    return str(VENV / "bin" / "python")
+
+
+def ensure_runtime() -> None:
+    """Re-exec under a venv that has faster-whisper if the import is missing."""
+    try:
+        import faster_whisper  # noqa: F401
+        return
+    except ImportError:
+        if os.environ.get(BOOTSTRAP_FLAG):
+            sys.exit("faster-whisper unavailable even after bootstrap")
+        python = provision_python()
+        os.execve(
+            python, [python, str(Path(__file__).resolve()), *sys.argv[1:]],
+            {**os.environ, BOOTSTRAP_FLAG: "1"},
+        )
+
+
+def probe_dimensions(video: Path) -> tuple[int, int]:
+    out = run([
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=width,height",
+        "-of", "csv=s=x:p=0", str(video),
+    ]).stdout.strip()
+    width, height = out.split("x")
+    return int(width), int(height)
+
+
+def extract_audio(video: Path, work: Path) -> Path:
+    wav = work / "audio.wav"
+    run([
+        "ffmpeg", "-y", "-loglevel", "error", "-i", str(video),
+        "-ar", "16000", "-ac", "1", str(wav),
+    ])
+    return wav
+
+
+def transcribe_words(wav: Path, language: str | None, model_name: str) -> list[Word]:
+    from faster_whisper import WhisperModel
+
+    model = WhisperModel(model_name, device="cpu", compute_type="int8")
+    segments, _ = model.transcribe(
+        str(wav), language=language, word_timestamps=True, vad_filter=True,
+    )
+    words: list[Word] = []
+    for segment in segments:
+        for word in segment.words or []:
+            text = word.word.strip()
+            if text:
+                words.append(Word(text=text, start=word.start, end=word.end))
+    return words
+
+
+def group_words(words: list[Word], max_words: int, max_gap: float) -> list[list[Word]]:
+    groups: list[list[Word]] = []
+    current: list[Word] = []
+    for word in words:
+        if current and _should_break(current, word, max_words, max_gap):
+            groups.append(current)
+            current = []
+        current.append(word)
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _should_break(
+    current: list[Word], word: Word, max_words: int, max_gap: float
+) -> bool:
+    return (
+        len(current) >= max_words
+        or word.start - current[-1].end > max_gap
+        or current[-1].ends_sentence
+    )
+
+
+def _fmt_time(seconds: float) -> str:
+    seconds = max(0.0, seconds)
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{int(hours)}:{int(minutes):02d}:{secs:05.2f}"
+
+
+def _ass_colour(hex_colour: str, style_field: bool) -> str:
+    c = hex_colour.lstrip("#")
+    bgr = f"{c[4:6]}{c[2:4]}{c[0:2]}".upper()
+    return f"&H00{bgr}" if style_field else f"&H{bgr}&"
+
+
+def _dialogue_line(words: list[Word], active: int, highlight: str) -> str:
+    tokens: list[str] = []
+    for index, word in enumerate(words):
+        if index == active:
+            pop = r"\fscx100\fscy100\t(0,90,\fscx118\fscy118)"
+            tokens.append(f"{{\\c{highlight}{pop}}}{word.display}{{\\r}}")
+        else:
+            tokens.append(f"{{\\r}}{word.display}")
+    return " ".join(tokens)
+
+
+def _group_events(group: list[Word], style: Style) -> list[str]:
+    highlight = _ass_colour(style.highlight, style_field=False)
+    events: list[str] = []
+    for index, word in enumerate(group):
+        start = group[0].start if index == 0 else word.start
+        end = group[index + 1].start if index + 1 < len(group) else word.end + 0.15
+        text = _dialogue_line(group, index, highlight)
+        events.append(
+            f"Dialogue: 0,{_fmt_time(start)},{_fmt_time(end)},Default,,0,0,0,,{text}"
+        )
+    return events
+
+
+def build_ass(groups: list[list[Word]], style: Style) -> str:
+    primary = _ass_colour("#FFFFFF", style_field=True)
+    outline = _ass_colour("#000000", style_field=True)
+    header = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        "WrapStyle: 0",
+        "ScaledBorderAndShadow: yes",
+        f"PlayResX: {style.play_w}",
+        f"PlayResY: {style.play_h}",
+        "",
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+        "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding",
+        f"Style: Default,{FONT_NAME},{style.font_size},{primary},{primary},"
+        f"{outline},&H64000000,1,0,0,0,100,100,0,0,1,{style.outline},2,"
+        f"{style.alignment},40,40,{style.margin_v},1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+        "MarginV, Effect, Text",
+    ]
+    events = [event for group in groups for event in _group_events(group, style)]
+    return "\n".join(header + events) + "\n"
+
+
+def ensure_font() -> Path:
+    font_dir = CACHE / "fonts"
+    font_path = font_dir / "Anton-Regular.ttf"
+    if not font_path.exists():
+        font_dir.mkdir(parents=True, exist_ok=True)
+        urllib.request.urlretrieve(FONT_URL, font_path)  # noqa: S310 (fixed https url)
+    return font_dir
+
+
+def _escape_filter_path(path: Path) -> str:
+    text = str(path)
+    for char in ("\\", ":", "'"):
+        text = text.replace(char, f"\\{char}")
+    return text
+
+
+def burn(video: Path, ass_path: Path, font_dir: Path, out: Path) -> None:
+    subs = _escape_filter_path(ass_path)
+    fonts = _escape_filter_path(font_dir)
+    run([
+        "ffmpeg", "-y", "-loglevel", "error", "-i", str(video),
+        "-vf", f"subtitles={subs}:fontsdir={fonts}",
+        "-c:a", "copy", str(out),
+    ])
+
+
+def build_style(width: int, height: int, args: argparse.Namespace) -> Style:
+    font_size = int(height * args.scale)
+    return Style(
+        font_size=font_size,
+        outline=max(3, round(font_size * 0.06)),
+        highlight=args.highlight,
+        max_words=args.words,
+        max_gap=args.gap,
+        play_w=width,
+        play_h=height,
+        margin_v=int(height * args.position),
+        alignment=args.alignment,
+    )
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Burn Hormozi-style captions into a video."
+    )
+    add = parser.add_argument
+    add("video", type=Path, help="input video file")
+    add("-o", "--output", type=Path, help="output (default <name>_captioned.mp4)")
+    add("--highlight", default="#22FF00", help="active-word colour hex (green)")
+    add("--words", type=int, default=3, help="max words per line (default 3)")
+    add("--gap", type=float, default=0.6, help="silence gap that breaks a line (s)")
+    add("--scale", type=float, default=0.058, help="font size as fraction of height")
+    add("--position", type=float, default=0.30, help="bottom margin fraction of height")
+    add("--alignment", type=int, default=2, help="libass alignment (2=bottom, 5=mid)")
+    add("--model", default="small", help="faster-whisper model (default small)")
+    add("--lang", default=None, help="force language code (default auto-detect)")
+    return parser.parse_args(argv)
+
+
+def default_output(video: Path) -> Path:
+    return video.with_name(f"{video.stem}_captioned.mp4")
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    if not args.video.exists():
+        sys.exit(f"no such file: {args.video}")
+    ensure_runtime()
+    CACHE.mkdir(parents=True, exist_ok=True)
+    work = CACHE / "work"
+    work.mkdir(exist_ok=True)
+    width, height = probe_dimensions(args.video)
+    style = build_style(width, height, args)
+    print("Transcribing (local whisper)...", file=sys.stderr)
+    words = transcribe_words(extract_audio(args.video, work), args.lang, args.model)
+    if not words:
+        sys.exit("no speech detected")
+    groups = group_words(words, style.max_words, style.max_gap)
+    ass_path = work / "captions.ass"
+    ass_path.write_text(build_ass(groups, style), encoding="utf-8")
+    output = args.output or default_output(args.video)
+    print(f"Rendering {output.name}...", file=sys.stderr)
+    burn(args.video, ass_path, ensure_font(), output)
+    print(str(output))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
