@@ -7,10 +7,13 @@ Pipeline: extract audio -> faster-whisper word timestamps -> styled .ass
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import re
 import subprocess
 import sys
+import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +23,7 @@ FONT_URL: Final = "https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regu
 FONT_NAME: Final = "Anton"
 CACHE: Final = Path.home() / ".cache" / "captions"
 VENV: Final = CACHE / "venv"
+TRANSCRIPTS: Final = CACHE / "transcripts"
 SENTENCE_END: Final = re.compile(r"[.!?]$")
 STRIP_TRAILING: Final = re.compile(r"[.,;:]+$")
 BOOTSTRAP_FLAG: Final = "CAPTIONS_BOOTSTRAPPED"
@@ -62,9 +66,36 @@ def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
         raise SystemExit(f"{cmd[0]} failed (exit {exc.returncode}): {detail}")
 
 
+def log(message: str) -> None:
+    print(f"[{time.strftime('%H:%M:%S')}] {message}", file=sys.stderr, flush=True)
+
+
+def _transcript_key(video: Path, model_name: str, language: str | None) -> Path:
+    stat = video.stat()
+    seed = f"{video.resolve()}|{stat.st_size}|{stat.st_mtime_ns}|{model_name}|{language or 'auto'}"
+    digest = hashlib.sha256(seed.encode()).hexdigest()[:16]
+    return TRANSCRIPTS / f"{digest}.json"
+
+
+def _load_transcript(path: Path) -> list[Word] | None:
+    if not path.exists():
+        return None
+    try:
+        entries = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return [Word(text=e["text"], start=e["start"], end=e["end"]) for e in entries]
+
+
+def _save_transcript(path: Path, words: list[Word]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entries = [{"text": w.text, "start": w.start, "end": w.end} for w in words]
+    path.write_text(json.dumps(entries), encoding="utf-8")
+
+
 def provision_python() -> str:
     """Create a cached uv venv with faster-whisper and return its interpreter."""
-    print("Setting up local transcription runtime (one-time)...", file=sys.stderr)
+    log("Setting up local transcription runtime (one-time)...")
     VENV.parent.mkdir(parents=True, exist_ok=True)
     create = ["uv", "venv", str(VENV)]
     if VENV.exists():
@@ -146,6 +177,24 @@ def transcribe_words(wav: Path, language: str | None, model_name: str) -> list[W
             text = word.word.strip()
             if text:
                 words.append(Word(text=text, start=word.start, end=word.end))
+    return words
+
+
+def obtain_words(video: Path, work: Path, args: argparse.Namespace) -> list[Word]:
+    """Return word timestamps, reusing a cached transcript when one is valid."""
+    cache_path = _transcript_key(video, args.model, args.lang)
+    if not args.no_cache:
+        cached = _load_transcript(cache_path)
+        if cached is not None:
+            log(f"Reusing cached transcript ({len(cached)} words, {cache_path.name})")
+            return cached
+    log(f"Transcribing (local whisper, model={args.model})...")
+    started = time.perf_counter()
+    words = transcribe_words(extract_audio(video, work), args.lang, args.model)
+    log(f"Transcribed {len(words)} words in {time.perf_counter() - started:.1f}s")
+    if words and not args.no_cache:
+        _save_transcript(cache_path, words)
+        log(f"Cached transcript to {cache_path.name} (rerun resumes at rendering)")
     return words
 
 
@@ -304,13 +353,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     add("video", type=Path, help="input video file")
     add("-o", "--output", type=Path, help="output (default <name>_captioned.mp4)")
     add("--highlight", default="#22FF00", help="active-word colour hex (green)")
-    add("--words", type=int, default=3, help="max words per line (default 3)")
+    add("--words", type=int, default=5, help="max words per line (default 5)")
     add("--gap", type=float, default=0.6, help="silence gap that breaks a line (s)")
     add("--scale", type=float, default=0.058, help="font size as fraction of height")
     add("--position", type=float, default=0.30, help="bottom margin fraction of height")
     add("--alignment", type=int, default=2, help="libass alignment (2=bottom, 5=mid)")
     add("--model", default="small", help="faster-whisper model (default small)")
     add("--lang", default=None, help="force language code (default auto-detect)")
+    add(
+        "--no-cache",
+        action="store_true",
+        help="re-transcribe even if a cached transcript exists",
+    )
     return parser.parse_args(argv)
 
 
@@ -329,16 +383,19 @@ def main(argv: list[str]) -> int:
     work.mkdir(exist_ok=True)
     width, height = probe_dimensions(args.video)
     style = build_style(width, height, args)
-    print("Transcribing (local whisper)...", file=sys.stderr)
-    words = transcribe_words(extract_audio(args.video, work), args.lang, args.model)
+    overall = time.perf_counter()
+    words = obtain_words(args.video, work, args)
     if not words:
         sys.exit("no speech detected")
     groups = group_words(words, style.max_words, style.max_gap)
     ass_path = work / "captions.ass"
     ass_path.write_text(build_ass(groups, style), encoding="utf-8")
     output = args.output or default_output(args.video)
-    print(f"Rendering {output.name}...", file=sys.stderr)
+    log(f"Rendering {output.name}...")
+    started = time.perf_counter()
     burn(args.video, ass_path, ensure_font(), output)
+    log(f"Rendered {output.name} in {time.perf_counter() - started:.1f}s")
+    log(f"Done in {time.perf_counter() - overall:.1f}s total")
     print(str(output))
     return 0
 
