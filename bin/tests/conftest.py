@@ -24,6 +24,7 @@ def load_script():
         sys.path.insert(0, str(BIN_DIR))
         module = ModuleType(name)
         module.__file__ = str(script_path)
+        sys.modules[name] = module
         with open(script_path) as f:
             exec(f.read(), module.__dict__)
         return module
