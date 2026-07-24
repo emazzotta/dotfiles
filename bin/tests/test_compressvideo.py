@@ -4,6 +4,7 @@ FFPROBE_MOCK = """for a in "$@"; do
     stream=color_transfer) echo "${MOCK_TRANSFER:-bt709}";;
     stream=color_primaries) echo "${MOCK_PRIMARIES:-bt709}";;
     stream=color_space) echo "${MOCK_SPACE:-bt709}";;
+    stream=height) echo "${MOCK_HEIGHT:-1080}";;
     stream=r_frame_rate) echo "${MOCK_RFR:-60/1}";;
   esac
 done"""
@@ -142,13 +143,54 @@ class TestPreset:
 
 class TestHardware:
     def test_hw_h265_uses_videotoolbox(self, run_bash, tmp_path):
-        result = _dry_run(run_bash, tmp_path, ["--hw", "-c", "h265"])
+        result = _dry_run(
+            run_bash, tmp_path, ["--hw", "-c", "h265"],
+            mocks=_mocks(encoders="hevc_videotoolbox"),
+        )
         assert "-c:v hevc_videotoolbox -q:v 55 -tag:v hvc1" in result.stdout
 
     def test_hw_av1_is_rejected(self, run_bash, tmp_path):
         result = _dry_run(run_bash, tmp_path, ["--hw", "-c", "av1"])
         assert result.returncode == 2
         assert "hardware av1" in result.stderr
+
+    def test_auto_enables_hardware_when_videotoolbox_available(self, run_bash, tmp_path):
+        result = _dry_run(
+            run_bash, tmp_path, [], mocks=_mocks(encoders="hevc_videotoolbox")
+        )
+        assert "-c:v hevc_videotoolbox" in result.stdout
+        assert "hardware encoding via hevc_videotoolbox" in result.stdout
+
+    def test_auto_stays_software_without_videotoolbox(self, run_bash, tmp_path):
+        result = _dry_run(run_bash, tmp_path, [])
+        assert "-c:v libx265 -preset medium" in result.stdout
+
+    def test_sw_forces_software_even_when_hardware_available(self, run_bash, tmp_path):
+        result = _dry_run(
+            run_bash, tmp_path, ["--sw"], mocks=_mocks(encoders="hevc_videotoolbox")
+        )
+        assert "-c:v libx265 -preset medium" in result.stdout
+
+    def test_hw_errors_when_videotoolbox_unavailable(self, run_bash, tmp_path):
+        result = _dry_run(run_bash, tmp_path, ["--hw"], mocks=_mocks(encoders="none"))
+        assert result.returncode == 2
+        assert "unavailable" in result.stderr
+
+
+class TestDownscaleHint:
+    def test_hints_scale_for_source_above_1080p(self, run_bash, tmp_path):
+        result = _dry_run(run_bash, tmp_path, [], env_extra={"MOCK_HEIGHT": "2160"})
+        assert "add --scale 1080p" in result.stdout
+
+    def test_no_scale_hint_when_already_downscaling(self, run_bash, tmp_path):
+        result = _dry_run(
+            run_bash, tmp_path, ["-s", "1080p"], env_extra={"MOCK_HEIGHT": "2160"}
+        )
+        assert "add --scale 1080p" not in result.stdout
+
+    def test_no_scale_hint_for_1080p_source(self, run_bash, tmp_path):
+        result = _dry_run(run_bash, tmp_path, [], env_extra={"MOCK_HEIGHT": "1080"})
+        assert "add --scale 1080p" not in result.stdout
 
 
 class TestArgOrder:

@@ -16,7 +16,9 @@ scale_height=""
 fps_target=""
 fps_half=no
 computed_fps=""
+hw_pref=auto
 use_hw=no
+hw_encoder=""
 tonemap=no
 copy_audio=no
 remove=no
@@ -32,6 +34,7 @@ src_pix_fmt=""
 src_transfer=""
 src_primaries=""
 src_space=""
+src_height=""
 src_fps_num=""
 src_fps_den=""
 
@@ -42,7 +45,7 @@ color_args=()
 print_help() {
     log "usage: $(basename "${0}") [options] <video_file>"
     log
-    log "Compress (and optionally rescale) a video with ffmpeg. Default: h265, preset medium."
+    log "Compress (and optionally rescale) a video with ffmpeg. Default: h265; hardware encode (videotoolbox) when available, else software preset medium."
     log
     log "options:"
     log "  -c, --codec <h264|h265|av1>      Video codec (default: ${codec})"
@@ -53,7 +56,8 @@ print_help() {
     log "  -s, --scale <2160p|1080p|720p|N> Downscale to a max height (never upscales)."
     log "  --fps <n>                        Re-time to N fps by dropping/duplicating frames (e.g. 24, 25, 30)."
     log "  --fps-half                       Halve the frame rate: exact 2:1 frame drop, no blending (60->30, 30->15)."
-    log "  --hw                             Hardware encode (videotoolbox, Apple Silicon): far faster, larger files."
+    log "  --hw                             Force hardware encode (videotoolbox); fails if unavailable. Auto-selected when available."
+    log "  --sw                             Force software encode, disabling the automatic hardware path."
     log "  --tonemap                        Tonemap HDR (HLG/PQ) footage to SDR Rec.709."
     log "  --copy-audio                     Copy the audio stream instead of re-encoding to AAC 128k."
     log "  --just-preview-compatible        Force h264 8-bit for macOS Quicktime/Preview compatibility."
@@ -111,7 +115,8 @@ parse_args() {
             -s|--scale) [[ $# -ge 2 ]] || die "--scale requires a value"; scale="$2"; shift 2 ;;
             --fps) [[ $# -ge 2 ]] || die "--fps requires a value"; fps_target="$2"; shift 2 ;;
             --fps-half) fps_half=yes; shift ;;
-            --hw) use_hw=yes; shift ;;
+            --hw) hw_pref=on; shift ;;
+            --sw|--no-hw) hw_pref=off; shift ;;
             --tonemap) tonemap=yes; shift ;;
             --copy-audio) copy_audio=yes; shift ;;
             --rm-original) remove=yes; shift ;;
@@ -145,7 +150,7 @@ normalize_and_validate() {
 
     if [[ "${just_preview_compatible}" == yes ]]; then
         codec=h264
-        use_hw=no
+        hw_pref=off
         tonemap=no
     fi
 
@@ -153,17 +158,6 @@ normalize_and_validate() {
         h264|h265|av1) : ;;
         *) die "invalid codec '${codec}' (use h264, h265 or av1)" ;;
     esac
-
-    if [[ "${use_hw}" == yes && "${codec}" == av1 ]]; then
-        die "hardware av1 encode is unavailable via videotoolbox; drop --hw or pick h264/h265"
-    fi
-
-    if [[ "${use_hw}" == no && "${codec}" != av1 ]]; then
-        case " ${VALID_PRESETS} " in
-            *" ${preset} "*) : ;;
-            *) die "invalid --preset '${preset}' (valid: ${VALID_PRESETS})" ;;
-        esac
-    fi
 
     if [[ -n "${scale}" ]]; then
         scale_height="$(resolve_scale "${scale}")" \
@@ -175,14 +169,6 @@ normalize_and_validate() {
     fi
     if [[ -n "${fps_target}" && ! "${fps_target}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
         die "invalid --fps '${fps_target}' (use a positive number like 24, 25, 30)"
-    fi
-
-    if [[ -z "${quality}" ]]; then
-        if [[ "${use_hw}" == yes ]]; then
-            quality=55
-        else
-            quality="$(default_crf "${codec}")"
-        fi
     fi
 
     output_file="${input_file%.*}_compressed.mp4"
@@ -217,6 +203,68 @@ select_av1_encoder() {
     fi
 }
 
+videotoolbox_encoder_for() {
+    case "$1" in
+        h264) printf h264_videotoolbox ;;
+        h265) printf hevc_videotoolbox ;;
+        *) return 1 ;;
+    esac
+}
+
+has_encoder() {
+    ffmpeg -hide_banner -encoders 2>/dev/null | awk '{print $2}' | grep -qx "$1"
+}
+
+resolve_hw() {
+    if [[ "${codec}" == av1 ]]; then
+        if [[ "${hw_pref}" == on ]]; then
+            die "hardware av1 encode is unavailable via videotoolbox; drop --hw or pick h264/h265"
+        fi
+        use_hw=no
+        return 0
+    fi
+    local encoder
+    encoder="$(videotoolbox_encoder_for "${codec}")"
+    case "${hw_pref}" in
+        off) use_hw=no ;;
+        on)
+            has_encoder "${encoder}" \
+                || die "hardware encode requested but '${encoder}' is unavailable in this ffmpeg build (drop --hw)"
+            use_hw=yes
+            hw_encoder="${encoder}"
+            ;;
+        auto)
+            if has_encoder "${encoder}"; then
+                use_hw=yes
+                hw_encoder="${encoder}"
+            else
+                use_hw=no
+            fi
+            ;;
+    esac
+}
+
+validate_preset() {
+    if [[ "${use_hw}" == yes || "${codec}" == av1 ]]; then
+        return 0
+    fi
+    case " ${VALID_PRESETS} " in
+        *" ${preset} "*) : ;;
+        *) die "invalid --preset '${preset}' (valid: ${VALID_PRESETS})" ;;
+    esac
+}
+
+resolve_quality() {
+    if [[ -n "${quality}" ]]; then
+        return 0
+    fi
+    if [[ "${use_hw}" == yes ]]; then
+        quality=55
+    else
+        quality="$(default_crf "${codec}")"
+    fi
+}
+
 probe_field() {
     ffprobe -v error -select_streams v:0 \
         -show_entries "stream=$1" -of default=noprint_wrappers=1:nokey=1 "${input_file}" 2>/dev/null
@@ -227,6 +275,7 @@ detect_source() {
     src_transfer="$(probe_field color_transfer)"
     src_primaries="$(probe_field color_primaries)"
     src_space="$(probe_field color_space)"
+    src_height="$(probe_field height)"
 
     local rfr
     rfr="$(probe_field r_frame_rate)"
@@ -336,6 +385,15 @@ warn_hdr() {
     fi
 }
 
+hint_downscale() {
+    [[ "${src_height}" =~ ^[0-9]+$ ]] || return 0
+    (( src_height > 1080 )) || return 0
+    if [[ -n "${scale_height}" ]] && (( scale_height <= 1080 )); then
+        return 0
+    fi
+    info "source is ${src_height}p; add --scale 1080p to shrink the file and encode faster"
+}
+
 build_command() {
     local vf
     vf="$(build_video_filter)"
@@ -397,6 +455,12 @@ main() {
     parse_args "$@"
     normalize_and_validate
     require_cmds ffmpeg ffprobe
+    resolve_hw
+    validate_preset
+    resolve_quality
+    if [[ "${use_hw}" == yes ]]; then
+        info "hardware encoding via ${hw_encoder} (pass --sw to force software)"
+    fi
     if [[ "${tonemap}" == yes ]]; then
         require_tonemap_support
     fi
@@ -406,6 +470,7 @@ main() {
     detect_source
     resolve_fps
     build_command
+    hint_downscale
 
     if [[ "${dry_run}" == yes ]]; then
         info "dry run - would execute:"
