@@ -28,6 +28,7 @@ SENTENCE_END: Final = re.compile(r"[.!?]$")
 STRIP_TRAILING: Final = re.compile(r"[.,;:]+$")
 BOOTSTRAP_FLAG: Final = "CAPTIONS_BOOTSTRAPPED"
 LAST_WORD_TAIL: Final = 0.15
+VIDEOTOOLBOX_BITRATE: Final = "12M"
 HEX_COLOUR: Final = re.compile(r"^#?[0-9A-Fa-f]{6}$")
 DEFAULT_PALETTE: Final = (
     "#22FF00",  # green
@@ -341,12 +342,37 @@ def _quote_filter_path(path: Path) -> str:
     return "'" + str(path).replace("\\", "\\\\") + "'"
 
 
+def _has_encoder(name: str) -> bool:
+    encoders = run(["ffmpeg", "-hide_banner", "-encoders"]).stdout
+    return any(
+        len(fields) >= 2 and fields[1] == name
+        for fields in (line.split() for line in encoders.splitlines())
+    )
+
+
+def video_encoder_args() -> list[str]:
+    """Prefer Apple's hardware H.264 encoder; fall back to a fast libx264.
+
+    The subtitles filter forces a full video re-encode, so the encoder choice
+    dominates render time. VideoToolbox offloads it to the Mac's media engine
+    (roughly an order of magnitude faster, negligible quality loss for
+    short-form social video); off-Mac we use a fast software preset.
+    """
+    if _has_encoder("h264_videotoolbox"):
+        return ["-c:v", "h264_videotoolbox", "-b:v", VIDEOTOOLBOX_BITRATE]
+    return [
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-pix_fmt", "yuv420p",
+    ]
+
+
 def burn(video: Path, ass_path: Path, font_dir: Path, out: Path) -> None:
     subs = _quote_filter_path(ass_path)
     fonts = _quote_filter_path(font_dir)
     run([
         "ffmpeg", "-y", "-loglevel", "error", "-i", str(video),
         "-vf", f"subtitles=filename={subs}:fontsdir={fonts}",
+        *video_encoder_args(),
         "-c:a", "copy", str(out),
     ])
 

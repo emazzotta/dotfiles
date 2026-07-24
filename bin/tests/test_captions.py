@@ -286,6 +286,22 @@ class TestBuildAss:
         assert colours == {"&H00FF22&"}
 
 
+class TestVideoEncoderArgs:
+    def should_use_videotoolbox_when_available(self, mod, monkeypatch):
+        monkeypatch.setattr(
+            mod, "_has_encoder", lambda name: name == "h264_videotoolbox"
+        )
+        assert mod.video_encoder_args() == [
+            "-c:v", "h264_videotoolbox", "-b:v", mod.VIDEOTOOLBOX_BITRATE,
+        ]
+
+    def should_fall_back_to_libx264_when_videotoolbox_absent(self, mod, monkeypatch):
+        monkeypatch.setattr(mod, "_has_encoder", lambda name: False)
+        args = mod.video_encoder_args()
+        assert args[:2] == ["-c:v", "libx264"]
+        assert "-crf" in args
+
+
 class TestDefaultOutput:
     def should_append_captioned_suffix_next_to_input(self, mod):
         out = mod.default_output(mod.Path("/videos/clip.mov"))
