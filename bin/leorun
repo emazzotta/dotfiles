@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+# shellcheck source=javalib.sh
+source "${BASH_SOURCE[0]%/*}/javalib.sh"
+
+# tej-32.0.0 references javax.swing.JApplet, removed in JDK 26 by JEP 504
+readonly JAVA_VERSION="25"
+
 show_help() {
     cat <<EOF
 Usage: leorun [OPTIONS]
@@ -152,6 +158,11 @@ fi
 
 cd "$LEONARDO_DIR"
 echo "Running from: $LEONARDO_DIR"
+
+if ! jh_use "$JAVA_VERSION"; then
+    echo "Error: Leonardo needs Java $JAVA_VERSION - install it with 'sdk install java'" >&2
+    exit 1
+fi
 
 if [ -n "$INSTALL_PROJECTS" ]; then
     echo ""

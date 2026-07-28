@@ -84,9 +84,7 @@ EOF
     esac
 }
 
-find_java_sdk() {
-    sdk list java 2>/dev/null | grep -E "installed|local" | fzf --filter="$*" | head -n 1 | awk -F'|' '{gsub(/^ +| +$/, "", $NF); print $NF}'
-}
+load "$CUSTOM_BIN_DIR/javalib.sh"
 
 j() {
     if [ $# -eq 0 ]; then
@@ -94,14 +92,7 @@ j() {
         return 1
     fi
 
-    local version
-    version=$(find_java_sdk "$@")
-    if [[ -n "$version" ]]; then
-        sdk use java "$version"
-    else
-        echo "No Java SDK version found for $*"
-        return 1
-    fi
+    jh_use "$@"
 }
 
 superocd() {
