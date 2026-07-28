@@ -3,8 +3,23 @@
 # Backs the `j` shell function and the leorun script.
 # Source as: source "${BASH_SOURCE[0]%/*}/javalib.sh"
 
-# Define the `sdk` function unless the shell already has it. Strict-mode flags
-# are relaxed across the source because sdkman-init.sh trips `set -eu`.
+# Run a command with the caller's `set -eu` lifted, then restore. Both
+# sdkman-init.sh and the `sdk` function it defines read unset variables
+# (sdkman-main.sh:79 reads SDKMAN_OFFLINE_MODE), which aborts a `set -u` script.
+jh_relaxed() {
+    local jh_flags="$-" jh_status=0
+    set +eu
+    "$@" || jh_status=$?
+    case "$jh_flags" in
+        *e*) set -e ;;
+    esac
+    case "$jh_flags" in
+        *u*) set -u ;;
+    esac
+    return "$jh_status"
+}
+
+# Define the `sdk` function unless the shell already has it.
 jh_ensure_sdkman() {
     if command -v sdk >/dev/null 2>&1; then
         return 0
@@ -16,16 +31,8 @@ jh_ensure_sdkman() {
         return 1
     fi
 
-    local flags="$-"
-    set +eu
     # shellcheck disable=SC1090
-    source "$init"
-    case "$flags" in
-        *e*) set -e ;;
-    esac
-    case "$flags" in
-        *u*) set -u ;;
-    esac
+    jh_relaxed source "$init"
 }
 
 # Print the identifier of the newest installed Java matching the query
@@ -70,5 +77,5 @@ jh_use() {
     fi
 
     jh_ensure_sdkman || return 1
-    sdk use java "$identifier"
+    jh_relaxed sdk use java "$identifier"
 }
