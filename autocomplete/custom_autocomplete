@@ -133,18 +133,35 @@ _fileserver_remote_files()
     exec deployment/personal-homepage-file-server \
     -- /bin/sh -c 'cd /usr/share/caddy && ls -1' 2>/dev/null
 }
+_fileserver_canonical()
+{
+  awk -v word="$1" '{for (i = 1; i <= NF; i++) if ($i == word) { print $1; exit }}' \
+    <<< "${_FILESERVER_SUBCOMMANDS}"
+}
 _fileserver()
 {
-  local cur
+  local cur invoked canonical
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
 
-  if [[ ${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "list upload download remove -h --help" -- "${cur}"))
-    return 0
+  # One line per subcommand: canonical name first, then its aliases.
+  if [[ -z "${_FILESERVER_SUBCOMMANDS}" ]]; then
+    _FILESERVER_SUBCOMMANDS=$(fileserver --complete subcommands 2>/dev/null)
   fi
 
-  case "${COMP_WORDS[1]}" in
+  # The shell aliases are named f<subcommand>, so dropping the leading f yields
+  # the subcommand they bind. Anything else completes as bare `fileserver`.
+  invoked="${COMP_WORDS[0]##*/}"
+  canonical=$(_fileserver_canonical "${invoked#f}")
+  if [[ -z "${canonical}" ]]; then
+    if [[ ${COMP_CWORD} -eq 1 ]]; then
+      COMPREPLY=($(compgen -W "${_FILESERVER_SUBCOMMANDS} -h --help" -- "${cur}"))
+      return 0
+    fi
+    canonical=$(_fileserver_canonical "${COMP_WORDS[1]}")
+  fi
+
+  case "${canonical}" in
     upload)
       COMPREPLY=($(compgen -f -- "${cur}"))
       compopt -o filenames 2>/dev/null
@@ -436,4 +453,4 @@ complete -o filenames -F _cl cl
 complete -o filenames -F _captions captions
 complete -F _ags ags
 complete -F _make_targets make m
-complete -F _fileserver fileserver
+complete -F _fileserver fileserver fs fget fls frm fup

@@ -42,6 +42,13 @@ alias grep='grep -i --color=auto'
 alias see="fzf --preview 'less {}'"
 alias vi='vim'
 
+### FILE SERVER ###
+alias fget='fileserver get'
+alias fls='fileserver ls'
+alias frm='fileserver rm'
+alias fs='fileserver'
+alias fup='fileserver up'
+
 ### ENCODING ###
 alias asciitoutf='iconv -f US-ASCII -t utf-8'
 alias isotoutf='iconv -f iso-8859-1 -t utf-8'
