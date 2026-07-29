@@ -596,7 +596,10 @@ def main() -> None:
         dest="excludes", action="append", type=parse_exclude, default=[], metavar="EXCLUDE",
         help="path or pattern to exclude from mounts; may be repeated: -x ~/a/secrets -x '*.env'",
     )
-    parser.add_argument("-n", "--no-skip", action="store_true", default=False)
+    parser.add_argument(
+        "-n", "--no-skip", action="store_true", default=False,
+        help="prompt for every permission instead of using the configured auto mode",
+    )
     parser.add_argument(
         "--git-ignore-mount", dest="git_ignore_mount", action="store_true", default=False,
         help="mount only git-tracked files from PWD (respects .gitignore); requires .git and .gitignore",
@@ -646,7 +649,7 @@ def main() -> None:
     volume_args = _mount_always_available(volume_args, DESKTOP, "/workspace/code/Desktop", locked_roots, lock=False)
     _profile("desktop mount")
     container_name = f"opencode-{int(time())}"
-    skip_args = [] if args.no_skip else ["--dangerously-skip-permissions"]
+    permission_args = ["--permission-mode", "manual"] if args.no_skip else []
 
     if args.rm is not None:
         entrypoint = "opencode-rm" if args.opencode else "claude-rm"
@@ -670,7 +673,7 @@ def main() -> None:
         entrypoint_args = []
     else:
         entrypoint = "claude"
-        entrypoint_args = [*skip_args, *claude_args]
+        entrypoint_args = [*permission_args, *claude_args]
 
     plugin_args = []
     if entrypoint in ("claude", "claude-resume"):
@@ -682,7 +685,7 @@ def main() -> None:
         ] if plugin_dir.is_dir() else []
 
     if entrypoint == "claude-resume":
-        forwarded = [*skip_args, *plugin_args, *claude_args]
+        forwarded = [*permission_args, *plugin_args, *claude_args]
         if forwarded:
             entrypoint_args = [*entrypoint_args, "--", *forwarded]
         plugin_args = []

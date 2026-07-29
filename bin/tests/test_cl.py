@@ -579,19 +579,21 @@ class TestMain:
         assert "--model" in cmd
         assert "opus" in cmd
 
-    def test_default_includes_skip_permissions(self, cl, monkeypatch, mock_cl_run):
+    def should_leave_permission_mode_to_settings_by_default(self, cl, monkeypatch, mock_cl_run):
         monkeypatch.setattr(sys, "argv", ["cl"])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
         cmd = mock_cl_run[-1]
-        assert "--dangerously-skip-permissions" in cmd
-        assert cmd.index("--dangerously-skip-permissions") > cmd.index("claude")
+        assert "--permission-mode" not in cmd
+        assert "--dangerously-skip-permissions" not in cmd
 
-    def test_no_skip_flag(self, cl, monkeypatch, mock_cl_run):
+    def should_force_manual_permissions_when_no_skip_given(self, cl, monkeypatch, mock_cl_run):
         monkeypatch.setattr(sys, "argv", ["cl", "--no-skip"])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
-        assert "--dangerously-skip-permissions" not in mock_cl_run[-1]
+        cmd = mock_cl_run[-1]
+        assert cmd.index("--permission-mode") > cmd.index("claude")
+        assert cmd[cmd.index("--permission-mode") + 1] == "manual"
 
     def test_files_outside_cwd_exits(self, cl, monkeypatch, tmp_path):
         pwd = tmp_path / "pwd"
