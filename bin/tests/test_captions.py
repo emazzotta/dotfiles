@@ -31,6 +31,9 @@ def make_style(mod):
             play_h=1920,
             margin_v=500,
             alignment=2,
+            mode=mod.Highlight.FILL,
+            pop=mod.DEFAULT_POP,
+            box_pad=12,
         )
         return mod.Style(**{**base, **overrides})
 
@@ -192,10 +195,18 @@ class TestAssColour:
         )
 
 
-class TestDialogueLine:
+class TestPopTags:
+    def should_animate_towards_the_requested_scale(self, mod):
+        assert mod._pop_tags(106) == "\\fscx100\\fscy100\\t(0,140,\\fscx106\\fscy106)"
+
+    def should_emit_nothing_when_pop_is_disabled(self, mod):
+        assert mod._pop_tags(mod.NO_POP) == ""
+
+
+class TestFillLine:
     def should_wrap_only_the_active_word_in_the_highlight_colour(self, mod, make_words):
         words = make_words([("one", 0, 1), ("two", 1, 2), ("three", 2, 3)])
-        line = mod._dialogue_line(words, active=1, highlight="&H00FF00&")
+        line = mod._fill_line(words, active=1, highlight="&H00FF00&", pop=106)
         assert line.count("&H00FF00&") == 1
         assert "{\\c&H00FF00&" in line
         assert line.startswith("{\\r}ONE ")
@@ -203,8 +214,37 @@ class TestDialogueLine:
 
     def should_apply_pop_scale_animation_to_active_word(self, mod, make_words):
         words = make_words([("one", 0, 1)])
-        line = mod._dialogue_line(words, active=0, highlight="&H00FF00&")
-        assert "\\fscx118\\fscy118" in line
+        line = mod._fill_line(words, active=0, highlight="&H00FF00&", pop=106)
+        assert "\\fscx106\\fscy106" in line
+
+
+class TestPlainLine:
+    def should_scale_only_the_active_word(self, mod, make_words):
+        words = make_words([("one", 0, 1), ("two", 1, 2)])
+        line = mod._plain_line(words, active=1, pop=106)
+        assert line.count("\\fscx106\\fscy106") == 1
+        assert line.startswith("{\\r}ONE ")
+
+    def should_leave_every_word_plain_when_pop_is_disabled(self, mod, make_words):
+        words = make_words([("one", 0, 1), ("two", 1, 2)])
+        assert mod._plain_line(words, active=0, pop=mod.NO_POP) == "{\\r}ONE {\\r}TWO"
+
+
+class TestBoxLine:
+    def should_colour_only_the_active_word_outline_and_reset_to_the_box_style(
+        self, mod, make_words
+    ):
+        words = make_words([("one", 0, 1), ("two", 1, 2), ("three", 2, 3)])
+        line = mod._box_line(words, active=1, highlight="&H00FF00&", pop=106)
+        assert line.count("\\3c&H00FF00&\\3a&H00&") == 1
+        assert line.startswith("{\\rBox}ONE ")
+        assert line.endswith(" {\\rBox}THREE")
+
+    def should_never_recolour_the_glyph_fill(self, mod, make_words):
+        words = make_words([("one", 0, 1)])
+        assert "\\c&" not in mod._box_line(
+            words, active=0, highlight="&H00FF00&", pop=106
+        )
 
 
 class TestWordEnd:
@@ -243,6 +283,22 @@ class TestBuildStyle:
         args = mod.parse_args(["clip.mp4", "--highlight", "#ff0000,#00ff00"])
         style = mod.build_style(1080, 1920, args)
         assert style.highlights == ("#ff0000", "#00ff00")
+
+    def should_pass_mode_and_pop_through(self, mod):
+        args = mod.parse_args(["clip.mp4", "--mode", "background", "--pop", "112"])
+        style = mod.build_style(1080, 1920, args)
+        assert style.mode is mod.Highlight.BACKGROUND
+        assert style.pop == 112
+
+    def should_derive_box_padding_from_font_size(self, mod):
+        args = mod.parse_args(["clip.mp4", "--scale", "0.05"])
+        style = mod.build_style(1080, 1920, args)
+        assert style.box_pad == round(style.font_size * mod.BOX_PAD_RATIO)
+
+    def should_floor_box_padding_at_two(self, mod):
+        args = mod.parse_args(["clip.mp4", "--scale", "0.01"])
+        style = mod.build_style(100, 100, args)
+        assert style.box_pad == 2
 
 
 class TestBuildAss:
@@ -284,6 +340,65 @@ class TestBuildAss:
         ass = mod.build_ass(groups, make_style(highlights=("#22FF00",)))
         colours = set(mod.re.findall(r"\\c(&H[0-9A-F]+&)", ass))
         assert colours == {"&H00FF22&"}
+
+    def should_omit_the_box_style_in_fill_mode(self, mod, make_style, make_words):
+        groups = mod.group_words(make_words([("a", 0, 1)]), 5, 0.6)
+        ass = mod.build_ass(groups, make_style(mode=mod.Highlight.FILL))
+        assert "Style: Box," not in ass
+
+    def should_define_a_transparent_opaque_box_style_in_background_mode(
+        self, mod, make_style, make_words
+    ):
+        groups = mod.group_words(make_words([("a", 0, 1)]), 5, 0.6)
+        ass = mod.build_ass(groups, make_style(mode=mod.Highlight.BACKGROUND))
+        box = next(s for s in ass.splitlines() if s.startswith("Style: Box,"))
+        fields = box.split(",")
+        assert fields[3:7] == [mod.TRANSPARENT] * 4
+        assert fields[15] == "3"
+        assert fields[16] == "12"
+
+    def should_share_geometry_between_both_styles_in_background_mode(
+        self, mod, make_style, make_words
+    ):
+        groups = mod.group_words(make_words([("a", 0, 1)]), 5, 0.6)
+        ass = mod.build_ass(
+            groups, make_style(mode=mod.Highlight.BACKGROUND, alignment=8, margin_v=190)
+        )
+        styles = [s.split(",") for s in ass.splitlines() if s.startswith("Style: ")]
+        assert len(styles) == 2
+        assert styles[0][18:23] == styles[1][18:23]
+        assert styles[0][2] == styles[1][2]
+
+    def should_layer_a_box_event_under_each_text_event_in_background_mode(
+        self, mod, make_style, make_words
+    ):
+        words = make_words([(f"w{i}", i, i + 0.5) for i in range(3)])
+        groups = mod.group_words(words, 3, 10.0)
+        ass = mod.build_ass(groups, make_style(mode=mod.Highlight.BACKGROUND))
+        events = [e for e in ass.splitlines() if e.startswith("Dialogue")]
+        assert len(events) == 6
+        assert [e.split(",")[0] for e in events[:2]] == ["Dialogue: 0", "Dialogue: 1"]
+        assert events[0].split(",")[3] == "Box"
+        assert events[1].split(",")[3] == "Default"
+
+    def should_pair_each_box_event_with_the_text_event_it_backs(
+        self, mod, make_style, make_words
+    ):
+        words = make_words([(f"w{i}", i, i + 0.5) for i in range(2)])
+        groups = mod.group_words(words, 2, 10.0)
+        ass = mod.build_ass(groups, make_style(mode=mod.Highlight.BACKGROUND))
+        spans = [e.split(",")[1:3] for e in ass.splitlines() if e.startswith("Dialogue")]
+        assert spans[0] == spans[1]
+        assert spans[2] == spans[3]
+
+    def should_keep_the_text_layer_white_in_background_mode(
+        self, mod, make_style, make_words
+    ):
+        groups = mod.group_words(make_words([("a", 0, 1), ("b", 1, 2)]), 5, 10.0)
+        ass = mod.build_ass(groups, make_style(mode=mod.Highlight.BACKGROUND))
+        text_events = [e for e in ass.splitlines() if e.startswith("Dialogue: 1,")]
+        assert text_events
+        assert not any(mod.re.search(r"\\c&H", e) for e in text_events)
 
 
 class TestVideoEncoderArgs:
@@ -335,6 +450,40 @@ class TestParseArgs:
     def should_accept_bottom_centre_alignment_override(self, mod):
         assert mod.parse_args(["clip.mp4", "--alignment", "2"]).alignment == 2
 
+    def should_default_mode_to_fill(self, mod):
+        assert mod.parse_args(["clip.mp4"]).mode is mod.Highlight.FILL
+
+    def should_accept_background_mode(self, mod):
+        assert (
+            mod.parse_args(["clip.mp4", "--mode", "background"]).mode
+            is mod.Highlight.BACKGROUND
+        )
+
+    def should_reject_an_unknown_mode(self, mod):
+        with pytest.raises(SystemExit):
+            mod.parse_args(["clip.mp4", "--mode", "glow"])
+
+    def should_default_pop_to_a_subtle_scale_up(self, mod):
+        assert mod.parse_args(["clip.mp4"]).pop == mod.DEFAULT_POP
+        assert mod.NO_POP < mod.DEFAULT_POP < 110
+
+
+class TestParsePop:
+    def should_accept_a_value_inside_the_allowed_range(self, mod):
+        assert mod._parse_pop("120") == 120
+
+    def should_accept_the_disabling_value(self, mod):
+        assert mod._parse_pop("100") == mod.NO_POP
+
+    @pytest.mark.parametrize("value", ["99", "151"])
+    def should_reject_out_of_range_values(self, mod, value):
+        with pytest.raises(mod.argparse.ArgumentTypeError):
+            mod._parse_pop(value)
+
+    def should_reject_a_non_numeric_value(self, mod):
+        with pytest.raises(mod.argparse.ArgumentTypeError):
+            mod._parse_pop("big")
+
 
 class TestEmitCompletions:
     def should_print_whisper_models_one_per_line(self, mod, capsys):
@@ -345,6 +494,10 @@ class TestEmitCompletions:
     def should_print_alignment_values_one_to_nine(self, mod, capsys):
         mod.emit_completions("alignment")
         assert capsys.readouterr().out.split() == [str(n) for n in range(1, 10)]
+
+    def should_print_highlight_modes(self, mod, capsys):
+        mod.emit_completions("modes")
+        assert capsys.readouterr().out.split() == ["fill", "background"]
 
     def should_print_common_languages(self, mod, capsys):
         mod.emit_completions("langs")
@@ -453,10 +606,13 @@ class TestRenderIntegration:
         self._make_video(video)
         assert mod.probe_dimensions(video) == (320, 240)
 
-    def should_burn_captions_into_a_playable_output(self, mod, tmp_path, make_words):
+    @pytest.mark.parametrize("mode", ["fill", "background"])
+    def should_burn_captions_into_a_playable_output(
+        self, mod, tmp_path, make_words, mode
+    ):
         video = tmp_path / "in.mp4"
         self._make_video(video)
-        args = mod.parse_args([str(video)])
+        args = mod.parse_args([str(video), "--mode", mode])
         style = mod.build_style(320, 240, args)
         words = make_words([("Hello", 0.0, 0.4), ("world", 0.4, 0.9)])
         groups = mod.group_words(words, style.max_words, style.max_gap)

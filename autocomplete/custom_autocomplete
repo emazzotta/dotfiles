@@ -429,7 +429,10 @@ _captions()
     --alignment)
       [[ -z "${_CAPTIONS_ALIGN}" ]] && _CAPTIONS_ALIGN=$(captions --complete alignment 2>/dev/null | tr '\n' ' ')
       COMPREPLY=($(compgen -W "${_CAPTIONS_ALIGN}" -- "${cur}")); return 0 ;;
-    --highlight|--words|--gap|--scale|--position) return 0 ;;
+    --mode)
+      [[ -z "${_CAPTIONS_MODES}" ]] && _CAPTIONS_MODES=$(captions --complete modes 2>/dev/null | tr '\n' ' ')
+      COMPREPLY=($(compgen -W "${_CAPTIONS_MODES}" -- "${cur}")); return 0 ;;
+    --highlight|--words|--gap|--scale|--position|--pop) return 0 ;;
   esac
   if [[ -z "${_CAPTIONS_OPTS_CACHE}" ]]; then
     _CAPTIONS_OPTS_CACHE=$(captions --help 2>/dev/null | grep -oE -- '(^|[[:space:],])-{1,2}[a-zA-Z][a-zA-Z0-9-]*' | tr -d ' ,' | sort -u | tr '\n' ' ')

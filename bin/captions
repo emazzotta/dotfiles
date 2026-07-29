@@ -16,6 +16,7 @@ import sys
 import time
 import urllib.request
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Final
 
@@ -30,6 +31,14 @@ BOOTSTRAP_FLAG: Final = "CAPTIONS_BOOTSTRAPPED"
 LAST_WORD_TAIL: Final = 0.15
 VIDEOTOOLBOX_BITRATE: Final = "12M"
 HEX_COLOUR: Final = re.compile(r"^#?[0-9A-Fa-f]{6}$")
+DEFAULT_STYLE: Final = "Default"
+BOX_STYLE: Final = "Box"
+TRANSPARENT: Final = "&HFF000000"
+NO_POP: Final = 100
+DEFAULT_POP: Final = 106
+MAX_POP: Final = 150
+POP_MS: Final = 140
+BOX_PAD_RATIO: Final = 0.11
 DEFAULT_PALETTE: Final = (
     "#22FF00",  # green
     "#3B82FF",  # blue
@@ -44,10 +53,21 @@ WHISPER_MODELS: Final = (
 )
 COMMON_LANGS: Final = ("en", "de", "fr", "it", "es", "pt", "nl", "ru", "ja", "zh")
 ALIGNMENTS: Final = tuple(str(n) for n in range(1, 10))
+
+
+class Highlight(Enum):
+    FILL = "fill"
+    BACKGROUND = "background"
+
+    def __str__(self) -> str:
+        return self.value
+
+
 COMPLETIONS: Final = {
     "models": WHISPER_MODELS,
     "langs": COMMON_LANGS,
     "alignment": ALIGNMENTS,
+    "modes": tuple(mode.value for mode in Highlight),
 }
 
 
@@ -77,6 +97,9 @@ class Style:
     play_h: int
     margin_v: int
     alignment: int
+    mode: Highlight
+    pop: int
+    box_pad: int
 
 
 def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -255,28 +278,67 @@ def _ass_colour(hex_colour: str, style_field: bool) -> str:
     return f"&H00{bgr}" if style_field else f"&H{bgr}&"
 
 
-def _dialogue_line(words: list[Word], active: int, highlight: str) -> str:
-    tokens: list[str] = []
-    for index, word in enumerate(words):
-        if index == active:
-            pop = r"\fscx100\fscy100\t(0,90,\fscx118\fscy118)"
-            tokens.append(f"{{\\c{highlight}{pop}}}{word.display}{{\\r}}")
-        else:
-            tokens.append(f"{{\\r}}{word.display}")
-    return " ".join(tokens)
+def _pop_tags(pop: int) -> str:
+    if pop == NO_POP:
+        return ""
+    return f"\\fscx100\\fscy100\\t(0,{POP_MS},\\fscx{pop}\\fscy{pop})"
+
+
+def _tokens(words: list[Word], active: int, tags: str, reset: str) -> str:
+    plain = f"{{{reset}}}"
+    return " ".join(
+        f"{{{tags}}}{word.display}{plain}"
+        if index == active and tags
+        else f"{plain}{word.display}"
+        for index, word in enumerate(words)
+    )
+
+
+def _fill_line(words: list[Word], active: int, highlight: str, pop: int) -> str:
+    return _tokens(words, active, f"\\c{highlight}{_pop_tags(pop)}", "\\r")
+
+
+def _plain_line(words: list[Word], active: int, pop: int) -> str:
+    return _tokens(words, active, _pop_tags(pop), "\\r")
+
+
+def _box_line(words: list[Word], active: int, highlight: str, pop: int) -> str:
+    """Paint a rectangle behind the active word only.
+
+    Every colour in the Box style is transparent, so the one word that
+    overrides the outline is the only one BorderStyle 3 fills in.
+    """
+    tags = f"\\3c{highlight}\\3a&H00&{_pop_tags(pop)}"
+    return _tokens(words, active, tags, f"\\r{BOX_STYLE}")
+
+
+def _event(layer: int, start: float, end: float, name: str, text: str) -> str:
+    return (
+        f"Dialogue: {layer},{_fmt_time(start)},{_fmt_time(end)},{name},,0,0,0,,{text}"
+    )
+
+
+def _word_events(
+    group: list[Word], active: int, colour: str, span: tuple[float, float], style: Style
+) -> list[str]:
+    start, end = span
+    if style.mode is Highlight.FILL:
+        text = _fill_line(group, active, colour, style.pop)
+        return [_event(0, start, end, DEFAULT_STYLE, text)]
+    return [
+        _event(0, start, end, BOX_STYLE, _box_line(group, active, colour, style.pop)),
+        _event(1, start, end, DEFAULT_STYLE, _plain_line(group, active, style.pop)),
+    ]
 
 
 def _group_events(
-    group: list[Word], colour: str, next_start: float | None
+    group: list[Word], colour: str, next_start: float | None, style: Style
 ) -> list[str]:
     events: list[str] = []
     for index, word in enumerate(group):
         start = group[0].start if index == 0 else word.start
         end = _word_end(group, index, word, next_start)
-        text = _dialogue_line(group, index, colour)
-        events.append(
-            f"Dialogue: 0,{_fmt_time(start)},{_fmt_time(end)},Default,,0,0,0,,{text}"
-        )
+        events.extend(_word_events(group, index, colour, (start, end), style))
     return events
 
 
@@ -289,9 +351,24 @@ def _word_end(
     return tail if next_start is None else min(tail, next_start)
 
 
-def build_ass(groups: list[list[Word]], style: Style) -> str:
+def _style_definitions(style: Style) -> list[str]:
     primary = _ass_colour("#FFFFFF", style_field=True)
     outline = _ass_colour("#000000", style_field=True)
+    geometry = f"{style.alignment},40,40,{style.margin_v},1"
+    definitions = [
+        f"Style: {DEFAULT_STYLE},{FONT_NAME},{style.font_size},{primary},{primary},"
+        f"{outline},&H64000000,1,0,0,0,100,100,0,0,1,{style.outline},2,{geometry}"
+    ]
+    if style.mode is Highlight.BACKGROUND:
+        definitions.append(
+            f"Style: {BOX_STYLE},{FONT_NAME},{style.font_size},{TRANSPARENT},"
+            f"{TRANSPARENT},{TRANSPARENT},{TRANSPARENT},1,0,0,0,100,100,0,0,3,"
+            f"{style.box_pad},0,{geometry}"
+        )
+    return definitions
+
+
+def build_ass(groups: list[list[Word]], style: Style) -> str:
     header = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -305,9 +382,7 @@ def build_ass(groups: list[list[Word]], style: Style) -> str:
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding",
-        f"Style: Default,{FONT_NAME},{style.font_size},{primary},{primary},"
-        f"{outline},&H64000000,1,0,0,0,100,100,0,0,1,{style.outline},2,"
-        f"{style.alignment},40,40,{style.margin_v},1",
+        *_style_definitions(style),
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
@@ -318,7 +393,7 @@ def build_ass(groups: list[list[Word]], style: Style) -> str:
     for index, group in enumerate(groups):
         next_start = groups[index + 1][0].start if index + 1 < len(groups) else None
         colour = palette[index % len(palette)]
-        events.extend(_group_events(group, colour, next_start))
+        events.extend(_group_events(group, colour, next_start, style))
     return "\n".join(header + events) + "\n"
 
 
@@ -393,6 +468,9 @@ def build_style(width: int, height: int, args: argparse.Namespace) -> Style:
         play_h=height,
         margin_v=int(height * args.position),
         alignment=args.alignment,
+        mode=args.mode,
+        pop=args.pop,
+        box_pad=max(2, round(font_size * BOX_PAD_RATIO)),
     )
 
 
@@ -404,6 +482,18 @@ def _parse_palette(value: str) -> tuple[str, ...]:
         if not HEX_COLOUR.match(colour):
             raise argparse.ArgumentTypeError(f"invalid hex colour: {colour}")
     return tuple(c if c.startswith("#") else f"#{c}" for c in colours)
+
+
+def _parse_pop(value: str) -> int:
+    try:
+        pop = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a whole percentage: {value}") from None
+    if not NO_POP <= pop <= MAX_POP:
+        raise argparse.ArgumentTypeError(
+            f"pop must be between {NO_POP} and {MAX_POP}, got {pop}"
+        )
+    return pop
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -419,6 +509,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=DEFAULT_PALETTE,
         help="active-word colour: one hex for a fixed colour, or a comma-separated "
         "list to cycle per word (default: rainbow palette)",
+    )
+    add(
+        "--mode",
+        type=Highlight,
+        choices=tuple(Highlight),
+        default=Highlight.FILL,
+        help="how the active word is marked: 'fill' recolours the letters "
+        "(default), 'background' keeps them white and paints a coloured "
+        "block behind them",
+    )
+    add(
+        "--pop",
+        type=_parse_pop,
+        default=DEFAULT_POP,
+        help=f"how far the active word scales up, in percent (default "
+        f"{DEFAULT_POP}, {NO_POP} disables the pop entirely)",
     )
     add("--words", type=int, default=5, help="max words per line (default 5)")
     add("--gap", type=float, default=0.6, help="silence gap that breaks a line (s)")
