@@ -1,4 +1,5 @@
 {
+  "model": "opus[1m]",
   "hooks": {
     "SessionStart": [
       {
@@ -122,6 +123,5 @@
   "effortLevel": "xhigh",
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
-  "theme": "dark",
-  "model": "opus[1m]"
+  "theme": "dark"
 }
