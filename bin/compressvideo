@@ -101,8 +101,12 @@ human_size() {
     }'
 }
 
-reduction_pct() {
-    awk -v a="$1" -v b="$2" 'BEGIN { if (a > 0) printf "%.1f", (1 - b / a) * 100; else printf "0.0" }'
+size_delta() {
+    awk -v a="$1" -v b="$2" 'BEGIN {
+        if (a <= 0)   printf "0.0%% smaller"
+        else if (b > a) printf "%.1f%% bigger", (b / a - 1) * 100
+        else            printf "%.1f%% smaller", (1 - b / a) * 100
+    }'
 }
 
 parse_args() {
@@ -428,7 +432,7 @@ report_result() {
     local in_b out_b
     in_b="$(wc -c < "${input_file}")"
     out_b="$(wc -c < "${output_file}")"
-    success "done: $(human_size "${in_b}") -> $(human_size "${out_b}") ($(reduction_pct "${in_b}" "${out_b}")% smaller)"
+    success "done: $(human_size "${in_b}") -> $(human_size "${out_b}") ($(size_delta "${in_b}" "${out_b}"))"
     if [[ "${remove}" == yes ]]; then
         /bin/rm -f "${input_file}"
         log "removed original '${input_file}'"
