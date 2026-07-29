@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -56,6 +57,8 @@ WHISPER_MODELS: Final = (
 )
 COMMON_LANGS: Final = ("en", "de", "fr", "it", "es", "pt", "nl", "ru", "ja", "zh")
 ALIGNMENTS: Final = tuple(str(n) for n in range(1, 10))
+TOP_ALIGNMENTS: Final = frozenset({7, 8, 9})
+MIN_BOX_SCALE: Final = 40
 
 
 class Highlight(Enum):
@@ -71,8 +74,11 @@ class Font:
     """A typeface to burn in, plus how it wants to be set.
 
     `scale` is the font size as a fraction of video height that makes this
-    face fill a line like Anton does at its own default - measured by
-    rendering the same phrase in each face, not guessed.
+    face fill a line like Anton does at its own default. `ink_top` and
+    `ink_bottom` are the empty fractions of the ascent-to-descent band that no
+    glyph ever reaches, so the highlight box can be trimmed by them. All three
+    are measured by rendering, not guessed - the ink figures come from a probe
+    of the tallest and lowest glyphs the face has to survive, umlauts included.
     """
 
     family: str
@@ -81,6 +87,8 @@ class Font:
     bold: bool = False
     italic: bool = False
     uppercase: bool = False
+    ink_top: float = 0.0
+    ink_bottom: float = 0.0
 
     @property
     def url(self) -> str:
@@ -94,23 +102,41 @@ class Font:
 DEFAULT_FONT: Final = "anton"
 FONTS: Final = {
     "anton": Font(
-        "Anton", "ofl/anton/Anton-Regular.ttf", 0.058, bold=True, uppercase=True
+        "Anton", "ofl/anton/Anton-Regular.ttf", 0.058,
+        bold=True, uppercase=True, ink_top=0.180, ink_bottom=0.108,
     ),
-    "caveat": Font("Caveat", "ofl/caveat/Caveat[wght].ttf", 0.053, bold=True),
-    "courgette": Font("Courgette", "ofl/courgette/Courgette-Regular.ttf", 0.038),
+    "caveat": Font(
+        "Caveat", "ofl/caveat/Caveat[wght].ttf", 0.053,
+        bold=True, ink_top=0.089, ink_bottom=0.050,
+    ),
+    "courgette": Font(
+        "Courgette", "ofl/courgette/Courgette-Regular.ttf", 0.038, ink_top=0.014
+    ),
     "dancing-script": Font(
-        "Dancing Script", "ofl/dancingscript/DancingScript[wght].ttf", 0.053, bold=True
+        "Dancing Script", "ofl/dancingscript/DancingScript[wght].ttf", 0.053,
+        bold=True, ink_top=0.158,
     ),
-    "grand-hotel": Font("Grand Hotel", "ofl/grandhotel/GrandHotel-Regular.ttf", 0.059),
+    "grand-hotel": Font(
+        "Grand Hotel", "ofl/grandhotel/GrandHotel-Regular.ttf", 0.059, ink_top=0.053
+    ),
     "kaushan": Font(
-        "Kaushan Script", "ofl/kaushanscript/KaushanScript-Regular.ttf", 0.051
+        "Kaushan Script", "ofl/kaushanscript/KaushanScript-Regular.ttf", 0.051,
+        ink_top=0.134,
     ),
-    "lobster": Font("Lobster", "ofl/lobster/Lobster-Regular.ttf", 0.051),
+    "lobster": Font(
+        "Lobster", "ofl/lobster/Lobster-Regular.ttf", 0.051,
+        ink_top=0.031, ink_bottom=0.144,
+    ),
     "lobster-two-italic": Font(
-        "Lobster Two", "ofl/lobstertwo/LobsterTwo-Italic.ttf", 0.045, italic=True
+        "Lobster Two", "ofl/lobstertwo/LobsterTwo-Italic.ttf", 0.045,
+        italic=True, ink_top=0.058,
     ),
-    "pacifico": Font("Pacifico", "ofl/pacifico/Pacifico-Regular.ttf", 0.063),
-    "yellowtail": Font("Yellowtail", "apache/yellowtail/Yellowtail-Regular.ttf", 0.052),
+    "pacifico": Font(
+        "Pacifico", "ofl/pacifico/Pacifico-Regular.ttf", 0.063, ink_top=0.217
+    ),
+    "yellowtail": Font(
+        "Yellowtail", "apache/yellowtail/Yellowtail-Regular.ttf", 0.052, ink_top=0.051
+    ),
 }
 
 COMPLETIONS: Final = {
@@ -154,6 +180,8 @@ class Style:
     box_pad_x: int
     box_pad_y: int
     box_round: int
+    box_scale_y: int
+    box_margin_v: int
 
 
 def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -332,10 +360,16 @@ def _ass_colour(hex_colour: str, style_field: bool) -> str:
     return f"&H00{bgr}" if style_field else f"&H{bgr}&"
 
 
-def _pop_tags(pop: int) -> str:
+def _pop_tags(pop: int, scale_y: int = 100) -> str:
+    """Scale the active word up, starting from the height its style sets.
+
+    `\\fscy` is absolute, so a squashed box style has to be restated here or
+    the pop would quietly undo the squash for the one word that matters.
+    """
     if pop == NO_POP:
         return ""
-    return f"\\fscx100\\fscy100\\t(0,{POP_MS},\\fscx{pop}\\fscy{pop})"
+    popped = round(scale_y * pop / 100)
+    return f"\\fscx100\\fscy{scale_y}\\t(0,{POP_MS},\\fscx{pop}\\fscy{popped})"
 
 
 def _tokens(
@@ -369,7 +403,8 @@ def _box_line(words: list[Word], active: int, highlight: str, style: Style) -> s
     """
     tags = (
         f"\\3c{highlight}\\3a&H00&\\xbord{style.box_pad_x}"
-        f"\\ybord{style.box_pad_y}\\blur{style.box_round}{_pop_tags(style.pop)}"
+        f"\\ybord{style.box_pad_y}\\blur{style.box_round}"
+        f"{_pop_tags(style.pop, style.box_scale_y)}"
     )
     return _tokens(words, active, tags, f"\\r{BOX_STYLE}", style.font.uppercase)
 
@@ -428,10 +463,11 @@ def _style_definitions(style: Style) -> list[str]:
         f"{outline},&H64000000,{weight},100,100,0,0,1,{style.outline},2,{geometry}"
     ]
     if style.mode is Highlight.BACKGROUND:
+        box_geometry = f"{style.alignment},40,40,{style.box_margin_v},1"
         definitions.append(
             f"Style: {BOX_STYLE},{family},{style.font_size},{TRANSPARENT},"
-            f"{TRANSPARENT},{TRANSPARENT},{TRANSPARENT},{weight},100,100,0,0,3,"
-            f"{style.box_pad_x},0,{geometry}"
+            f"{TRANSPARENT},{TRANSPARENT},{TRANSPARENT},{weight},100,"
+            f"{style.box_scale_y},0,0,3,{style.box_pad_x},0,{box_geometry}"
         )
     return definitions
 
@@ -537,10 +573,38 @@ def _box_geometry(font_size: int) -> tuple[int, int, int]:
     return horizontal, vertical, rounding
 
 
+def _box_band(font_size: int, font: Font, alignment: int, margin_v: int) -> tuple[int, int]:
+    """Return the box style's ScaleY and the MarginV that keeps it on the ink.
+
+    The box always spans the font's full ascent-to-descent band, most of which
+    no glyph reaches. Squashing the box style trims that dead space, and since
+    libass keeps the shortened line against the top edge it was anchored to,
+    the margin hands the top half of the trim back.
+
+    Only top-anchored captions are trimmed. A bottom-anchored line keeps its
+    bottom edge instead, and a vertically centred one ignores MarginV
+    altogether, so neither can be re-anchored the same way.
+
+    libass double-applies a style's ScaleY to an opaque box, the way VSFilter
+    did, so the rendered height follows its square - hence the root.
+    """
+    if alignment not in TOP_ALIGNMENTS:
+        return 100, margin_v
+    pad = font_size * BOX_PAD_Y_RATIO
+    top = max(0.0, font_size * font.ink_top - pad)
+    bottom = max(0.0, font_size * font.ink_bottom - pad)
+    full = font_size * (1 + 2 * BOX_ROUND_RATIO)
+    kept = max(0.0, (full - top - bottom) / full)
+    scale_y = max(MIN_BOX_SCALE, round(100 * math.sqrt(kept)))
+    return scale_y, margin_v + round(top)
+
+
 def build_style(width: int, height: int, args: argparse.Namespace) -> Style:
     font = FONTS[args.font]
     font_size = int(height * (args.scale or font.scale))
     box_pad_x, box_pad_y, box_round = _box_geometry(font_size)
+    margin_v = int(height * args.position)
+    box_scale_y, box_margin_v = _box_band(font_size, font, args.alignment, margin_v)
     return Style(
         font_size=font_size,
         outline=max(3, round(font_size * 0.06)),
@@ -549,7 +613,7 @@ def build_style(width: int, height: int, args: argparse.Namespace) -> Style:
         max_gap=args.gap,
         play_w=width,
         play_h=height,
-        margin_v=int(height * args.position),
+        margin_v=margin_v,
         alignment=args.alignment,
         mode=args.mode,
         pop=args.pop,
@@ -557,6 +621,8 @@ def build_style(width: int, height: int, args: argparse.Namespace) -> Style:
         box_pad_x=box_pad_x,
         box_pad_y=box_pad_y,
         box_round=box_round,
+        box_scale_y=box_scale_y,
+        box_margin_v=box_margin_v,
     )
 
 

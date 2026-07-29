@@ -37,6 +37,8 @@ def make_style(mod):
             box_pad_x=15,
             box_pad_y=0,
             box_round=3,
+            box_scale_y=100,
+            box_margin_v=500,
         )
         return mod.Style(**{**base, **overrides})
 
@@ -208,6 +210,43 @@ class TestPopTags:
     def should_emit_nothing_when_pop_is_disabled(self, mod):
         assert mod._pop_tags(mod.NO_POP) == ""
 
+    def should_pop_from_the_squashed_height_rather_than_full_size(self, mod):
+        assert mod._pop_tags(110, scale_y=80) == (
+            "\\fscx100\\fscy80\\t(0,140,\\fscx110\\fscy88)"
+        )
+
+
+class TestBoxBand:
+    def _font(self, mod, **overrides):
+        base = dict(family="F", path="ofl/f/F.ttf", scale=0.05)
+        return mod.Font(**{**base, **overrides})
+
+    def should_trim_the_dead_space_and_hand_it_back_to_the_margin(self, mod):
+        font = self._font(mod, ink_top=0.20, ink_bottom=0.10)
+
+        scale_y, margin = mod._box_band(100, font, alignment=8, margin_v=200)
+
+        assert scale_y == 88
+        assert margin == 200 + (20 - 3)
+
+    @pytest.mark.parametrize("alignment", [2, 5])
+    def should_leave_the_box_alone_when_not_anchored_to_the_top(self, mod, alignment):
+        font = self._font(mod, ink_top=0.20, ink_bottom=0.10)
+
+        assert mod._box_band(100, font, alignment, margin_v=200) == (100, 200)
+
+    def should_leave_the_box_alone_for_a_face_with_no_measured_slack(self, mod):
+        scale_y, margin = mod._box_band(100, self._font(mod), alignment=8, margin_v=200)
+
+        assert (scale_y, margin) == (100, 200)
+
+    def should_never_squash_past_the_floor(self, mod):
+        font = self._font(mod, ink_top=0.9, ink_bottom=0.9)
+
+        scale_y, _ = mod._box_band(100, font, alignment=8, margin_v=0)
+
+        assert scale_y == mod.MIN_BOX_SCALE
+
 
 class TestFillLine:
     def should_wrap_only_the_active_word_in_the_highlight_colour(
@@ -341,6 +380,12 @@ class TestBuildStyle:
         style = mod.build_style(1080, 1920, args)
         assert style.font_size == int(1920 * 0.07)
 
+    def should_squash_the_box_for_a_face_with_measured_dead_space(self, mod):
+        args = mod.parse_args(["clip.mp4", "--font", "anton"])
+        style = mod.build_style(1080, 1920, args)
+        assert style.box_scale_y < 100
+        assert style.box_margin_v > style.margin_v
+
     def should_pad_the_box_wider_than_tall(self, mod):
         args = mod.parse_args(["clip.mp4", "--scale", "0.05"])
         style = mod.build_style(1080, 1920, args)
@@ -448,17 +493,27 @@ class TestBuildAss:
         assert fields[15] == "3"
         assert fields[16] == "15"
 
-    def should_share_geometry_between_both_styles_in_background_mode(
+    def should_share_geometry_apart_from_the_box_trim_in_background_mode(
         self, mod, make_style, make_words
     ):
         groups = mod.group_words(make_words([("a", 0, 1)]), 5, 0.6)
-        ass = mod.build_ass(
-            groups, make_style(mode=mod.Highlight.BACKGROUND, alignment=8, margin_v=190)
+        style = make_style(
+            mode=mod.Highlight.BACKGROUND,
+            alignment=8,
+            margin_v=190,
+            box_scale_y=78,
+            box_margin_v=210,
         )
-        styles = [s.split(",") for s in ass.splitlines() if s.startswith("Style: ")]
-        assert len(styles) == 2
-        assert styles[0][18:23] == styles[1][18:23]
-        assert styles[0][2] == styles[1][2]
+
+        ass = mod.build_ass(groups, style)
+
+        text, box = [
+            s.split(",") for s in ass.splitlines() if s.startswith("Style: ")
+        ]
+        assert text[2] == box[2]
+        assert text[18:21] == box[18:21]
+        assert (text[12], text[21]) == ("100", "190")
+        assert (box[12], box[21]) == ("78", "210")
 
     def should_stack_the_box_copies_on_their_own_layers_under_the_text(
         self, mod, make_style, make_words
