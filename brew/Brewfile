@@ -126,6 +126,7 @@ cask "font-hack-nerd-font"
 cask "google-chrome" # lighthouse
 cask "google-drive"
 cask "gpg-suite"
+cask "insta360-studio"
 cask "intellij-idea"
 cask "iterm2"
 cask "karabiner-elements"
