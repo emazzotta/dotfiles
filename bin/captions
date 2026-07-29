@@ -14,14 +14,14 @@ import re
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Final
 
-FONT_URL: Final = "https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf"
-FONT_NAME: Final = "Anton"
+GOOGLE_FONTS: Final = "https://github.com/google/fonts/raw/main"
 CACHE: Final = Path.home() / ".cache" / "captions"
 VENV: Final = CACHE / "venv"
 TRANSCRIPTS: Final = CACHE / "transcripts"
@@ -38,7 +38,10 @@ NO_POP: Final = 100
 DEFAULT_POP: Final = 106
 MAX_POP: Final = 150
 POP_MS: Final = 140
-BOX_PAD_RATIO: Final = 0.11
+BOX_PAD_X_RATIO: Final = 0.16
+BOX_PAD_Y_RATIO: Final = 0.03
+BOX_ROUND_RATIO: Final = 0.03
+BOX_ROUND_LAYERS: Final = 3
 DEFAULT_PALETTE: Final = (
     "#22FF00",  # green
     "#3B82FF",  # blue
@@ -63,11 +66,59 @@ class Highlight(Enum):
         return self.value
 
 
+@dataclass(frozen=True)
+class Font:
+    """A typeface to burn in, plus how it wants to be set.
+
+    `scale` is the font size as a fraction of video height that makes this
+    face fill a line like Anton does at its own default - measured by
+    rendering the same phrase in each face, not guessed.
+    """
+
+    family: str
+    path: str
+    scale: float
+    bold: bool = False
+    italic: bool = False
+    uppercase: bool = False
+
+    @property
+    def url(self) -> str:
+        return f"{GOOGLE_FONTS}/{urllib.parse.quote(self.path)}"
+
+    @property
+    def file_name(self) -> str:
+        return self.path.rsplit("/", 1)[-1]
+
+
+DEFAULT_FONT: Final = "anton"
+FONTS: Final = {
+    "anton": Font(
+        "Anton", "ofl/anton/Anton-Regular.ttf", 0.058, bold=True, uppercase=True
+    ),
+    "caveat": Font("Caveat", "ofl/caveat/Caveat[wght].ttf", 0.053, bold=True),
+    "courgette": Font("Courgette", "ofl/courgette/Courgette-Regular.ttf", 0.038),
+    "dancing-script": Font(
+        "Dancing Script", "ofl/dancingscript/DancingScript[wght].ttf", 0.053, bold=True
+    ),
+    "grand-hotel": Font("Grand Hotel", "ofl/grandhotel/GrandHotel-Regular.ttf", 0.059),
+    "kaushan": Font(
+        "Kaushan Script", "ofl/kaushanscript/KaushanScript-Regular.ttf", 0.051
+    ),
+    "lobster": Font("Lobster", "ofl/lobster/Lobster-Regular.ttf", 0.051),
+    "lobster-two-italic": Font(
+        "Lobster Two", "ofl/lobstertwo/LobsterTwo-Italic.ttf", 0.045, italic=True
+    ),
+    "pacifico": Font("Pacifico", "ofl/pacifico/Pacifico-Regular.ttf", 0.063),
+    "yellowtail": Font("Yellowtail", "apache/yellowtail/Yellowtail-Regular.ttf", 0.052),
+}
+
 COMPLETIONS: Final = {
     "models": WHISPER_MODELS,
     "langs": COMMON_LANGS,
     "alignment": ALIGNMENTS,
     "modes": tuple(mode.value for mode in Highlight),
+    "fonts": tuple(sorted(FONTS)),
 }
 
 
@@ -79,7 +130,7 @@ class Word:
 
     @property
     def display(self) -> str:
-        return STRIP_TRAILING.sub("", self.text).upper()
+        return STRIP_TRAILING.sub("", self.text)
 
     @property
     def ends_sentence(self) -> bool:
@@ -99,7 +150,10 @@ class Style:
     alignment: int
     mode: Highlight
     pop: int
-    box_pad: int
+    font: Font
+    box_pad_x: int
+    box_pad_y: int
+    box_round: int
 
 
 def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -284,32 +338,40 @@ def _pop_tags(pop: int) -> str:
     return f"\\fscx100\\fscy100\\t(0,{POP_MS},\\fscx{pop}\\fscy{pop})"
 
 
-def _tokens(words: list[Word], active: int, tags: str, reset: str) -> str:
+def _tokens(
+    words: list[Word], active: int, tags: str, reset: str, uppercase: bool
+) -> str:
     plain = f"{{{reset}}}"
+    shown = [w.display.upper() if uppercase else w.display for w in words]
     return " ".join(
-        f"{{{tags}}}{word.display}{plain}"
-        if index == active and tags
-        else f"{plain}{word.display}"
-        for index, word in enumerate(words)
+        f"{{{tags}}}{text}{plain}" if index == active and tags else f"{plain}{text}"
+        for index, text in enumerate(shown)
     )
 
 
-def _fill_line(words: list[Word], active: int, highlight: str, pop: int) -> str:
-    return _tokens(words, active, f"\\c{highlight}{_pop_tags(pop)}", "\\r")
+def _fill_line(words: list[Word], active: int, highlight: str, style: Style) -> str:
+    tags = f"\\c{highlight}{_pop_tags(style.pop)}"
+    return _tokens(words, active, tags, "\\r", style.font.uppercase)
 
 
-def _plain_line(words: list[Word], active: int, pop: int) -> str:
-    return _tokens(words, active, _pop_tags(pop), "\\r")
+def _plain_line(words: list[Word], active: int, style: Style) -> str:
+    return _tokens(words, active, _pop_tags(style.pop), "\\r", style.font.uppercase)
 
 
-def _box_line(words: list[Word], active: int, highlight: str, pop: int) -> str:
-    """Paint a rectangle behind the active word only.
+def _box_line(words: list[Word], active: int, highlight: str, style: Style) -> str:
+    """Paint a rounded rectangle behind the active word only.
 
     Every colour in the Box style is transparent, so the one word that
-    overrides the outline is the only one BorderStyle 3 fills in.
+    overrides the outline is the only one BorderStyle 3 fills in. ASS has no
+    border radius: blurring the box rounds its corners, and redrawing it on
+    BOX_ROUND_LAYERS separate layers compounds the alpha back to near-opaque.
+    Same-layer copies would trip libass' collision avoidance instead.
     """
-    tags = f"\\3c{highlight}\\3a&H00&{_pop_tags(pop)}"
-    return _tokens(words, active, tags, f"\\r{BOX_STYLE}")
+    tags = (
+        f"\\3c{highlight}\\3a&H00&\\xbord{style.box_pad_x}"
+        f"\\ybord{style.box_pad_y}\\blur{style.box_round}{_pop_tags(style.pop)}"
+    )
+    return _tokens(words, active, tags, f"\\r{BOX_STYLE}", style.font.uppercase)
 
 
 def _event(layer: int, start: float, end: float, name: str, text: str) -> str:
@@ -323,12 +385,16 @@ def _word_events(
 ) -> list[str]:
     start, end = span
     if style.mode is Highlight.FILL:
-        text = _fill_line(group, active, colour, style.pop)
+        text = _fill_line(group, active, colour, style)
         return [_event(0, start, end, DEFAULT_STYLE, text)]
-    return [
-        _event(0, start, end, BOX_STYLE, _box_line(group, active, colour, style.pop)),
-        _event(1, start, end, DEFAULT_STYLE, _plain_line(group, active, style.pop)),
+    box = _box_line(group, active, colour, style)
+    events = [
+        _event(layer, start, end, BOX_STYLE, box)
+        for layer in range(BOX_ROUND_LAYERS)
     ]
+    text = _plain_line(group, active, style)
+    events.append(_event(BOX_ROUND_LAYERS, start, end, DEFAULT_STYLE, text))
+    return events
 
 
 def _group_events(
@@ -355,15 +421,17 @@ def _style_definitions(style: Style) -> list[str]:
     primary = _ass_colour("#FFFFFF", style_field=True)
     outline = _ass_colour("#000000", style_field=True)
     geometry = f"{style.alignment},40,40,{style.margin_v},1"
+    family = style.font.family
+    weight = f"{int(style.font.bold)},{int(style.font.italic)},0,0"
     definitions = [
-        f"Style: {DEFAULT_STYLE},{FONT_NAME},{style.font_size},{primary},{primary},"
-        f"{outline},&H64000000,1,0,0,0,100,100,0,0,1,{style.outline},2,{geometry}"
+        f"Style: {DEFAULT_STYLE},{family},{style.font_size},{primary},{primary},"
+        f"{outline},&H64000000,{weight},100,100,0,0,1,{style.outline},2,{geometry}"
     ]
     if style.mode is Highlight.BACKGROUND:
         definitions.append(
-            f"Style: {BOX_STYLE},{FONT_NAME},{style.font_size},{TRANSPARENT},"
-            f"{TRANSPARENT},{TRANSPARENT},{TRANSPARENT},1,0,0,0,100,100,0,0,3,"
-            f"{style.box_pad},0,{geometry}"
+            f"Style: {BOX_STYLE},{family},{style.font_size},{TRANSPARENT},"
+            f"{TRANSPARENT},{TRANSPARENT},{TRANSPARENT},{weight},100,100,0,0,3,"
+            f"{style.box_pad_x},0,{geometry}"
         )
     return definitions
 
@@ -397,12 +465,13 @@ def build_ass(groups: list[list[Word]], style: Style) -> str:
     return "\n".join(header + events) + "\n"
 
 
-def ensure_font() -> Path:
+def ensure_font(font: Font) -> Path:
     font_dir = CACHE / "fonts"
-    font_path = font_dir / "Anton-Regular.ttf"
+    font_path = font_dir / font.file_name
     if not font_path.exists():
         font_dir.mkdir(parents=True, exist_ok=True)
-        urllib.request.urlretrieve(FONT_URL, font_path)  # noqa: S310 (fixed https url)
+        log(f"Fetching {font.family}...")
+        urllib.request.urlretrieve(font.url, font_path)  # noqa: S310 (fixed https url)
     return font_dir
 
 
@@ -456,8 +525,22 @@ def burn(video: Path, ass_path: Path, font_dir: Path, out: Path) -> None:
         raise SystemExit(f"ffmpeg failed (exit {exc.returncode})")
 
 
+def _box_geometry(font_size: int) -> tuple[int, int, int]:
+    """Return the highlight box's horizontal padding, vertical padding, rounding.
+
+    The blur that rounds the corners also bleeds the edge outwards, so it pays
+    for part of the padding instead of adding to it.
+    """
+    rounding = max(1, round(font_size * BOX_ROUND_RATIO))
+    horizontal = max(0, round(font_size * BOX_PAD_X_RATIO) - rounding)
+    vertical = max(0, round(font_size * BOX_PAD_Y_RATIO) - rounding)
+    return horizontal, vertical, rounding
+
+
 def build_style(width: int, height: int, args: argparse.Namespace) -> Style:
-    font_size = int(height * args.scale)
+    font = FONTS[args.font]
+    font_size = int(height * (args.scale or font.scale))
+    box_pad_x, box_pad_y, box_round = _box_geometry(font_size)
     return Style(
         font_size=font_size,
         outline=max(3, round(font_size * 0.06)),
@@ -470,7 +553,10 @@ def build_style(width: int, height: int, args: argparse.Namespace) -> Style:
         alignment=args.alignment,
         mode=args.mode,
         pop=args.pop,
-        box_pad=max(2, round(font_size * BOX_PAD_RATIO)),
+        font=font,
+        box_pad_x=box_pad_x,
+        box_pad_y=box_pad_y,
+        box_round=box_round,
     )
 
 
@@ -528,7 +614,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     add("--words", type=int, default=5, help="max words per line (default 5)")
     add("--gap", type=float, default=0.6, help="silence gap that breaks a line (s)")
-    add("--scale", type=float, default=0.058, help="font size as fraction of height")
+    add(
+        "--font",
+        choices=sorted(FONTS),
+        default=DEFAULT_FONT,
+        help=f"typeface to burn in (default {DEFAULT_FONT}); the script faces "
+        "keep the spoken casing instead of shouting in capitals",
+    )
+    add(
+        "--scale",
+        type=float,
+        default=None,
+        help="font size as fraction of height (default: whatever fills a line "
+        "like the chosen --font is meant to)",
+    )
     add(
         "--alignment",
         type=int,
@@ -590,7 +689,7 @@ def main(argv: list[str]) -> int:
     output = args.output or default_output(args.video)
     log(f"Rendering {output.name}...")
     started = time.perf_counter()
-    burn(args.video, ass_path, ensure_font(), output)
+    burn(args.video, ass_path, ensure_font(style.font), output)
     log(f"Rendered {output.name} in {time.perf_counter() - started:.1f}s")
     log(f"Done in {time.perf_counter() - overall:.1f}s total")
     print(str(output))

@@ -33,7 +33,10 @@ def make_style(mod):
             alignment=2,
             mode=mod.Highlight.FILL,
             pop=mod.DEFAULT_POP,
-            box_pad=12,
+            font=mod.FONTS[mod.DEFAULT_FONT],
+            box_pad_x=15,
+            box_pad_y=0,
+            box_round=3,
         )
         return mod.Style(**{**base, **overrides})
 
@@ -57,18 +60,21 @@ render_integration = pytest.mark.skipif(
 
 
 class TestWord:
-    def should_uppercase_and_strip_trailing_punctuation_in_display(self, mod):
-        assert mod.Word("world.", 0.0, 0.1).display == "WORLD"
-        assert mod.Word("mid,", 0.0, 0.1).display == "MID"
-        assert mod.Word("list;", 0.0, 0.1).display == "LIST"
-        assert mod.Word("colon:", 0.0, 0.1).display == "COLON"
+    def should_strip_trailing_punctuation_from_display(self, mod):
+        assert mod.Word("world.", 0.0, 0.1).display == "world"
+        assert mod.Word("mid,", 0.0, 0.1).display == "mid"
+        assert mod.Word("list;", 0.0, 0.1).display == "list"
+        assert mod.Word("colon:", 0.0, 0.1).display == "colon"
 
     def should_keep_exclamation_and_question_marks_in_display(self, mod):
-        assert mod.Word("yes!!", 0.0, 0.1).display == "YES!!"
-        assert mod.Word("what?", 0.0, 0.1).display == "WHAT?"
+        assert mod.Word("yes!!", 0.0, 0.1).display == "yes!!"
+        assert mod.Word("what?", 0.0, 0.1).display == "what?"
 
     def should_keep_internal_punctuation_in_display(self, mod):
-        assert mod.Word("don't", 0.0, 0.1).display == "DON'T"
+        assert mod.Word("don't", 0.0, 0.1).display == "don't"
+
+    def should_leave_casing_to_the_font(self, mod):
+        assert mod.Word("Loud", 0.0, 0.1).display == "Loud"
 
     def should_detect_sentence_end(self, mod):
         assert mod.Word("end.", 0.0, 0.1).ends_sentence
@@ -204,47 +210,80 @@ class TestPopTags:
 
 
 class TestFillLine:
-    def should_wrap_only_the_active_word_in_the_highlight_colour(self, mod, make_words):
+    def should_wrap_only_the_active_word_in_the_highlight_colour(
+        self, mod, make_words, make_style
+    ):
         words = make_words([("one", 0, 1), ("two", 1, 2), ("three", 2, 3)])
-        line = mod._fill_line(words, active=1, highlight="&H00FF00&", pop=106)
+        line = mod._fill_line(words, 1, "&H00FF00&", make_style())
         assert line.count("&H00FF00&") == 1
         assert "{\\c&H00FF00&" in line
         assert line.startswith("{\\r}ONE ")
         assert line.endswith(" {\\r}THREE")
 
-    def should_apply_pop_scale_animation_to_active_word(self, mod, make_words):
+    def should_apply_pop_scale_animation_to_active_word(
+        self, mod, make_words, make_style
+    ):
         words = make_words([("one", 0, 1)])
-        line = mod._fill_line(words, active=0, highlight="&H00FF00&", pop=106)
+        line = mod._fill_line(words, 0, "&H00FF00&", make_style(pop=106))
         assert "\\fscx106\\fscy106" in line
 
 
 class TestPlainLine:
-    def should_scale_only_the_active_word(self, mod, make_words):
+    def should_scale_only_the_active_word(self, mod, make_words, make_style):
         words = make_words([("one", 0, 1), ("two", 1, 2)])
-        line = mod._plain_line(words, active=1, pop=106)
+        line = mod._plain_line(words, 1, make_style(pop=106))
         assert line.count("\\fscx106\\fscy106") == 1
         assert line.startswith("{\\r}ONE ")
 
-    def should_leave_every_word_plain_when_pop_is_disabled(self, mod, make_words):
+    def should_leave_every_word_plain_when_pop_is_disabled(
+        self, mod, make_words, make_style
+    ):
         words = make_words([("one", 0, 1), ("two", 1, 2)])
-        assert mod._plain_line(words, active=0, pop=mod.NO_POP) == "{\\r}ONE {\\r}TWO"
+        line = mod._plain_line(words, 0, make_style(pop=mod.NO_POP))
+        assert line == "{\\r}ONE {\\r}TWO"
+
+
+class TestCasing:
+    def should_shout_in_capitals_for_an_uppercase_font(
+        self, mod, make_words, make_style
+    ):
+        words = make_words([("loud", 0, 1)])
+        style = make_style(font=mod.FONTS["anton"])
+
+        assert "}LOUD{" in mod._plain_line(words, 0, style)
+
+    def should_keep_the_spoken_casing_for_a_script_font(
+        self, mod, make_words, make_style
+    ):
+        words = make_words([("Soft", 0, 1)])
+        style = make_style(font=mod.FONTS["lobster-two-italic"])
+
+        assert "}Soft{" in mod._plain_line(words, 0, style)
 
 
 class TestBoxLine:
     def should_colour_only_the_active_word_outline_and_reset_to_the_box_style(
-        self, mod, make_words
+        self, mod, make_words, make_style
     ):
         words = make_words([("one", 0, 1), ("two", 1, 2), ("three", 2, 3)])
-        line = mod._box_line(words, active=1, highlight="&H00FF00&", pop=106)
+        line = mod._box_line(words, 1, "&H00FF00&", make_style())
         assert line.count("\\3c&H00FF00&\\3a&H00&") == 1
         assert line.startswith("{\\rBox}ONE ")
         assert line.endswith(" {\\rBox}THREE")
 
-    def should_never_recolour_the_glyph_fill(self, mod, make_words):
+    def should_never_recolour_the_glyph_fill(self, mod, make_words, make_style):
         words = make_words([("one", 0, 1)])
-        assert "\\c&" not in mod._box_line(
-            words, active=0, highlight="&H00FF00&", pop=106
-        )
+        assert "\\c&" not in mod._box_line(words, 0, "&H00FF00&", make_style())
+
+    def should_pad_the_box_wider_than_tall_and_round_its_corners(
+        self, mod, make_words, make_style
+    ):
+        words = make_words([("one", 0, 1)])
+        style = make_style(box_pad_x=15, box_pad_y=1, box_round=3)
+
+        line = mod._box_line(words, 0, "&H00FF00&", style)
+
+        assert "\\xbord15\\ybord1\\blur3" in line
 
 
 class TestWordEnd:
@@ -290,15 +329,53 @@ class TestBuildStyle:
         assert style.mode is mod.Highlight.BACKGROUND
         assert style.pop == 112
 
-    def should_derive_box_padding_from_font_size(self, mod):
+    def should_size_from_the_font_when_no_scale_is_given(self, mod):
+        args = mod.parse_args(["clip.mp4", "--font", "lobster-two-italic"])
+        style = mod.build_style(1080, 1920, args)
+        assert style.font_size == int(1920 * mod.FONTS["lobster-two-italic"].scale)
+
+    def should_let_an_explicit_scale_override_the_font_default(self, mod):
+        args = mod.parse_args(
+            ["clip.mp4", "--font", "lobster-two-italic", "--scale", "0.07"]
+        )
+        style = mod.build_style(1080, 1920, args)
+        assert style.font_size == int(1920 * 0.07)
+
+    def should_pad_the_box_wider_than_tall(self, mod):
         args = mod.parse_args(["clip.mp4", "--scale", "0.05"])
         style = mod.build_style(1080, 1920, args)
-        assert style.box_pad == round(style.font_size * mod.BOX_PAD_RATIO)
+        assert style.box_pad_x > style.box_pad_y
 
-    def should_floor_box_padding_at_two(self, mod):
+    def should_discount_the_padding_by_the_blur_it_bleeds(self, mod):
+        args = mod.parse_args(["clip.mp4", "--scale", "0.05"])
+        style = mod.build_style(1080, 1920, args)
+        expected = round(style.font_size * mod.BOX_PAD_X_RATIO) - style.box_round
+        assert style.box_pad_x == expected
+
+    def should_keep_rounding_visible_on_tiny_videos(self, mod):
         args = mod.parse_args(["clip.mp4", "--scale", "0.01"])
         style = mod.build_style(100, 100, args)
-        assert style.box_pad == 2
+        assert style.box_round == 1
+        assert style.box_pad_y == 0
+
+
+class TestFonts:
+    def should_shout_in_capitals_only_for_the_default_face(self, mod):
+        assert mod.FONTS[mod.DEFAULT_FONT].uppercase
+        assert not any(
+            font.uppercase
+            for name, font in mod.FONTS.items()
+            if name != mod.DEFAULT_FONT
+        )
+
+    def should_percent_encode_bracketed_variable_font_paths(self, mod):
+        assert "%5Bwght%5D" in mod.FONTS["caveat"].url
+
+    def should_cache_under_the_file_name_from_the_path(self, mod):
+        assert mod.FONTS["lobster-two-italic"].file_name == "LobsterTwo-Italic.ttf"
+
+    def should_serve_every_face_from_google_fonts(self, mod):
+        assert all(f.url.startswith(mod.GOOGLE_FONTS) for f in mod.FONTS.values())
 
 
 class TestBuildAss:
@@ -341,6 +418,20 @@ class TestBuildAss:
         colours = set(mod.re.findall(r"\\c(&H[0-9A-F]+&)", ass))
         assert colours == {"&H00FF22&"}
 
+    def should_name_the_chosen_family_and_slant_in_every_style(
+        self, mod, make_style, make_words
+    ):
+        groups = mod.group_words(make_words([("a", 0, 1)]), 5, 0.6)
+        style = make_style(
+            mode=mod.Highlight.BACKGROUND, font=mod.FONTS["lobster-two-italic"]
+        )
+
+        ass = mod.build_ass(groups, style)
+
+        fields = [s.split(",") for s in ass.splitlines() if s.startswith("Style: ")]
+        assert {f[1] for f in fields} == {"Lobster Two"}
+        assert {(f[7], f[8]) for f in fields} == {("0", "1")}
+
     def should_omit_the_box_style_in_fill_mode(self, mod, make_style, make_words):
         groups = mod.group_words(make_words([("a", 0, 1)]), 5, 0.6)
         ass = mod.build_ass(groups, make_style(mode=mod.Highlight.FILL))
@@ -355,7 +446,7 @@ class TestBuildAss:
         fields = box.split(",")
         assert fields[3:7] == [mod.TRANSPARENT] * 4
         assert fields[15] == "3"
-        assert fields[16] == "12"
+        assert fields[16] == "15"
 
     def should_share_geometry_between_both_styles_in_background_mode(
         self, mod, make_style, make_words
@@ -369,34 +460,44 @@ class TestBuildAss:
         assert styles[0][18:23] == styles[1][18:23]
         assert styles[0][2] == styles[1][2]
 
-    def should_layer_a_box_event_under_each_text_event_in_background_mode(
+    def should_stack_the_box_copies_on_their_own_layers_under_the_text(
         self, mod, make_style, make_words
     ):
         words = make_words([(f"w{i}", i, i + 0.5) for i in range(3)])
         groups = mod.group_words(words, 3, 10.0)
-        ass = mod.build_ass(groups, make_style(mode=mod.Highlight.BACKGROUND))
-        events = [e for e in ass.splitlines() if e.startswith("Dialogue")]
-        assert len(events) == 6
-        assert [e.split(",")[0] for e in events[:2]] == ["Dialogue: 0", "Dialogue: 1"]
-        assert events[0].split(",")[3] == "Box"
-        assert events[1].split(",")[3] == "Default"
+        per_word = mod.BOX_ROUND_LAYERS + 1
 
-    def should_pair_each_box_event_with_the_text_event_it_backs(
+        ass = mod.build_ass(groups, make_style(mode=mod.Highlight.BACKGROUND))
+
+        events = [e for e in ass.splitlines() if e.startswith("Dialogue")]
+        assert len(events) == 3 * per_word
+        word = events[:per_word]
+        assert [e.split(",")[0] for e in word] == [
+            f"Dialogue: {layer}" for layer in range(per_word)
+        ]
+        assert [e.split(",")[3] for e in word] == ["Box"] * mod.BOX_ROUND_LAYERS + [
+            "Default"
+        ]
+
+    def should_pair_each_box_copy_with_the_text_event_it_backs(
         self, mod, make_style, make_words
     ):
         words = make_words([(f"w{i}", i, i + 0.5) for i in range(2)])
         groups = mod.group_words(words, 2, 10.0)
+        per_word = mod.BOX_ROUND_LAYERS + 1
         ass = mod.build_ass(groups, make_style(mode=mod.Highlight.BACKGROUND))
         spans = [e.split(",")[1:3] for e in ass.splitlines() if e.startswith("Dialogue")]
-        assert spans[0] == spans[1]
-        assert spans[2] == spans[3]
+        assert len(set(map(tuple, spans[:per_word]))) == 1
+        assert len(set(map(tuple, spans[per_word:]))) == 1
+        assert spans[0] != spans[per_word]
 
     def should_keep_the_text_layer_white_in_background_mode(
         self, mod, make_style, make_words
     ):
         groups = mod.group_words(make_words([("a", 0, 1), ("b", 1, 2)]), 5, 10.0)
         ass = mod.build_ass(groups, make_style(mode=mod.Highlight.BACKGROUND))
-        text_events = [e for e in ass.splitlines() if e.startswith("Dialogue: 1,")]
+        prefix = f"Dialogue: {mod.BOX_ROUND_LAYERS},"
+        text_events = [e for e in ass.splitlines() if e.startswith(prefix)]
         assert text_events
         assert not any(mod.re.search(r"\\c&H", e) for e in text_events)
 
@@ -498,6 +599,10 @@ class TestEmitCompletions:
     def should_print_highlight_modes(self, mod, capsys):
         mod.emit_completions("modes")
         assert capsys.readouterr().out.split() == ["fill", "background"]
+
+    def should_print_font_names(self, mod, capsys):
+        mod.emit_completions("fonts")
+        assert capsys.readouterr().out.split() == sorted(mod.FONTS)
 
     def should_print_common_languages(self, mod, capsys):
         mod.emit_completions("langs")

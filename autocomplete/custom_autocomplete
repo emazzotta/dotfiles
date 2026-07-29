@@ -432,6 +432,9 @@ _captions()
     --mode)
       [[ -z "${_CAPTIONS_MODES}" ]] && _CAPTIONS_MODES=$(captions --complete modes 2>/dev/null | tr '\n' ' ')
       COMPREPLY=($(compgen -W "${_CAPTIONS_MODES}" -- "${cur}")); return 0 ;;
+    --font)
+      [[ -z "${_CAPTIONS_FONTS}" ]] && _CAPTIONS_FONTS=$(captions --complete fonts 2>/dev/null | tr '\n' ' ')
+      COMPREPLY=($(compgen -W "${_CAPTIONS_FONTS}" -- "${cur}")); return 0 ;;
     --highlight|--words|--gap|--scale|--position|--pop) return 0 ;;
   esac
   if [[ -z "${_CAPTIONS_OPTS_CACHE}" ]]; then
