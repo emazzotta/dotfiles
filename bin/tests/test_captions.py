@@ -1,3 +1,4 @@
+import math
 import shutil
 import subprocess
 from types import SimpleNamespace
@@ -19,11 +20,23 @@ def make_words(mod):
 
 
 @pytest.fixture
-def make_style(mod):
+def make_box(mod):
+    def _make(**overrides):
+        base = dict(pad_x=15, rounding=20, scale_y=100, margin_v=500, alignment=8)
+        return mod.Box(**{**base, **overrides})
+
+    return _make
+
+
+@pytest.fixture
+def make_style(mod, make_box):
     def _make(**overrides):
         base = dict(
             font_size=60,
             outline=4,
+            glow_outline=6,
+            glow_blur=3,
+            spacing=0,
             highlights=mod.DEFAULT_PALETTE,
             max_words=5,
             max_gap=0.6,
@@ -32,13 +45,9 @@ def make_style(mod):
             margin_v=500,
             alignment=2,
             mode=mod.Highlight.FILL,
-            pop=mod.DEFAULT_POP,
-            font=mod.FONTS[mod.DEFAULT_FONT],
-            box_pad_x=15,
-            box_pad_y=0,
-            box_round=3,
-            box_scale_y=100,
-            box_margin_v=500,
+            pop=mod.NO_POP,
+            font=mod.FONTS["anton"],
+            box=make_box(),
         )
         return mod.Style(**{**base, **overrides})
 
@@ -62,22 +71,6 @@ render_integration = pytest.mark.skipif(
 
 
 class TestWord:
-    def should_strip_trailing_punctuation_from_display(self, mod):
-        assert mod.Word("world.", 0.0, 0.1).display == "world"
-        assert mod.Word("mid,", 0.0, 0.1).display == "mid"
-        assert mod.Word("list;", 0.0, 0.1).display == "list"
-        assert mod.Word("colon:", 0.0, 0.1).display == "colon"
-
-    def should_keep_exclamation_and_question_marks_in_display(self, mod):
-        assert mod.Word("yes!!", 0.0, 0.1).display == "yes!!"
-        assert mod.Word("what?", 0.0, 0.1).display == "what?"
-
-    def should_keep_internal_punctuation_in_display(self, mod):
-        assert mod.Word("don't", 0.0, 0.1).display == "don't"
-
-    def should_leave_casing_to_the_font(self, mod):
-        assert mod.Word("Loud", 0.0, 0.1).display == "Loud"
-
     def should_detect_sentence_end(self, mod):
         assert mod.Word("end.", 0.0, 0.1).ends_sentence
         assert mod.Word("really?", 0.0, 0.1).ends_sentence
@@ -216,36 +209,61 @@ class TestPopTags:
         )
 
 
-class TestBoxBand:
-    def _font(self, mod, **overrides):
-        base = dict(family="F", path="ofl/f/F.ttf", scale=0.05)
-        return mod.Font(**{**base, **overrides})
+def _font(mod, **overrides):
+    base = dict(family="F", path="ofl/f/F.ttf", scale=0.05)
+    return mod.Font(**{**base, **overrides})
 
-    def should_trim_the_dead_space_and_hand_it_back_to_the_margin(self, mod):
-        font = self._font(mod, ink_top=0.20, ink_bottom=0.10)
 
-        scale_y, margin = mod._box_band(100, font, alignment=8, margin_v=200)
+class TestInkTop:
+    def should_measure_a_top_anchored_line_down_from_the_margin(self, mod):
+        font = _font(mod, ink_top=0.20, ink_bottom=0.10)
 
-        assert scale_y == 88
-        assert margin == 200 + (20 - 3)
+        assert mod._ink_top(100, font, 8, margin_v=200, play_h=1920) == 220
 
-    @pytest.mark.parametrize("alignment", [2, 5])
-    def should_leave_the_box_alone_when_not_anchored_to_the_top(self, mod, alignment):
-        font = self._font(mod, ink_top=0.20, ink_bottom=0.10)
+    def should_measure_a_bottom_anchored_line_up_from_the_frame_edge(self, mod):
+        font = _font(mod, ink_top=0.20, ink_bottom=0.10)
 
-        assert mod._box_band(100, font, alignment, margin_v=200) == (100, 200)
+        assert mod._ink_top(100, font, 2, margin_v=200, play_h=1920) == 1640
 
-    def should_leave_the_box_alone_for_a_face_with_no_measured_slack(self, mod):
-        scale_y, margin = mod._box_band(100, self._font(mod), alignment=8, margin_v=200)
+    def should_centre_a_middle_anchored_line_and_ignore_the_margin(self, mod):
+        font = _font(mod, ink_top=0.20, ink_bottom=0.10)
 
-        assert (scale_y, margin) == (100, 200)
+        assert mod._ink_top(100, font, 5, margin_v=200, play_h=1920) == 930
+
+
+class TestBuildBox:
+    def should_wrap_the_ink_band_in_padding_on_every_side(self, mod):
+        box = mod._build_box(200, ink_top=1000.0, ink_height=100.0, alignment=2)
+
+        pad = 100 * mod.BOX_PAD_Y_RATIO - box.rounding * mod.BOX_BLEED_RATIO
+        assert box.margin_v == round(1000 - pad)
+        assert box.scale_y == round(100 * math.sqrt((100 + 2 * pad) / 200))
+
+    def should_discount_the_padding_by_the_softening_it_bleeds(self, mod):
+        box = mod._build_box(200, ink_top=1000.0, ink_height=100.0, alignment=2)
+
+        bleed = box.rounding * mod.BOX_BLEED_RATIO
+        assert box.pad_x == round(100 * mod.BOX_PAD_X_RATIO - bleed)
+
+    @pytest.mark.parametrize(
+        "alignment,expected", [(1, 7), (2, 8), (3, 9), (4, 7), (5, 8), (6, 9), (9, 9)]
+    )
+    def should_anchor_the_box_to_the_top_of_its_own_column(
+        self, mod, alignment, expected
+    ):
+        box = mod._build_box(200, ink_top=500.0, ink_height=100.0, alignment=alignment)
+
+        assert box.alignment == expected
 
     def should_never_squash_past_the_floor(self, mod):
-        font = self._font(mod, ink_top=0.9, ink_bottom=0.9)
+        box = mod._build_box(4000, ink_top=100.0, ink_height=10.0, alignment=2)
 
-        scale_y, _ = mod._box_band(100, font, alignment=8, margin_v=0)
+        assert box.scale_y == mod.MIN_BOX_SCALE
 
-        assert scale_y == mod.MIN_BOX_SCALE
+    def should_keep_the_box_on_screen_for_a_line_near_the_top_edge(self, mod):
+        box = mod._build_box(200, ink_top=2.0, ink_height=100.0, alignment=8)
+
+        assert box.margin_v == 0
 
 
 class TestFillLine:
@@ -289,7 +307,7 @@ class TestCasing:
         words = make_words([("loud", 0, 1)])
         style = make_style(font=mod.FONTS["anton"])
 
-        assert "}LOUD{" in mod._plain_line(words, 0, style)
+        assert "}LOUD" in mod._plain_line(words, 0, style)
 
     def should_keep_the_spoken_casing_for_a_script_font(
         self, mod, make_words, make_style
@@ -297,7 +315,58 @@ class TestCasing:
         words = make_words([("Soft", 0, 1)])
         style = make_style(font=mod.FONTS["lobster-two-italic"])
 
-        assert "}Soft{" in mod._plain_line(words, 0, style)
+        assert "}Soft" in mod._plain_line(words, 0, style)
+
+    def should_keep_the_punctuation_the_speaker_used(
+        self, mod, make_words, make_style
+    ):
+        words = make_words([("so,", 0, 1), ("thema.", 1, 2), ("what?", 2, 3)])
+
+        line = mod._plain_line(words, 0, make_style())
+
+        assert "SO," in line
+        assert "THEMA." in line
+        assert "WHAT?" in line
+
+
+class TestTracking:
+    def should_tighten_every_token_when_the_face_asks_for_it(
+        self, mod, make_words, make_style
+    ):
+        words = make_words([("one", 0, 1), ("two", 1, 2)])
+
+        line = mod._plain_line(words, 1, make_style(spacing=-0.99))
+
+        assert all("\\fsp-0.99" in token for token in line.split(" "))
+
+    def should_leave_the_spacing_alone_for_a_face_drawn_as_set(
+        self, mod, make_words, make_style
+    ):
+        words = make_words([("one", 0, 1)])
+
+        assert "\\fsp" not in mod._plain_line(words, 0, make_style(spacing=0))
+
+
+class TestGlowLine:
+    def should_blur_every_token_of_the_line(self, mod, make_words, make_style):
+        words = make_words([("one", 0, 1), ("two", 1, 2)])
+
+        line = mod._glow_line(words, 0, make_style(glow_blur=3))
+
+        assert all("\\blur3" in token for token in line.split(" "))
+        assert f"\\r{mod.GLOW_STYLE}" in line
+
+    def should_never_recolour_a_word(self, mod, make_words, make_style):
+        words = make_words([("one", 0, 1), ("two", 1, 2)])
+
+        assert "\\c&" not in mod._glow_line(words, 1, make_style())
+
+    def should_pop_with_the_word_it_backs(self, mod, make_words, make_style):
+        words = make_words([("one", 0, 1), ("two", 1, 2)])
+
+        line = mod._glow_line(words, 1, make_style(pop=106))
+
+        assert line.count("\\fscx106\\fscy106") == 1
 
 
 class TestBoxLine:
@@ -314,15 +383,15 @@ class TestBoxLine:
         words = make_words([("one", 0, 1)])
         assert "\\c&" not in mod._box_line(words, 0, "&H00FF00&", make_style())
 
-    def should_pad_the_box_wider_than_tall_and_round_its_corners(
-        self, mod, make_words, make_style
+    def should_pad_the_box_sideways_only_and_round_its_corners(
+        self, mod, make_words, make_style, make_box
     ):
         words = make_words([("one", 0, 1)])
-        style = make_style(box_pad_x=15, box_pad_y=1, box_round=3)
+        style = make_style(box=make_box(pad_x=15, rounding=20))
 
         line = mod._box_line(words, 0, "&H00FF00&", style)
 
-        assert "\\xbord15\\ybord1\\blur3" in line
+        assert "\\xbord15\\ybord0\\be20" in line
 
 
 class TestWordEnd:
@@ -352,6 +421,31 @@ class TestBuildStyle:
         style = mod.build_style(100, 100, args)
         assert style.outline == 3
 
+    def should_scale_the_outline_and_its_glow_with_the_ink_band(self, mod):
+        args = mod.parse_args(["clip.mp4"])
+        style = mod.build_style(1080, 1920, args)
+        font = mod.FONTS[mod.DEFAULT_FONT]
+        ink = style.font_size * (1 - font.ink_top - font.ink_bottom)
+        assert style.outline == round(ink * mod.OUTLINE_RATIO)
+        assert style.glow_outline == round(style.outline * mod.GLOW_OUTLINE_RATIO)
+        assert style.glow_blur == round(style.outline * mod.GLOW_BLUR_RATIO)
+
+    def should_derive_letter_spacing_from_the_face_tracking(self, mod):
+        style = mod.build_style(1080, 1920, mod.parse_args(["clip.mp4"]))
+        font = mod.FONTS[mod.DEFAULT_FONT]
+        assert style.spacing == round(style.font_size * font.tracking, 2)
+        assert style.spacing < 0
+
+    def should_reproduce_the_reference_geometry_for_a_portrait_reel(self, mod):
+        args = mod.parse_args(["clip.mp4", "--mode", "background"])
+
+        style = mod.build_style(1080, 1920, args)
+
+        assert style.font_size == 142
+        assert (style.outline, style.glow_outline, style.glow_blur) == (6, 9, 5)
+        assert (style.box.pad_x, style.box.rounding) == (9, 40)
+        assert (style.box.scale_y, style.box.margin_v) == (91, 1411)
+
     def should_derive_margin_from_height_and_position(self, mod):
         args = mod.parse_args(["clip.mp4", "--position", "0.25"])
         style = mod.build_style(1080, 1920, args)
@@ -361,6 +455,16 @@ class TestBuildStyle:
         args = mod.parse_args(["clip.mp4", "--highlight", "#ff0000,#00ff00"])
         style = mod.build_style(1080, 1920, args)
         assert style.highlights == ("#ff0000", "#00ff00")
+
+    def should_paint_one_red_box_when_no_palette_is_given(self, mod):
+        args = mod.parse_args(["clip.mp4", "--mode", "background"])
+        style = mod.build_style(1080, 1920, args)
+        assert style.highlights == mod.BOX_PALETTE
+
+    def should_cycle_the_rainbow_when_filling_without_a_palette(self, mod):
+        args = mod.parse_args(["clip.mp4", "--mode", "fill"])
+        style = mod.build_style(1080, 1920, args)
+        assert style.highlights == mod.DEFAULT_PALETTE
 
     def should_pass_mode_and_pop_through(self, mod):
         args = mod.parse_args(["clip.mp4", "--mode", "background", "--pop", "112"])
@@ -380,37 +484,35 @@ class TestBuildStyle:
         style = mod.build_style(1080, 1920, args)
         assert style.font_size == int(1920 * 0.07)
 
-    def should_squash_the_box_for_a_face_with_measured_dead_space(self, mod):
-        args = mod.parse_args(["clip.mp4", "--font", "anton"])
+    @pytest.mark.parametrize("face", ["anton", "barlow-condensed", "caveat"])
+    def should_wrap_the_box_around_the_ink_of_a_bottom_anchored_line(self, mod, face):
+        args = mod.parse_args(["clip.mp4", "--font", face])
         style = mod.build_style(1080, 1920, args)
-        assert style.box_scale_y < 100
-        assert style.box_margin_v > style.margin_v
+        font = style.font
+        ink_top = mod._ink_top(style.font_size, font, 2, style.margin_v, 1920)
+        ink_height = style.font_size * (1 - font.ink_top - font.ink_bottom)
+        box_height = style.font_size * (style.box.scale_y / 100) ** 2
 
-    def should_pad_the_box_wider_than_tall(self, mod):
-        args = mod.parse_args(["clip.mp4", "--scale", "0.05"])
-        style = mod.build_style(1080, 1920, args)
-        assert style.box_pad_x > style.box_pad_y
-
-    def should_discount_the_padding_by_the_blur_it_bleeds(self, mod):
-        args = mod.parse_args(["clip.mp4", "--scale", "0.05"])
-        style = mod.build_style(1080, 1920, args)
-        expected = round(style.font_size * mod.BOX_PAD_X_RATIO) - style.box_round
-        assert style.box_pad_x == expected
+        assert style.box.margin_v < ink_top
+        assert style.box.margin_v + box_height > ink_top + ink_height
+        assert style.box.alignment == 8
 
     def should_keep_rounding_visible_on_tiny_videos(self, mod):
         args = mod.parse_args(["clip.mp4", "--scale", "0.01"])
         style = mod.build_style(100, 100, args)
-        assert style.box_round == 1
-        assert style.box_pad_y == 0
+        assert style.box.rounding == 1
+        assert style.box.pad_x == 0
 
 
 class TestFonts:
-    def should_shout_in_capitals_only_for_the_default_face(self, mod):
+    def should_shout_in_capitals_only_for_the_grotesques(self, mod):
+        shouting = {name for name, font in mod.FONTS.items() if font.uppercase}
+        assert shouting == {"anton", "barlow-condensed"}
         assert mod.FONTS[mod.DEFAULT_FONT].uppercase
-        assert not any(
-            font.uppercase
-            for name, font in mod.FONTS.items()
-            if name != mod.DEFAULT_FONT
+
+    def should_measure_an_ink_band_for_every_face(self, mod):
+        assert all(
+            0 < font.ink_top + font.ink_bottom < 1 for font in mod.FONTS.values()
         )
 
     def should_percent_encode_bracketed_variable_font_paths(self, mod):
@@ -432,11 +534,17 @@ class TestBuildAss:
         assert "PlayResY: 1920" in ass
         assert "[Events]" in ass
 
-    def should_emit_one_dialogue_event_per_word(self, mod, make_style, make_words):
+    def should_emit_a_glow_and_a_text_event_per_word_when_filling(
+        self, mod, make_style, make_words
+    ):
         words = make_words([(f"w{i}", i, i + 0.5) for i in range(4)])
         groups = mod.group_words(words, 2, 10.0)
+
         ass = mod.build_ass(groups, make_style())
-        assert sum(l.startswith("Dialogue") for l in ass.splitlines()) == 4
+
+        events = [l for l in ass.splitlines() if l.startswith("Dialogue")]
+        assert len(events) == 8
+        assert [e.split(",")[3] for e in events[:2]] == ["Glow", "Default"]
 
     def should_hold_one_colour_per_line_and_advance_between_lines(
         self, mod, make_style, make_words
@@ -444,7 +552,10 @@ class TestBuildAss:
         words = make_words([(f"w{i}", i, i + 0.5) for i in range(8)])
         groups = mod.group_words(words, 3, 10.0)
         ass = mod.build_ass(groups, make_style(highlights=mod.DEFAULT_PALETTE))
-        lines = [l for l in ass.splitlines() if l.startswith("Dialogue")]
+        lines = [
+            l for l in ass.splitlines()
+            if l.startswith("Dialogue") and l.split(",")[3] == "Default"
+        ]
         colour = lambda l: mod.re.search(r"\\c(&H[0-9A-F]+&)", l).group(1)
         per_group, idx = [], 0
         for group in groups:
@@ -481,6 +592,21 @@ class TestBuildAss:
         groups = mod.group_words(make_words([("a", 0, 1)]), 5, 0.6)
         ass = mod.build_ass(groups, make_style(mode=mod.Highlight.FILL))
         assert "Style: Box," not in ass
+        assert "Style: Glow," in ass
+
+    def should_bed_the_text_in_a_thicker_bordered_glow_style(
+        self, mod, make_style, make_words
+    ):
+        groups = mod.group_words(make_words([("a", 0, 1)]), 5, 0.6)
+
+        ass = mod.build_ass(groups, make_style(outline=4, glow_outline=6))
+
+        text, glow = [
+            s.split(",") for s in ass.splitlines() if s.startswith("Style: ")
+        ]
+        assert (text[16], glow[16]) == ("4", "6")
+        assert glow[3] == mod.TRANSPARENT
+        assert text[6] == glow[6]
 
     def should_define_a_transparent_opaque_box_style_in_background_mode(
         self, mod, make_style, make_words
@@ -493,34 +619,33 @@ class TestBuildAss:
         assert fields[15] == "3"
         assert fields[16] == "15"
 
-    def should_share_geometry_apart_from_the_box_trim_in_background_mode(
-        self, mod, make_style, make_words
+    def should_anchor_the_box_style_on_its_own_edge_in_background_mode(
+        self, mod, make_style, make_words, make_box
     ):
         groups = mod.group_words(make_words([("a", 0, 1)]), 5, 0.6)
         style = make_style(
             mode=mod.Highlight.BACKGROUND,
-            alignment=8,
+            alignment=2,
             margin_v=190,
-            box_scale_y=78,
-            box_margin_v=210,
+            box=make_box(scale_y=78, margin_v=1210, alignment=8),
         )
 
         ass = mod.build_ass(groups, style)
 
-        text, box = [
+        text, glow, box = [
             s.split(",") for s in ass.splitlines() if s.startswith("Style: ")
         ]
         assert text[2] == box[2]
-        assert text[18:21] == box[18:21]
-        assert (text[12], text[21]) == ("100", "190")
-        assert (box[12], box[21]) == ("78", "210")
+        assert (text[12], text[18], text[21]) == ("100", "2", "190")
+        assert (box[12], box[18], box[21]) == ("78", "8", "1210")
+        assert glow[18:22] == text[18:22]
 
     def should_stack_the_box_copies_on_their_own_layers_under_the_text(
         self, mod, make_style, make_words
     ):
         words = make_words([(f"w{i}", i, i + 0.5) for i in range(3)])
         groups = mod.group_words(words, 3, 10.0)
-        per_word = mod.BOX_ROUND_LAYERS + 1
+        per_word = mod.BOX_ROUND_LAYERS + 2
 
         ass = mod.build_ass(groups, make_style(mode=mod.Highlight.BACKGROUND))
 
@@ -531,7 +656,7 @@ class TestBuildAss:
             f"Dialogue: {layer}" for layer in range(per_word)
         ]
         assert [e.split(",")[3] for e in word] == ["Box"] * mod.BOX_ROUND_LAYERS + [
-            "Default"
+            "Glow", "Default"
         ]
 
     def should_pair_each_box_copy_with_the_text_event_it_backs(
@@ -539,7 +664,7 @@ class TestBuildAss:
     ):
         words = make_words([(f"w{i}", i, i + 0.5) for i in range(2)])
         groups = mod.group_words(words, 2, 10.0)
-        per_word = mod.BOX_ROUND_LAYERS + 1
+        per_word = mod.BOX_ROUND_LAYERS + 2
         ass = mod.build_ass(groups, make_style(mode=mod.Highlight.BACKGROUND))
         spans = [e.split(",")[1:3] for e in ass.splitlines() if e.startswith("Dialogue")]
         assert len(set(map(tuple, spans[:per_word]))) == 1
@@ -551,7 +676,7 @@ class TestBuildAss:
     ):
         groups = mod.group_words(make_words([("a", 0, 1), ("b", 1, 2)]), 5, 10.0)
         ass = mod.build_ass(groups, make_style(mode=mod.Highlight.BACKGROUND))
-        prefix = f"Dialogue: {mod.BOX_ROUND_LAYERS},"
+        prefix = f"Dialogue: {mod.BOX_ROUND_LAYERS + 1},"
         text_events = [e for e in ass.splitlines() if e.startswith(prefix)]
         assert text_events
         assert not any(mod.re.search(r"\\c&H", e) for e in text_events)
@@ -580,11 +705,11 @@ class TestDefaultOutput:
 
 
 class TestParseArgs:
-    def should_default_max_words_to_five(self, mod):
-        assert mod.parse_args(["clip.mp4"]).words == 5
+    def should_default_max_words_to_three(self, mod):
+        assert mod.parse_args(["clip.mp4"]).words == 3
 
-    def should_default_highlight_to_rainbow_palette(self, mod):
-        assert mod.parse_args(["clip.mp4"]).highlight == mod.DEFAULT_PALETTE
+    def should_leave_the_highlight_palette_to_the_mode(self, mod):
+        assert mod.parse_args(["clip.mp4"]).highlight is None
 
     def should_default_cache_enabled(self, mod):
         assert mod.parse_args(["clip.mp4"]).no_cache is False
@@ -597,14 +722,14 @@ class TestParseArgs:
             "#ff0000",
         )
 
-    def should_default_alignment_to_top_centre(self, mod):
-        assert mod.parse_args(["clip.mp4"]).alignment == 8
+    def should_default_alignment_to_bottom_centre(self, mod):
+        assert mod.parse_args(["clip.mp4"]).alignment == 2
 
-    def should_default_position_high_near_the_top(self, mod):
-        assert mod.parse_args(["clip.mp4"]).position == 0.10
+    def should_default_position_clear_of_the_bottom_edge(self, mod):
+        assert mod.parse_args(["clip.mp4"]).position == 0.20
 
-    def should_accept_bottom_centre_alignment_override(self, mod):
-        assert mod.parse_args(["clip.mp4", "--alignment", "2"]).alignment == 2
+    def should_accept_top_centre_alignment_override(self, mod):
+        assert mod.parse_args(["clip.mp4", "--alignment", "8"]).alignment == 8
 
     def should_default_mode_to_fill(self, mod):
         assert mod.parse_args(["clip.mp4"]).mode is mod.Highlight.FILL
@@ -619,9 +744,11 @@ class TestParseArgs:
         with pytest.raises(SystemExit):
             mod.parse_args(["clip.mp4", "--mode", "glow"])
 
-    def should_default_pop_to_a_subtle_scale_up(self, mod):
-        assert mod.parse_args(["clip.mp4"]).pop == mod.DEFAULT_POP
-        assert mod.NO_POP < mod.DEFAULT_POP < 110
+    def should_default_pop_to_holding_every_word_at_its_own_size(self, mod):
+        assert mod.parse_args(["clip.mp4"]).pop == mod.NO_POP
+
+    def should_default_font_to_the_reference_face(self, mod):
+        assert mod.parse_args(["clip.mp4"]).font == "barlow-condensed"
 
 
 class TestParsePop:

@@ -27,22 +27,31 @@ CACHE: Final = Path.home() / ".cache" / "captions"
 VENV: Final = CACHE / "venv"
 TRANSCRIPTS: Final = CACHE / "transcripts"
 SENTENCE_END: Final = re.compile(r"[.!?]$")
-STRIP_TRAILING: Final = re.compile(r"[.,;:]+$")
 BOOTSTRAP_FLAG: Final = "CAPTIONS_BOOTSTRAPPED"
 LAST_WORD_TAIL: Final = 0.15
 VIDEOTOOLBOX_BITRATE: Final = "12M"
 HEX_COLOUR: Final = re.compile(r"^#?[0-9A-Fa-f]{6}$")
 DEFAULT_STYLE: Final = "Default"
+GLOW_STYLE: Final = "Glow"
 BOX_STYLE: Final = "Box"
 TRANSPARENT: Final = "&HFF000000"
 NO_POP: Final = 100
-DEFAULT_POP: Final = 106
 MAX_POP: Final = 150
 POP_MS: Final = 140
-BOX_PAD_X_RATIO: Final = 0.16
-BOX_PAD_Y_RATIO: Final = 0.03
-BOX_ROUND_RATIO: Final = 0.03
-BOX_ROUND_LAYERS: Final = 3
+
+# Every ratio below is a fraction of the ink band - the caps-to-baseline strip
+# the face actually paints - because that band, not the em box, is what a
+# viewer reads as "the text size". They reproduce a reference reel measured
+# pixel by pixel: 75px of ink carrying a 6px outline, a 10px-wide and
+# 23px-tall gap to the highlight box, and that box 60% taller than the caps.
+OUTLINE_RATIO: Final = 0.08
+GLOW_OUTLINE_RATIO: Final = 1.5  # of the outline
+GLOW_BLUR_RATIO: Final = 0.8  # of the outline
+BOX_PAD_X_RATIO: Final = 0.141
+BOX_PAD_Y_RATIO: Final = 0.308
+BOX_ROUND_RATIO: Final = 0.33  # of the box height
+BOX_BLEED_RATIO: Final = 0.04  # of the rounding
+BOX_ROUND_LAYERS: Final = 5
 DEFAULT_PALETTE: Final = (
     "#22FF00",  # green
     "#3B82FF",  # blue
@@ -51,13 +60,17 @@ DEFAULT_PALETTE: Final = (
     "#FF3B30",  # red
     # "#FFC400",  # amber
 )
+BOX_PALETTE: Final = ("#FE2C55",)
 WHISPER_MODELS: Final = (
     "tiny", "tiny.en", "base", "base.en", "small", "small.en",
     "medium", "medium.en", "large-v1", "large-v2", "large-v3", "large",
 )
 COMMON_LANGS: Final = ("en", "de", "fr", "it", "es", "pt", "nl", "ru", "ja", "zh")
 ALIGNMENTS: Final = tuple(str(n) for n in range(1, 10))
+ALIGNMENT_COLUMNS: Final = 3
+TOP_ROW_START: Final = 7
 TOP_ALIGNMENTS: Final = frozenset({7, 8, 9})
+BOTTOM_ALIGNMENTS: Final = frozenset({1, 2, 3})
 MIN_BOX_SCALE: Final = 40
 
 
@@ -75,10 +88,15 @@ class Font:
 
     `scale` is the font size as a fraction of video height that makes this
     face fill a line like Anton does at its own default. `ink_top` and
-    `ink_bottom` are the empty fractions of the ascent-to-descent band that no
-    glyph ever reaches, so the highlight box can be trimmed by them. All three
-    are measured by rendering, not guessed - the ink figures come from a probe
-    of the tallest and lowest glyphs the face has to survive, umlauts included.
+    `ink_bottom` are the fractions of the ascent-to-descent band that lie
+    outside the ink of an ordinary word, so everything the highlight box and
+    the outline are sized and placed from can be derived from the band the eye
+    actually sees. All three are measured by rendering, not guessed. Bare caps
+    set the band for the shouting faces: a diacritic reaches into the box's top
+    padding instead of pushing the box up the way it would in a renderer that
+    could measure each word. `tracking` tightens or opens the letter spacing by
+    a fraction of the font size, for faces the reference sets closer than they
+    are drawn.
     """
 
     family: str
@@ -89,6 +107,7 @@ class Font:
     uppercase: bool = False
     ink_top: float = 0.0
     ink_bottom: float = 0.0
+    tracking: float = 0.0
 
     @property
     def url(self) -> str:
@@ -99,11 +118,16 @@ class Font:
         return self.path.rsplit("/", 1)[-1]
 
 
-DEFAULT_FONT: Final = "anton"
+DEFAULT_FONT: Final = "barlow-condensed"
 FONTS: Final = {
     "anton": Font(
         "Anton", "ofl/anton/Anton-Regular.ttf", 0.058,
         bold=True, uppercase=True, ink_top=0.180, ink_bottom=0.108,
+    ),
+    "barlow-condensed": Font(
+        "Barlow Condensed ExtraBold",
+        "ofl/barlowcondensed/BarlowCondensed-ExtraBold.ttf", 0.074,
+        uppercase=True, ink_top=0.271, ink_bottom=0.201, tracking=-0.007,
     ),
     "caveat": Font(
         "Caveat", "ofl/caveat/Caveat[wght].ttf", 0.053,
@@ -155,18 +179,34 @@ class Word:
     end: float
 
     @property
-    def display(self) -> str:
-        return STRIP_TRAILING.sub("", self.text)
-
-    @property
     def ends_sentence(self) -> bool:
         return SENTENCE_END.search(self.text) is not None
+
+
+@dataclass(frozen=True)
+class Box:
+    """Where the highlight block goes and how it is drawn.
+
+    It is anchored to the top of the frame whatever the caption's own
+    alignment, because that is the one edge libass keeps put when the box
+    style is squashed - which is how the block ends up hugging the ink instead
+    of the font's full ascent-to-descent band.
+    """
+
+    pad_x: int
+    rounding: int
+    scale_y: int
+    margin_v: int
+    alignment: int
 
 
 @dataclass(frozen=True)
 class Style:
     font_size: int
     outline: int
+    glow_outline: int
+    glow_blur: int
+    spacing: float
     highlights: tuple[str, ...]
     max_words: int
     max_gap: float
@@ -177,11 +217,7 @@ class Style:
     mode: Highlight
     pop: int
     font: Font
-    box_pad_x: int
-    box_pad_y: int
-    box_round: int
-    box_scale_y: int
-    box_margin_v: int
+    box: Box
 
 
 def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -373,23 +409,43 @@ def _pop_tags(pop: int, scale_y: int = 100) -> str:
 
 
 def _tokens(
-    words: list[Word], active: int, tags: str, reset: str, uppercase: bool
+    words: list[Word], active: int, tags: str, reset: str, style: Style
 ) -> str:
-    plain = f"{{{reset}}}"
-    shown = [w.display.upper() if uppercase else w.display for w in words]
+    """Set the line word by word, marking only the active one.
+
+    The letter spacing rides along on every token because libass silently
+    clamps a style's negative Spacing to zero and honours it only inline.
+    """
+    spacing = f"\\fsp{style.spacing}" if style.spacing else ""
+    marker = f"{tags}{spacing}"
+    plain = f"{{{reset}{spacing}}}"
+    shown = [w.text.upper() if style.font.uppercase else w.text for w in words]
     return " ".join(
-        f"{{{tags}}}{text}{plain}" if index == active and tags else f"{plain}{text}"
+        f"{{{marker}}}{text}{plain}" if index == active and marker else f"{plain}{text}"
         for index, text in enumerate(shown)
     )
 
 
 def _fill_line(words: list[Word], active: int, highlight: str, style: Style) -> str:
     tags = f"\\c{highlight}{_pop_tags(style.pop)}"
-    return _tokens(words, active, tags, "\\r", style.font.uppercase)
+    return _tokens(words, active, tags, "\\r", style)
 
 
 def _plain_line(words: list[Word], active: int, style: Style) -> str:
-    return _tokens(words, active, _pop_tags(style.pop), "\\r", style.font.uppercase)
+    return _tokens(words, active, _pop_tags(style.pop), "\\r", style)
+
+
+def _glow_line(words: list[Word], active: int, style: Style) -> str:
+    """Bed the line into the footage with a soft dark halo.
+
+    A blurred border reads as the shadow the crisp outline cannot be: libass
+    blurs an event's border but leaves its fill sharp, so the halo has to come
+    from a second, thicker-bordered copy sitting under the real text.
+    """
+    blur = f"\\blur{style.glow_blur}"
+    return _tokens(
+        words, active, f"{blur}{_pop_tags(style.pop)}", f"\\r{GLOW_STYLE}{blur}", style
+    )
 
 
 def _box_line(words: list[Word], active: int, highlight: str, style: Style) -> str:
@@ -397,16 +453,17 @@ def _box_line(words: list[Word], active: int, highlight: str, style: Style) -> s
 
     Every colour in the Box style is transparent, so the one word that
     overrides the outline is the only one BorderStyle 3 fills in. ASS has no
-    border radius: blurring the box rounds its corners, and redrawing it on
-    BOX_ROUND_LAYERS separate layers compounds the alpha back to near-opaque.
-    Same-layer copies would trip libass' collision avoidance instead.
+    border radius: `\\be` rounds the corners while keeping the edges far
+    crisper than `\\blur` would, and redrawing the box on BOX_ROUND_LAYERS
+    separate layers compounds back the alpha that softening costs. Same-layer
+    copies would trip libass' collision avoidance instead.
     """
     tags = (
-        f"\\3c{highlight}\\3a&H00&\\xbord{style.box_pad_x}"
-        f"\\ybord{style.box_pad_y}\\blur{style.box_round}"
-        f"{_pop_tags(style.pop, style.box_scale_y)}"
+        f"\\3c{highlight}\\3a&H00&\\xbord{style.box.pad_x}"
+        f"\\ybord0\\be{style.box.rounding}"
+        f"{_pop_tags(style.pop, style.box.scale_y)}"
     )
-    return _tokens(words, active, tags, f"\\r{BOX_STYLE}", style.font.uppercase)
+    return _tokens(words, active, tags, f"\\r{BOX_STYLE}", style)
 
 
 def _event(layer: int, start: float, end: float, name: str, text: str) -> str:
@@ -419,16 +476,21 @@ def _word_events(
     group: list[Word], active: int, colour: str, span: tuple[float, float], style: Style
 ) -> list[str]:
     start, end = span
-    if style.mode is Highlight.FILL:
-        text = _fill_line(group, active, colour, style)
-        return [_event(0, start, end, DEFAULT_STYLE, text)]
-    box = _box_line(group, active, colour, style)
-    events = [
-        _event(layer, start, end, BOX_STYLE, box)
-        for layer in range(BOX_ROUND_LAYERS)
-    ]
-    text = _plain_line(group, active, style)
-    events.append(_event(BOX_ROUND_LAYERS, start, end, DEFAULT_STYLE, text))
+    events: list[str] = []
+    if style.mode is Highlight.BACKGROUND:
+        box = _box_line(group, active, colour, style)
+        events += [
+            _event(layer, start, end, BOX_STYLE, box)
+            for layer in range(BOX_ROUND_LAYERS)
+        ]
+    glow = _glow_line(group, active, style)
+    events.append(_event(len(events), start, end, GLOW_STYLE, glow))
+    text = (
+        _fill_line(group, active, colour, style)
+        if style.mode is Highlight.FILL
+        else _plain_line(group, active, style)
+    )
+    events.append(_event(len(events), start, end, DEFAULT_STYLE, text))
     return events
 
 
@@ -460,14 +522,18 @@ def _style_definitions(style: Style) -> list[str]:
     weight = f"{int(style.font.bold)},{int(style.font.italic)},0,0"
     definitions = [
         f"Style: {DEFAULT_STYLE},{family},{style.font_size},{primary},{primary},"
-        f"{outline},&H64000000,{weight},100,100,0,0,1,{style.outline},2,{geometry}"
+        f"{outline},{TRANSPARENT},{weight},100,100,0,0,1,{style.outline},0,{geometry}",
+        f"Style: {GLOW_STYLE},{family},{style.font_size},{TRANSPARENT},"
+        f"{TRANSPARENT},{outline},{TRANSPARENT},{weight},100,100,0,0,1,"
+        f"{style.glow_outline},0,{geometry}",
     ]
     if style.mode is Highlight.BACKGROUND:
-        box_geometry = f"{style.alignment},40,40,{style.box_margin_v},1"
+        box = style.box
+        box_geometry = f"{box.alignment},40,40,{box.margin_v},1"
         definitions.append(
             f"Style: {BOX_STYLE},{family},{style.font_size},{TRANSPARENT},"
             f"{TRANSPARENT},{TRANSPARENT},{TRANSPARENT},{weight},100,"
-            f"{style.box_scale_y},0,0,3,{style.box_pad_x},0,{box_geometry}"
+            f"{box.scale_y},0,0,3,{box.pad_x},0,{box_geometry}"
         )
     return definitions
 
@@ -561,54 +627,66 @@ def burn(video: Path, ass_path: Path, font_dir: Path, out: Path) -> None:
         raise SystemExit(f"ffmpeg failed (exit {exc.returncode})")
 
 
-def _box_geometry(font_size: int) -> tuple[int, int, int]:
-    """Return the highlight box's horizontal padding, vertical padding, rounding.
+def _ink_top(
+    font_size: int, font: Font, alignment: int, margin_v: int, play_h: int
+) -> float:
+    """Return the absolute y where the anchored line starts painting ink.
 
-    The blur that rounds the corners also bleeds the edge outwards, so it pays
-    for part of the padding instead of adding to it.
+    MarginV pins the top edge of the ascent-to-descent band for a top-anchored
+    line and its bottom edge for a bottom-anchored one; the middle row ignores
+    the margin and centres the band instead.
     """
-    rounding = max(1, round(font_size * BOX_ROUND_RATIO))
-    horizontal = max(0, round(font_size * BOX_PAD_X_RATIO) - rounding)
-    vertical = max(0, round(font_size * BOX_PAD_Y_RATIO) - rounding)
-    return horizontal, vertical, rounding
+    if alignment in TOP_ALIGNMENTS:
+        band_top = float(margin_v)
+    elif alignment in BOTTOM_ALIGNMENTS:
+        band_top = play_h - margin_v - font_size
+    else:
+        band_top = (play_h - font_size) / 2
+    return band_top + font_size * font.ink_top
 
 
-def _box_band(font_size: int, font: Font, alignment: int, margin_v: int) -> tuple[int, int]:
-    """Return the box style's ScaleY and the MarginV that keeps it on the ink.
+def _build_box(
+    font_size: int, ink_top: float, ink_height: float, alignment: int
+) -> Box:
+    """Wrap the ink band in the highlight block, padded on all four sides.
 
-    The box always spans the font's full ascent-to-descent band, most of which
-    no glyph reaches. Squashing the box style trims that dead space, and since
-    libass keeps the shortened line against the top edge it was anchored to,
-    the margin hands the top half of the trim back.
-
-    Only top-anchored captions are trimmed. A bottom-anchored line keeps its
-    bottom edge instead, and a vertically centred one ignores MarginV
-    altogether, so neither can be re-anchored the same way.
+    The softening that rounds the corners also bleeds the block outwards, so
+    it pays for part of the padding instead of adding to it.
 
     libass double-applies a style's ScaleY to an opaque box, the way VSFilter
     did, so the rendered height follows its square - hence the root.
     """
-    if alignment not in TOP_ALIGNMENTS:
-        return 100, margin_v
-    pad = font_size * BOX_PAD_Y_RATIO
-    top = max(0.0, font_size * font.ink_top - pad)
-    bottom = max(0.0, font_size * font.ink_bottom - pad)
-    full = font_size * (1 + 2 * BOX_ROUND_RATIO)
-    kept = max(0.0, (full - top - bottom) / full)
-    scale_y = max(MIN_BOX_SCALE, round(100 * math.sqrt(kept)))
-    return scale_y, margin_v + round(top)
+    pad_y = ink_height * BOX_PAD_Y_RATIO
+    rounding = max(1, round((ink_height + 2 * pad_y) * BOX_ROUND_RATIO))
+    bleed = rounding * BOX_BLEED_RATIO
+    height = ink_height + 2 * (pad_y - bleed)
+    return Box(
+        pad_x=max(0, round(ink_height * BOX_PAD_X_RATIO - bleed)),
+        rounding=rounding,
+        scale_y=max(MIN_BOX_SCALE, round(100 * math.sqrt(height / font_size))),
+        margin_v=max(0, round(ink_top - pad_y + bleed)),
+        alignment=TOP_ROW_START + (alignment - 1) % ALIGNMENT_COLUMNS,
+    )
+
+
+def _default_palette(mode: Highlight) -> tuple[str, ...]:
+    return BOX_PALETTE if mode is Highlight.BACKGROUND else DEFAULT_PALETTE
 
 
 def build_style(width: int, height: int, args: argparse.Namespace) -> Style:
     font = FONTS[args.font]
     font_size = int(height * (args.scale or font.scale))
-    box_pad_x, box_pad_y, box_round = _box_geometry(font_size)
     margin_v = int(height * args.position)
-    box_scale_y, box_margin_v = _box_band(font_size, font, args.alignment, margin_v)
+    ink_height = font_size * (1 - font.ink_top - font.ink_bottom)
+    ink_top = _ink_top(font_size, font, args.alignment, margin_v, height)
+    outline = max(3, round(ink_height * OUTLINE_RATIO))
     return Style(
         font_size=font_size,
-        outline=max(3, round(font_size * 0.06)),
-        highlights=args.highlight,
+        outline=outline,
+        glow_outline=round(outline * GLOW_OUTLINE_RATIO),
+        glow_blur=max(1, round(outline * GLOW_BLUR_RATIO)),
+        spacing=round(font_size * font.tracking, 2),
+        highlights=args.highlight or _default_palette(args.mode),
         max_words=args.words,
         max_gap=args.gap,
         play_w=width,
@@ -618,11 +696,7 @@ def build_style(width: int, height: int, args: argparse.Namespace) -> Style:
         mode=args.mode,
         pop=args.pop,
         font=font,
-        box_pad_x=box_pad_x,
-        box_pad_y=box_pad_y,
-        box_round=box_round,
-        box_scale_y=box_scale_y,
-        box_margin_v=box_margin_v,
+        box=_build_box(font_size, ink_top, ink_height, args.alignment),
     )
 
 
@@ -658,9 +732,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     add(
         "--highlight",
         type=_parse_palette,
-        default=DEFAULT_PALETTE,
+        default=None,
         help="active-word colour: one hex for a fixed colour, or a comma-separated "
-        "list to cycle per word (default: rainbow palette)",
+        "list to cycle per line (default: one red for 'background', a rainbow "
+        "palette for 'fill')",
     )
     add(
         "--mode",
@@ -674,11 +749,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     add(
         "--pop",
         type=_parse_pop,
-        default=DEFAULT_POP,
-        help=f"how far the active word scales up, in percent (default "
-        f"{DEFAULT_POP}, {NO_POP} disables the pop entirely)",
+        default=NO_POP,
+        help=f"how far the active word scales up, in percent (default {NO_POP}, "
+        f"which holds every word at its own size; up to {MAX_POP})",
     )
-    add("--words", type=int, default=5, help="max words per line (default 5)")
+    add("--words", type=int, default=3, help="max words per line (default 3)")
     add("--gap", type=float, default=0.6, help="silence gap that breaks a line (s)")
     add(
         "--font",
@@ -697,16 +772,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     add(
         "--alignment",
         type=int,
-        default=8,
+        default=2,
         help="which screen zone the captions anchor to (ASS numpad layout): "
         "1-3 = bottom left/centre/right, 4-6 = middle left/centre/right, "
-        "7-9 = top left/centre/right. E.g. 8 = top-centre (default), "
-        "2 = bottom-centre, 5 = dead-centre",
+        "7-9 = top left/centre/right. E.g. 2 = bottom-centre (default), "
+        "8 = top-centre, 5 = dead-centre",
     )
     add(
         "--position",
         type=float,
-        default=0.10,
+        default=0.20,
         help="fine offset from the --alignment edge, as a fraction of video "
         "height: gap below the top edge for 7-9, gap above the bottom edge "
         "for 1-3, ignored for the vertically-centred row 4-6",
