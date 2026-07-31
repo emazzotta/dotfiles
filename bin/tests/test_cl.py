@@ -627,6 +627,37 @@ class TestMain:
         cmd = mock_cl_run[-1]
         assert f"{pwd}:/workspace/code/myproject" in cmd
 
+    def should_launch_claude_at_max_effort_by_default(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert cmd[cmd.index("--effort") + 1] == "max"
+        assert cmd.index("--effort") > cmd.index("claude")
+
+    def should_forward_max_effort_past_the_separator_when_resuming(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-r"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert cmd[cmd.index("--effort") + 1] == "max"
+        assert cmd.index("--") < cmd.index("--effort")
+
+    @pytest.mark.parametrize("explicit", [["--effort", "high"], ["--effort=high"]])
+    def should_keep_an_explicit_effort_instead_of_injecting_the_default(self, cl, monkeypatch, mock_cl_run, explicit):
+        monkeypatch.setattr(sys, "argv", ["cl", *explicit])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert "max" not in cmd
+        assert cmd[-len(explicit):] == explicit
+
+    def should_not_pass_effort_to_opencode(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-o"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        assert "--effort" not in mock_cl_run[-1]
+
     def should_not_mount_full_pwd_when_files_and_explicit_paths_combined(self, cl, monkeypatch, mock_cl_run, tmp_path):
         pwd = tmp_path / "myproject"
         pwd.mkdir()

@@ -123,6 +123,7 @@ DOTFILES_CRUFT_PATTERNS = (
     ".venv", "venv", "node_modules",
     ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
 )
+DEFAULT_EFFORT = "max"
 
 
 def _is_git_crypt_repo(path: Path) -> bool:
@@ -484,6 +485,13 @@ def build_dotfiles_volume_args() -> list[str]:
     )
 
 
+def build_effort_args(claude_args: list[str]) -> list[str]:
+    """Claude Code only persists effort up to xhigh; max has to come from the CLI."""
+    if any(arg == "--effort" or arg.startswith("--effort=") for arg in claude_args):
+        return []
+    return ["--effort", DEFAULT_EFFORT]
+
+
 def build_volume_args(
     files: list[str],
     paths: list[Path],
@@ -650,6 +658,7 @@ def main() -> None:
     _profile("desktop mount")
     container_name = f"opencode-{int(time())}"
     permission_args = ["--permission-mode", "manual"] if args.no_skip else []
+    effort_args = build_effort_args(claude_args)
 
     if args.rm is not None:
         entrypoint = "opencode-rm" if args.opencode else "claude-rm"
@@ -673,7 +682,7 @@ def main() -> None:
         entrypoint_args = []
     else:
         entrypoint = "claude"
-        entrypoint_args = [*permission_args, *claude_args]
+        entrypoint_args = [*permission_args, *effort_args, *claude_args]
 
     plugin_args = []
     if entrypoint in ("claude", "claude-resume"):
@@ -685,7 +694,7 @@ def main() -> None:
         ] if plugin_dir.is_dir() else []
 
     if entrypoint == "claude-resume":
-        forwarded = [*permission_args, *plugin_args, *claude_args]
+        forwarded = [*permission_args, *effort_args, *plugin_args, *claude_args]
         if forwarded:
             entrypoint_args = [*entrypoint_args, "--", *forwarded]
         plugin_args = []
