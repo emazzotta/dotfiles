@@ -39,34 +39,50 @@ def _essential_bin_dirs() -> list[str]:
     return [d for d in dirs if Path(d).is_dir()]
 
 
+def _run_in_mocked_env(command, tmp_path, env_extra, mock_bins, stdin, isolate_path, cwd=None):
+    mock_dir = tmp_path / "mock_bin"
+    mock_dir.mkdir(exist_ok=True)
+
+    if mock_bins:
+        for name, body in mock_bins.items():
+            mock = mock_dir / name
+            mock.write_text(f"#!/bin/bash\n{body}\n")
+            mock.chmod(mock.stat().st_mode | stat.S_IEXEC)
+
+    env = os.environ.copy()
+    if isolate_path:
+        essential = ":".join(_essential_bin_dirs())
+        env["PATH"] = f"{mock_dir}:{BIN_DIR}:{essential}"
+    else:
+        env["PATH"] = f"{mock_dir}:{BIN_DIR}:{env.get('PATH', '')}"
+
+    if env_extra:
+        env.update(env_extra)
+
+    return subprocess.run(
+        command, capture_output=True, text=True, env=env, input=stdin,
+        cwd=str(cwd) if cwd else None,
+    )
+
+
 @pytest.fixture
 def run_bash(tmp_path):
     def _run(script_name, args=None, env_extra=None, mock_bins=None,
-             stdin=None, isolate_path=False):
-        script = BIN_DIR / script_name
-        mock_dir = tmp_path / "mock_bin"
-        mock_dir.mkdir(exist_ok=True)
+             stdin=None, isolate_path=False, cwd=None):
+        command = ["bash", str(BIN_DIR / script_name)] + (args or [])
+        return _run_in_mocked_env(command, tmp_path, env_extra, mock_bins,
+                                  stdin, isolate_path, cwd)
+    return _run
 
-        if mock_bins:
-            for name, body in mock_bins.items():
-                mock = mock_dir / name
-                mock.write_text(f"#!/bin/bash\n{body}\n")
-                mock.chmod(mock.stat().st_mode | stat.S_IEXEC)
 
-        env = os.environ.copy()
-        if isolate_path:
-            essential = ":".join(_essential_bin_dirs())
-            env["PATH"] = f"{mock_dir}:{BIN_DIR}:{essential}"
-        else:
-            env["PATH"] = f"{mock_dir}:{BIN_DIR}:{env.get('PATH', '')}"
-
-        if env_extra:
-            env.update(env_extra)
-
-        return subprocess.run(
-            ["bash", str(script)] + (args or []),
-            capture_output=True, text=True, env=env, input=stdin,
-        )
+@pytest.fixture
+def run_cli(tmp_path):
+    """Run a bin/ script through its own shebang, so Python scripts work too."""
+    def _run(script_name, args=None, env_extra=None, mock_bins=None,
+             stdin=None, isolate_path=False, cwd=None):
+        command = [str(BIN_DIR / script_name)] + (args or [])
+        return _run_in_mocked_env(command, tmp_path, env_extra, mock_bins,
+                                  stdin, isolate_path, cwd)
     return _run
 
 
