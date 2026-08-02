@@ -1,0 +1,605 @@
+#!/usr/bin/env python3
+
+import argparse
+import plistlib
+import re
+import shutil
+import subprocess
+import sys
+from collections import Counter
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from enum import Enum
+from pathlib import Path
+from typing import Final, Optional
+
+
+class Color:
+    RED: Final = '\033[0;31m'
+    GREEN: Final = '\033[0;32m'
+    YELLOW: Final = '\033[1;33m'
+    CYAN: Final = '\033[0;36m'
+    DIM: Final = '\033[2m'
+    RESET: Final = '\033[0m'
+
+
+TREE_PATTERN: Final = re.compile(r'^(\d{4}-\d{2}-\d{2}-\d{6})\.([a-z]+)$')
+STAMP_PATTERN: Final = re.compile(r'\d{4}-\d{2}-\d{2}-\d{6}')
+SLICE_PATTERN: Final = re.compile(r'^disk\d+s\d+$')
+STAMP_FORMAT: Final = '%Y-%m-%d-%H%M%S'
+STALE_AFTER: Final = timedelta(days=7)
+FULL_RATIO: Final = 0.9
+CASE_SENSITIVE_APFS: Final = 'APFSX'
+SIZE_UNITS: Final = ('B', 'KB', 'MB', 'GB', 'TB')
+DEFAULT_KEEP: Final = 5
+LOCAL_VOLUME: Final = '/'
+
+
+def error(message: str) -> None:
+    print(f"{Color.RED}error:{Color.RESET} {message}", file=sys.stderr)
+
+
+def warn(message: str) -> None:
+    print(f"  {Color.YELLOW}!{Color.RESET} {message}")
+
+
+def note(message: str) -> None:
+    print(f"  {Color.CYAN}i{Color.RESET} {message}")
+
+
+class CommandError(RuntimeError):
+    pass
+
+
+class TreeState(Enum):
+    BACKUP = 'backup'
+    PREVIOUS = 'previous'
+    INTERRUPTED = 'interrupted'
+    IN_PROGRESS = 'inprogress'
+
+    @property
+    def is_orphan(self) -> bool:
+        return self in (TreeState.INTERRUPTED, TreeState.IN_PROGRESS)
+
+    @property
+    def label(self) -> str:
+        return self.name.lower().replace('_', ' ')
+
+
+@dataclass(frozen=True)
+class BackupTree:
+    stamp: datetime
+    state: TreeState
+
+    @property
+    def directory_name(self) -> str:
+        return f"{self.stamp.strftime(STAMP_FORMAT)}.{self.state.value}"
+
+
+@dataclass(frozen=True)
+class Destination:
+    name: str
+    kind: str
+    identifier: str
+    mount_point: Optional[Path]
+
+
+@dataclass(frozen=True)
+class Volume:
+    device: str
+    name: str
+    is_whole_disk: bool
+
+
+@dataclass(frozen=True)
+class Usage:
+    total: int
+    used: int
+    free: int
+
+    @property
+    def ratio(self) -> float:
+        return self.used / self.total if self.total else 0.0
+
+
+@dataclass(frozen=True)
+class Report:
+    destination: Destination
+    volume: Volume
+    usage: Usage
+    trees: tuple[BackupTree, ...]
+    restorable: tuple[datetime, ...]
+
+    @property
+    def newest_backup(self) -> Optional[datetime]:
+        return max(self.restorable) if self.restorable else None
+
+    @property
+    def orphans(self) -> tuple[BackupTree, ...]:
+        return tuple(tree for tree in self.trees if tree.state.is_orphan)
+
+
+def format_bytes(count: int) -> str:
+    size = float(count)
+    for unit in SIZE_UNITS:
+        if size < 1000:
+            return f"{size:.0f} {unit}" if unit == 'B' else f"{size:.1f} {unit}"
+        size /= 1000
+    return f"{size:.1f} PB"
+
+
+def parse_tree(name: str) -> Optional[BackupTree]:
+    match = TREE_PATTERN.match(name)
+    if not match:
+        return None
+    try:
+        state = TreeState(match.group(2))
+        stamp = datetime.strptime(match.group(1), STAMP_FORMAT)
+    except ValueError:
+        return None
+    return BackupTree(stamp, state)
+
+
+def parse_fields(block: str) -> dict[str, str]:
+    fields = {}
+    for line in block.splitlines():
+        key, separator, value = line.partition(':')
+        if separator and value.strip():
+            fields[key.strip()] = value.strip()
+    return fields
+
+
+def build_destination(block: str) -> Optional[Destination]:
+    fields = parse_fields(block)
+    name = fields.get('Name')
+    if not name:
+        return None
+    mount_point = fields.get('Mount Point')
+    return Destination(
+        name=name,
+        kind=fields.get('Kind', 'unknown'),
+        identifier=fields.get('ID', ''),
+        mount_point=Path(mount_point) if mount_point else None,
+    )
+
+
+def parse_destinations(text: str) -> tuple[Destination, ...]:
+    blocks = (block for block in text.split('====') if ':' in block)
+    found = (build_destination(block) for block in blocks)
+    return tuple(destination for destination in found if destination)
+
+
+def parse_stamps(text: str) -> tuple[datetime, ...]:
+    unique = sorted(set(STAMP_PATTERN.findall(text)))
+    return tuple(datetime.strptime(stamp, STAMP_FORMAT) for stamp in unique)
+
+
+def stale_finding(report: Report) -> list[str]:
+    newest = report.newest_backup
+    if newest is None:
+        return ["No restorable backup exists on this destination"]
+    age = datetime.now() - newest
+    if age > STALE_AFTER:
+        return [f"Newest backup is {age.days} days old ({newest:%Y-%m-%d})"]
+    return []
+
+
+def orphan_finding(report: Report) -> list[str]:
+    orphans = report.orphans
+    if not orphans:
+        return []
+    return [
+        f"{len(orphans)} interrupted or in-progress trees remain on disk - "
+        f"Time Machine thinning only deletes snapshots and will never reclaim these"
+    ]
+
+
+def space_finding(report: Report) -> list[str]:
+    if report.usage.ratio < FULL_RATIO:
+        return []
+    return [
+        f"Volume is {report.usage.ratio:.0%} full "
+        f"({format_bytes(report.usage.free)} free)"
+    ]
+
+
+def history_finding(report: Report) -> list[str]:
+    previous = sum(1 for tree in report.trees if tree.state is TreeState.PREVIOUS)
+    if len(report.restorable) > 1 or previous < 2:
+        return []
+    return [
+        f"Only {len(report.restorable)} restorable backup against {previous} "
+        f"rotated-out trees - something is pruning history aggressively"
+    ]
+
+
+def diagnose(report: Report) -> list[str]:
+    findings = []
+    for check in (stale_finding, orphan_finding, space_finding, history_finding):
+        findings.extend(check(report))
+    return findings
+
+
+def select_prunable(restorable: tuple[datetime, ...], keep: int) -> tuple[datetime, ...]:
+    if keep < 1:
+        raise CommandError("--keep must be at least 1")
+    ordered = sorted(restorable)
+    surplus = len(ordered) - keep
+    return tuple(ordered[:surplus]) if surplus > 0 else ()
+
+
+def execute(args: tuple[str, ...], text: bool) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(args, capture_output=True, text=text)
+    except FileNotFoundError:
+        raise CommandError(f"{args[0]} is not available - this tool needs macOS") from None
+
+
+def run(*args: str) -> str:
+    result = execute(args, text=True)
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise CommandError(f"{args[0]} failed: {detail}")
+    return result.stdout
+
+
+def run_plist(*args: str) -> dict:
+    result = execute(args, text=False)
+    if result.returncode:
+        raise CommandError(f"{args[0]} failed: {result.stderr.decode().strip()}")
+    return plistlib.loads(result.stdout)
+
+
+def read_destinations() -> tuple[Destination, ...]:
+    return parse_destinations(run('tmutil', 'destinationinfo'))
+
+
+def read_volume(mount_point: Path) -> Volume:
+    info = run_plist('diskutil', 'info', '-plist', str(mount_point))
+    return Volume(
+        device=info.get('DeviceIdentifier', ''),
+        name=info.get('VolumeName', ''),
+        is_whole_disk=bool(info.get('WholeDisk', False)),
+    )
+
+
+def read_trees(mount_point: Path) -> tuple[BackupTree, ...]:
+    found = (parse_tree(entry.name) for entry in mount_point.iterdir())
+    return tuple(tree for tree in found if tree)
+
+
+def read_restorable(mount_point: Path) -> tuple[datetime, ...]:
+    try:
+        return parse_stamps(run('tmutil', 'listbackups', '-d', str(mount_point)))
+    except CommandError:
+        warn("tmutil listbackups failed - grant your terminal Full Disk Access "
+             "for an authoritative count; falling back to on-disk trees")
+        completed = read_trees(mount_point)
+        return tuple(t.stamp for t in completed if t.state is TreeState.BACKUP)
+
+
+def build_report(destination: Destination) -> Report:
+    mount_point = destination.mount_point
+    if mount_point is None or not mount_point.is_dir():
+        raise CommandError(f"{destination.name} is not mounted")
+    total, used, free = shutil.disk_usage(mount_point)
+    return Report(
+        destination=destination,
+        volume=read_volume(mount_point),
+        usage=Usage(total=total, used=used, free=free),
+        trees=read_trees(mount_point),
+        restorable=read_restorable(mount_point),
+    )
+
+
+def describe_trees(trees: tuple[BackupTree, ...]) -> str:
+    if not trees:
+        return "none"
+    counts = Counter(tree.state for tree in trees)
+    parts = [f"{counts[state]} {state.label}" for state in TreeState if counts[state]]
+    return f"{len(trees)} on disk: " + ", ".join(parts)
+
+
+def describe_backups(report: Report) -> str:
+    newest = report.newest_backup
+    if newest is None:
+        return "none restorable"
+    age = (datetime.now() - newest).days
+    return f"{len(report.restorable)} restorable, newest {newest:%Y-%m-%d} ({age} days ago)"
+
+
+def print_report(report: Report) -> None:
+    destination = report.destination
+    print(f"\n{Color.GREEN}{destination.name}{Color.RESET} "
+          f"{Color.DIM}{destination.mount_point}  {report.volume.device}{Color.RESET}\n")
+    print(f"  Space      {format_bytes(report.usage.used)} used of "
+          f"{format_bytes(report.usage.total)} ({format_bytes(report.usage.free)} free)")
+    print(f"  Backups    {describe_backups(report)}")
+    print(f"  Trees      {describe_trees(report.trees)}\n")
+    for finding in diagnose(report):
+        warn(finding)
+    print()
+
+
+def command_status(_: argparse.Namespace) -> int:
+    destinations = read_destinations()
+    if not destinations:
+        error("no Time Machine destination is configured")
+        return 1
+    for destination in destinations:
+        try:
+            print_report(build_report(destination))
+        except CommandError as failure:
+            error(str(failure))
+    return 0
+
+
+def confirm(question: str) -> bool:
+    if not sys.stdin.isatty():
+        error("refusing to delete without an interactive terminal - pass --yes")
+        return False
+    return input(f"{question} (y/N) ").strip().lower().startswith('y')
+
+
+def delete_backups(mount_point: Path, stamps: tuple[datetime, ...]) -> None:
+    for stamp in stamps:
+        label = stamp.strftime(STAMP_FORMAT)
+        try:
+            run('sudo', 'tmutil', 'delete', '-d', str(mount_point), '-t', label)
+            print(f"  deleted {label}")
+        except CommandError as failure:
+            error(str(failure))
+
+
+def resolve_orphan(mount_point: Path, tree: BackupTree) -> Path:
+    if not tree.state.is_orphan:
+        raise CommandError(f"{tree.directory_name} is not an interrupted tree")
+    path = mount_point / tree.directory_name
+    if path.parent != mount_point or path.is_symlink() or not path.is_dir():
+        raise CommandError(f"refusing to remove {path}")
+    return path
+
+
+def remove_orphan(mount_point: Path, tree: BackupTree) -> None:
+    path = resolve_orphan(mount_point, tree)
+    try:
+        run('sudo', 'tmutil', 'delete', '-p', str(path))
+    except CommandError:
+        run('sudo', '/bin/rm', '-rf', str(path))
+
+
+def delete_orphans(mount_point: Path, trees: tuple[BackupTree, ...]) -> None:
+    for tree in trees:
+        try:
+            remove_orphan(mount_point, tree)
+            print(f"  deleted {tree.directory_name}")
+        except CommandError as failure:
+            error(str(failure))
+
+
+def is_backup_running(phase: str) -> bool:
+    return phase.strip() != 'BackupNotRunning'
+
+
+def print_prune_plan(report: Report, doomed: tuple[datetime, ...],
+                     orphans: tuple[BackupTree, ...], keep: int) -> None:
+    print(f"\n{Color.YELLOW}Pruning {report.destination.name}{Color.RESET}\n")
+    print(f"  Keeping    {min(keep, len(report.restorable))} newest of "
+          f"{len(report.restorable)} backup(s)")
+    for stamp in doomed:
+        print(f"  {Color.DIM}delete{Color.RESET}     {stamp:%Y-%m-%d %H:%M} backup")
+    for tree in orphans:
+        print(f"  {Color.DIM}delete{Color.RESET}     {tree.directory_name}")
+    print()
+
+
+def prune_destination(report: Report, doomed: tuple[datetime, ...],
+                      orphans: tuple[BackupTree, ...],
+                      args: argparse.Namespace) -> int:
+    print_prune_plan(report, doomed, orphans, args.keep)
+    if args.dry_run:
+        print("  Dry run, nothing changed.\n")
+        return 0
+    if not args.yes and not confirm("Delete these?"):
+        print("Aborted.\n")
+        return 1
+    delete_backups(report.destination.mount_point, doomed)
+    delete_orphans(report.destination.mount_point, orphans)
+    print()
+    return 0
+
+
+def command_prune(args: argparse.Namespace) -> int:
+    if is_backup_running(run('tmutil', 'currentphase')):
+        raise CommandError("a backup is running - stop it first with 'tmutil stopbackup'")
+    report = build_report(select_destination(args.destination))
+    doomed = select_prunable(report.restorable, args.keep)
+    orphans = report.orphans
+    if not doomed and not orphans:
+        print(f"\n  Nothing to prune on {report.destination.name}: "
+              f"{len(report.restorable)} backup(s), keeping {args.keep}.\n")
+    elif prune_destination(report, doomed, orphans, args):
+        return 1
+    if args.local and not args.dry_run:
+        purge_local_snapshots(args.yes)
+    return 0
+
+
+def show_local_snapshots() -> tuple[datetime, ...]:
+    stamps = parse_stamps(run('tmutil', 'listlocalsnapshots', LOCAL_VOLUME))
+    if not stamps:
+        print(f"\n  No local snapshots on {LOCAL_VOLUME}\n")
+        return ()
+    print(f"\n  {len(stamps)} local snapshot(s) on {LOCAL_VOLUME}\n")
+    for stamp in stamps:
+        print(f"  {stamp:%Y-%m-%d %H:%M}")
+    print()
+    return stamps
+
+
+def purge_local_snapshots(skip_confirmation: bool) -> None:
+    stamps = show_local_snapshots()
+    if not stamps:
+        return
+    if skip_confirmation or confirm(f"Delete all {len(stamps)} local snapshots?"):
+        delete_local_snapshots()
+
+
+def command_snapshots(args: argparse.Namespace) -> int:
+    if args.delete:
+        purge_local_snapshots(args.yes)
+    else:
+        show_local_snapshots()
+    return 0
+
+
+def delete_local_snapshots() -> None:
+    try:
+        run('sudo', 'tmutil', 'deletelocalsnapshots', LOCAL_VOLUME)
+        print(f"  deleted every local snapshot on {LOCAL_VOLUME}\n")
+    except CommandError as failure:
+        error(str(failure))
+
+
+def select_destination(name: Optional[str]) -> Destination:
+    destinations = read_destinations()
+    if not destinations:
+        raise CommandError("no Time Machine destination is configured")
+    if name is None and len(destinations) > 1:
+        names = ", ".join(d.name for d in destinations)
+        raise CommandError(f"several destinations configured, pass one of: {names}")
+    if name is None:
+        return destinations[0]
+    for destination in destinations:
+        if destination.name == name:
+            return destination
+    raise CommandError(f"{name} is not a registered Time Machine destination")
+
+
+def verify_erasable(report: Report) -> None:
+    volume = report.volume
+    if volume.name != report.destination.name:
+        raise CommandError(
+            f"diskutil reports volume {volume.name!r} at "
+            f"{report.destination.mount_point}, expected {report.destination.name!r}")
+    if volume.is_whole_disk or not SLICE_PATTERN.match(volume.device):
+        raise CommandError(f"{volume.device} is not a single volume - refusing to erase")
+
+
+def print_erase_plan(report: Report) -> None:
+    volume = report.volume
+    print(f"\n{Color.RED}This erases every backup on "
+          f"{volume.name}{Color.RESET} ({volume.device})\n")
+    print(f"  {format_bytes(report.usage.used)} of backup data")
+    print(f"  {len(report.restorable)} restorable backup(s)")
+    print(f"  {len(report.trees)} backup trees")
+    print(f"\n  Only /dev/{volume.device} is touched. Other volumes sharing its "
+          f"APFS container are not.\n")
+
+
+def confirm_erase(volume_name: str) -> bool:
+    if not sys.stdin.isatty():
+        error("refusing to erase without an interactive terminal")
+        return False
+    prompt = f"Type {Color.YELLOW}{volume_name}{Color.RESET} to confirm: "
+    return input(prompt).strip() == volume_name
+
+
+def detach_destination(destination: Destination) -> None:
+    for command in (('sudo', 'tmutil', 'stopbackup'),
+                    ('sudo', 'tmutil', 'removedestination', destination.identifier)):
+        try:
+            run(*command)
+        except CommandError as failure:
+            note(f"{failure} - continuing, remove the disk in System Settings if needed")
+
+
+def command_reset(args: argparse.Namespace) -> int:
+    report = build_report(select_destination(args.destination))
+    verify_erasable(report)
+    print_erase_plan(report)
+    if args.dry_run:
+        print(f"  Dry run, nothing changed. Would run:\n\n    sudo diskutil "
+              f"eraseVolume {args.format} {report.volume.name} "
+              f"/dev/{report.volume.device}\n")
+        return 0
+    if not confirm_erase(report.volume.name):
+        print("Aborted.\n")
+        return 1
+    detach_destination(report.destination)
+    run('sudo', 'diskutil', 'eraseVolume', args.format,
+        report.volume.name, f"/dev/{report.volume.device}")
+    print(f"\n{Color.GREEN}Erased.{Color.RESET} Re-add it under System Settings > "
+          f"General > Time Machine, then run 'timemachine status'.\n")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog='timemachine',
+        description='Inspect, prune and reset Time Machine backup destinations')
+    subparsers = parser.add_subparsers(dest='command')
+
+    status = subparsers.add_parser('status', help='report destination health')
+    status.set_defaults(handler=command_status)
+
+    prune = subparsers.add_parser(
+        'prune', help='delete interrupted trees and backups beyond --keep')
+    add_destination_argument(prune)
+    prune.add_argument('--keep', type=int, default=DEFAULT_KEEP,
+                       help=f'backups to retain (default: {DEFAULT_KEEP})')
+    prune.add_argument('--local', action='store_true',
+                       help=f'also delete every local snapshot on {LOCAL_VOLUME}')
+    prune.add_argument('--yes', action='store_true', help='skip the confirmation')
+    prune.set_defaults(handler=command_prune)
+
+    snapshots = subparsers.add_parser(
+        'snapshots', help=f'list local APFS snapshots on {LOCAL_VOLUME}')
+    snapshots.add_argument('--delete', action='store_true',
+                           help='delete every local snapshot')
+    snapshots.add_argument('--yes', action='store_true', help='skip the confirmation')
+    snapshots.set_defaults(handler=command_snapshots)
+
+    reset = subparsers.add_parser(
+        'reset', help='erase every backup by erasing the destination volume')
+    add_destination_argument(reset)
+    reset.add_argument('--format', default=CASE_SENSITIVE_APFS,
+                       help=f'filesystem personality (default: {CASE_SENSITIVE_APFS})')
+    reset.set_defaults(handler=command_reset)
+    return parser
+
+
+def add_destination_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument('destination', nargs='?',
+                        help='destination name when several are configured')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='show the plan, change nothing')
+
+
+def complete(field: str) -> int:
+    if field != 'destinations':
+        return 0
+    try:
+        for destination in read_destinations():
+            print(destination.name)
+    except CommandError:
+        pass
+    return 0
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    if argv[:1] == ['--complete']:
+        return complete(argv[1] if len(argv) > 1 else '')
+    parser = build_parser()
+    args = parser.parse_args()
+    handler = getattr(args, 'handler', command_status)
+    try:
+        return handler(args)
+    except CommandError as failure:
+        error(str(failure))
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

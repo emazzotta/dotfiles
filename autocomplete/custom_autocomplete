@@ -446,6 +446,47 @@ _captions()
   fi
   while IFS= read -r line; do COMPREPLY+=("$line"); done < <(compgen -f -- "${cur}")
 }
+_timemachine_opts()
+{
+  local sub cached
+  sub="${1}"
+  cached=$(printf '%s\n' "${_TIMEMACHINE_OPTS_CACHE}" | sed -n "s/^${sub}://p")
+  if [[ -z "${cached}" ]]; then
+    cached=$(timemachine "${sub}" --help 2>/dev/null | grep -oE -- '(^|[[:space:],])-{1,2}[a-zA-Z][a-zA-Z0-9-]*' | tr -d ' ,' | sort -u | tr '\n' ' ')
+    _TIMEMACHINE_OPTS_CACHE="${_TIMEMACHINE_OPTS_CACHE}
+${sub}:${cached}"
+  fi
+  printf '%s' "${cached}"
+}
+_timemachine()
+{
+  local cur prev sub
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  sub="${COMP_WORDS[1]}"
+  if [[ "${COMP_CWORD}" -eq 1 ]]; then
+    if [[ -z "${_TIMEMACHINE_COMMANDS}" ]]; then
+      _TIMEMACHINE_COMMANDS=$(timemachine --help 2>/dev/null | sed -n 's/^ *{\(.*\)}$/\1/p' | tr ',' ' ')
+    fi
+    COMPREPLY=($(compgen -W "${_TIMEMACHINE_COMMANDS} --help" -- "${cur}"))
+    return 0
+  fi
+  case "${prev}" in
+    --keep|--format) return 0 ;;
+  esac
+  if [[ "${cur}" == -* ]]; then
+    COMPREPLY=($(compgen -W "$(_timemachine_opts "${sub}")" -- "${cur}"))
+    return 0
+  fi
+  case "${sub}" in
+    prune|reset)
+      if [[ -z "${_TIMEMACHINE_DESTINATIONS}" ]]; then
+        _TIMEMACHINE_DESTINATIONS=$(timemachine --complete destinations 2>/dev/null | tr '\n' ' ')
+      fi
+      COMPREPLY=($(compgen -W "${_TIMEMACHINE_DESTINATIONS}" -- "${cur}")) ;;
+  esac
+}
 complete -F _dcp dcp docker-cp
 complete -F _envify envify
 complete -F _keyguard keyguard
@@ -460,3 +501,4 @@ complete -o filenames -F _captions captions
 complete -F _ags ags
 complete -F _make_targets make m
 complete -F _fileserver fileserver fs fget fls frm fup
+complete -F _timemachine timemachine
