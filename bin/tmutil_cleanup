@@ -1,27 +1,87 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
-# Delete local snapshots
-tmutil listlocalsnapshots / | tail -n+2 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}' | xargs -I {} sudo tmutil deletelocalsnapshots {}
+readonly BACKUPS_TO_KEEP=1
 
-# Array of volume paths
-volume_paths=("/Volumes/Crucial_4TB_TimeMachine")
+log() {
+    printf '%s\n' "$*"
+}
 
-for volume_path in "${volume_paths[@]}"; do
+error() {
+    printf 'Error: %s\n' "$*" >&2
+}
 
-    if [ -d "${volume_path}" ]; then
-        backup_count=$(tmutil listbackups | wc -l | tr -d '[:space:]')
-        if [ "${backup_count}" -gt 1  ]; then
-            # Delete all except last SSD Backup
-            tmutil listbackups | head -n $((${backup_count} - 1)) | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}' | uniq | xargs -I {} sudo tmutil delete -d ${volume_path} -t {}
-        else
-            echo "Volume ${volume_path} does not have more than 1 backup"
-            echo "Backups: ${backup_count}"
-        fi
-    else
-        echo "Volume ${volume_path} does not exist"
-        echo "Volume: $([ -d "${volume_path}" ] && echo 'mounted' || echo 'unmounted')"
+backup_in_progress() {
+    tmutil status 2>/dev/null | grep -q 'Running = 1;'
+}
+
+delete_local_snapshots() {
+    log "Deleting local snapshots"
+    if ! sudo tmutil deletelocalsnapshots /; then
+        error "could not delete local snapshots for /"
     fi
-done
+}
+
+find_destination_mount_points() {
+    { tmutil destinationinfo || true; } | sed -n 's/^Mount Point *: *//p'
+}
+
+find_backup_timestamps() {
+    local mount_point="$1"
+    { sudo tmutil listbackups -d "${mount_point}" || true; } \
+        | sed -n 's/.*\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}-[0-9]\{6\}\).*/\1/p' \
+        | sort -u
+}
+
+prune_backups() {
+    local mount_point="$1"
+    local timestamps total expired timestamp
+    local delete_command=(tmutil delete -d "${mount_point}")
+
+    timestamps=$(find_backup_timestamps "${mount_point}")
+    if [ -z "${timestamps}" ]; then
+        log "No completed backups on ${mount_point}"
+        return 0
+    fi
+
+    total=$(printf '%s\n' "${timestamps}" | wc -l | tr -d '[:space:]')
+    if [ "${total}" -le "${BACKUPS_TO_KEEP}" ]; then
+        log "Keeping all ${total} backup(s) on ${mount_point}"
+        return 0
+    fi
+
+    expired=$(printf '%s\n' "${timestamps}" | head -n "$((total - BACKUPS_TO_KEEP))")
+    while IFS= read -r timestamp; do
+        delete_command+=(-t "${timestamp}")
+    done <<< "${expired}"
+
+    log "Deleting $((total - BACKUPS_TO_KEEP)) of ${total} backup(s) on ${mount_point}"
+    if ! sudo "${delete_command[@]}"; then
+        error "could not delete backups on ${mount_point}"
+    fi
+}
+
+main() {
+    local mount_point
+
+    if backup_in_progress; then
+        error "a Time Machine backup is running, run this again once it finishes"
+        exit 1
+    fi
+
+    delete_local_snapshots
+
+    while IFS= read -r mount_point; do
+        if [ -d "${mount_point}" ]; then
+            prune_backups "${mount_point}"
+        else
+            log "Destination ${mount_point} is not mounted"
+        fi
+    done < <(find_destination_mount_points)
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
 
