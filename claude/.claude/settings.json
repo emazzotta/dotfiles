@@ -1,8 +1,8 @@
 {
-  "model": "opus[1m]",
   "permissions": {
     "defaultMode": "auto"
   },
+  "model": "opus[1m]",
   "hooks": {
     "SessionStart": [
       {
