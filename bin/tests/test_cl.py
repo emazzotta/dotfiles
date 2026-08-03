@@ -643,6 +643,66 @@ class TestMain:
         assert cmd[cmd.index("--effort") + 1] == "max"
         assert cmd.index("--") < cmd.index("--effort")
 
+    @pytest.mark.parametrize("flag", ["-r", "--resume"])
+    def should_open_the_given_session_directly_instead_of_the_picker(self, cl, monkeypatch, mock_cl_run, flag):
+        session_id = "7f4d8b0f-8a6d-4e20-aade-ca033d3074dd"
+        monkeypatch.setattr(sys, "argv", ["cl", flag, session_id])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert "claude-resume" not in cmd
+        assert cmd[cmd.index("--resume") + 1] == session_id
+        assert cmd.index("--resume") > cmd.index("claude")
+
+    def should_keep_max_effort_when_opening_a_session_directly(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-r", "7f4d8b0f-8a6d-4e20-aade-ca033d3074dd"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert cmd[cmd.index("--effort") + 1] == "max"
+        assert "--" not in cmd[cmd.index("claude"):]
+
+    def should_forward_claude_args_after_the_resumed_session_id(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-r", "7f4d8b0f", "--model", "opus"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert cmd[cmd.index("--resume") + 1] == "7f4d8b0f"
+        assert cmd[cmd.index("--model") + 1] == "opus"
+
+    def should_still_open_the_picker_when_resume_is_followed_by_a_flag(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-r", "--model", "opus"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert "claude-resume" in cmd
+        assert "--resume" not in cmd
+        assert cmd.index("--") < cmd.index("--model")
+
+    def should_open_the_given_opencode_session_directly(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-o", "-r", "ses_abc123"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert "opencode-resume" not in cmd
+        assert cmd[cmd.index("--session") + 1] == "ses_abc123"
+
+    def should_open_the_opencode_picker_when_resume_has_no_session_id(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-o", "-r"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert "opencode-resume" in cmd
+        assert "--session" not in cmd
+
+    def should_launch_a_fresh_session_when_resume_is_absent(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert "--resume" not in cmd
+        assert "claude-resume" not in cmd
+
     @pytest.mark.parametrize("explicit", [["--effort", "high"], ["--effort=high"]])
     def should_keep_an_explicit_effort_instead_of_injecting_the_default(self, cl, monkeypatch, mock_cl_run, explicit):
         monkeypatch.setattr(sys, "argv", ["cl", *explicit])

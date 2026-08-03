@@ -592,7 +592,7 @@ def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
 def main() -> None:
     pwd = Path.cwd()
 
-    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n] [-r] [CLAUDE_ARGS...]")
+    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n] [-r [SESSION_ID]] [CLAUDE_ARGS...]")
     parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
     parser.add_argument(
         "-p", "--path",
@@ -616,8 +616,8 @@ def main() -> None:
     parser.add_argument("-m", "--hermes", action="store_true", default=False, help="run hermes agent")
     parser.add_argument(
         "-r", "--resume",
-        action="store_true", default=False,
-        help="resume a session via interactive picker (type your search in fzf)",
+        nargs="?", const="", default=None, metavar="SESSION_ID",
+        help="resume a session: with SESSION_ID open it directly, without one use the interactive picker",
     )
     parser.add_argument("--convert", action="store_true", default=False, help="convert sessions between claude and opencode")
     parser.add_argument(
@@ -660,6 +660,8 @@ def main() -> None:
     permission_args = ["--permission-mode", "manual"] if args.no_skip else []
     effort_args = build_effort_args(claude_args)
 
+    use_picker = args.resume == ""
+
     if args.rm is not None:
         entrypoint = "opencode-rm" if args.opencode else "claude-rm"
         rm_args = [args.rm] if args.rm else []
@@ -668,21 +670,23 @@ def main() -> None:
         entrypoint = "session-convert"
         entrypoint_args = claude_args
     elif args.opencode:
-        if args.resume:
+        if use_picker:
             entrypoint = "opencode-resume"
             entrypoint_args = [*claude_args]
         else:
             entrypoint = "opencode"
-            entrypoint_args = claude_args
+            session_args = ["--session", args.resume] if args.resume else []
+            entrypoint_args = [*session_args, *claude_args]
     elif args.hermes:
         entrypoint = "hermes"
         entrypoint_args = claude_args
-    elif args.resume:
+    elif use_picker:
         entrypoint = "claude-resume"
         entrypoint_args = []
     else:
         entrypoint = "claude"
-        entrypoint_args = [*permission_args, *effort_args, *claude_args]
+        resume_args = ["--resume", args.resume] if args.resume else []
+        entrypoint_args = [*permission_args, *effort_args, *resume_args, *claude_args]
 
     plugin_args = []
     if entrypoint in ("claude", "claude-resume"):
