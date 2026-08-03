@@ -5,6 +5,9 @@ from unittest.mock import patch
 
 import pytest
 
+CLAUDE_SESSION_ID = "7f4d8b0f-8a6d-4e20-aade-ca033d3074dd"
+OPENCODE_SESSION_ID = "ses_06f4ce24cffeAOOJ6OWziGgkml"
+
 
 @pytest.fixture
 def cl(load_script):
@@ -525,6 +528,37 @@ class TestBuildVolumeArgs:
         assert "/workspace/code/repo3/pkg/mac-installer" in container_paths
 
 
+class TestResolveSessionId:
+    @pytest.mark.parametrize("value", [None, ""])
+    def should_be_empty_when_resume_carries_no_value(self, cl, value):
+        assert cl.resolve_session_id(value, opencode=False) == ""
+
+    def should_accept_a_uuid_for_claude(self, cl):
+        assert cl.resolve_session_id(CLAUDE_SESSION_ID, opencode=False) == CLAUDE_SESSION_ID
+
+    def should_accept_an_uppercase_uuid_for_claude(self, cl):
+        assert cl.resolve_session_id(CLAUDE_SESSION_ID.upper(), opencode=False) == CLAUDE_SESSION_ID.upper()
+
+    def should_accept_a_ses_prefixed_id_for_opencode(self, cl):
+        assert cl.resolve_session_id(OPENCODE_SESSION_ID, opencode=True) == OPENCODE_SESSION_ID
+
+    @pytest.mark.parametrize("opencode", [True, False])
+    @pytest.mark.parametrize("value", [
+        "deploy",
+        "fix the deploy",
+        "7f4d8b0f",
+        "7f4d8b0f-8a6d-4e20-aade-ca033d3074dd-extra",
+        "ses_",
+        "ses_abc def",
+    ])
+    def should_be_empty_for_anything_that_is_not_a_session_id(self, cl, value, opencode):
+        assert cl.resolve_session_id(value, opencode=opencode) == ""
+
+    def should_not_cross_the_two_id_formats(self, cl):
+        assert cl.resolve_session_id(OPENCODE_SESSION_ID, opencode=False) == ""
+        assert cl.resolve_session_id(CLAUDE_SESSION_ID, opencode=True) == ""
+
+
 class TestMain:
     @pytest.fixture(autouse=True)
     def _no_leonardo_commons(self, cl, monkeypatch, tmp_path):
@@ -645,17 +679,16 @@ class TestMain:
 
     @pytest.mark.parametrize("flag", ["-r", "--resume"])
     def should_open_the_given_session_directly_instead_of_the_picker(self, cl, monkeypatch, mock_cl_run, flag):
-        session_id = "7f4d8b0f-8a6d-4e20-aade-ca033d3074dd"
-        monkeypatch.setattr(sys, "argv", ["cl", flag, session_id])
+        monkeypatch.setattr(sys, "argv", ["cl", flag, CLAUDE_SESSION_ID])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
         cmd = mock_cl_run[-1]
         assert "claude-resume" not in cmd
-        assert cmd[cmd.index("--resume") + 1] == session_id
+        assert cmd[cmd.index("--resume") + 1] == CLAUDE_SESSION_ID
         assert cmd.index("--resume") > cmd.index("claude")
 
     def should_keep_max_effort_when_opening_a_session_directly(self, cl, monkeypatch, mock_cl_run):
-        monkeypatch.setattr(sys, "argv", ["cl", "-r", "7f4d8b0f-8a6d-4e20-aade-ca033d3074dd"])
+        monkeypatch.setattr(sys, "argv", ["cl", "-r", CLAUDE_SESSION_ID])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
         cmd = mock_cl_run[-1]
@@ -663,11 +696,11 @@ class TestMain:
         assert "--" not in cmd[cmd.index("claude"):]
 
     def should_forward_claude_args_after_the_resumed_session_id(self, cl, monkeypatch, mock_cl_run):
-        monkeypatch.setattr(sys, "argv", ["cl", "-r", "7f4d8b0f", "--model", "opus"])
+        monkeypatch.setattr(sys, "argv", ["cl", "-r", CLAUDE_SESSION_ID, "--model", "opus"])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
         cmd = mock_cl_run[-1]
-        assert cmd[cmd.index("--resume") + 1] == "7f4d8b0f"
+        assert cmd[cmd.index("--resume") + 1] == CLAUDE_SESSION_ID
         assert cmd[cmd.index("--model") + 1] == "opus"
 
     def should_still_open_the_picker_when_resume_is_followed_by_a_flag(self, cl, monkeypatch, mock_cl_run):
@@ -679,13 +712,53 @@ class TestMain:
         assert "--resume" not in cmd
         assert cmd.index("--") < cmd.index("--model")
 
+    def should_prefilter_the_picker_when_resume_gets_free_text(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-r", "deploy"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert "--resume" not in cmd
+        assert cmd[cmd.index("claude-resume") + 1] == "deploy"
+        assert cmd.index("deploy") < cmd.index("--")
+
+    def should_keep_a_multi_word_search_as_one_picker_query(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-r", "fix the deploy"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert cmd[cmd.index("claude-resume") + 1] == "fix the deploy"
+
+    def should_prefilter_the_opencode_picker_when_resume_gets_free_text(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-o", "-r", "deploy"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert "--session" not in cmd
+        assert cmd[cmd.index("opencode-resume") + 1] == "deploy"
+
+    def should_treat_an_opencode_id_as_a_search_when_resuming_claude(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-r", OPENCODE_SESSION_ID])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert "--resume" not in cmd
+        assert cmd[cmd.index("claude-resume") + 1] == OPENCODE_SESSION_ID
+
+    def should_treat_a_uuid_as_a_search_when_resuming_opencode(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-o", "-r", CLAUDE_SESSION_ID])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert "--session" not in cmd
+        assert cmd[cmd.index("opencode-resume") + 1] == CLAUDE_SESSION_ID
+
     def should_open_the_given_opencode_session_directly(self, cl, monkeypatch, mock_cl_run):
-        monkeypatch.setattr(sys, "argv", ["cl", "-o", "-r", "ses_abc123"])
+        monkeypatch.setattr(sys, "argv", ["cl", "-o", "-r", OPENCODE_SESSION_ID])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
         cmd = mock_cl_run[-1]
         assert "opencode-resume" not in cmd
-        assert cmd[cmd.index("--session") + 1] == "ses_abc123"
+        assert cmd[cmd.index("--session") + 1] == OPENCODE_SESSION_ID
 
     def should_open_the_opencode_picker_when_resume_has_no_session_id(self, cl, monkeypatch, mock_cl_run):
         monkeypatch.setattr(sys, "argv", ["cl", "-o", "-r"])

@@ -3,6 +3,7 @@
 import argparse
 import fnmatch
 import os
+import re
 import shutil
 import sys
 import threading
@@ -124,6 +125,8 @@ DOTFILES_CRUFT_PATTERNS = (
     ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
 )
 DEFAULT_EFFORT = "max"
+CLAUDE_SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+OPENCODE_SESSION_ID = re.compile(r"ses_[0-9A-Za-z]+")
 
 
 def _is_git_crypt_repo(path: Path) -> bool:
@@ -485,6 +488,18 @@ def build_dotfiles_volume_args() -> list[str]:
     )
 
 
+def resolve_session_id(resume: str | None, opencode: bool) -> str:
+    """Return the session id -r was given, or "" when its value is a picker query.
+
+    Session ids are unambiguous - claude uses UUIDs, opencode `ses_`-prefixed
+    ids - so anything else is free text to prefill the picker with.
+    """
+    if not resume:
+        return ""
+    pattern = OPENCODE_SESSION_ID if opencode else CLAUDE_SESSION_ID
+    return resume if pattern.fullmatch(resume) else ""
+
+
 def build_effort_args(claude_args: list[str]) -> list[str]:
     """Claude Code only persists effort up to xhigh; max has to come from the CLI."""
     if any(arg == "--effort" or arg.startswith("--effort=") for arg in claude_args):
@@ -592,7 +607,7 @@ def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
 def main() -> None:
     pwd = Path.cwd()
 
-    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n] [-r [SESSION_ID]] [CLAUDE_ARGS...]")
+    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n] [-r [SESSION]] [CLAUDE_ARGS...]")
     parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
     parser.add_argument(
         "-p", "--path",
@@ -616,8 +631,8 @@ def main() -> None:
     parser.add_argument("-m", "--hermes", action="store_true", default=False, help="run hermes agent")
     parser.add_argument(
         "-r", "--resume",
-        nargs="?", const="", default=None, metavar="SESSION_ID",
-        help="resume a session: with SESSION_ID open it directly, without one use the interactive picker",
+        nargs="?", const="", default=None, metavar="SESSION",
+        help="resume a session: a session id opens it directly, any other text prefilters the picker",
     )
     parser.add_argument("--convert", action="store_true", default=False, help="convert sessions between claude and opencode")
     parser.add_argument(
@@ -660,7 +675,9 @@ def main() -> None:
     permission_args = ["--permission-mode", "manual"] if args.no_skip else []
     effort_args = build_effort_args(claude_args)
 
-    use_picker = args.resume == ""
+    session_id = resolve_session_id(args.resume, args.opencode)
+    use_picker = args.resume is not None and not session_id
+    search_args = [args.resume] if use_picker and args.resume else []
 
     if args.rm is not None:
         entrypoint = "opencode-rm" if args.opencode else "claude-rm"
@@ -672,20 +689,20 @@ def main() -> None:
     elif args.opencode:
         if use_picker:
             entrypoint = "opencode-resume"
-            entrypoint_args = [*claude_args]
+            entrypoint_args = [*search_args, *claude_args]
         else:
             entrypoint = "opencode"
-            session_args = ["--session", args.resume] if args.resume else []
+            session_args = ["--session", session_id] if session_id else []
             entrypoint_args = [*session_args, *claude_args]
     elif args.hermes:
         entrypoint = "hermes"
         entrypoint_args = claude_args
     elif use_picker:
         entrypoint = "claude-resume"
-        entrypoint_args = []
+        entrypoint_args = [*search_args]
     else:
         entrypoint = "claude"
-        resume_args = ["--resume", args.resume] if args.resume else []
+        resume_args = ["--resume", session_id] if session_id else []
         entrypoint_args = [*permission_args, *effort_args, *resume_args, *claude_args]
 
     plugin_args = []

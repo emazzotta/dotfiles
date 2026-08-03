@@ -8,7 +8,7 @@ result to fzf with a live preview pane. Unlike a title-only picker, the
 query matches both titles and message bodies.
 
 Usage:
-    opencode-resume [-n COUNT] [-f] [--rebuild] [-- OPENCODE_ARGS...]
+    opencode-resume [SEARCH] [-n COUNT] [-f] [--rebuild] [-- OPENCODE_ARGS...]
     opencode-resume --preview-id <sid>   # internal, used by fzf preview
 
 On selection, execs `opencode --session <id> [--fork] OPENCODE_ARGS...`.
@@ -244,7 +244,7 @@ def cmd_preview(sid: str, query: str = "") -> int:
     return 0
 
 
-def cmd_pick(count: int, fork: bool, rebuild: bool, oc_args: list[str]) -> int:
+def cmd_pick(search: str, count: int, fork: bool, rebuild: bool, oc_args: list[str]) -> int:
     try:
         rows = build_index(force_rebuild=rebuild)
     except FileNotFoundError as e:
@@ -289,6 +289,8 @@ def cmd_pick(count: int, fork: bool, rebuild: bool, oc_args: list[str]) -> int:
         "--header", "Resume opencode session | space = AND, each word matches title OR content | ^prefix  suffix$  !exclude",
         "--color=bg+:#2d1b3d,fg+:#ffffff,hl:#ff69b4,hl+:#ff79c6,prompt:#e75480,pointer:#e75480,marker:#bd93f9,header:#7d56f4,border:#7d56f4,info:#8b8b8b,spinner:#ff69b4",
     ]
+    if search:
+        fzf_args.extend(["--query", search])
 
     result = run(fzf_args, input="\n".join(lines), text=True, stdout=PIPE)
     if result.returncode != 0 or not result.stdout.strip():
@@ -315,6 +317,7 @@ def split_args(argv: list[str]) -> tuple[list[str], list[str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="opencode-resume", add_help=True)
+    parser.add_argument("search", nargs="*", default=[])
     parser.add_argument("-n", "--count", type=int, default=10000)
     parser.add_argument("-f", "--fork", action="store_true", help="fork the session instead of resuming in-place")
     parser.add_argument("--rebuild", action="store_true", help="force cache rebuild")
@@ -326,7 +329,7 @@ def main() -> int:
 
     if args.preview_id:
         return cmd_preview(args.preview_id, args.preview_query)
-    return cmd_pick(args.count, args.fork, args.rebuild, oc_args)
+    return cmd_pick(" ".join(args.search), args.count, args.fork, args.rebuild, oc_args)
 
 
 if __name__ == "__main__":
