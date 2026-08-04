@@ -121,6 +121,12 @@
         "url": "git@github.com:patforna/auto-task.git"
       },
       "autoUpdate": false
+    },
+    "ai-unified-process-marketplace": {
+      "source": {
+        "source": "git",
+        "url": "git@github.com:AI-Unified-Process/marketplace.git"
+      }
     }
   },
   "effortLevel": "xhigh",
