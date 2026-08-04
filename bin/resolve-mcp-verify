@@ -1,0 +1,120 @@
+#!/bin/bash
+# Verifies the DaVinci Resolve MCP prerequisites on this Mac.
+# Answers two things no amount of reading settles:
+#   1. can an EXTERNAL process drive Resolve (Studio-only gate)?
+#   2. which Python can load Blackmagic's native fusionscript.so?
+# Requires Resolve running with a project open. Read-only.
+set -euo pipefail
+
+readonly RESOLVE_APP="/Applications/DaVinci Resolve/DaVinci Resolve.app"
+readonly SCRIPT_API="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
+readonly SCRIPT_LIB="$RESOLVE_APP/Contents/Libraries/Fusion/fusionscript.so"
+readonly OUTPUT_DIR="$HOME/.config/davinci-resolve-mcp"
+readonly OUTPUT="$OUTPUT_DIR/verify.txt"
+
+report() { printf '%s\n' "$*" | /usr/bin/tee -a "$OUTPUT"; }
+section() { report ""; report "=== $* ==="; }
+
+show_usage() {
+    cat <<EOF
+Usage: $(basename "$0") [--help]
+
+Checks whether this Mac can drive DaVinci Resolve over the scripting API.
+Launch Resolve and open a project first. Writes $OUTPUT.
+EOF
+}
+
+require_resolve_running() {
+    if /usr/bin/pgrep -f "DaVinci Resolve.app" >/dev/null 2>&1; then
+        report "Resolve process: RUNNING"
+        return 0
+    fi
+    report "Resolve process: NOT RUNNING"
+    report "STOP: launch Resolve, open a project, then re-run."
+    return 1
+}
+
+probe_install() {
+    section "Install"
+    report "app:            $([ -d "$RESOLVE_APP" ] && echo present || echo MISSING)"
+    report "scripting API:  $([ -d "$SCRIPT_API" ] && echo present || echo MISSING)"
+    report "fusionscript:   $([ -f "$SCRIPT_LIB" ] && echo present || echo MISSING)"
+    local plist="$RESOLVE_APP/Contents/Info.plist"
+    report "version:        $(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist" 2>/dev/null || echo -)"
+}
+
+collect_interpreters() {
+    local candidate
+    for candidate in \
+        /Library/Frameworks/Python.framework/Versions/*/bin/python3 \
+        /opt/homebrew/bin/python3.1[0-4] \
+        /opt/homebrew/bin/python3 \
+        "$HOME"/.pyenv/versions/*/bin/python3 \
+        "$HOME"/.local/share/davinci-resolve-mcp/venv/bin/python; do
+        [ -x "$candidate" ] && printf '%s\n' "$candidate"
+    done
+}
+
+write_connection_test() {
+    cat >"$1" <<'PYTEST'
+import os
+import sys
+
+api = os.environ["RESOLVE_SCRIPT_API"]
+sys.path.append(os.path.join(api, "Modules"))
+try:
+    import DaVinciResolveScript as dvr
+except Exception as exc:
+    print(f"IMPORT-FAILED: {type(exc).__name__}: {exc}")
+    sys.exit(0)
+
+try:
+    resolve = dvr.scriptapp("Resolve")
+except Exception as exc:
+    print(f"SCRIPTAPP-RAISED: {type(exc).__name__}: {exc}")
+    sys.exit(0)
+
+if resolve is None:
+    print("SCRIPTAPP-NONE: refused (free edition, or External scripting not set to Local)")
+    sys.exit(0)
+
+print(f"CONNECTED: {resolve.GetProductName()} {resolve.GetVersionString()}")
+PYTEST
+}
+
+probe_external_scripting() {
+    section "External scripting (the actual gate)"
+    local test_file
+    test_file=$(/usr/bin/mktemp "${TMPDIR:-/tmp}/resolve-test.XXXXXX.py")
+    trap '/bin/rm -f "$test_file"' RETURN
+    write_connection_test "$test_file"
+
+    local interpreter result
+    while IFS= read -r interpreter; do
+        [ -n "$interpreter" ] || continue
+        result=$(RESOLVE_SCRIPT_API="$SCRIPT_API" RESOLVE_SCRIPT_LIB="$SCRIPT_LIB" \
+            "$interpreter" "$test_file" 2>&1 || echo "RUN-FAILED")
+        report "$("$interpreter" --version 2>&1) [$interpreter]"
+        report "  -> $result"
+    done < <(collect_interpreters)
+}
+
+main() {
+    if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+        show_usage
+        return 0
+    fi
+    /bin/mkdir -p "$OUTPUT_DIR"
+    : >"$OUTPUT"
+    report "Resolve MCP verification - $(/bin/date '+%Y-%m-%d %H:%M:%S')"
+    probe_install
+    if ! require_resolve_running; then
+        exit 1
+    fi
+    probe_external_scripting
+    printf '\nWrote %s\n' "$OUTPUT"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
