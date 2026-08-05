@@ -105,7 +105,9 @@
     "superpowers@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
     "leonardo@leonardo-skills": true,
-    "at@auto-task": true
+    "at@auto-task": true,
+    "aiup-core@ai-unified-process-marketplace": true,
+    "aiup-vaadin-jooq@ai-unified-process-marketplace": true
   },
   "extraKnownMarketplaces": {
     "leonardo-skills": {
