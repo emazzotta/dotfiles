@@ -629,6 +629,26 @@ class TestMain:
         assert cmd.index("--permission-mode") > cmd.index("claude")
         assert cmd[cmd.index("--permission-mode") + 1] == "manual"
 
+    def should_skip_every_permission_prompt_when_skip_given(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "--skip"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert cmd.index("--dangerously-skip-permissions") > cmd.index("claude")
+        assert "--permission-mode" not in cmd
+
+    def should_forward_skip_to_the_resume_picker(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-s", "-r"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert cmd.index("--") < cmd.index("--dangerously-skip-permissions")
+
+    def should_reject_skip_together_with_no_skip(self, cl, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["cl", "--skip", "--no-skip"])
+        with pytest.raises(SystemExit, match="2"):
+            cl.main()
+
     def test_files_outside_cwd_exits(self, cl, monkeypatch, tmp_path):
         pwd = tmp_path / "pwd"
         pwd.mkdir()

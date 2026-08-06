@@ -507,6 +507,15 @@ def build_effort_args(claude_args: list[str]) -> list[str]:
     return ["--effort", DEFAULT_EFFORT]
 
 
+def build_permission_args(no_skip: bool, skip: bool) -> list[str]:
+    """Without either flag the mode comes from permissions.defaultMode in settings.json."""
+    if no_skip:
+        return ["--permission-mode", "manual"]
+    if skip:
+        return ["--dangerously-skip-permissions"]
+    return []
+
+
 def build_volume_args(
     files: list[str],
     paths: list[Path],
@@ -607,7 +616,7 @@ def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
 def main() -> None:
     pwd = Path.cwd()
 
-    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n] [-r [SESSION]] [CLAUDE_ARGS...]")
+    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n | -s] [-r [SESSION]] [CLAUDE_ARGS...]")
     parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
     parser.add_argument(
         "-p", "--path",
@@ -619,9 +628,14 @@ def main() -> None:
         dest="excludes", action="append", type=parse_exclude, default=[], metavar="EXCLUDE",
         help="path or pattern to exclude from mounts; may be repeated: -x ~/a/secrets -x '*.env'",
     )
-    parser.add_argument(
+    permission_mode = parser.add_mutually_exclusive_group()
+    permission_mode.add_argument(
         "-n", "--no-skip", action="store_true", default=False,
         help="prompt for every permission instead of using the configured auto mode",
+    )
+    permission_mode.add_argument(
+        "-s", "--skip", action="store_true", default=False,
+        help="skip every permission prompt (--dangerously-skip-permissions) instead of using the configured auto mode",
     )
     parser.add_argument(
         "--git-ignore-mount", dest="git_ignore_mount", action="store_true", default=False,
@@ -672,7 +686,7 @@ def main() -> None:
     volume_args = _mount_always_available(volume_args, DESKTOP, "/workspace/code/Desktop", locked_roots, lock=False)
     _profile("desktop mount")
     container_name = f"opencode-{int(time())}"
-    permission_args = ["--permission-mode", "manual"] if args.no_skip else []
+    permission_args = build_permission_args(args.no_skip, args.skip)
     effort_args = build_effort_args(claude_args)
 
     session_id = resolve_session_id(args.resume, args.opencode)
