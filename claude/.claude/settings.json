@@ -107,7 +107,9 @@
     "leonardo@leonardo-skills": true,
     "at@auto-task": true,
     "aiup-core@ai-unified-process-marketplace": true,
-    "aiup-vaadin-jooq@ai-unified-process-marketplace": true
+    "aiup-vaadin-jooq@ai-unified-process-marketplace": true,
+    "jdtls-lsp@claude-plugins-official": true,
+    "vaadin-skills@vaadin-marketplace": true
   },
   "extraKnownMarketplaces": {
     "leonardo-skills": {
@@ -128,6 +130,12 @@
       "source": {
         "source": "git",
         "url": "git@github.com:AI-Unified-Process/marketplace.git"
+      }
+    },
+    "vaadin-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "vaadin/agent-marketplace"
       }
     }
   },
