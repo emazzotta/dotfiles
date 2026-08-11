@@ -9,9 +9,20 @@
 			<mirrorOf>*</mirrorOf>
 			<url>http://nexus.leonardo.local:9081/repository/maven-public/</url>
 		</mirror>
+
+		<mirror>
+			<id>reposilite</id>
+			<mirrorOf>*</mirrorOf>
+			<url>http://reposilite.dev.leonardo.local:9082/maven-public/</url>
+		</mirror>
 	</mirrors>
 
 	<servers>
+		<server>
+			<id>reposilite</id>
+			<username>admin</username>
+			<password>${REPOSILITE_TOKEN}</password>
+		</server>
 		<server>
 			<id>nexus</id>
 			<username>admin</username>
