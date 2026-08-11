@@ -23,10 +23,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/opencode/.claude/hooks/stop-verify.sh"
-          },
-          {
-            "type": "command",
             "command": "/home/opencode/dotfiles/bin/stop-bell"
           }
         ]
