@@ -4,11 +4,11 @@
    https://maven.apache.org/xsd/settings-1.0.0.xsd">
 
 	<mirrors>
-		<mirror>
-			<id>nexus</id>
-			<mirrorOf>*</mirrorOf>
-			<url>http://nexus.leonardo.local:9081/repository/maven-public/</url>
-		</mirror>
+<!--		<mirror>-->
+<!--			<id>nexus</id>-->
+<!--			<mirrorOf>*</mirrorOf>-->
+<!--			<url>http://nexus.leonardo.local:9081/repository/maven-public/</url>-->
+<!--		</mirror>-->
 
 		<mirror>
 			<id>reposilite</id>
