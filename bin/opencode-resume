@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-opencode-resume: fuzzy session resumer for opencode with content search.
+opencode-resume: session resumer for opencode with ranked content search.
 
 Queries the opencode SQLite database, indexes each session's title + full
 text-part content into a TSV cache keyed by time_updated, and hands the
-result to fzf with a live preview pane. Unlike a title-only picker, the
-query matches both titles and message bodies.
+result to fzf with a live preview pane. The query matches both titles and
+message bodies, and sessions whose query words appear consecutively are
+ranked first.
 
 Usage:
     opencode-resume [SEARCH] [-n COUNT] [-f] [--rebuild] [-- OPENCODE_ARGS...]
-    opencode-resume --preview-id <sid>   # internal, used by fzf preview
+    opencode-resume --preview-id <sid>      # internal, used by fzf preview
+    opencode-resume --search-query <query>  # internal, used by fzf reload
 
 On selection, execs `opencode --session <id> [--fork] OPENCODE_ARGS...`.
 """
@@ -17,25 +19,42 @@ On selection, execs `opencode --session <id> [--fork] OPENCODE_ARGS...`.
 import argparse
 import json
 import os
-import re
+import shlex
 import shutil
 import sqlite3
 import sys
-import time
 from collections import defaultdict
 from pathlib import Path
-from subprocess import PIPE, run
+from typing import Final
 
-DB_PATH = Path(os.environ.get("OPENCODE_DB", Path.home() / ".local/share/opencode/opencode.db"))
-CACHE_PATH = Path.home() / ".cache" / "opencode-resume-index.tsv"
-CACHE_HEADER = "#opencode-resume-index v1"
-PREVIEW_TURN_LIMIT = 60
-PREVIEW_TEXT_LIMIT = 600
-TITLE_WIDTH = 60
+try:
+    import session_picker
+    import session_search
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import session_picker
+    import session_search
 
+DB_PATH: Final = Path(os.environ.get("OPENCODE_DB", Path.home() / ".local/share/opencode/opencode.db"))
+CACHE_PATH: Final = Path.home() / ".cache" / "opencode-resume-index.tsv"
+CACHE_HEADER: Final = "#opencode-resume-index v2"
+MS_PER_SECOND: Final = 1000
+USER_COLOR: Final = "\033[36m"
+ASSISTANT_COLOR: Final = "\033[32m"
+DIM: Final = "\033[2m"
 
-def flatten(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
+CONTENT_QUERY: Final = (
+    "SELECT p.session_id, p.data "
+    "FROM part p JOIN message m ON p.message_id = m.id "
+    "WHERE p.data LIKE '%\"type\":\"text\"%' "
+    "ORDER BY m.time_created, p.time_created"
+)
+TURNS_QUERY: Final = (
+    "SELECT m.data, p.data "
+    "FROM part p JOIN message m ON p.message_id = m.id "
+    "WHERE p.session_id = ? "
+    "ORDER BY m.time_created, p.time_created"
+)
 
 
 def connect_ro() -> sqlite3.Connection:
@@ -45,193 +64,98 @@ def connect_ro() -> sqlite3.Connection:
 
 
 def fetch_session_content(conn: sqlite3.Connection, target_sids: set[str] | None = None) -> dict[str, str]:
-    """Return {session_id: flattened_text} for all (or specified) sessions."""
-    q = (
-        "SELECT p.session_id, p.data "
-        "FROM part p JOIN message m ON p.message_id = m.id "
-        "WHERE p.data LIKE '%\"type\":\"text\"%' "
-        "ORDER BY m.time_created, p.time_created"
-    )
+    """Return {session_id: searchable text} - lowercased once, matched many times."""
     chunks: dict[str, list[str]] = defaultdict(list)
-    for sid, data in conn.execute(q):
+    for sid, data in conn.execute(CONTENT_QUERY):
         if target_sids is not None and sid not in target_sids:
             continue
-        try:
-            part = json.loads(data)
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if part.get("type") != "text":
-            continue
-        text = flatten(part.get("text", ""))
+        text = _part_text(data)
         if text:
             chunks[sid].append(text)
-    return {sid: " ".join(parts) for sid, parts in chunks.items()}
+    return {sid: " ".join(parts).lower() for sid, parts in chunks.items()}
 
 
-def load_cache() -> dict[str, tuple[int, str, str]]:
-    if not CACHE_PATH.exists():
-        return {}
-    out: dict[str, tuple[int, str, str]] = {}
+def _part_text(data: str) -> str:
     try:
-        with CACHE_PATH.open() as f:
-            if f.readline().strip() != CACHE_HEADER:
-                return {}
-            for line in f:
-                parts = line.rstrip("\n").split("\t")
-                if len(parts) != 4:
-                    continue
-                tu_s, sid, title, content = parts
-                try:
-                    out[sid] = (int(tu_s), title, content)
-                except ValueError:
-                    continue
-    except OSError:
-        pass
-    return out
+        part = json.loads(data)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if part.get("type") != "text":
+        return ""
+    return session_picker.flatten(part.get("text", ""))
 
 
-def save_cache(entries: dict[str, tuple[int, str, str]]) -> None:
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = CACHE_PATH.with_suffix(CACHE_PATH.suffix + ".tmp")
-    try:
-        with tmp.open("w") as f:
-            f.write(f"{CACHE_HEADER}\n")
-            for sid, (tu, title, content) in entries.items():
-                title = title.replace("\t", " ").replace("\n", " ")
-                content = content.replace("\t", " ").replace("\n", " ")
-                f.write(f"{tu}\t{sid}\t{title}\t{content}\n")
-        tmp.replace(CACHE_PATH)
-    except OSError:
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
+def _to_session(sid: str, updated_ms: int, title: str, content: str) -> session_search.Session:
+    return session_search.Session(sid, updated_ms // MS_PER_SECOND, title, content)
 
 
-def build_index(force_rebuild: bool = False) -> list[tuple[str, int, str, str]]:
-    """Return rows [(sid, time_updated, title, content)] sorted by time_updated desc."""
+def build_sessions(force_rebuild: bool = False) -> list[session_search.Session]:
+    """Index every session, reusing cached text whose time_updated is unchanged."""
     conn = connect_ro()
     try:
-        cache = {} if force_rebuild else load_cache()
-        sessions = conn.execute(
-            "SELECT id, title, time_updated FROM session ORDER BY time_updated DESC"
-        ).fetchall()
+        cache = {} if force_rebuild else session_picker.load_cache(CACHE_PATH, CACHE_HEADER)
+        rows = conn.execute("SELECT id, title, time_updated FROM session ORDER BY time_updated DESC").fetchall()
+        stale = {sid for sid, _title, updated in rows if sid not in cache or cache[sid].stamp != updated}
+        rebuilt = fetch_session_content(conn, stale) if stale else {}
 
-        stale = {sid for sid, _title, tu in sessions if not cache.get(sid) or cache[sid][0] != tu}
-        fresh_content = fetch_session_content(conn, stale) if stale else {}
-
-        fresh: dict[str, tuple[int, str, str]] = {}
-        rows: list[tuple[str, int, str, str]] = []
-        for sid, title, tu in sessions:
-            if sid in stale:
-                content = fresh_content.get(sid, "")
-            else:
-                content = cache[sid][2]
-            fresh[sid] = (tu, title, content)
-            rows.append((sid, tu, title, content))
-
-        save_cache(fresh)
-        return rows
+        fresh: dict[str, session_picker.CacheEntry] = {}
+        sessions: list[session_search.Session] = []
+        for sid, title, updated in rows:
+            content = rebuilt.get(sid, "") if sid in stale else cache[sid].content
+            fresh[sid] = session_picker.CacheEntry(updated, title, content)
+            sessions.append(_to_session(sid, updated, title, content))
+        session_picker.save_cache(CACHE_PATH, CACHE_HEADER, fresh)
+        return sessions
     finally:
         conn.close()
 
 
-def format_ago(ms: int) -> str:
-    diff = int((time.time() * 1000 - ms) / 1000)
-    if diff < 60:
-        return "just now"
-    if diff < 3600:
-        return f"{diff // 60}m ago"
-    if diff < 86400:
-        return f"{diff // 3600}h ago"
-    days = diff // 86400
-    if days == 1:
-        return "yesterday"
-    if days < 30:
-        return f"{days}d ago"
-    if days < 365:
-        return f"{days // 30}mo ago"
-    return f"{days // 365}y ago"
+def load_sessions() -> list[session_search.Session]:
+    """Read the cache only - the fast path fzf calls on every keystroke."""
+    cache = session_picker.load_cache(CACHE_PATH, CACHE_HEADER)
+    return [_to_session(sid, entry.stamp, entry.title, entry.content) for sid, entry in cache.items()]
 
 
-def format_display(title: str, time_updated_ms: int) -> str:
-    t = title if len(title) <= TITLE_WIDTH else title[: TITLE_WIDTH - 1] + "\u2026"
-    return f"{t:<{TITLE_WIDTH}}  {format_ago(time_updated_ms)}"
+def build_rows(sessions: list[session_search.Session], count: int) -> list[str]:
+    return [
+        session_picker.format_row(session_picker.format_display(s.title, s.updated_at), s.sid)
+        for s in sessions[:count]
+    ]
 
 
-def extract_highlight_tokens(query: str) -> list[str]:
-    """Return bare search tokens from an fzf query, stripping operator syntax."""
-    tokens: list[str] = []
-    for raw in query.split():
-        if raw.startswith("!"):
-            continue
-        for part in raw.split("|"):
-            t = part.lstrip("'^")
-            if t.endswith("$"):
-                t = t[:-1]
-            if t:
-                tokens.append(t)
-    return tokens
+def rank(sessions: list[session_search.Session], raw_query: str) -> list[session_search.Session]:
+    return session_search.search(sessions, session_search.parse_query(raw_query))
 
 
-def highlight_matches(text: str, tokens: list[str]) -> str:
-    if not tokens:
-        return text
-    pattern = re.compile("|".join(re.escape(t) for t in tokens), re.IGNORECASE)
-    return pattern.sub(lambda m: f"\033[43m\033[30m{m.group(0)}\033[0m", text)
-
-
-def render_preview(sid: str, query: str = "") -> str:
-    user = "\033[36m"
-    assist = "\033[32m"
-    dim = "\033[2m"
-    reset = "\033[0m"
-    tokens = extract_highlight_tokens(query)
-    out: list[str] = []
+def render_preview(sid: str, raw_query: str = "") -> str:
+    tokens = session_search.highlight_tokens(session_search.parse_query(raw_query))
     try:
         conn = connect_ro()
     except FileNotFoundError as e:
         return str(e)
     try:
-        sess = conn.execute(
-            "SELECT title, time_updated FROM session WHERE id = ?", (sid,)
-        ).fetchone()
-        if not sess:
+        session = conn.execute("SELECT title, time_updated FROM session WHERE id = ?", (sid,)).fetchone()
+        if not session:
             return f"session {sid} not found"
-        title, tu = sess
-        out.append(f"{dim}{sid}  {format_ago(tu)}{reset}")
-        out.append(f"{dim}{title}{reset}")
-        out.append("")
-        rows = conn.execute(
-            """
-            SELECT m.data, p.data
-            FROM part p JOIN message m ON p.message_id = m.id
-            WHERE p.session_id = ?
-            ORDER BY m.time_created, p.time_created
-            """,
-            (sid,),
-        ).fetchall()
+        title, updated = session
+        reset = session_picker.RESET
+        out = [
+            f"{DIM}{sid}  {session_picker.format_ago(updated // MS_PER_SECOND)}{reset}",
+            f"{DIM}{title}{reset}",
+            "",
+        ]
         turns = 0
-        for msg_data, part_data in rows:
-            if turns >= PREVIEW_TURN_LIMIT:
-                out.append(f"{dim}\u2026 (truncated){reset}")
+        for message_data, part_data in conn.execute(TURNS_QUERY, (sid,)):
+            if turns >= session_picker.PREVIEW_TURN_LIMIT:
+                out.append(f"{DIM}…(truncated){reset}")
                 break
-            try:
-                msg = json.loads(msg_data)
-                part = json.loads(part_data)
-            except (json.JSONDecodeError, TypeError):
-                continue
-            if part.get("type") != "text":
-                continue
-            text = flatten(part.get("text", ""))
+            text = _part_text(part_data)
             if not text:
                 continue
-            if len(text) > PREVIEW_TEXT_LIMIT:
-                text = text[:PREVIEW_TEXT_LIMIT] + "\u2026"
-            text = highlight_matches(text, tokens)
-            role = msg.get("role", "?")
-            color = user if role == "user" else assist
-            out.append(f"{color}\u258c {role}{reset} {text}")
+            role = _role(message_data)
+            color = USER_COLOR if role == "user" else ASSISTANT_COLOR
+            highlighted = session_picker.highlight_matches(session_picker.truncate_turn(text), tokens)
+            out.append(f"{color}▌ {role}{reset} {highlighted}")
             out.append("")
             turns += 1
     finally:
@@ -239,63 +163,53 @@ def render_preview(sid: str, query: str = "") -> str:
     return "\n".join(out)
 
 
-def cmd_preview(sid: str, query: str = "") -> int:
-    print(render_preview(sid, query))
+def _role(message_data: str) -> str:
+    try:
+        return json.loads(message_data).get("role", "?")
+    except (json.JSONDecodeError, TypeError):
+        return "?"
+
+
+def cmd_preview(sid: str, raw_query: str) -> int:
+    print(render_preview(sid, raw_query))
     return 0
 
 
-def cmd_pick(search: str, count: int, fork: bool, rebuild: bool, oc_args: list[str]) -> int:
+def cmd_search(raw_query: str, count: int) -> int:
+    session_picker.write_rows(build_rows(rank(load_sessions(), raw_query), count))
+    return 0
+
+
+def build_commands(count: int) -> session_picker.PickerCommands:
+    self_path = shlex.quote(str(Path(__file__).resolve()))
+    return session_picker.PickerCommands(
+        preview=f"{self_path} --preview-id={{2}} --preview-query={{q}}",
+        reload=f"{self_path} --search-query={{q}} -n {count}",
+    )
+
+
+def cmd_pick(raw_query: str, count: int, fork: bool, rebuild: bool, opencode_args: list[str]) -> int:
     try:
-        rows = build_index(force_rebuild=rebuild)
+        sessions = build_sessions(force_rebuild=rebuild)
     except FileNotFoundError as e:
         print(e, file=sys.stderr)
         return 1
-    if not rows:
+    if not sessions:
         print("No sessions found", file=sys.stderr)
         return 1
-    if not shutil.which("fzf"):
-        print("fzf required for opencode-resume", file=sys.stderr)
+
+    rows = build_rows(rank(sessions, raw_query), count)
+    try:
+        sid = session_picker.pick(
+            rows, raw_query,
+            f"Resume opencode session | {session_picker.FZF_HEADER_HINT}",
+            build_commands(count),
+        )
+    except FileNotFoundError as e:
+        print(e, file=sys.stderr)
         return 2
-
-    lines: list[str] = []
-    conceal_on, conceal_off = "\x1b[8m", "\x1b[0m"
-    for sid, tu, title, content in rows[:count]:
-        display = format_display(title, tu)
-        searchable = f"{title} {content}".replace("\t", " ").replace("\n", " ")
-        lines.append(f"{display} {conceal_on}{searchable}{conceal_off}\t{sid}")
-
-    self_path = Path(__file__).resolve()
-    preview_cmd = f"{self_path} --preview-id {{2}} --preview-query {{q}}"
-
-    fzf_args = [
-        "fzf",
-        "--delimiter", "\t",
-        "--with-nth", "1",
-        "--exact",
-        "--height", "100%",
-        "--layout=reverse",
-        "--border=rounded",
-        "--margin=1",
-        "--padding=1",
-        "--no-sort",
-        "--tiebreak=index",
-        "--prompt", "\u25b6 ",
-        "--pointer", "\u276f",
-        "--marker", "\u2713",
-        "--cycle",
-        "--ansi",
-        "--preview", preview_cmd,
-        "--preview-window", "right:60%:wrap",
-        "--header", "Resume opencode session | space = AND, each word matches title OR content | ^prefix  suffix$  !exclude",
-        "--color=bg+:#2d1b3d,fg+:#ffffff,hl:#ff69b4,hl+:#ff79c6,prompt:#e75480,pointer:#e75480,marker:#bd93f9,header:#7d56f4,border:#7d56f4,info:#8b8b8b,spinner:#ff69b4",
-    ]
-    if search:
-        fzf_args.extend(["--query", search])
-
-    result = run(fzf_args, input="\n".join(lines), text=True, stdout=PIPE)
-    if result.returncode != 0 or not result.stdout.strip():
+    if sid is None:
         return 1
-    sid = result.stdout.strip().split("\t")[-1]
 
     opencode = shutil.which("opencode")
     if not opencode:
@@ -304,15 +218,7 @@ def cmd_pick(search: str, count: int, fork: bool, rebuild: bool, oc_args: list[s
     exec_args = [opencode, "--session", sid]
     if fork:
         exec_args.append("--fork")
-    exec_args.extend(oc_args)
-    os.execvp(opencode, exec_args)
-
-
-def split_args(argv: list[str]) -> tuple[list[str], list[str]]:
-    if "--" in argv:
-        idx = argv.index("--")
-        return argv[:idx], argv[idx + 1:]
-    return argv, []
+    os.execvp(opencode, [*exec_args, *opencode_args])
 
 
 def main() -> int:
@@ -323,13 +229,16 @@ def main() -> int:
     parser.add_argument("--rebuild", action="store_true", help="force cache rebuild")
     parser.add_argument("--preview-id", dest="preview_id", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--preview-query", dest="preview_query", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--search-query", dest="search_query", default=None, help=argparse.SUPPRESS)
 
-    our_argv, oc_args = split_args(sys.argv[1:])
+    our_argv, opencode_args = session_picker.split_args(sys.argv[1:])
     args = parser.parse_args(our_argv)
 
     if args.preview_id:
         return cmd_preview(args.preview_id, args.preview_query)
-    return cmd_pick(" ".join(args.search), args.count, args.fork, args.rebuild, oc_args)
+    if args.search_query is not None:
+        return cmd_search(args.search_query, args.count)
+    return cmd_pick(" ".join(args.search), args.count, args.fork, args.rebuild, opencode_args)
 
 
 if __name__ == "__main__":

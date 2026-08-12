@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-claude-resume: fuzzy session resumer for Claude Code with content search.
+claude-resume: session resumer for Claude Code with ranked content search.
 
 Indexes each session's title + full message text into a TSV cache keyed by
 mtime, then hands the result to fzf with a live preview pane. Unlike
-`claude --resume`, the query matches both titles and message bodies.
+`claude --resume`, the query matches both titles and message bodies, and
+sessions whose query words appear consecutively are ranked first.
 
 Usage:
     claude-resume [SEARCH] [-n COUNT] [-a] [--rebuild] [-- CLAUDE_ARGS...]
-    claude-resume --preview-id <id>   # internal, used by fzf preview
+    claude-resume --preview-id <id>      # internal, used by fzf preview
+    claude-resume --search-query <query> # internal, used by fzf reload
 
 On selection, execs `claude --resume <id> CLAUDE_ARGS...`.
 """
@@ -16,328 +18,211 @@ On selection, execs `claude --resume <id> CLAUDE_ARGS...`.
 import argparse
 import json
 import os
-import re
+import shlex
 import shutil
 import sys
-import time
 from pathlib import Path
-from subprocess import PIPE, run
+from typing import Final
 
-PROJECTS_DIR = Path(os.environ.get("CLAUDE_PROJECTS", Path.home() / ".claude" / "projects"))
-CACHE_NAME = ".claude-resume-index.tsv"
-CACHE_HEADER = "#claude-resume-index v2"
-PREVIEW_TURN_LIMIT = 60
-PREVIEW_TEXT_LIMIT = 600
-TITLE_WIDTH = 60
+try:
+    import session_picker
+    import session_search
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import session_picker
+    import session_search
+
+PROJECTS_DIR: Final = Path(os.environ.get("CLAUDE_PROJECTS", Path.home() / ".claude" / "projects"))
+CACHE_NAME: Final = ".claude-resume-index.tsv"
+CACHE_HEADER: Final = "#claude-resume-index v3"
+NO_PROMPT: Final = "(no prompt)"
+USER_COLOR: Final = "\033[36m"
+ASSISTANT_COLOR: Final = "\033[32m"
+DIM: Final = "\033[2m"
 
 
-def path_to_slug(p: Path) -> str:
-    return str(p).replace("/", "-")
+def path_to_slug(path: Path) -> str:
+    return str(path).replace("/", "-")
 
 
 def extract_text(content) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        parts = []
-        for item in content:
-            if isinstance(item, dict) and isinstance(item.get("text"), str):
-                parts.append(item["text"])
-        return " ".join(parts)
+        return " ".join(
+            item["text"] for item in content
+            if isinstance(item, dict) and isinstance(item.get("text"), str)
+        )
     return ""
 
 
-def flatten(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def scan_jsonl(path: Path) -> tuple[str, str]:
-    """Return (title, flat_content) for a session file.
-
-    Indexes the full user/assistant text of the session so searches hit
-    content anywhere in the conversation, not just the opening turns.
-    """
-    title = ""
-    chunks: list[str] = []
+def read_turns(path: Path):
+    """Yield (kind, text) for every user/assistant message in a session file."""
     try:
         with path.open(errors="replace") as f:
             for line in f:
-                line = line.strip()
-                if not line:
-                    continue
                 try:
-                    d = json.loads(line)
+                    entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                kind = d.get("type")
-                if kind not in ("user", "assistant"):
+                kind = entry.get("type")
+                message = entry.get("message")
+                if kind not in ("user", "assistant") or not isinstance(message, dict):
                     continue
-                msg = d.get("message")
-                if not isinstance(msg, dict):
-                    continue
-                text = flatten(extract_text(msg.get("content", "")))
-                if not text:
-                    continue
-                if not title and kind == "user":
-                    title = text
-                chunks.append(text)
+                text = session_picker.flatten(extract_text(message.get("content", "")))
+                if text:
+                    yield kind, text
     except OSError:
-        pass
-    return title or "(no prompt)", " ".join(chunks)
+        return
 
 
-def load_cache(cache_path: Path) -> dict[str, tuple[int, str, str]]:
-    if not cache_path.exists():
-        return {}
-    out: dict[str, tuple[int, str, str]] = {}
-    try:
-        with cache_path.open() as f:
-            if f.readline().strip() != CACHE_HEADER:
-                return {}
-            for line in f:
-                parts = line.rstrip("\n").split("\t")
-                if len(parts) != 4:
-                    continue
-                mtime_s, sid, title, content = parts
-                try:
-                    out[sid] = (int(mtime_s), title, content)
-                except ValueError:
-                    continue
-    except OSError:
-        pass
-    return out
+def scan_jsonl(path: Path) -> tuple[str, str]:
+    """Return (title, searchable content) for a session file.
+
+    Content is lowercased once here so the per-keystroke search never has to.
+    It is only ever matched against - the preview re-reads the session file.
+    """
+    title = ""
+    chunks: list[str] = []
+    for kind, text in read_turns(path):
+        if not title and kind == "user":
+            title = text
+        chunks.append(text)
+    return title or NO_PROMPT, " ".join(chunks).lower()
 
 
-def save_cache(cache_path: Path, entries: dict[str, tuple[int, str, str]]) -> None:
-    tmp = cache_path.with_suffix(cache_path.suffix + ".tmp")
-    try:
-        with tmp.open("w") as f:
-            f.write(f"{CACHE_HEADER}\n")
-            for sid, (mtime, title, content) in entries.items():
-                title = title.replace("\t", " ").replace("\n", " ")
-                content = content.replace("\t", " ").replace("\n", " ")
-                f.write(f"{mtime}\t{sid}\t{title}\t{content}\n")
-        tmp.replace(cache_path)
-    except OSError:
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
+def resolve_scopes(all_projects: bool) -> list[Path]:
+    if not PROJECTS_DIR.is_dir():
+        return []
+    if all_projects:
+        return sorted(d for d in PROJECTS_DIR.iterdir() if d.is_dir())
+    scope = PROJECTS_DIR / path_to_slug(Path.cwd())
+    return [scope] if scope.is_dir() else []
 
 
-def build_index(scope_dirs: list[Path], force_rebuild: bool = False) -> list[tuple[str, int, str, str, Path]]:
-    """Return rows [(id, mtime, title, content, jsonl_path)] sorted by mtime desc."""
-    rows: list[tuple[str, int, str, str, Path]] = []
+def build_sessions(scope_dirs: list[Path], force_rebuild: bool = False) -> list[session_search.Session]:
+    """Index every session file, reusing cached text whose mtime is unchanged."""
+    sessions: list[session_search.Session] = []
     for scope in scope_dirs:
         cache_path = scope / CACHE_NAME
-        cache = {} if force_rebuild else load_cache(cache_path)
-        fresh: dict[str, tuple[int, str, str]] = {}
+        cache = {} if force_rebuild else session_picker.load_cache(cache_path, CACHE_HEADER)
+        fresh: dict[str, session_picker.CacheEntry] = {}
         for jsonl in scope.glob("*.jsonl"):
-            sid = jsonl.stem
             try:
                 mtime = int(jsonl.stat().st_mtime)
             except OSError:
                 continue
-            cached = cache.get(sid)
-            if cached and cached[0] == mtime:
-                title, content = cached[1], cached[2]
-            else:
-                title, content = scan_jsonl(jsonl)
-            fresh[sid] = (mtime, title, content)
-            rows.append((sid, mtime, title, content, jsonl))
-        save_cache(cache_path, fresh)
-    rows.sort(key=lambda r: r[1], reverse=True)
-    return rows
+            cached = cache.get(jsonl.stem)
+            title, content = (cached.title, cached.content) if cached and cached.stamp == mtime else scan_jsonl(jsonl)
+            fresh[jsonl.stem] = session_picker.CacheEntry(mtime, title, content)
+            sessions.append(session_search.Session(jsonl.stem, mtime, title, content, scope.name))
+        session_picker.save_cache(cache_path, CACHE_HEADER, fresh)
+    return sessions
 
 
-def format_ago(mtime: int) -> str:
-    diff = int(time.time() - mtime)
-    if diff < 60:
-        return "just now"
-    if diff < 3600:
-        return f"{diff // 60}m ago"
-    if diff < 86400:
-        return f"{diff // 3600}h ago"
-    days = diff // 86400
-    if days == 1:
-        return "yesterday"
-    if days < 30:
-        return f"{days}d ago"
-    if days < 365:
-        return f"{days // 30}mo ago"
-    return f"{days // 365}y ago"
+def load_sessions(scope_dirs: list[Path]) -> list[session_search.Session]:
+    """Read the caches only - the fast path fzf calls on every keystroke."""
+    return [
+        session_search.Session(sid, entry.stamp, entry.title, entry.content, scope.name)
+        for scope in scope_dirs
+        for sid, entry in session_picker.load_cache(scope / CACHE_NAME, CACHE_HEADER).items()
+    ]
 
 
-def format_display(title: str, mtime: int, project: str, show_project: bool) -> str:
-    t = title if len(title) <= TITLE_WIDTH else title[: TITLE_WIDTH - 1] + "\u2026"
-    ago = format_ago(mtime)
-    if show_project:
-        return f"{t:<{TITLE_WIDTH}}  {ago:<12}  {project}"
-    return f"{t:<{TITLE_WIDTH}}  {ago}"
+def build_rows(sessions: list[session_search.Session], show_project: bool, count: int) -> list[str]:
+    return [
+        session_picker.format_row(
+            session_picker.format_display(s.title, s.updated_at, s.project if show_project else ""),
+            s.sid,
+        )
+        for s in sessions[:count]
+    ]
+
+
+def rank(sessions: list[session_search.Session], raw_query: str) -> list[session_search.Session]:
+    return session_search.search(sessions, session_search.parse_query(raw_query))
 
 
 def find_jsonl(session_id: str) -> Path | None:
     if not PROJECTS_DIR.is_dir():
         return None
     for scope in PROJECTS_DIR.iterdir():
-        if not scope.is_dir():
-            continue
         candidate = scope / f"{session_id}.jsonl"
-        if candidate.exists():
+        if scope.is_dir() and candidate.exists():
             return candidate
     return None
 
 
-def extract_highlight_tokens(query: str) -> list[str]:
-    """Return bare search tokens from an fzf query, stripping operator syntax.
-
-    fzf extended syntax: `'foo` exact, `^foo` prefix, `foo$` suffix, `!foo`
-    exclude, `|` OR separator. Exclusions are skipped; the rest contribute
-    their literal substring for highlighting.
-    """
-    tokens: list[str] = []
-    for raw in query.split():
-        if raw.startswith("!"):
-            continue
-        for part in raw.split("|"):
-            t = part.lstrip("'^")
-            if t.endswith("$"):
-                t = t[:-1]
-            if t:
-                tokens.append(t)
-    return tokens
-
-
-def highlight_matches(text: str, tokens: list[str]) -> str:
-    if not tokens:
-        return text
-    pattern = re.compile("|".join(re.escape(t) for t in tokens), re.IGNORECASE)
-    return pattern.sub(lambda m: f"\033[43m\033[30m{m.group(0)}\033[0m", text)
-
-
-def render_preview(jsonl: Path, query: str = "") -> str:
-    user = "\033[36m"
-    assist = "\033[32m"
-    dim = "\033[2m"
-    reset = "\033[0m"
-    tokens = extract_highlight_tokens(query)
-    out: list[str] = [f"{dim}{jsonl.parent.name}/{jsonl.name}{reset}", ""]
-    turns = 0
-    try:
-        with jsonl.open(errors="replace") as f:
-            for line in f:
-                if turns >= PREVIEW_TURN_LIMIT:
-                    out.append(f"{dim}\u2026 (truncated){reset}")
-                    break
-                try:
-                    d = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                kind = d.get("type")
-                msg = d.get("message")
-                if kind not in ("user", "assistant") or not isinstance(msg, dict):
-                    continue
-                text = flatten(extract_text(msg.get("content", "")))
-                if not text:
-                    continue
-                if len(text) > PREVIEW_TEXT_LIMIT:
-                    text = text[:PREVIEW_TEXT_LIMIT] + "\u2026"
-                text = highlight_matches(text, tokens)
-                color = user if kind == "user" else assist
-                label = "user" if kind == "user" else "assistant"
-                out.append(f"{color}\u258c {label}{reset} {text}")
-                out.append("")
-                turns += 1
-    except OSError as e:
-        out.append(f"error reading {jsonl}: {e}")
+def render_preview(jsonl: Path, raw_query: str = "") -> str:
+    tokens = session_search.highlight_tokens(session_search.parse_query(raw_query))
+    out: list[str] = [f"{DIM}{jsonl.parent.name}/{jsonl.name}{session_picker.RESET}", ""]
+    for turns, (kind, text) in enumerate(read_turns(jsonl)):
+        if turns >= session_picker.PREVIEW_TURN_LIMIT:
+            out.append(f"{DIM}…(truncated){session_picker.RESET}")
+            break
+        color = USER_COLOR if kind == "user" else ASSISTANT_COLOR
+        highlighted = session_picker.highlight_matches(session_picker.truncate_turn(text), tokens)
+        out.append(f"{color}▌ {kind}{session_picker.RESET} {highlighted}")
+        out.append("")
     return "\n".join(out)
 
 
-def cmd_preview(session_id: str, query: str = "") -> int:
+def cmd_preview(session_id: str, raw_query: str) -> int:
     jsonl = find_jsonl(session_id)
     if jsonl is None:
         print(f"session {session_id} not found", file=sys.stderr)
         return 1
-    print(render_preview(jsonl, query))
+    print(render_preview(jsonl, raw_query))
     return 0
 
 
-def cmd_pick(search: str, count: int, all_projects: bool, rebuild: bool, claude_args: list[str]) -> int:
+def cmd_search(raw_query: str, count: int, all_projects: bool) -> int:
+    sessions = rank(load_sessions(resolve_scopes(all_projects)), raw_query)
+    session_picker.write_rows(build_rows(sessions, all_projects, count))
+    return 0
+
+
+def build_commands(count: int, all_projects: bool) -> session_picker.PickerCommands:
+    self_path = shlex.quote(str(Path(__file__).resolve()))
+    scope_flag = " -a" if all_projects else ""
+    return session_picker.PickerCommands(
+        preview=f"{self_path} --preview-id={{2}} --preview-query={{q}}",
+        reload=f"{self_path} --search-query={{q}} -n {count}{scope_flag}",
+    )
+
+
+def cmd_pick(raw_query: str, count: int, all_projects: bool, rebuild: bool, claude_args: list[str]) -> int:
     if not PROJECTS_DIR.is_dir():
         print(f"projects dir not found: {PROJECTS_DIR}", file=sys.stderr)
         return 1
+    scopes = resolve_scopes(all_projects)
+    if not scopes:
+        print(f"No sessions for current project ({path_to_slug(Path.cwd())}). Use -a for all projects.", file=sys.stderr)
+        return 1
 
-    if all_projects:
-        scope_dirs = [d for d in PROJECTS_DIR.iterdir() if d.is_dir()]
-    else:
-        slug = path_to_slug(Path.cwd())
-        scope = PROJECTS_DIR / slug
-        if not scope.is_dir():
-            print(f"No sessions for current project ({slug}). Use -a for all projects.", file=sys.stderr)
-            return 1
-        scope_dirs = [scope]
-
-    rows = build_index(scope_dirs, force_rebuild=rebuild)
-    if not rows:
+    sessions = build_sessions(scopes, force_rebuild=rebuild)
+    if not sessions:
         print("No sessions found", file=sys.stderr)
         return 1
 
-    lines: list[str] = []
-    conceal_on, conceal_off = "\x1b[8m", "\x1b[0m"
-    for sid, mtime, title, content, jsonl in rows[:count]:
-        display = format_display(title, mtime, jsonl.parent.name, all_projects)
-        searchable = f"{title} {content}".replace("\t", " ").replace("\n", " ")
-        lines.append(f"{display} {conceal_on}{searchable}{conceal_off}\t{sid}")
-
-    if not shutil.which("fzf"):
-        print("fzf required for claude-resume", file=sys.stderr)
+    rows = build_rows(rank(sessions, raw_query), all_projects, count)
+    try:
+        session_id = session_picker.pick(
+            rows, raw_query,
+            f"Resume session | {session_picker.FZF_HEADER_HINT}",
+            build_commands(count, all_projects),
+        )
+    except FileNotFoundError as e:
+        print(e, file=sys.stderr)
         return 2
-
-    self_path = Path(__file__).resolve()
-    preview_cmd = f"{self_path} --preview-id {{2}} --preview-query {{q}}"
-
-    fzf_args = [
-        "fzf",
-        "--delimiter", "\t",
-        "--with-nth", "1",
-        "--exact",
-        "--height", "100%",
-        "--layout=reverse",
-        "--border=rounded",
-        "--margin=1",
-        "--padding=1",
-        "--no-sort",
-        "--tiebreak=index",
-        "--prompt", "\u25b6 ",
-        "--pointer", "\u276f",
-        "--marker", "\u2713",
-        "--cycle",
-        "--ansi",
-        "--preview", preview_cmd,
-        "--preview-window", "right:60%:wrap",
-        "--header", "Resume session | space = AND, each word matches title OR content | ^prefix  suffix$  !exclude",
-        "--color=bg+:#2d1b3d,fg+:#ffffff,hl:#ff69b4,hl+:#ff79c6,prompt:#e75480,pointer:#e75480,marker:#bd93f9,header:#7d56f4,border:#7d56f4,info:#8b8b8b,spinner:#ff69b4",
-    ]
-    if search:
-        fzf_args.extend(["--query", search])
-
-    result = run(fzf_args, input="\n".join(lines), text=True, stdout=PIPE)
-    if result.returncode != 0 or not result.stdout.strip():
+    if session_id is None:
         return 1
-    sid = result.stdout.strip().split("\t")[-1]
 
     claude = shutil.which("claude")
     if not claude:
         print("claude not found on PATH", file=sys.stderr)
         return 2
-    os.execvp(claude, [claude, "--resume", sid, *claude_args])
-
-
-def split_args(argv: list[str]) -> tuple[list[str], list[str]]:
-    if "--" in argv:
-        idx = argv.index("--")
-        return argv[:idx], argv[idx + 1 :]
-    return argv, []
+    os.execvp(claude, [claude, "--resume", session_id, *claude_args])
 
 
 def main() -> int:
@@ -348,14 +233,16 @@ def main() -> int:
     parser.add_argument("--rebuild", action="store_true", help="force cache rebuild")
     parser.add_argument("--preview-id", dest="preview_id", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--preview-query", dest="preview_query", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--search-query", dest="search_query", default=None, help=argparse.SUPPRESS)
 
-    our_argv, claude_args = split_args(sys.argv[1:])
+    our_argv, claude_args = session_picker.split_args(sys.argv[1:])
     args = parser.parse_args(our_argv)
 
     if args.preview_id:
         return cmd_preview(args.preview_id, args.preview_query)
-    search = " ".join(args.search)
-    return cmd_pick(search, args.count, args.all, args.rebuild, claude_args)
+    if args.search_query is not None:
+        return cmd_search(args.search_query, args.count, args.all)
+    return cmd_pick(" ".join(args.search), args.count, args.all, args.rebuild, claude_args)
 
 
 if __name__ == "__main__":
