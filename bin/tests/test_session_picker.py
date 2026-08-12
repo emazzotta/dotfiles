@@ -1,20 +1,22 @@
-import time
+from types import SimpleNamespace
 
 import pytest
 
+HEADER = "#test-index v1"
+NOW = 1_700_000_000
+
 
 @pytest.fixture
-def picker(load_script):
-    return load_script("session_picker.py")
+def picker(load_script, monkeypatch):
+    """Freeze the clock: ages are relative, and a slow suite must not drift them."""
+    module = load_script("session_picker.py")
+    monkeypatch.setattr(module, "time", SimpleNamespace(time=lambda: NOW))
+    return module
 
 
 @pytest.fixture
 def cache_file(tmp_path):
     return tmp_path / "index.tsv"
-
-
-HEADER = "#test-index v1"
-NOW = int(time.time())
 
 
 class TestCache:
