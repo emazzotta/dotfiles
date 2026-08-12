@@ -11,6 +11,8 @@ words appear consecutively rank above sessions that merely contain all of
 them somewhere.
 """
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache

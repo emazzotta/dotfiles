@@ -11,6 +11,9 @@ in place to a caller-supplied summary title.
 Usage:
     transcript-title <FILE.html> <TITLE>   retitle in place
 """
+
+from __future__ import annotations
+
 from html import escape
 from pathlib import Path
 import argparse

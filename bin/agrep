@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Search shell aliases, exports, function definitions, and custom bin scripts."""
 
+from __future__ import annotations
+
 import argparse
 import os
 import re

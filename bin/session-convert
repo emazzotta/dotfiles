@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Convert session context between Claude Code and OpenCode."""
 
+from __future__ import annotations
+
 import json
 import os
 import sqlite3

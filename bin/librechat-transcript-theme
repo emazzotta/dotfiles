@@ -18,6 +18,9 @@ Idempotent: re-running on an already-themed file is a no-op.
 Usage:
     librechat-transcript-theme <FILE.html>   restyle in place
 """
+
+from __future__ import annotations
+
 from pathlib import Path
 import argparse
 import sys

@@ -3,6 +3,7 @@ import importlib.util
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ def _load(path: Path):
     loader = importlib.machinery.SourceFileLoader("agrep_mod", str(path))
     spec = importlib.util.spec_from_loader("agrep_mod", loader)
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
     loader.exec_module(mod)
     return mod
 

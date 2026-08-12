@@ -7,6 +7,8 @@ binding re-runs the ranked search on every keystroke and reloads the list.
 That is what lets phrase matches float to the top as the query is typed.
 """
 
+from __future__ import annotations
+
 import re
 import sys
 import time

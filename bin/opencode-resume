@@ -16,6 +16,8 @@ Usage:
 On selection, execs `opencode --session <id> [--fork] OPENCODE_ARGS...`.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
