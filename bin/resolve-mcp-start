@@ -1,0 +1,75 @@
+#!/bin/bash
+# Ad-hoc start for the DaVinci Resolve MCP server, meant to be triggered from
+# the container over the keyguard Mac bridge. Returns as soon as the port is
+# listening; the server outlives this script. Idempotent - a second call while
+# one is already serving is a no-op, so the bridge can be hit freely.
+set -euo pipefail
+
+readonly LAUNCHER="$HOME/.local/bin/resolve-mcp-serve"
+readonly CONTAINER_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/Projects/private/opencode/opencode/config}"
+readonly CONFIG_DIR="$CONTAINER_CONFIG_DIR/davinci-resolve-mcp"
+readonly LOG="$CONFIG_DIR/serve.log"
+readonly SERVE_PORT=49633
+readonly STARTUP_WAIT_SECONDS=25
+
+show_usage() {
+    cat <<EOF
+Usage: $(basename "$0") [--help]
+
+Starts the DaVinci Resolve MCP server on 127.0.0.1:$SERVE_PORT if it is not
+already listening, then exits. Output goes to $LOG.
+EOF
+}
+
+port_is_listening() {
+    /usr/sbin/lsof -nP -iTCP:"$SERVE_PORT" -sTCP:LISTEN >/dev/null 2>&1
+}
+
+wait_for_port() {
+    local waited=0
+    while [ "$waited" -lt "$STARTUP_WAIT_SECONDS" ]; do
+        if port_is_listening; then
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+start_server() {
+    /bin/mkdir -p "$CONFIG_DIR"
+    # Detached with its own log: leaving stdout attached would hold the bridge's
+    # response pipe open for as long as the server runs.
+    nohup "$LAUNCHER" >>"$LOG" 2>&1 &
+}
+
+main() {
+    if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+        show_usage
+        return 0
+    fi
+
+    if port_is_listening; then
+        echo "already serving on 127.0.0.1:$SERVE_PORT"
+        return 0
+    fi
+
+    if [ ! -x "$LAUNCHER" ]; then
+        echo "no launcher at $LAUNCHER - run resolve-mcp-setup" >&2
+        return 1
+    fi
+
+    start_server
+    if wait_for_port; then
+        echo "started, serving on 127.0.0.1:$SERVE_PORT"
+        return 0
+    fi
+
+    echo "did not come up within ${STARTUP_WAIT_SECONDS}s - see $LOG" >&2
+    return 1
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
