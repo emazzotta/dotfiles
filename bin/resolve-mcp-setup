@@ -6,7 +6,11 @@ set -euo pipefail
 
 readonly REPO_URL="https://github.com/samuelgursky/davinci-resolve-mcp.git"
 readonly REPO_DIR="${RESOLVE_MCP_HOME:-$HOME/.local/share/davinci-resolve-mcp}"
-readonly CONFIG_DIR="$HOME/.config/davinci-resolve-mcp"
+# The token's only consumer is the container-side bridge, so it must live in the
+# directory docker-compose maps onto the container's ~/.config - the Mac's own
+# ~/.config is not mounted, and a token written there is invisible in there.
+readonly CONTAINER_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/Projects/private/opencode/opencode/config}"
+readonly CONFIG_DIR="$CONTAINER_CONFIG_DIR/davinci-resolve-mcp"
 readonly TOKEN_FILE="$CONFIG_DIR/mcp-token"
 readonly LAUNCHER="$HOME/.local/bin/resolve-mcp-serve"
 readonly SERVE_PORT=49633
@@ -47,6 +51,7 @@ find_best_python() {
 
 check_prerequisites() {
     command -v git >/dev/null 2>&1 || fail "git not found - install Xcode Command Line Tools"
+    [ -d "$CONTAINER_CONFIG_DIR" ] || fail "container config dir not found at $CONTAINER_CONFIG_DIR - the token would be written where the container cannot read it; set OPENCODE_CONFIG_DIR"
     [ -d "$SCRIPT_API" ] || warn "Resolve scripting API not found at $SCRIPT_API"
 }
 

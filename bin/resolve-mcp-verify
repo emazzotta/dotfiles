@@ -9,7 +9,10 @@ set -euo pipefail
 readonly RESOLVE_APP="/Applications/DaVinci Resolve/DaVinci Resolve.app"
 readonly SCRIPT_API="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
 readonly SCRIPT_LIB="$RESOLVE_APP/Contents/Libraries/Fusion/fusionscript.so"
-readonly OUTPUT_DIR="$HOME/.config/davinci-resolve-mcp"
+# Kept alongside the token, in the directory the container can read, so the
+# report is reachable from both sides. See resolve-mcp-setup.
+readonly CONTAINER_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/Projects/private/opencode/opencode/config}"
+readonly OUTPUT_DIR="$CONTAINER_CONFIG_DIR/davinci-resolve-mcp"
 readonly OUTPUT="$OUTPUT_DIR/verify.txt"
 
 report() { printf '%s\n' "$*" | /usr/bin/tee -a "$OUTPUT"; }
