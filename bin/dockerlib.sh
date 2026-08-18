@@ -63,11 +63,25 @@ dh_pick_container() {
     echo "$selected" | awk '{print $1}'
 }
 
+# True if the ref names a container. Deliberately not plain `docker inspect`,
+# which also resolves images, volumes and networks.
+dh_container_exists() {
+    docker container inspect "$1" >/dev/null 2>&1
+}
+
+# True if a bare argument should be read as a container rather than as a
+# command or a flag. Docker forbids a leading '-' in a container name.
+dh_is_container_ref() {
+    case "${1:-}" in
+        ""|-*) return 1 ;;
+    esac
+    dh_container_exists "$1"
+}
+
 # Exit with an error if the named container does not exist.
 dh_assert_container_exists() {
-    local container="$1"
-    if ! docker inspect "$container" >/dev/null 2>&1; then
-        echo "Error: container '$container' not found" >&2
+    if ! dh_container_exists "$1"; then
+        echo "Error: container '$1' not found" >&2
         exit 1
     fi
 }

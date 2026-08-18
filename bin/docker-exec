@@ -6,25 +6,31 @@ source "${BASH_SOURCE[0]%/*}/dockerlib.sh"
 
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") [-s SERVER] [-c CONTAINER] [COMMAND...]
+Usage: $(basename "$0") [-s SERVER] [-c CONTAINER] [CONTAINER] [COMMAND...]
 
 Execute a command in a running Docker container.
 
-If no command is given, tries /bin/bash then falls back to /bin/sh.
-If no container is specified:
+The container is a name or an id, given either after -c or as the first
+bare argument. If no command is given, tries /bin/bash then falls back
+to /bin/sh. If no container is specified:
   - Single running container: selects it automatically
   - Multiple running containers: interactive selection via gum
+
+Pass -- when the command itself is named like an existing container.
 
 With -s/--server, the docker daemon on that host (resolved via ssh) is
 used. The server name must resolve through ~/.ssh/config or DNS.
 
 Examples:
   $(basename "$0")
+  $(basename "$0") 30cdd596c31a
+  $(basename "$0") nginx ls -la
   $(basename "$0") -c nginx
   $(basename "$0") -c nginx ls -la
   $(basename "$0") -s dev
   $(basename "$0") -s dev -c nginx ls -la
   $(basename "$0") python3 -c 'print("hi")'
+  $(basename "$0") -- nginx -v
 EOF
 }
 
@@ -45,6 +51,7 @@ main() {
 
     local container=""
     local server=""
+    local detect_container=1
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -64,6 +71,11 @@ main() {
                 server="$2"
                 shift 2
                 ;;
+            --)
+                detect_container=0
+                shift
+                break
+                ;;
             *)
                 break
                 ;;
@@ -73,6 +85,11 @@ main() {
     [ -n "$server" ] && dh_use_remote_server "$server"
 
     dh_require_docker
+
+    if [ -z "$container" ] && [ "$detect_container" -eq 1 ] && dh_is_container_ref "${1:-}"; then
+        container="$1"
+        shift
+    fi
 
     local cmd=("$@")
 

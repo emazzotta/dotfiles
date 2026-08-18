@@ -14,7 +14,8 @@ Copy files between the host and a running Docker container.
 
 Use a leading colon on the container side to refer to the auto/selected
 container: ':/path/in/container'. Or pass an explicit 'name:/path' form
-to bypass selection (same as raw 'docker cp').
+to bypass selection (same as raw 'docker cp'). A container id works
+anywhere a name does, both here and after -c.
 
 If no container is specified via -c or an explicit 'name:' prefix:
   - Single running container: selects it automatically
@@ -40,6 +41,7 @@ Examples:
   $(basename "$0") ':/tmp/log-*.txt' ./logs/              # container glob
   $(basename "$0") ./*.conf :/etc/myapp/                  # host glob (zsh expands)
   $(basename "$0") -c nginx ./nginx.conf :/etc/nginx/     # explicit container
+  $(basename "$0") 30cdd596c31a:/tmp/foo .                # by container id
   $(basename "$0") -f ./file.txt nginx:/tmp/file.txt      # force overwrite
   $(basename "$0") -s dev ./local.txt :/tmp/              # remote daemon
 EOF

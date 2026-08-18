@@ -39,7 +39,7 @@ class TestContainerFlag:
 
     def test_nonexistent_container(self, create_mock_bin, run_script):
         create_mock_bin("docker", """
-if [ "$1" = "inspect" ]; then
+if [ "$1" = "container" ]; then
     echo "Error: no such container" >&2
     exit 1
 fi
@@ -52,7 +52,7 @@ fi
 class TestShellDetection:
     def test_bash_available(self, create_mock_bin, run_script):
         create_mock_bin("docker", """
-if [ "$1" = "inspect" ]; then
+if [ "$1" = "container" ]; then
     echo "{}"
 elif [ "$1" = "exec" ] && [ "$2" = "myapp" ] && [ "$3" = "test" ]; then
     exit 0
@@ -65,7 +65,7 @@ fi
 
     def test_bash_not_available_falls_back_to_sh(self, create_mock_bin, run_script):
         create_mock_bin("docker", """
-if [ "$1" = "inspect" ]; then
+if [ "$1" = "container" ]; then
     echo "{}"
 elif [ "$1" = "exec" ] && [ "$2" = "myapp" ] && [ "$3" = "test" ]; then
     exit 1
@@ -80,7 +80,7 @@ fi
 class TestCustomCommand:
     def test_explicit_command(self, create_mock_bin, run_script):
         create_mock_bin("docker", """
-if [ "$1" = "inspect" ]; then
+if [ "$1" = "container" ]; then
     echo "{}"
 elif [ "$1" = "exec" ] && [ "$2" = "-it" ]; then
     shift 2
@@ -95,7 +95,8 @@ fi
         create_mock_bin("docker", """
 if [ "$1" = "ps" ]; then
     printf 'myapp\tnginx:latest\tUp 5 min'
-elif [ "$1" = "inspect" ]; then
+elif [ "$1" = "container" ]; then
+    [ "$3" = "myapp" ] || exit 1
     echo "{}"
 elif [ "$1" = "exec" ] && [ "$2" = "-it" ]; then
     shift 2
@@ -107,12 +108,54 @@ fi
         assert "container=myapp cmd=python3 -c print('hi')" in result.stdout
 
 
+class TestBareContainerArgument:
+    MOCK = """
+if [ "$1" = "ps" ]; then
+    printf 'myapp\tnginx:latest\tUp 5 min'
+elif [ "$1" = "inspect" ]; then
+    echo "{}"
+elif [ "$1" = "container" ]; then
+    case "$3" in myapp|30cdd596c31a) echo "{}" ;; *) exit 1 ;; esac
+elif [ "$1" = "exec" ] && [ "$3" = "test" ]; then
+    exit 0
+elif [ "$1" = "exec" ] && [ "$2" = "-it" ]; then
+    shift 2
+    container="$1"; shift
+    echo "container=$container cmd=$*"
+fi
+"""
+
+    def should_open_a_shell_in_a_container_given_by_id(self, create_mock_bin, run_script):
+        create_mock_bin("docker", self.MOCK)
+        result = run_script(SCRIPT, ["30cdd596c31a"])
+        assert result.returncode == 0
+        assert "container=30cdd596c31a cmd=/bin/bash" in result.stdout
+
+    def should_run_a_command_in_a_container_given_by_id(self, create_mock_bin, run_script):
+        create_mock_bin("docker", self.MOCK)
+        result = run_script(SCRIPT, ["30cdd596c31a", "ls", "-la"])
+        assert result.returncode == 0
+        assert "container=30cdd596c31a cmd=ls -la" in result.stdout
+
+    def should_read_args_after_a_double_dash_as_the_command(self, create_mock_bin, run_script):
+        create_mock_bin("docker", self.MOCK)
+        result = run_script(SCRIPT, ["--", "30cdd596c31a"])
+        assert result.returncode == 0
+        assert "container=myapp cmd=30cdd596c31a" in result.stdout
+
+    def should_not_read_an_image_name_as_a_container(self, create_mock_bin, run_script):
+        create_mock_bin("docker", self.MOCK)
+        result = run_script(SCRIPT, ["python3", "-c", "print('hi')"])
+        assert result.returncode == 0
+        assert "container=myapp cmd=python3 -c print('hi')" in result.stdout
+
+
 class TestAutoSelectSingleContainer:
     def test_single_running_container(self, create_mock_bin, run_script):
         create_mock_bin("docker", """
 if [ "$1" = "ps" ]; then
     printf 'myapp\tnginx:latest\tUp 5 minutes'
-elif [ "$1" = "inspect" ]; then
+elif [ "$1" = "container" ]; then
     echo "{}"
 elif [ "$1" = "exec" ] && [ "$2" = "myapp" ] && [ "$3" = "test" ]; then
     exit 0
@@ -162,7 +205,7 @@ fi
         create_mock_bin("docker", """
 if [ "$1" = "ps" ]; then
     printf 'nginx\tnginx:latest\tUp 5 min\npostgres\tpostgres:16\tUp 3 min'
-elif [ "$1" = "inspect" ]; then
+elif [ "$1" = "container" ]; then
     echo "{}"
 elif [ "$1" = "exec" ] && [ "$2" = "nginx" ] && [ "$3" = "test" ]; then
     exit 0

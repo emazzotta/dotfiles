@@ -6,13 +6,14 @@ source "${BASH_SOURCE[0]%/*}/dockerlib.sh"
 
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") [-c CONTAINER] [DEBUG_ARGS...]
+Usage: $(basename "$0") [-c CONTAINER] [CONTAINER] [DEBUG_ARGS...]
 
 Open a Docker Desktop debug shell (\`docker debug\`) in a running
 container. The debug shell ships with common debug utilities even if
 the container image is minimal.
 
-If no container is specified:
+The container is a name or an id, given either after -c or as the first
+bare argument. If no container is specified:
   - Single running container: selects it automatically
   - Multiple running containers: interactive picker
 
@@ -20,6 +21,7 @@ Extra args after the container selection are forwarded to \`docker debug\`.
 
 Examples:
   $(basename "$0")
+  $(basename "$0") 30cdd596c31a
   $(basename "$0") -c opencode-1776271205
   $(basename "$0") --shell bash
 EOF
@@ -38,6 +40,9 @@ main() {
         [ -n "${2:-}" ] || { echo "Error: -c requires a container name" >&2; exit 1; }
         container="$2"
         shift 2
+    elif dh_is_container_ref "${1:-}"; then
+        container="$1"
+        shift
     fi
 
     if [ -z "$container" ]; then

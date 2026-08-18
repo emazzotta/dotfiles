@@ -33,11 +33,11 @@ class TestDockerValidation:
 class TestExplicitContainers:
     def test_single_named_container(self, create_mock_bin, run_script):
         create_mock_bin("docker", """
-if [ "$1" = "inspect" ] && [[ "$2" == --format=* ]]; then
+if [ "$1" = "container" ] && [[ "$3" == --format=* ]]; then
     echo "Container: /nginx"
     echo "Image: nginx:latest"
     echo "---"
-elif [ "$1" = "inspect" ]; then
+elif [ "$1" = "container" ]; then
     echo "{}"
 fi
 """)
@@ -48,10 +48,10 @@ fi
     def test_multiple_named_containers(self, create_mock_bin, run_script):
         create_mock_bin("docker", """
 name="${@: -1}"
-if [ "$1" = "inspect" ] && [[ "$2" == --format=* ]]; then
+if [ "$1" = "container" ] && [[ "$3" == --format=* ]]; then
     echo "Container: /$name"
     echo "---"
-elif [ "$1" = "inspect" ]; then
+elif [ "$1" = "container" ]; then
     echo "{}"
 fi
 """)
@@ -63,11 +63,11 @@ fi
     def test_nonexistent_container_continues(self, create_mock_bin, run_script):
         create_mock_bin("docker", """
 name="${@: -1}"
-if [ "$1" = "inspect" ] && [[ "$2" == --format=* ]]; then
+if [ "$1" = "container" ] && [[ "$3" == --format=* ]]; then
     if [ "$name" = "ghost" ]; then exit 1; fi
     echo "Container: /$name"
     echo "---"
-elif [ "$1" = "inspect" ]; then
+elif [ "$1" = "container" ]; then
     if [ "$name" = "ghost" ]; then exit 1; fi
     echo "{}"
 fi
@@ -82,10 +82,10 @@ class TestAutoSelectSingleContainer:
         create_mock_bin("docker", """
 if [ "$1" = "ps" ]; then
     printf 'myapp\tnginx:latest\tUp 5 minutes'
-elif [ "$1" = "inspect" ] && [[ "$2" == --format=* ]]; then
+elif [ "$1" = "container" ] && [[ "$3" == --format=* ]]; then
     echo "Container: /myapp"
     echo "---"
-elif [ "$1" = "inspect" ]; then
+elif [ "$1" = "container" ]; then
     echo "{}"
 fi
 """)
@@ -131,10 +131,10 @@ fi
         create_mock_bin("docker", """
 if [ "$1" = "ps" ]; then
     printf 'nginx\tnginx:latest\tUp 5 min\npostgres\tpostgres:16\tUp 3 min'
-elif [ "$1" = "inspect" ] && [[ "$2" == --format=* ]]; then
+elif [ "$1" = "container" ] && [[ "$3" == --format=* ]]; then
     echo "Container: /nginx"
     echo "---"
-elif [ "$1" = "inspect" ]; then
+elif [ "$1" = "container" ]; then
     echo "{}"
 fi
 """)
@@ -148,10 +148,10 @@ fi
 name="${@: -1}"
 if [ "$1" = "ps" ]; then
     printf 'nginx\tnginx:latest\tUp 5 min\npostgres\tpostgres:16\tUp 3 min\nredis\tredis:7\tUp 1 min'
-elif [ "$1" = "inspect" ] && [[ "$2" == --format=* ]]; then
+elif [ "$1" = "container" ] && [[ "$3" == --format=* ]]; then
     echo "Container: /$name"
     echo "---"
-elif [ "$1" = "inspect" ]; then
+elif [ "$1" = "container" ]; then
     echo "{}"
 fi
 """)
