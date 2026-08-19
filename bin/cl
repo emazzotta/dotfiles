@@ -5,6 +5,7 @@ import argparse
 import fnmatch
 import os
 import re
+import shlex
 import shutil
 import sys
 import threading
@@ -127,6 +128,7 @@ DOTFILES_CRUFT_PATTERNS = (
     ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
 )
 DEFAULT_EFFORT = "max"
+GIT_CRYPT_FILTER_KEY_PATTERN = r"^(filter|diff)\.git-crypt.*\.(smudge|clean|textconv)$"
 CLAUDE_SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
 OPENCODE_SESSION_ID = re.compile(r"ses_[0-9A-Za-z]+")
 
@@ -180,6 +182,33 @@ def _find_git_crypt_roots_descending(root: Path, maxdepth: int = 3) -> list[Path
     return results
 
 
+def _git_crypt_command_is_broken(command: str) -> bool:
+    return Path(command).is_absolute() and not os.access(command, os.X_OK)
+
+
+def _normalize_git_crypt_filters(repo_root: Path) -> None:
+    """Repoint the git-crypt filters at the local binary when the recorded one is unusable.
+
+    git-crypt stamps the absolute path of whichever binary ran init/unlock into
+    .git/config, so an unlock inside the container leaves a Linux path the host
+    cannot exec - every filter then fails 127 and the lock never runs.
+    """
+    local_binary = shutil.which("git-crypt")
+    if not local_binary:
+        return
+    result = run(["git", "config", "--get-regexp", GIT_CRYPT_FILTER_KEY_PATTERN],
+                 cwd=repo_root, capture_output=True, text=True)
+    if result.returncode != 0:
+        return
+    for line in result.stdout.splitlines():
+        key, _, value = line.partition(" ")
+        parts = shlex.split(value)
+        if not parts or not _git_crypt_command_is_broken(parts[0]):
+            continue
+        run(["git", "config", key, " ".join([f'"{local_binary}"', *parts[1:]])],
+            cwd=repo_root, capture_output=True, text=True)
+
+
 def lock_git_crypt(pwd: Path, repo_root: Path | None = None) -> None:
     if not shutil.which("git-crypt"):
         return
@@ -189,6 +218,7 @@ def lock_git_crypt(pwd: Path, repo_root: Path | None = None) -> None:
     if repo_root is None:
         return
 
+    _normalize_git_crypt_filters(repo_root)
     stashed = _git_stash_push(repo_root)
     try:
         result = run(["git-crypt", "lock"], cwd=repo_root, capture_output=True, text=True)

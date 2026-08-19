@@ -1,4 +1,5 @@
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -138,6 +139,80 @@ class TestLockGitCrypt:
         lock_calls = [c for c in mock_run.call_args_list if c[0][0][:2] == ["git-crypt", "lock"]]
         assert len(lock_calls) == 1
         assert lock_calls[0][1]["cwd"] == tmp_path
+
+
+    def test_should_normalize_filters_before_locking(self, cl, tmp_path):
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".git-crypt").mkdir()
+        with patch.object(cl, "_normalize_git_crypt_filters") as mock_normalize, patch.object(cl, "run") as mock_run:
+            mock_run.return_value = type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            cl.lock_git_crypt(tmp_path)
+        mock_normalize.assert_called_once_with(tmp_path)
+
+
+class TestNormalizeGitCryptFilters:
+    @pytest.fixture
+    def repo(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", str(repo)], capture_output=True, check=True)
+        return repo
+
+    @pytest.fixture
+    def local_binary(self, tmp_path):
+        binary = tmp_path / "bin" / "git-crypt"
+        binary.parent.mkdir()
+        binary.write_text("#!/bin/sh\n")
+        binary.chmod(0o755)
+        return binary
+
+    @staticmethod
+    def _set_filter(repo, key, value):
+        subprocess.run(["git", "-C", str(repo), "config", key, value], capture_output=True, check=True)
+
+    @staticmethod
+    def _filter_value(repo, key):
+        result = subprocess.run(["git", "-C", str(repo), "config", "--get", key], capture_output=True, text=True)
+        return result.stdout.strip()
+
+    def test_should_repoint_every_filter_when_recorded_binary_is_missing(self, cl, repo, local_binary):
+        for key, subcommand in (
+            ("filter.git-crypt.smudge", "smudge"),
+            ("filter.git-crypt.clean", "clean"),
+            ("diff.git-crypt.textconv", "diff"),
+        ):
+            self._set_filter(repo, key, f'"/nonexistent/git-crypt" {subcommand}')
+
+        with patch.object(cl.shutil, "which", return_value=str(local_binary)):
+            cl._normalize_git_crypt_filters(repo)
+
+        assert self._filter_value(repo, "filter.git-crypt.smudge") == f'"{local_binary}" smudge'
+        assert self._filter_value(repo, "filter.git-crypt.clean") == f'"{local_binary}" clean'
+        assert self._filter_value(repo, "diff.git-crypt.textconv") == f'"{local_binary}" diff'
+
+    def test_should_keep_filter_when_recorded_binary_is_executable(self, cl, repo, local_binary):
+        self._set_filter(repo, "filter.git-crypt.clean", '"/bin/sh" clean')
+
+        with patch.object(cl.shutil, "which", return_value=str(local_binary)):
+            cl._normalize_git_crypt_filters(repo)
+
+        assert self._filter_value(repo, "filter.git-crypt.clean") == '"/bin/sh" clean'
+
+    def test_should_preserve_key_name_argument(self, cl, repo, local_binary):
+        self._set_filter(repo, "filter.git-crypt-work.clean", '"/nonexistent/git-crypt" clean --key-name=work')
+
+        with patch.object(cl.shutil, "which", return_value=str(local_binary)):
+            cl._normalize_git_crypt_filters(repo)
+
+        assert self._filter_value(repo, "filter.git-crypt-work.clean") == f'"{local_binary}" clean --key-name=work'
+
+    def test_should_keep_filter_when_git_crypt_is_not_installed(self, cl, repo):
+        self._set_filter(repo, "filter.git-crypt.clean", '"/nonexistent/git-crypt" clean')
+
+        with patch.object(cl.shutil, "which", return_value=None):
+            cl._normalize_git_crypt_filters(repo)
+
+        assert self._filter_value(repo, "filter.git-crypt.clean") == '"/nonexistent/git-crypt" clean'
 
 
 class TestLockGitCryptMultiplePaths:
