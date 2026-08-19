@@ -1,0 +1,13 @@
+#!/bin/bash
+
+set -uo pipefail
+
+if test "${1:-}" = "-h" || test "${1:-}" = "--help"; then
+    echo "usage: $(basename "${0}") < stream"
+    echo "Copies stdin to stdout, re-reading invalid UTF-8 bytes as latin-1."
+    exit 0
+fi
+
+# diff-so-fancy binmodes STDIN to a strict :encoding(UTF-8) layer, so one raw high byte
+# from a legacy ISO-8859 file kills the whole diff (exit 25, empty stdout).
+exec perl -pe 'BEGIN { binmode(STDIN); binmode(STDOUT, ":utf8"); use Encode } $_ = Encode::decode("UTF-8", $_, sub { chr($_[0]) })'
