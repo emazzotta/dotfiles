@@ -7,13 +7,15 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import sys
 import threading
 import importlib.util
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from subprocess import PIPE, Popen, run
-from time import perf_counter, time, time_ns
+from time import perf_counter, sleep, time, time_ns
+from types import FrameType
 
 INTERNET_CHECK_HOST = "one.one.one.one"
 INTERNET_CHECK_TIMEOUT_MS = 1000
@@ -110,6 +112,35 @@ def _print_docker_events(monitor: tuple[Popen, threading.Thread] | None) -> None
     if stderr_output:
         for line in stderr_output.splitlines():
             print(f"[cl-profile] docker events: stderr: {line}", file=sys.stderr)
+
+
+CONTAINER_REMOVE_ATTEMPTS = 2
+CONTAINER_REMOVE_RETRY_DELAY_S = 1.0
+SIGNAL_EXIT_BASE = 128
+
+
+def _remove_container(container_name: str) -> None:
+    # A hangup mid-create can beat the container into existence, hence the retry
+    for attempt in range(CONTAINER_REMOVE_ATTEMPTS):
+        if attempt:
+            sleep(CONTAINER_REMOVE_RETRY_DELAY_S)
+        if run(["docker", "rm", "-f", container_name], capture_output=True).returncode == 0:
+            return
+
+
+def _install_orphan_guard(container_name: str) -> None:
+    """Take the container down with us when the terminal or the process dies.
+
+    Killing the tmux window hangs up cl and the compose client, but the container
+    belongs to the daemon: nothing stops it and `compose run --rm` never gets to
+    clean up, so the session lingers as a running orphan until reaped by hand.
+    """
+    def remove_and_exit(signum: int, _frame: FrameType | None) -> None:
+        _remove_container(container_name)
+        sys.exit(SIGNAL_EXIT_BASE + signum)
+
+    for number in (signal.SIGHUP, signal.SIGTERM):
+        signal.signal(number, remove_and_exit)
 
 
 OPENCODE_ROOT = Path.home() / "Projects" / "private" / "opencode"
@@ -784,6 +815,7 @@ def main() -> None:
     ]
     _profile("handoff to docker compose")
 
+    _install_orphan_guard(container_name)
     monitor = _start_docker_events_monitor(container_name, time_ns())
     try:
         result = run(command)

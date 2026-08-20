@@ -1,4 +1,5 @@
 import argparse
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -1435,3 +1436,122 @@ class TestMainWithIgnores:
         assert not any("secrets" in arg for arg in cmd)
         assert not any("build" in arg for arg in cmd)
         assert any("src" in arg for arg in cmd)
+
+
+def _container_name(docker_calls: list[str]) -> str:
+    compose_call = next(call for call in docker_calls if call.startswith("compose"))
+    return compose_call.split("--name ")[1].split()[0]
+
+
+@pytest.fixture
+def docker_run(cl, monkeypatch):
+    """Record docker calls, replaying returncodes so retries can be driven."""
+    def _install(returncodes=(0,)):
+        calls = []
+        codes = list(returncodes)
+
+        def mock_run(cmd, **kwargs):
+            calls.append(cmd)
+            return type("R", (), {"returncode": codes.pop(0) if codes else 0})()
+
+        monkeypatch.setattr(cl, "run", mock_run)
+        monkeypatch.setattr(cl, "sleep", lambda _seconds: None)
+        return calls
+    return _install
+
+
+class TestRemoveContainer:
+    def test_should_force_remove_the_container_by_name(self, cl, docker_run):
+        calls = docker_run([0])
+
+        cl._remove_container("opencode-1787254728")
+
+        assert calls == [["docker", "rm", "-f", "opencode-1787254728"]]
+
+    def test_should_retry_when_the_container_does_not_exist_yet(self, cl, docker_run):
+        calls = docker_run([1, 0])
+
+        cl._remove_container("opencode-1787254728")
+
+        assert len(calls) == 2
+
+    def test_should_stop_retrying_after_the_last_attempt(self, cl, docker_run):
+        calls = docker_run([1, 1, 1, 1])
+
+        cl._remove_container("opencode-1787254728")
+
+        assert len(calls) == cl.CONTAINER_REMOVE_ATTEMPTS
+
+
+class TestOrphanGuard:
+    GUARDED_SIGNALS = (signal.SIGHUP, signal.SIGTERM)
+
+    @pytest.fixture(autouse=True)
+    def restore_handlers(self):
+        previous = {number: signal.getsignal(number) for number in self.GUARDED_SIGNALS}
+        yield
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+
+    def test_should_guard_against_hangup_and_termination(self, cl):
+        cl._install_orphan_guard("opencode-1787254728")
+
+        handlers = {signal.getsignal(number) for number in self.GUARDED_SIGNALS}
+
+        assert len(handlers) == 1
+        assert callable(handlers.pop())
+
+    def test_should_remove_the_container_when_the_signal_arrives(self, cl, docker_run):
+        docker_calls = docker_run()
+        cl._install_orphan_guard("opencode-1787254728")
+        handler = signal.getsignal(signal.SIGHUP)
+
+        with pytest.raises(SystemExit):
+            handler(signal.SIGHUP, None)
+
+        assert docker_calls == [["docker", "rm", "-f", "opencode-1787254728"]]
+
+    def test_should_exit_with_the_status_of_the_signal(self, cl, docker_run):
+        docker_run()
+        cl._install_orphan_guard("opencode-1787254728")
+        handler = signal.getsignal(signal.SIGTERM)
+
+        with pytest.raises(SystemExit) as exit_info:
+            handler(signal.SIGTERM, None)
+
+        assert exit_info.value.code == 128 + signal.SIGTERM
+
+
+class TestOrphanGuardEndToEnd:
+    LOG_CALL = 'echo "$@" >> "$DOCKER_CALLS"'
+    HANG_UP_ON_ATTACH = f'{LOG_CALL}\nif [ "$1" = compose ]; then kill -HUP "$PPID"; sleep 5; fi'
+
+    @pytest.fixture
+    def project(self, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "main.py").write_text("")
+        (tmp_path / "home").mkdir()
+        return project
+
+    def _run_cl(self, run_cli, tmp_path, project, docker_mock):
+        calls = tmp_path / "docker-calls.log"
+        result = run_cli(
+            "cl",
+            env_extra={"HOME": str(tmp_path / "home"), "DOCKER_CALLS": str(calls)},
+            mock_bins={"docker": docker_mock},
+            cwd=project,
+        )
+        return result, calls.read_text().splitlines()
+
+    def test_should_remove_the_container_when_the_terminal_hangs_up(self, run_cli, tmp_path, project):
+        result, docker_calls = self._run_cl(run_cli, tmp_path, project, self.HANG_UP_ON_ATTACH)
+
+        assert f"rm -f {_container_name(docker_calls)}" in docker_calls
+        assert result.returncode == 128 + signal.SIGHUP
+
+    def test_should_leave_removal_to_compose_when_the_session_exits_cleanly(self, run_cli, tmp_path, project):
+        result, docker_calls = self._run_cl(run_cli, tmp_path, project, self.LOG_CALL)
+
+        assert not any(call.startswith("rm ") for call in docker_calls)
+        assert result.returncode == 0
