@@ -20,3 +20,7 @@ alias ecr_login_staging='aws ecr get-login-password --region eu-west-1 | docker 
 
 ### HASP ###
 alias haspreboot='sudo launchctl unload /Library/LaunchDaemons/com.aladdin.hasplmd.plist && sudo launchctl load /Library/LaunchDaemons/com.aladdin.hasplmd.plist'
+
+### CERTS ###
+alias leotrust='keytool -delete -alias leonardo-root-ca -cacerts -storepass changeit >/dev/null 2>&1; keytool -importcert -noprompt -alias leonardo-root-ca -cacerts -storepass changeit -file "$WDIR/leo-productions/license-manager/src/main/resources/ssl/leonardo-root-ca.pem"'
+alias leotrustcheck='java -XshowSettings:properties -version 2>&1 | grep java.home; keytool -list -cacerts -storepass changeit -alias leonardo-root-ca'
