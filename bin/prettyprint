@@ -7,6 +7,7 @@ export BLUE=$'\033[34m'
 export MAGENTA=$'\033[35m'
 export CYAN=$'\033[36m'
 export WHITE=$'\033[37m'
+export TURQUOISE=$'\033[38;5;80m'
 export RESET=$'\033[0m'
 
 info()            { printf "${BOLD}${BLUE}●${RESET} %s\n" "$*"; }

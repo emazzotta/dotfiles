@@ -10,6 +10,7 @@ if [ -n "${1:-}" ]; then
 fi
 
 ignore_dirs=("dev")
+bot_branch_pattern='^(renovate|dependabot|greenkeeper|snyk|whitesource-remediate|pyup)[/-]'
 
 output_file=$(mktemp)
 branches_file=$(mktemp)
@@ -23,6 +24,16 @@ separator() {
 
 dim_separator() {
     printf "${YELLOW}╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌${RESET}\n"
+}
+
+format_branch() {
+    local branch="${1}"
+    local emphasis="${2:-}"
+    local color=""
+    if [[ "${branch}" =~ ${bot_branch_pattern} ]]; then
+        color="${TURQUOISE}"
+    fi
+    printf '%s' "${emphasis}${color}${branch}${RESET}"
 }
 
 scan_repos() {
@@ -56,9 +67,9 @@ scan_repos() {
                 formatted=""
                 while IFS= read -r branch; do
                     if [ "${branch}" = "${current_branch}" ]; then
-                        formatted="${formatted}${BOLD}${branch}${RESET}, "
+                        formatted="${formatted}$(format_branch "${branch}" "${BOLD}"), "
                     else
-                        formatted="${formatted}${branch}, "
+                        formatted="${formatted}$(format_branch "${branch}"), "
                     fi
                 done <<< "${other_branches}"
                 printf "${YELLOW}%s${RESET} [%s]\n" "${dir}" "${formatted%, }" >> "${branches_file}"
@@ -66,7 +77,7 @@ scan_repos() {
             remote_only=""
             while IFS= read -r branch; do
                 if ! git -C "${dir}" show-ref --verify --quiet "refs/heads/${branch}" 2>/dev/null; then
-                    remote_only="${remote_only}${branch}, "
+                    remote_only="${remote_only}$(format_branch "${branch}"), "
                 fi
             done < <(git -C "${dir}" for-each-ref --format='%(refname:short)' refs/remotes/origin/ \
                 | grep -Ev '^origin$|origin/(HEAD|main|master)$' \
