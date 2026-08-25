@@ -1,0 +1,116 @@
+#!/bin/bash
+# Update Claude Code marketplaces and plugins from inside the container without the SSH key:
+# the Mac pulls the marketplace clones over the keyguard bridge, then git URL rewrites make
+# every install read from those local clones instead of reaching for the network.
+set -uo pipefail
+
+readonly BRIDGE_ENDPOINT="claude-plugin-update"
+readonly PLUGINS_DIR="$HOME/.claude/plugins"
+readonly MARKETPLACES_DIR="$PLUGINS_DIR/marketplaces"
+readonly INSTALLED_PLUGINS_FILE="$PLUGINS_DIR/installed_plugins.json"
+
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") [PLUGIN_FILTER ...]
+
+Pull the marketplace clones on the Mac (keyguard bridge endpoint '$BRIDGE_ENDPOINT'),
+then update every user-scope plugin from those clones. No SSH key reaches this container.
+
+With no argument every installed plugin is updated. Each PLUGIN_FILTER is matched as a
+substring against 'plugin@marketplace', so 'leonardo' updates leonardo@leonardo-skills.
+EOF
+}
+
+check_required_commands() {
+    local cmd missing=()
+    for cmd in "$@"; do
+        command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        printf 'Missing required command(s): %s\n' "${missing[*]}" >&2
+        return 1
+    fi
+}
+
+pull_marketplaces_on_mac() {
+    printf 'Pulling marketplace clones on the Mac...\n'
+    if ! envify --bridge "$BRIDGE_ENDPOINT"; then
+        printf 'Bridge call failed - updating from the clones as they are.\n' >&2
+    fi
+}
+
+build_local_clone_rewrites() {
+    local dir url count=0
+    for dir in "$MARKETPLACES_DIR"/*/; do
+        [ -d "${dir}.git" ] || continue
+        url="$(git -C "$dir" remote get-url origin 2>/dev/null)"
+        case "$url" in
+            git@*|ssh://*) ;;
+            *) continue ;;
+        esac
+        printf 'GIT_CONFIG_KEY_%s=url.%s.insteadOf\n' "$count" "${dir%/}"
+        printf 'GIT_CONFIG_VALUE_%s=%s\n' "$count" "$url"
+        count=$((count + 1))
+    done
+    printf 'GIT_CONFIG_COUNT=%s\n' "$count"
+}
+
+find_user_scope_plugins() {
+    jq -r '.plugins | to_entries[] | select(any(.value[]; .scope == "user")) | .key' \
+        "$INSTALLED_PLUGINS_FILE" 2>/dev/null
+}
+
+matches_filter() {
+    local plugin="$1"
+    shift
+    [ $# -eq 0 ] && return 0
+    local filter
+    for filter in "$@"; do
+        case "$plugin" in
+            *"$filter"*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help)
+            show_usage
+            return 0
+            ;;
+    esac
+
+    if [ "$(uname -s)" = "Darwin" ]; then
+        printf 'Container-only: on the Mac run claude plugin update <plugin> directly.\n' >&2
+        return 2
+    fi
+    check_required_commands claude envify git jq || return 1
+    if [ ! -f "$INSTALLED_PLUGINS_FILE" ]; then
+        printf 'No installed plugins file: %s\n' "$INSTALLED_PLUGINS_FILE" >&2
+        return 1
+    fi
+
+    pull_marketplaces_on_mac
+
+    local rewrites=()
+    local assignment
+    while IFS= read -r assignment; do
+        rewrites+=("$assignment")
+    done < <(build_local_clone_rewrites)
+
+    env "${rewrites[@]}" claude plugin marketplace update
+    local plugin updated=0
+    while IFS= read -r plugin; do
+        if matches_filter "$plugin" "$@"; then
+            env "${rewrites[@]}" claude plugin update "$plugin" -y
+            updated=$((updated + 1))
+        fi
+    done < <(find_user_scope_plugins)
+
+    printf '%s plugin(s) checked. Restart Claude Code to pick up new versions.\n' "$updated"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

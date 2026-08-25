@@ -1,0 +1,80 @@
+#!/bin/bash
+# Pull every Claude Code marketplace clone with the Mac's own SSH key. Runs on the Mac
+# behind the keyguard bridge endpoint `claude-plugin-update`, so the container can refresh
+# its plugins without ever holding the private key (see bin/claude-plugin-update).
+set -uo pipefail
+
+readonly DEFAULT_MARKETPLACES_DIR="$HOME/.claude/plugins/marketplaces"
+
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") [MARKETPLACES_DIR]
+
+Git-pull every Claude Code marketplace clone in MARKETPLACES_DIR
+(default: $DEFAULT_MARKETPLACES_DIR) and print a per-marketplace report.
+EOF
+}
+
+use_login_ssh_agent() {
+    if [ -z "${SSH_AUTH_SOCK:-}" ]; then
+        # launchd starts the bridge without SSH_AUTH_SOCK; the GUI session's agent holds the key.
+        SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK 2>/dev/null)"
+        if [ -n "$SSH_AUTH_SOCK" ]; then
+            export SSH_AUTH_SOCK
+        fi
+    fi
+}
+
+pull_marketplace() {
+    local dir="$1"
+    local name before after error
+    name="$(basename "$dir")"
+    if [ ! -d "$dir/.git" ]; then
+        printf '%s: skipped (not a git clone)\n' "$name"
+        return 0
+    fi
+    before="$(git -C "$dir" rev-parse --short HEAD 2>/dev/null)"
+    if ! error="$(git -C "$dir" pull --ff-only 2>&1 >/dev/null)"; then
+        printf '%s: FAILED - %s\n' "$name" "$(printf '%s' "$error" | tr '\n' ' ')"
+        return 1
+    fi
+    after="$(git -C "$dir" rev-parse --short HEAD 2>/dev/null)"
+    if [ "$before" = "$after" ]; then
+        printf '%s: up to date (%s)\n' "$name" "$after"
+    else
+        printf '%s: %s -> %s\n' "$name" "$before" "$after"
+    fi
+    return 0
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help)
+            show_usage
+            return 0
+            ;;
+    esac
+
+    local marketplaces_dir="${1:-$DEFAULT_MARKETPLACES_DIR}"
+    if [ ! -d "$marketplaces_dir" ]; then
+        printf 'No marketplaces directory: %s\n' "$marketplaces_dir" >&2
+        return 1
+    fi
+
+    use_login_ssh_agent
+
+    local dir total=0 failures=0
+    for dir in "$marketplaces_dir"/*/; do
+        [ -d "$dir" ] || continue
+        total=$((total + 1))
+        pull_marketplace "${dir%/}" || failures=$((failures + 1))
+    done
+    printf '%s marketplace(s), %s failed\n' "$total" "$failures"
+    # Exit 0 even on pull failures: the bridge only relays stdout on a 200, and the
+    # report above is more useful to the caller than an opaque bridge error.
+    return 0
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
