@@ -113,14 +113,14 @@
         "source": "git",
         "url": "git@gitlab.leonardo.local:leonardo-developers/leonardo-ai.git"
       },
-      "autoUpdate": false
+      "autoUpdate": true
     },
     "auto-task": {
       "source": {
         "source": "git",
         "url": "git@github.com:patforna/auto-task.git"
       },
-      "autoUpdate": false
+      "autoUpdate": true
     },
     "ai-unified-process-marketplace": {
       "source": {
@@ -132,7 +132,8 @@
       "source": {
         "source": "github",
         "repo": "vaadin/agent-marketplace"
-      }
+      },
+      "autoUpdate": true
     }
   },
   "effortLevel": "xhigh",
