@@ -13,6 +13,14 @@ ON_MAC = {"uname": "echo Darwin"}
 IN_CONTAINER = {"uname": "echo Linux"}
 
 
+def _mocks(envify="echo mirrors-refreshed"):
+    return {
+        **IN_CONTAINER,
+        "envify": envify,
+        "claude": 'echo "$*" >> "$LOG"',
+    }
+
+
 def _git(*args, cwd):
     env = {
         **os.environ,
@@ -79,7 +87,7 @@ class TestUsage:
 
     def should_fail_when_the_marketplace_registry_is_missing(self, run_bash, tmp_path):
         result = run_bash(SCRIPT, env_extra={"HOME": str(tmp_path / "absent")},
-                          mock_bins=IN_CONTAINER)
+                          mock_bins=_mocks())
         assert result.returncode == 1
         assert "No marketplace registry" in result.stderr
 
@@ -186,19 +194,11 @@ def container_home(tmp_path):
     return home
 
 
-def _mocks(log_path, envify="echo mirrors-refreshed"):
-    return {
-        **IN_CONTAINER,
-        "envify": envify,
-        "claude": 'echo "$*" >> "$LOG"',
-    }
-
-
 class TestGitRewrites:
     def _write(self, run_bash, home, log, mock_bins=None):
         return run_bash(SCRIPT, ["--write-git-rewrites"],
                         env_extra={"HOME": str(home), "LOG": str(log)},
-                        mock_bins=mock_bins or _mocks(log))
+                        mock_bins=mock_bins or _mocks())
 
     def should_point_each_ssh_marketplace_at_its_mirror(self, run_bash, container_home, tmp_path):
         result = self._write(run_bash, container_home, tmp_path / "claude.log")
@@ -243,7 +243,7 @@ class TestGitRewrites:
 
     def should_refuse_to_write_rewrites_on_the_mac(self, run_bash, container_home, tmp_path):
         result = self._write(run_bash, container_home, tmp_path / "claude.log",
-                             mock_bins={**_mocks(tmp_path / "claude.log"), **ON_MAC})
+                             mock_bins={**_mocks(), **ON_MAC})
 
         assert result.returncode == 1
         assert "container-only" in result.stderr
@@ -255,7 +255,7 @@ class TestAddMarketplace:
         args = ["--add"] + ([url] if url is not None else [])
         return run_bash(SCRIPT, args,
                         env_extra={"HOME": str(home), "LOG": str(log)},
-                        mock_bins=mock_bins or _mocks(log))
+                        mock_bins=mock_bins or _mocks())
 
     def should_mirror_an_ssh_marketplace_before_registering_it(
         self, run_bash, container_home, tmp_path
@@ -312,7 +312,7 @@ class TestAddMarketplace:
         log = tmp_path / "claude.log"
 
         result = self._add(run_bash, container_home, log, SSH_REMOTE,
-                           mock_bins={**_mocks(log), **ON_MAC})
+                           mock_bins={**_mocks(), **ON_MAC})
 
         assert result.returncode == 1
         assert "container-only" in result.stderr
@@ -322,7 +322,7 @@ class TestUpdateInContainer:
     def _run(self, run_bash, home, log, args=None, envify="echo mirrors-refreshed"):
         return run_bash(SCRIPT, args,
                         env_extra={"HOME": str(home), "LOG": str(log)},
-                        mock_bins=_mocks(log, envify))
+                        mock_bins=_mocks(envify))
 
     def should_update_every_user_scope_plugin_through_the_bridge(
         self, run_bash, container_home, tmp_path
