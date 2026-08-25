@@ -1,23 +1,37 @@
 #!/bin/bash
-# Update Claude Code marketplaces and plugins from inside the container without the SSH key:
-# the Mac pulls the marketplace clones over the keyguard bridge, then git URL rewrites make
-# every install read from those local clones instead of reaching for the network.
+# Update Claude Code marketplaces and plugins without the private SSH key ever entering
+# the container. Two ends of one flow, picked by host:
+#   Mac       - invoked by the keyguard bridge endpoint `claude-plugin-update`: git-pull
+#               every marketplace clone with the login-keychain key.
+#   Container - POST that endpoint, then update each plugin. A git conditional include
+#               scoped to the plugins dir rewrites every SSH marketplace URL to its local
+#               clone, so the /plugin UI and background refreshes stay key-less too.
 set -uo pipefail
 
 readonly BRIDGE_ENDPOINT="claude-plugin-update"
 readonly PLUGINS_DIR="$HOME/.claude/plugins"
 readonly MARKETPLACES_DIR="$PLUGINS_DIR/marketplaces"
 readonly INSTALLED_PLUGINS_FILE="$PLUGINS_DIR/installed_plugins.json"
+readonly REWRITES_FILE="$HOME/.gitconfig-claude-plugins"
 
 show_usage() {
     cat << EOF
 Usage: $(basename "$0") [PLUGIN_FILTER ...]
+       $(basename "$0") --write-git-rewrites
 
-Pull the marketplace clones on the Mac (keyguard bridge endpoint '$BRIDGE_ENDPOINT'),
-then update every user-scope plugin from those clones. No SSH key reaches this container.
+In the container: pull the marketplace clones on the Mac (keyguard bridge endpoint
+'$BRIDGE_ENDPOINT'), then update every user-scope plugin from those clones. No SSH
+key reaches this container.
 
 With no argument every installed plugin is updated. Each PLUGIN_FILTER is matched as a
 substring against 'plugin@marketplace', so 'leonardo' updates leonardo@leonardo-skills.
+
+--write-git-rewrites only refreshes the git URL rewrites and exits, for the
+SessionStart hook. Container-only: on the Mac those rewrites would redirect the
+marketplace clones to themselves and they would never see a new commit again.
+
+On the Mac this is the bridge endpoint itself: it git-pulls every clone in
+$MARKETPLACES_DIR and prints a per-marketplace report. Arguments are ignored there.
 EOF
 }
 
@@ -32,6 +46,52 @@ check_required_commands() {
     fi
 }
 
+use_login_ssh_agent() {
+    if [ -z "${SSH_AUTH_SOCK:-}" ]; then
+        # launchd starts the bridge without SSH_AUTH_SOCK; the GUI session's agent holds the key.
+        SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK 2>/dev/null)"
+        if [ -n "$SSH_AUTH_SOCK" ]; then
+            export SSH_AUTH_SOCK
+        fi
+    fi
+}
+
+pull_marketplace() {
+    local dir="$1"
+    local name before after error
+    name="$(basename "$dir")"
+    if [ ! -d "$dir/.git" ]; then
+        printf '%s: skipped (not a git clone)\n' "$name"
+        return 0
+    fi
+    before="$(git -C "$dir" rev-parse --short HEAD 2>/dev/null)"
+    if ! error="$(git -C "$dir" pull --ff-only 2>&1 >/dev/null)"; then
+        printf '%s: FAILED - %s\n' "$name" "$(printf '%s' "$error" | tr '\n' ' ')"
+        return 1
+    fi
+    after="$(git -C "$dir" rev-parse --short HEAD 2>/dev/null)"
+    if [ "$before" = "$after" ]; then
+        printf '%s: up to date (%s)\n' "$name" "$after"
+    else
+        printf '%s: %s -> %s\n' "$name" "$before" "$after"
+    fi
+    return 0
+}
+
+pull_marketplaces_with_login_key() {
+    use_login_ssh_agent
+    local dir total=0 failures=0
+    for dir in "$MARKETPLACES_DIR"/*/; do
+        [ -d "$dir" ] || continue
+        total=$((total + 1))
+        pull_marketplace "${dir%/}" || failures=$((failures + 1))
+    done
+    printf '%s marketplace(s), %s failed\n' "$total" "$failures"
+    # Exit 0 even on pull failures: the bridge only relays stdout on a 200, and the
+    # report above is more useful to the caller than an opaque bridge error.
+    return 0
+}
+
 pull_marketplaces_on_mac() {
     printf 'Pulling marketplace clones on the Mac...\n'
     if ! envify --bridge "$BRIDGE_ENDPOINT"; then
@@ -39,8 +99,8 @@ pull_marketplaces_on_mac() {
     fi
 }
 
-build_local_clone_rewrites() {
-    local dir url count=0
+build_git_rewrite_config() {
+    local dir url
     for dir in "$MARKETPLACES_DIR"/*/; do
         [ -d "${dir}.git" ] || continue
         url="$(git -C "$dir" remote get-url origin 2>/dev/null)"
@@ -48,11 +108,24 @@ build_local_clone_rewrites() {
             git@*|ssh://*) ;;
             *) continue ;;
         esac
-        printf 'GIT_CONFIG_KEY_%s=url.%s.insteadOf\n' "$count" "${dir%/}"
-        printf 'GIT_CONFIG_VALUE_%s=%s\n' "$count" "$url"
-        count=$((count + 1))
+        printf '[url "%s"]\n\tinsteadOf = %s\n' "${dir%/}" "$url"
     done
-    printf 'GIT_CONFIG_COUNT=%s\n' "$count"
+}
+
+write_git_rewrites() {
+    if [ "$(uname -s)" = "Darwin" ]; then
+        printf 'Refusing to write git rewrites on the Mac - see --help.\n' >&2
+        return 1
+    fi
+    local content include_key
+    content="$(build_git_rewrite_config)"
+    if [ ! -f "$REWRITES_FILE" ] || [ "$content" != "$(cat "$REWRITES_FILE")" ]; then
+        printf '%s\n' "$content" > "$REWRITES_FILE"
+    fi
+    include_key="includeIf.gitdir:$PLUGINS_DIR/.path"
+    if [ "$(git config --global --get "$include_key" 2>/dev/null)" != "$REWRITES_FILE" ]; then
+        git config --global "$include_key" "$REWRITES_FILE"
+    fi
 }
 
 find_user_scope_plugins() {
@@ -73,42 +146,50 @@ matches_filter() {
     return 1
 }
 
+update_plugins_from_local_clones() {
+    claude plugin marketplace update
+    local plugin checked=0
+    while IFS= read -r plugin; do
+        if matches_filter "$plugin" "$@"; then
+            claude plugin update "$plugin" -y
+            checked=$((checked + 1))
+        fi
+    done < <(find_user_scope_plugins)
+    printf '%s plugin(s) checked. Restart Claude Code to pick up new versions.\n' "$checked"
+}
+
 main() {
     case "${1:-}" in
         -h|--help)
             show_usage
             return 0
             ;;
+        --write-git-rewrites)
+            check_required_commands git || return 1
+            write_git_rewrites
+            return
+            ;;
     esac
 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        printf 'Container-only: on the Mac run claude plugin update <plugin> directly.\n' >&2
-        return 2
+    if [ ! -d "$MARKETPLACES_DIR" ]; then
+        printf 'No marketplaces directory: %s\n' "$MARKETPLACES_DIR" >&2
+        return 1
     fi
+
+    if [ "$(uname -s)" = "Darwin" ]; then
+        check_required_commands git || return 1
+        pull_marketplaces_with_login_key
+        return 0
+    fi
+
     check_required_commands claude envify git jq || return 1
     if [ ! -f "$INSTALLED_PLUGINS_FILE" ]; then
         printf 'No installed plugins file: %s\n' "$INSTALLED_PLUGINS_FILE" >&2
         return 1
     fi
-
     pull_marketplaces_on_mac
-
-    local rewrites=()
-    local assignment
-    while IFS= read -r assignment; do
-        rewrites+=("$assignment")
-    done < <(build_local_clone_rewrites)
-
-    env "${rewrites[@]}" claude plugin marketplace update
-    local plugin updated=0
-    while IFS= read -r plugin; do
-        if matches_filter "$plugin" "$@"; then
-            env "${rewrites[@]}" claude plugin update "$plugin" -y
-            updated=$((updated + 1))
-        fi
-    done < <(find_user_scope_plugins)
-
-    printf '%s plugin(s) checked. Restart Claude Code to pick up new versions.\n' "$updated"
+    write_git_rewrites || return 1
+    update_plugins_from_local_clones "$@"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
