@@ -1,16 +1,21 @@
 #!/bin/bash
 # Update Claude Code marketplaces and plugins without the private SSH key ever entering
 # the container. Two ends of one flow, picked by host:
-#   Mac       - invoked by the keyguard bridge endpoint `claude-plugin-update`: git-pull
-#               every marketplace clone with the login-keychain key.
-#   Container - POST that endpoint, then update each plugin. A git conditional include
-#               scoped to the plugins dir rewrites every SSH marketplace URL to its local
-#               clone, so the /plugin UI and background refreshes stay key-less too.
+#   Mac       - invoked by the keyguard bridge endpoint `claude-plugin-update`: refresh a
+#               bare mirror of every SSH marketplace repo with the login-keychain key.
+#   Container - POST that endpoint, then update plugins. A git conditional include scoped
+#               to the plugins dir rewrites each SSH marketplace URL to its mirror, so the
+#               /plugin UI and background refreshes stay key-less too.
+#
+# The mirrors exist because Claude Code refreshes a marketplace by replacing its clone:
+# pointing the rewrite at that same clone makes the CLI its own fetch source and leaves an
+# empty repo behind. A mirror is a directory the CLI never manages.
 set -uo pipefail
 
 readonly BRIDGE_ENDPOINT="claude-plugin-update"
 readonly PLUGINS_DIR="$HOME/.claude/plugins"
-readonly MARKETPLACES_DIR="$PLUGINS_DIR/marketplaces"
+readonly MIRRORS_DIR="$PLUGINS_DIR/ssh-mirrors"
+readonly KNOWN_MARKETPLACES_FILE="$PLUGINS_DIR/known_marketplaces.json"
 readonly INSTALLED_PLUGINS_FILE="$PLUGINS_DIR/installed_plugins.json"
 readonly REWRITES_FILE="$HOME/.gitconfig-claude-plugins"
 
@@ -19,19 +24,18 @@ show_usage() {
 Usage: $(basename "$0") [PLUGIN_FILTER ...]
        $(basename "$0") --write-git-rewrites
 
-In the container: pull the marketplace clones on the Mac (keyguard bridge endpoint
-'$BRIDGE_ENDPOINT'), then update every user-scope plugin from those clones. No SSH
-key reaches this container.
+In the container: refresh the SSH marketplace mirrors on the Mac (keyguard bridge
+endpoint '$BRIDGE_ENDPOINT'), then update every user-scope plugin from those mirrors.
+No SSH key reaches this container.
 
 With no argument every installed plugin is updated. Each PLUGIN_FILTER is matched as a
 substring against 'plugin@marketplace', so 'leonardo' updates leonardo@leonardo-skills.
 
---write-git-rewrites only refreshes the git URL rewrites and exits, for the
-SessionStart hook. Container-only: on the Mac those rewrites would redirect the
-marketplace clones to themselves and they would never see a new commit again.
+--write-git-rewrites only refreshes the git URL rewrites and exits, for the SessionStart
+hook. Container-only: on the Mac those rewrites would redirect the mirrors to themselves.
 
-On the Mac this is the bridge endpoint itself: it git-pulls every clone in
-$MARKETPLACES_DIR and prints a per-marketplace report. Arguments are ignored there.
+On the Mac this is the bridge endpoint itself: it mirrors every SSH marketplace repo into
+$MIRRORS_DIR and prints a per-marketplace report. Arguments are ignored there.
 EOF
 }
 
@@ -46,6 +50,25 @@ check_required_commands() {
     fi
 }
 
+find_ssh_marketplaces() {
+    python3 - "$KNOWN_MARKETPLACES_FILE" << 'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1]) as handle:
+        marketplaces = json.load(handle)
+except (OSError, ValueError):
+    sys.exit(0)
+
+for name, entry in sorted(marketplaces.items()):
+    source = entry.get("source", {})
+    url = source.get("url", "")
+    if source.get("source") == "git" and (url.startswith("git@") or url.startswith("ssh://")):
+        print("%s\t%s" % (name, url))
+PY
+}
+
 use_login_ssh_agent() {
     if [ -z "${SSH_AUTH_SOCK:-}" ]; then
         # launchd starts the bridge without SSH_AUTH_SOCK; the GUI session's agent holds the key.
@@ -56,20 +79,24 @@ use_login_ssh_agent() {
     fi
 }
 
-pull_marketplace() {
-    local dir="$1"
-    local name before after error
-    name="$(basename "$dir")"
-    if [ ! -d "$dir/.git" ]; then
-        printf '%s: skipped (not a git clone)\n' "$name"
+mirror_marketplace() {
+    local name="$1" url="$2"
+    local mirror="$MIRRORS_DIR/$name.git"
+    local before after error
+    if [ ! -d "$mirror" ]; then
+        if ! error="$(git clone --mirror "$url" "$mirror" 2>&1)"; then
+            printf '%s: FAILED to mirror - %s\n' "$name" "$(printf '%s' "$error" | tr '\n' ' ')"
+            return 1
+        fi
+        printf '%s: mirrored (%s)\n' "$name" "$(git -C "$mirror" rev-parse --short HEAD 2>/dev/null)"
         return 0
     fi
-    before="$(git -C "$dir" rev-parse --short HEAD 2>/dev/null)"
-    if ! error="$(git -C "$dir" pull --ff-only 2>&1 >/dev/null)"; then
+    before="$(git -C "$mirror" rev-parse --short HEAD 2>/dev/null)"
+    if ! error="$(git -C "$mirror" remote update --prune 2>&1)"; then
         printf '%s: FAILED - %s\n' "$name" "$(printf '%s' "$error" | tr '\n' ' ')"
         return 1
     fi
-    after="$(git -C "$dir" rev-parse --short HEAD 2>/dev/null)"
+    after="$(git -C "$mirror" rev-parse --short HEAD 2>/dev/null)"
     if [ "$before" = "$after" ]; then
         printf '%s: up to date (%s)\n' "$name" "$after"
     else
@@ -78,38 +105,38 @@ pull_marketplace() {
     return 0
 }
 
-pull_marketplaces_with_login_key() {
+refresh_mirrors_with_login_key() {
     use_login_ssh_agent
-    local dir total=0 failures=0
-    for dir in "$MARKETPLACES_DIR"/*/; do
-        [ -d "$dir" ] || continue
+    mkdir -p "$MIRRORS_DIR"
+    local name url total=0 failures=0
+    while IFS=$'\t' read -r name url; do
+        [ -n "$name" ] || continue
         total=$((total + 1))
-        pull_marketplace "${dir%/}" || failures=$((failures + 1))
-    done
-    printf '%s marketplace(s), %s failed\n' "$total" "$failures"
-    # Exit 0 even on pull failures: the bridge only relays stdout on a 200, and the
-    # report above is more useful to the caller than an opaque bridge error.
+        mirror_marketplace "$name" "$url" || failures=$((failures + 1))
+    done < <(find_ssh_marketplaces)
+    printf '%s SSH marketplace(s), %s failed\n' "$total" "$failures"
+    # Exit 0 even on failures: the bridge only relays stdout on a 200, and the report
+    # above is more useful to the caller than an opaque bridge error.
     return 0
 }
 
-pull_marketplaces_on_mac() {
-    printf 'Pulling marketplace clones on the Mac...\n'
+refresh_mirrors_on_mac() {
+    printf 'Refreshing marketplace mirrors on the Mac...\n'
     if ! envify --bridge "$BRIDGE_ENDPOINT"; then
-        printf 'Bridge call failed - updating from the clones as they are.\n' >&2
+        printf 'Bridge call failed - updating from the mirrors as they are.\n' >&2
     fi
 }
 
 build_git_rewrite_config() {
-    local dir url
-    for dir in "$MARKETPLACES_DIR"/*/; do
-        [ -d "${dir}.git" ] || continue
-        url="$(git -C "$dir" remote get-url origin 2>/dev/null)"
-        case "$url" in
-            git@*|ssh://*) ;;
-            *) continue ;;
-        esac
-        printf '[url "%s"]\n\tinsteadOf = %s\n' "${dir%/}" "$url"
-    done
+    local name url mirror
+    while IFS=$'\t' read -r name url; do
+        mirror="$MIRRORS_DIR/$name.git"
+        if [ ! -d "$mirror" ]; then
+            printf 'No mirror for %s yet.\n' "$name" >&2
+            continue
+        fi
+        printf '[url "%s"]\n\tinsteadOf = %s\n' "$mirror" "$url"
+    done < <(find_ssh_marketplaces)
 }
 
 write_git_rewrites() {
@@ -125,6 +152,18 @@ write_git_rewrites() {
     include_key="includeIf.gitdir:$PLUGINS_DIR/.path"
     if [ "$(git config --global --get "$include_key" 2>/dev/null)" != "$REWRITES_FILE" ]; then
         git config --global "$include_key" "$REWRITES_FILE"
+    fi
+}
+
+require_complete_rewrites() {
+    local expected actual
+    expected="$(find_ssh_marketplaces | wc -l | tr -d ' ')"
+    actual="$(grep -c '^\[url ' "$REWRITES_FILE" 2>/dev/null)"
+    if [ "${actual:-0}" -lt "$expected" ]; then
+        printf 'Only %s of %s SSH marketplaces have a mirror. Refusing to update: the missing\n' \
+            "${actual:-0}" "$expected" >&2
+        printf 'ones would fetch over SSH from here, which can leave an empty clone behind.\n' >&2
+        return 1
     fi
 }
 
@@ -146,9 +185,9 @@ matches_filter() {
     return 1
 }
 
-update_plugins_from_local_clones() {
-    claude plugin marketplace update
+update_plugins_from_mirrors() {
     local plugin checked=0
+    claude plugin marketplace update
     while IFS= read -r plugin; do
         if matches_filter "$plugin" "$@"; then
             claude plugin update "$plugin" -y
@@ -165,31 +204,32 @@ main() {
             return 0
             ;;
         --write-git-rewrites)
-            check_required_commands git || return 1
+            check_required_commands git python3 || return 1
             write_git_rewrites
             return
             ;;
     esac
 
-    if [ ! -d "$MARKETPLACES_DIR" ]; then
-        printf 'No marketplaces directory: %s\n' "$MARKETPLACES_DIR" >&2
+    if [ ! -f "$KNOWN_MARKETPLACES_FILE" ]; then
+        printf 'No marketplace registry: %s\n' "$KNOWN_MARKETPLACES_FILE" >&2
         return 1
     fi
 
     if [ "$(uname -s)" = "Darwin" ]; then
-        check_required_commands git || return 1
-        pull_marketplaces_with_login_key
+        check_required_commands git python3 || return 1
+        refresh_mirrors_with_login_key
         return 0
     fi
 
-    check_required_commands claude envify git jq || return 1
+    check_required_commands claude envify git jq python3 || return 1
     if [ ! -f "$INSTALLED_PLUGINS_FILE" ]; then
         printf 'No installed plugins file: %s\n' "$INSTALLED_PLUGINS_FILE" >&2
         return 1
     fi
-    pull_marketplaces_on_mac
+    refresh_mirrors_on_mac
     write_git_rewrites || return 1
-    update_plugins_from_local_clones "$@"
+    require_complete_rewrites || return 1
+    update_plugins_from_mirrors "$@"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
