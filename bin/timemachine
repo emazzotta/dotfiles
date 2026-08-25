@@ -412,6 +412,8 @@ def prune_destination(report: Report, doomed: tuple[datetime, ...],
 def command_prune(args: argparse.Namespace) -> int:
     if is_backup_running(run('tmutil', 'currentphase')):
         raise CommandError("a backup is running - stop it first with 'tmutil stopbackup'")
+    if args.local and not args.dry_run:
+        purge_local_snapshots(args.yes)
     report = build_report(select_destination(args.destination))
     doomed = select_prunable(report.restorable, args.keep)
     orphans = report.orphans
@@ -420,8 +422,6 @@ def command_prune(args: argparse.Namespace) -> int:
               f"{len(report.restorable)} backup(s), keeping {args.keep}.\n")
     elif prune_destination(report, doomed, orphans, args):
         return 1
-    if args.local and not args.dry_run:
-        purge_local_snapshots(args.yes)
     return 0
 
 

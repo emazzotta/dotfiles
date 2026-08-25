@@ -1,3 +1,4 @@
+import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -485,6 +486,72 @@ class TestLocalSnapshots:
 
     def should_list_both_snapshots_from_the_tmutil_output(self, mod):
         assert len(mod.parse_stamps(self.LISTING)) == 2
+
+
+class TestCommandPrune:
+    @pytest.fixture
+    def make_args(self):
+        def _make(**overrides):
+            defaults = dict(destination=None, keep=5, local=False,
+                            yes=True, dry_run=False)
+            return argparse.Namespace(**(defaults | overrides))
+        return _make
+
+    @pytest.fixture
+    def purges(self, mod, monkeypatch):
+        recorded = []
+        monkeypatch.setattr(mod, "purge_local_snapshots", recorded.append)
+        return recorded
+
+    @pytest.fixture
+    def unmounted_destination(self, mod, monkeypatch):
+        destination = mod.Destination(
+            name="Crucial_4TB_TimeMachine", kind="Local",
+            identifier="02CF3786-477C-424D-AD76-5944FB153106", mount_point=None)
+        monkeypatch.setattr(mod, "run", lambda *args: "BackupNotRunning\n")
+        monkeypatch.setattr(mod, "select_destination", lambda name: destination)
+        return destination
+
+    def should_purge_local_snapshots_when_the_destination_is_not_mounted(
+            self, mod, make_args, purges, unmounted_destination):
+        with pytest.raises(mod.CommandError, match="is not mounted"):
+            mod.command_prune(make_args(local=True))
+
+        assert purges == [True]
+
+    def should_leave_local_snapshots_alone_without_the_local_flag(
+            self, mod, make_args, purges, unmounted_destination):
+        with pytest.raises(mod.CommandError, match="is not mounted"):
+            mod.command_prune(make_args())
+
+        assert not purges
+
+    def should_leave_local_snapshots_alone_on_a_dry_run(
+            self, mod, make_args, purges, unmounted_destination):
+        with pytest.raises(mod.CommandError, match="is not mounted"):
+            mod.command_prune(make_args(local=True, dry_run=True))
+
+        assert not purges
+
+    def should_purge_local_snapshots_when_the_destination_prune_is_declined(
+            self, mod, monkeypatch, make_args, purges, make_report, make_tree):
+        report = make_report(trees=(make_tree(mod.TreeState.INTERRUPTED),))
+        monkeypatch.setattr(mod, "run", lambda *args: "BackupNotRunning\n")
+        monkeypatch.setattr(mod, "select_destination", lambda name: report.destination)
+        monkeypatch.setattr(mod, "build_report", lambda destination: report)
+        monkeypatch.setattr(mod, "confirm", lambda question: False)
+
+        assert mod.command_prune(make_args(local=True, yes=False)) == 1
+        assert purges == [False]
+
+    def should_refuse_to_prune_while_a_backup_is_running(self, mod, monkeypatch,
+                                                         make_args, purges):
+        monkeypatch.setattr(mod, "run", lambda *args: "Copying\n")
+
+        with pytest.raises(mod.CommandError, match="a backup is running"):
+            mod.command_prune(make_args(local=True))
+
+        assert not purges
 
 
 class TestComplete:
