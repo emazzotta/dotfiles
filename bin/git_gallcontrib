@@ -1,36 +1,334 @@
-#!/bin/bash
+#!/usr/bin/env python3
+"""Sum git contributions across every repository below a directory, merging the
+name and email spellings that belong to the same person."""
 
-dir="."
-if [[ -n "$1" ]]; then
-    dir="$1"
-fi
+from __future__ import annotations
 
-if [ ! -d "$dir" ]; then
-    echo "Error: The directory $dir does not exist."
-    exit 1
-fi
+import argparse
+import os
+import re
+import subprocess
+import sys
+import unicodedata
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Iterator, List, Optional, Sequence, Set, TextIO, Tuple
 
-function process_directory {
-    local current_dir="$1"
-    if [[ -d "$current_dir/.git" ]]; then
-        (cd "$current_dir" && git shortlog -sn --all -- .)
-    fi
-}
+GIT_DIR_NAME = ".git"
+FIELD_SEPARATOR = "\t"
+LOG_COMMAND = ["git", "log", "--all", f"--format=%aN{FIELD_SEPARATOR}%aE", "--", "."]
+INITIAL_MAX_LENGTH = 1
+MIN_FULL_NAME_TOKENS = 2
+NON_WORD = re.compile(r"[^0-9a-z]+")
+HANDLE_SEPARATORS = re.compile(r"[._\-]+")
+BOT_NAME_TOKENS = frozenset({
+    "admin", "automation", "bot", "cd", "ci", "daemon", "dependabot", "jenkins",
+    "renovate", "runner", "server", "service", "svc", "test", "testaccount", "token",
+})
+BOT_EMAIL_MARKERS = ("noreply", "no-reply", "_bot_", "[bot]")
+PEOPLE_HEADING = "People"
+BOTS_HEADING = "Bots & services"
+REPOSITORIES_HEADING = "Repositories"
+NOTHING_COUNTED = "(nothing counted)"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+CYAN = "\033[0;36m"
+RESET = "\033[0m"
 
-export -f process_directory
+Tokens = Tuple[str, ...]
 
-output=$(find "$dir" -type d -name .git | while read git_dir; do
-    process_directory "$(dirname "$git_dir")"
-done)
 
-echo "$output" | awk '
-{
-    name = substr($0, index($0, $2))
-    a[name] += $1
-} END {
-    if (length(a) == 0) {
-        print "No Git repositories found."
-        exit
-    }
-    for (x in a) print a[x], x
-}' | sort -nr
+@dataclass(frozen=True)
+class Palette:
+    heading: str = ""
+    count: str = ""
+    muted: str = ""
+
+    @classmethod
+    def detect(cls, stream: TextIO) -> "Palette":
+        if os.environ.get("NO_COLOR") or not stream.isatty():
+            return cls()
+        return cls(heading=BOLD, count=CYAN, muted=DIM)
+
+
+@dataclass(frozen=True)
+class Identity:
+    name: str
+    email: str
+
+
+@dataclass(frozen=True)
+class Repository:
+    name: str
+    tallies: "Counter[Identity]"
+
+    @property
+    def commits(self) -> int:
+        return sum(self.tallies.values())
+
+
+@dataclass(frozen=True)
+class Section:
+    heading: str
+    authors: Sequence[Author]
+    counts: str
+    names: str
+
+
+@dataclass(frozen=True)
+class Author:
+    name: str
+    commits: int
+    is_bot: bool
+    variants: Tuple[Tuple[Identity, int], ...]
+
+
+def tokenize(value: str) -> Tokens:
+    plain = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    parts = [part for part in NON_WORD.split(plain.lower()) if part]
+    return tuple(part for part in parts if len(part) > INITIAL_MAX_LENGTH) or tuple(parts)
+
+
+def identity_tokens(identity: Identity) -> List[Tokens]:
+    spellings = [tokenize(identity.name)]
+    local_part = tokenize(identity.email.rsplit("@", 1)[0])
+    if len(local_part) >= MIN_FULL_NAME_TOKENS:
+        spellings.append(local_part)
+    return [tokens for tokens in spellings if tokens]
+
+
+def merge_keys(identity: Identity) -> Set[str]:
+    keys: Set[str] = set()
+    for tokens in identity_tokens(identity):
+        ordered = tuple(sorted(tokens))
+        keys.update({" ".join(ordered), "".join(ordered)})
+    return keys
+
+
+def is_bot(identity: Identity) -> bool:
+    email = identity.email.lower()
+    if any(marker in email for marker in BOT_EMAIL_MARKERS):
+        return True
+    return bool(BOT_NAME_TOKENS & set(tokenize(identity.name)))
+
+
+def discover_repositories(root: Path) -> Iterator[Path]:
+    for current, directories, filenames in os.walk(root):
+        if GIT_DIR_NAME in directories:
+            directories.remove(GIT_DIR_NAME)
+            yield Path(current)
+        elif GIT_DIR_NAME in filenames:
+            yield Path(current)
+
+
+def count_commits(repository: Path) -> "Counter[Identity]":
+    result = subprocess.run(LOG_COMMAND, cwd=str(repository), capture_output=True, text=True)
+    tallies: Counter = Counter()
+    if result.returncode != 0:
+        return tallies
+    for line in result.stdout.splitlines():
+        name, separator, email = line.partition(FIELD_SEPARATOR)
+        if separator:
+            tallies[Identity(name, email)] += 1
+    return tallies
+
+
+def scan_repositories(root: Path) -> List[Repository]:
+    scanned = []
+    for path in discover_repositories(root):
+        relative = os.path.relpath(str(path), str(root))
+        name = root.resolve().name if relative == os.curdir else relative
+        scanned.append(Repository(name, count_commits(path)))
+    return scanned
+
+
+def merge_tallies(repositories: Sequence[Repository]) -> "Counter[Identity]":
+    merged: Counter = Counter()
+    for repository in repositories:
+        merged.update(repository.tallies)
+    return merged
+
+
+class DisjointSet:
+    def __init__(self) -> None:
+        self._parent: Dict[str, str] = {}
+
+    def find(self, item: str) -> str:
+        self._parent.setdefault(item, item)
+        while self._parent[item] != item:
+            self._parent[item] = self._parent[self._parent[item]]
+            item = self._parent[item]
+        return item
+
+    def union(self, left: str, right: str) -> None:
+        left_root, right_root = self.find(left), self.find(right)
+        if left_root != right_root:
+            self._parent[left_root] = right_root
+
+
+def group_by_shared_keys(identities: Sequence[Identity]) -> List[List[Identity]]:
+    forest = DisjointSet()
+    for position, identity in enumerate(identities):
+        for key in merge_keys(identity):
+            forest.union(f"identity:{position}", f"key:{key}")
+    grouped: Dict[str, List[Identity]] = {}
+    for position, identity in enumerate(identities):
+        grouped.setdefault(forest.find(f"identity:{position}"), []).append(identity)
+    return list(grouped.values())
+
+
+def full_name_tokens(group: Sequence[Identity]) -> Set[str]:
+    return {token
+            for identity in group
+            for tokens in identity_tokens(identity)
+            if len(tokens) >= MIN_FULL_NAME_TOKENS
+            for token in tokens}
+
+
+def fragment_tokens(group: Sequence[Identity]) -> Set[str]:
+    return {token
+            for identity in group
+            for tokens in identity_tokens(identity)
+            for token in tokens}
+
+
+def group_is_bot(group: Sequence[Identity]) -> bool:
+    return any(is_bot(identity) for identity in group)
+
+
+def fold_name_fragments(groups: Sequence[Sequence[Identity]]) -> List[List[Identity]]:
+    """Attach single-token spellings such as `andreas` to the one full name that
+    claims that token; ambiguous or unclaimed fragments stay on their own."""
+    named = [group for group in groups if full_name_tokens(group)]
+    folded = [list(group) for group in named]
+    orphans: List[List[Identity]] = []
+    for fragment in (group for group in groups if not full_name_tokens(group)):
+        tokens = fragment_tokens(fragment)
+        matches = [position for position, candidate in enumerate(named)
+                   if tokens & full_name_tokens(candidate)
+                   and group_is_bot(candidate) == group_is_bot(fragment)]
+        if len(matches) == 1:
+            folded[matches[0]].extend(fragment)
+        else:
+            orphans.append(list(fragment))
+    return folded + orphans
+
+
+def spelling_score(name: str) -> int:
+    return (2 if " " in name.strip() else 0) + (1 if any(c.isupper() for c in name) else 0)
+
+
+def prettify(handle: str) -> str:
+    parts = [part for part in HANDLE_SEPARATORS.split(handle) if part]
+    if len(parts) < MIN_FULL_NAME_TOKENS:
+        return handle
+    return " ".join(part[:1].upper() + part[1:] for part in parts)
+
+
+def display_name(variants: Sequence[Tuple[Identity, int]]) -> str:
+    identity, _ = max(variants, key=lambda variant: (spelling_score(variant[0].name),
+                                                     variant[1], variant[0].name))
+    if spelling_score(identity.name):
+        return identity.name
+    return prettify(identity.name)
+
+
+def build_authors(tallies: "Counter[Identity]") -> List[Author]:
+    identities = list(tallies)
+    authors = []
+    for group in fold_name_fragments(group_by_shared_keys(identities)):
+        variants = tuple(sorted(((identity, tallies[identity]) for identity in group),
+                                key=lambda variant: (-variant[1], variant[0].name)))
+        authors.append(Author(name=display_name(variants),
+                              commits=sum(count for _, count in variants),
+                              is_bot=group_is_bot(group),
+                              variants=variants))
+    return sorted(authors, key=lambda author: (-author.commits, author.name))
+
+
+def paint(text: str, style: str) -> str:
+    return f"{style}{text}{RESET}" if style else text
+
+
+def render_heading(label: str, count: int, palette: Palette) -> None:
+    print(paint(f"{label} ({count})", palette.heading))
+
+
+def populated_sections(authors: Sequence[Author], palette: Palette) -> List[Section]:
+    candidates = [
+        Section(PEOPLE_HEADING, [author for author in authors if not author.is_bot],
+                palette.count, ""),
+        Section(BOTS_HEADING, [author for author in authors if author.is_bot],
+                palette.muted, palette.muted),
+    ]
+    return [section for section in candidates if section.authors]
+
+
+def render(authors: Sequence[Author], verbose: bool, palette: Palette) -> None:
+    width = max(len(str(author.commits)) for author in authors)
+    for position, section in enumerate(populated_sections(authors, palette)):
+        if position:
+            print()
+        render_heading(section.heading, len(section.authors), palette)
+        for author in section.authors:
+            render_author(author, width, section)
+            if verbose:
+                render_variants(author, width, palette)
+
+
+def render_author(author: Author, width: int, section: Section) -> None:
+    commits = paint(f"{author.commits:>{width}}", section.counts)
+    print(f"{commits} {paint(author.name, section.names)}")
+
+
+def render_variants(author: Author, width: int, palette: Palette) -> None:
+    for identity, count in author.variants:
+        line = f"{' ' * width}   {count:>{width}}  {identity.name} <{identity.email}>"
+        print(paint(line, palette.muted))
+
+
+def render_repositories(repositories: Sequence[Repository], palette: Palette) -> None:
+    width = max(len(str(repository.commits)) for repository in repositories)
+    render_heading(REPOSITORIES_HEADING, len(repositories), palette)
+    for repository in sorted(repositories, key=lambda item: (-item.commits, item.name)):
+        render_repository(repository, width, palette)
+
+
+def render_repository(repository: Repository, width: int, palette: Palette) -> None:
+    if not repository.commits:
+        print(paint(f"{0:>{width}} {repository.name}  {NOTHING_COUNTED}", palette.muted))
+        return
+    print(f"{paint(f'{repository.commits:>{width}}', palette.count)} {repository.name}")
+
+
+def parse_arguments(argv: Optional[Sequence[str]]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("directory", nargs="?", default=".",
+                        help="directory to scan for git repositories (default: .)")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="list the raw name and email spellings behind each total")
+    return parser.parse_args(argv)
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    arguments = parse_arguments(argv)
+    root = Path(arguments.directory)
+    if not root.is_dir():
+        print(f"Error: The directory {arguments.directory} does not exist.", file=sys.stderr)
+        return 1
+    repositories = scan_repositories(root)
+    if not repositories:
+        print("No Git repositories found.")
+        return 0
+    palette = Palette.detect(sys.stdout)
+    tallies = merge_tallies(repositories)
+    if tallies:
+        render(build_authors(tallies), arguments.verbose, palette)
+        print()
+    render_repositories(repositories, palette)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
