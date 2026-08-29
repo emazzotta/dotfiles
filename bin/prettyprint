@@ -10,6 +10,7 @@ export WHITE=$'\033[37m'
 export TURQUOISE=$'\033[38;5;80m'
 export RESET=$'\033[0m'
 
+hyperlink()       { printf '%s%s%s%s%s%s' $'\033]8;;' "$1" $'\033\\' "$2" $'\033]8;;' $'\033\\'; }
 info()            { printf "${BOLD}${BLUE}●${RESET} %s\n" "$*"; }
 success()         { printf "${BOLD}${GREEN}●${RESET} %s\n" "$*"; }
 error()           { printf "${BOLD}${RED}●${RESET} %s\n" "$*" >&2; }

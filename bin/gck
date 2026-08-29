@@ -11,12 +11,17 @@ fi
 
 ignore_dirs=("dev")
 bot_branch_pattern='^(renovate|dependabot|greenkeeper|snyk|whitesource-remediate|pyup)[/-]'
+pull_request_cache_dir="${HOME}/.cache/gck"
+pull_request_cache_minutes=10
+mkdir -p "${pull_request_cache_dir}"
 
 output_file=$(mktemp)
 branches_file=$(mktemp)
 remote_branches_file=$(mktemp)
 status_file=$(mktemp)
-trap 'rm -f "${output_file}" "${branches_file}" "${remote_branches_file}" "${status_file}"' EXIT
+links_file=$(mktemp)
+pull_requests_file=$(mktemp)
+trap 'rm -f "${output_file}" "${branches_file}" "${remote_branches_file}" "${status_file}" "${links_file}" "${pull_requests_file}"' EXIT
 
 separator() {
     printf "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
@@ -26,6 +31,70 @@ dim_separator() {
     printf "${YELLOW}╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌${RESET}\n"
 }
 
+remote_slug() {
+    local dir="${1}"
+    local remote
+    remote=$(git -C "${dir}" remote get-url origin 2>/dev/null) || return 0
+    remote="${remote%.git}"
+    case "${remote}" in
+        *://*) remote="${remote#*://}" ;;
+        *:*) remote="${remote%%:*}/${remote#*:}" ;;
+        *) return 0 ;;
+    esac
+    printf '%s' "${remote#*@}"
+}
+
+tree_url_prefix() {
+    local slug="${1}"
+    case "${slug%%/*}" in
+        *gitlab*) printf 'https://%s/-/tree/' "${slug}" ;;
+        *) printf 'https://%s/tree/' "${slug}" ;;
+    esac
+}
+
+fetch_pull_requests() {
+    local slug="${1}"
+    local cache_file
+    cache_file="${pull_request_cache_dir}/$(printf '%s' "${slug}" | tr '/.' '__')"
+    if [ -n "$(find "${cache_file}" -mmin "-${pull_request_cache_minutes}" 2>/dev/null)" ]; then
+        cat "${cache_file}"
+        return 0
+    fi
+    local pairs=""
+    case "${slug%%/*}" in
+        github.com)
+            if command -v gh > /dev/null; then
+                pairs=$(gh pr list --repo "${slug#*/}" --state open --limit 100 \
+                    --json headRefName,url --jq '.[] | "\(.headRefName)\t\(.url)"' 2>/dev/null) || pairs=""
+            fi
+            ;;
+        *)
+            if command -v glab > /dev/null; then
+                pairs=$(glab mr list --repo "https://${slug}" --per-page 100 --output json \
+                    --jq '.[] | "\(.source_branch)\t\(.web_url)"' 2>/dev/null) || pairs=""
+            fi
+            ;;
+    esac
+    printf '%s\n' "${pairs}" | tee "${cache_file}"
+}
+
+build_branch_links() {
+    local dir="${1}"
+    local slug
+    slug=$(remote_slug "${dir}")
+    [ -n "${slug}" ] || return 0
+    local prefix
+    prefix=$(tree_url_prefix "${slug}")
+    fetch_pull_requests "${slug}" > "${pull_requests_file}"
+    local branch url
+    while IFS= read -r branch; do
+        [ -n "${branch}" ] || continue
+        url=$(awk -F'\t' -v b="${branch}" '$1 == b { print $2; exit }' "${pull_requests_file}")
+        [ -n "${url}" ] || url="${prefix}${branch}"
+        printf '%s\t%s\n' "${branch}" "${url}"
+    done >> "${links_file}"
+}
+
 format_branch() {
     local branch="${1}"
     local emphasis="${2:-}"
@@ -33,7 +102,14 @@ format_branch() {
     if [[ "${branch}" =~ ${bot_branch_pattern} ]]; then
         color="${TURQUOISE}"
     fi
-    printf '%s' "${emphasis}${color}${branch}${RESET}"
+    local label="${emphasis}${color}${branch}${RESET}"
+    local url
+    url=$(awk -F'\t' -v b="${branch}" '$1 == b { print $2; exit }' "${links_file}")
+    if [ -n "${url}" ]; then
+        hyperlink "${url}" "${label}"
+    else
+        printf '%s' "${label}"
+    fi
 }
 
 scan_repos() {
@@ -63,6 +139,13 @@ scan_repos() {
                 shown=true
             fi
             other_branches=$(git -C "${dir}" for-each-ref --format='%(refname:short)' refs/heads/ | grep -Ev '^(main|master)$' || true)
+            origin_branches=$(git -C "${dir}" for-each-ref --format='%(refname:short)' refs/remotes/origin/ \
+                | grep -Ev '^origin$|origin/(HEAD|main|master)$' \
+                | sed 's#^origin/##' || true)
+            : > "${links_file}"
+            if [ -n "${other_branches}${origin_branches}" ]; then
+                printf '%s\n' "${origin_branches}" | build_branch_links "${dir}"
+            fi
             if [ -n "${other_branches}" ]; then
                 formatted=""
                 while IFS= read -r branch; do
@@ -76,12 +159,10 @@ scan_repos() {
             fi
             remote_only=""
             while IFS= read -r branch; do
-                if ! git -C "${dir}" show-ref --verify --quiet "refs/heads/${branch}" 2>/dev/null; then
+                if [ -n "${branch}" ] && ! git -C "${dir}" show-ref --verify --quiet "refs/heads/${branch}"; then
                     remote_only="${remote_only}$(format_branch "${branch}"), "
                 fi
-            done < <(git -C "${dir}" for-each-ref --format='%(refname:short)' refs/remotes/origin/ \
-                | grep -Ev '^origin$|origin/(HEAD|main|master)$' \
-                | sed 's#^origin/##' || true)
+            done <<< "${origin_branches}"
             if [ -n "${remote_only}" ]; then
                 printf "${YELLOW}%s${RESET} [%s]\n" "${dir}" "${remote_only%, }" >> "${remote_branches_file}"
             fi
