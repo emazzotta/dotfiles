@@ -71,26 +71,6 @@ class TestResolveOutputFile:
 MAGICK_OK = 'printf x > "${@: -1}"'
 
 
-class TestCollectInputFiles:
-    def test_should_gather_every_path_when_many_inputs_are_given(self, mod, tmp_path):
-        first = tmp_path / "a.jpg"
-        second = tmp_path / "b.png"
-        first.touch()
-        second.touch()
-
-        assert mod.collect_input_files([first, second]) == [first, second]
-
-    def test_should_keep_each_file_once_when_inputs_overlap(self, mod, tmp_path):
-        image = tmp_path / "photo.jpg"
-        image.touch()
-
-        assert mod.collect_input_files([tmp_path, image]) == [image]
-
-    def test_should_exit_when_an_input_is_missing(self, mod, tmp_path):
-        with pytest.raises(SystemExit):
-            mod.collect_input_files([tmp_path / "nonexistent.jpg"])
-
-
 class TestCli:
     def test_should_compress_every_file_when_a_glob_expands_to_many_inputs(self, run_cli, tmp_path):
         work = tmp_path / "work"

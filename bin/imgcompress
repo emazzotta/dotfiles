@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import imagelib
 from scriptlog import Logger
 
 logger = Logger()
@@ -81,27 +82,6 @@ def compress_image(input_file: Path, quality: int, scale: int, output_path: Path
     return original_size - compressed_size
 
 
-def find_image_files(directory: Path) -> list[Path]:
-    extensions = IMAGE_EXTENSIONS + [e.upper() for e in IMAGE_EXTENSIONS]
-    files: list[Path] = []
-    for ext in extensions:
-        files.extend(directory.glob(f"**/*.{ext}"))
-    return files
-
-
-def collect_input_files(inputs: list[Path]) -> list[Path]:
-    input_files: list[Path] = []
-    for input_path in inputs:
-        if input_path.is_file():
-            input_files.append(input_path)
-        elif input_path.is_dir():
-            input_files.extend(find_image_files(input_path))
-        else:
-            logger.error(f"Input '{input_path}' not found!")
-            sys.exit(1)
-    return list(dict.fromkeys(input_files))
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compress image files using ImageMagick.")
     parser.add_argument("-i", "--input", required=True, nargs="+", help="Image files or directories of image files to compress.")
@@ -124,7 +104,7 @@ def main() -> None:
     if output_path:
         output_path.mkdir(parents=True, exist_ok=True)
 
-    input_files = collect_input_files([Path(i) for i in args.input])
+    input_files = imagelib.collect_images([Path(i) for i in args.input], IMAGE_EXTENSIONS)
 
     if not input_files:
         logger.warn("No image files found.")
