@@ -15,27 +15,6 @@ exit_or_return() {
     fi
 }
 
-SITE_DEFAULTS="${DOTFILES_SITE_DEFAULTS:-$(dirname "$(command -v leonardo_account || echo "$0")")/site.env}"
-SITE_ENV="${DOTFILES_SITE_ENV:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/site.env}"
-
-# Fills in only what is still unset, so the first file loaded wins. Not `source`:
-# that would clobber the environment, while siteconf.py gives it precedence.
-load_site_file() {
-    [ -f "$1" ] || return 0
-    local key value
-    while IFS='=' read -r key value; do
-        case "$key" in
-            ''|'#'*|*[!A-Za-z0-9_]*) continue ;;
-        esac
-        if [ -z "$(eval "printf '%s' \"\${${key}-}\"")" ]; then
-            export "${key}=${value}"
-        fi
-    done < "$1"
-}
-
-load_site_file "$SITE_ENV"
-load_site_file "$SITE_DEFAULTS"
-
 export AD_ACCOUNT_KEYCHAIN_NAME="LeonardoActiveDirectoryUsername"
 
 ensure_credentials_exist() {
@@ -92,16 +71,12 @@ export AD_PASSWORD_NAME="LeonardoActiveDirectory:$AD_ACCOUNT"
 
 export VPN_SHARED_SECRET_NAME="LeonardoVPNSecret"
 
-if [ -z "${NETWORK_DRIVE_SERVER_IP:-}" ] || [ -z "${VM_DRIVE_MOUNT_POINT:-}" ]; then
-    echo "Error: NETWORK_DRIVE_SERVER_IP and VM_DRIVE_MOUNT_POINT must be set in $SITE_DEFAULTS or $SITE_ENV" >&2
-    exit_or_return 1
-fi
-
-export NETWORK_DRIVE_FOLDER="${NETWORK_DRIVE_FOLDER:-Daten}"
-export NETWORK_DRIVE_SERVER_IP
+export NETWORK_DRIVE_FOLDER="Daten"
+export NETWORK_DRIVE_SERVER_IP=192.168.5.155
 export NETWORK_DRIVE_FULL_URL="smb://$AD_ACCOUNT@$NETWORK_DRIVE_SERVER_IP/$NETWORK_DRIVE_FOLDER"
 export NETWORK_DRIVE_MOUNT_POINT="$HOME/$NETWORK_DRIVE_FOLDER"
-export VM_DRIVE_MOUNT_POINT
+
+export VM_DRIVE_MOUNT_POINT="smb://admin@192.168.5.7:4445/Devserver-Windows-VM"
 
 ensure_passwords_exist() {
     add_password_to_keychain "$AD_ACCOUNT" "$AD_PASSWORD_NAME"

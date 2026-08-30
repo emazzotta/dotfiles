@@ -4,13 +4,8 @@ set -euo pipefail
 source leonardo_account
 source envify PRIMARY_EMAIL
 
-STATUS_HOST="${LEONARDO_STATUS_HOST:-}"
+STATUS_HOST="updates.leonardo.local"
 TIMEOUT_IN_MS=350
-
-if [ -z "$STATUS_HOST" ]; then
-    echo "Error: LEONARDO_STATUS_HOST must be set in $SITE_DEFAULTS or $SITE_ENV" >&2
-    exit 1
-fi
 
 is_network_up() {
     [ "$(host-resolver "$STATUS_HOST" --timeout $TIMEOUT_IN_MS 2>/dev/null)" != "127.0.0.1" ]
