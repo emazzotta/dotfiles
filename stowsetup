@@ -1,28 +1,132 @@
 #!/bin/bash
 
-DIR=$(dirname "$0")
+# Clones the runtimes the stowed config expects, then stows. Shared by a fresh
+# Mac (./setup) and the opencode container image, which has no Mac half and runs
+# this as its only dotfiles step.
+
+set -euo pipefail
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
 VS_CODE_DIR="${HOME}/Library/Application Support/Code/User"
 ZSH_THEME_DIR="${HOME}/.zprezto/modules/prompt/functions"
+VIM_PLUGINS_TARGET="${HOME}/.vim_runtime/my_plugins"
 RESOLVER_DIR="/etc/resolver"
-mkdir -p "${ZSH_THEME_DIR}"
-mkdir -p "${VS_CODE_DIR}"
-sudo mkdir -p "${RESOLVER_DIR}"
 
-stow -d "${DIR:-.}" -t "${HOME}" bash
-stow -d "${DIR:-.}" -t "${HOME}" claude
-stow -d "${DIR:-.}" -t "${HOME}" git
-stow -d "${DIR:-.}" -t "${HOME}" gpg
-stow -d "${DIR:-.}" -t "${HOME}" karabiner
-stow -d "${DIR:-.}" -t "${HOME}" kerberos
-stow -d "${DIR:-.}" -t "${HOME}" lftp
-stow -d "${DIR:-.}" -t "${HOME}" maven
-stow -d "${DIR:-.}" -t "${HOME}" powershell
-stow -d "${DIR:-.}" -t "${HOME}" sdkman
-stow -d "${DIR:-.}" -t "${HOME}" ssh
-stow -d "${DIR:-.}" -t "${HOME}" sshrc
-stow -d "${DIR:-.}" -t "${HOME}" tmux
-stow -d "${DIR:-.}" -t "${HOME}" vim
-stow -d "${DIR:-.}" -t "${HOME}" zsh
-sudo stow -d "${DIR:-.}" -t "${RESOLVER_DIR}" dns-resolver
-stow -d "${DIR:-.}" -t "${ZSH_THEME_DIR}" zsh_theme
-stow -d "${DIR:-.}" -t "${VS_CODE_DIR}" vscode
+# Everything in MACOS_ONLY_PACKAGES needs a Mac, needs root, or collides with a
+# bind mount in the opencode container (claude). ssh and git are in there for a
+# sharper reason - both get written to at runtime, and stowing them makes those
+# writes land in this repo:
+#   ssh  - a HOME with no ~/.ssh yet gets the whole directory symlinked here, so
+#          agent sockets, known_hosts and appends to config end up in public git.
+#   git  - `git config --global` writes through the symlink. The config is also
+#          unusable off the Mac: gpgsign with a key that is not there fails every
+#          commit, and core.sshCommand pins an absolute /Users key path.
+# On a Mac both targets already exist with real content, so stow folds instead.
+PORTABLE_PACKAGES=(bash sshrc tmux vim zsh)
+MACOS_ONLY_PACKAGES=(claude git gpg karabiner kerberos lftp maven powershell sdkman ssh)
+
+VIM_PLUGINS=(
+    Glench/Vim-Jinja2-Syntax
+    ap/vim-css-color
+    benmills/vimux
+    editorconfig/editorconfig-vim
+    jceb/vim-orgmode
+    junegunn/fzf.vim
+    mattn/emmet-vim
+    neoclide/coc.nvim
+    scrooloose/nerdcommenter
+    tmux-plugins/vim-tmux-focus-events
+    tomlion/vim-solidity
+    tpope/vim-dispatch
+    vim-airline/vim-airline
+)
+
+usage() {
+    cat <<USAGE
+Usage: $(basename "$0") [--minimal]
+
+Clones the vim/tmux/zsh runtimes, then stows the dotfiles over them.
+
+  --minimal  Stow only ${PORTABLE_PACKAGES[*]} plus the zsh theme, skipping
+             everything that needs a Mac or root. Implied off Darwin.
+USAGE
+}
+
+clone_if_missing() {
+    local dir="$1"
+    shift
+    [ -e "$dir" ] || git clone "$@" "$dir"
+}
+
+# Must precede stow: stow creates ZSH_THEME_DIR and folds into ~/.vim_runtime,
+# and a clone into an existing directory is skipped - so cloning afterwards
+# leaves both as empty shells holding nothing but the stowed files.
+clone_runtimes() {
+    clone_if_missing "$HOME/.vim_runtime" https://github.com/amix/vimrc.git --depth=1
+    clone_if_missing "$HOME/.tmux" https://github.com/gpakosz/.tmux.git
+    clone_if_missing "${ZDOTDIR:-$HOME}/.zprezto" https://github.com/sorin-ionescu/prezto.git --recursive
+    clone_if_missing "$HOME/.zgen" https://github.com/tarjoilija/zgen.git
+}
+
+clone_vim_plugins() {
+    mkdir -p "$VIM_PLUGINS_TARGET"
+    local plugin
+    for plugin in "${VIM_PLUGINS[@]}"; do
+        clone_if_missing "$VIM_PLUGINS_TARGET/${plugin##*/}" "https://github.com/$plugin.git"
+    done
+}
+
+stow_packages() {
+    local target="$1"
+    shift
+    local package
+    for package in "$@"; do
+        stow -d "$DIR" -t "$target" "$package"
+    done
+}
+
+# gpakosz ships .tmux.conf in its own clone and expects a link to it; this repo
+# tracks only the .tmux.conf.local half that stow places.
+link_tmux_conf() {
+    if [ -e "$HOME/.tmux.conf" ] && [ ! -L "$HOME/.tmux.conf" ]; then
+        printf '%s\n' "stowsetup: ~/.tmux.conf is a real file, leaving it alone" >&2
+        return 0
+    fi
+    ln -sf "$HOME/.tmux/.tmux.conf" "$HOME/.tmux.conf"
+}
+
+main() {
+    local minimal=false
+
+    case "${1-}" in
+        --minimal) minimal=true ;;
+        -h|--help) usage; return 0 ;;
+        "") ;;
+        *) printf 'unknown option: %s\n' "$1" >&2; usage >&2; return 2 ;;
+    esac
+
+    [ "$(uname -s)" = "Darwin" ] || minimal=true
+
+    clone_runtimes
+
+    mkdir -p "$ZSH_THEME_DIR"
+    stow_packages "$HOME" "${PORTABLE_PACKAGES[@]}"
+    stow_packages "$ZSH_THEME_DIR" zsh_theme
+
+    clone_vim_plugins
+    link_tmux_conf
+
+    if $minimal; then
+        return 0
+    fi
+
+    mkdir -p "$VS_CODE_DIR"
+    sudo mkdir -p "$RESOLVER_DIR"
+    stow_packages "$HOME" "${MACOS_ONLY_PACKAGES[@]}"
+    stow_packages "$VS_CODE_DIR" vscode
+    sudo stow -d "$DIR" -t "$RESOLVER_DIR" dns-resolver
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

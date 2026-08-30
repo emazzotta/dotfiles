@@ -1,4 +1,11 @@
 #!/bin/bash
+### PLATFORM ###
+# Sourced by bash and zsh; both set OSTYPE, so this costs no subprocess.
+case "$OSTYPE" in
+    darwin*) export DOTFILES_OS="macos" ;;
+    *) export DOTFILES_OS="linux" ;;
+esac
+
 ### ANDROID ###
 export ANDROID_AVD_HOME=$HOME/.android/avd
 export ANDROID_HOME=$HOME/Library/Android/sdk
@@ -15,7 +22,11 @@ export DOCUMENTDIR="$GDRIVEDIR/Dokumente"
 export DJ_DIR="$HOME/Music/01_DJ"
 
 ### PATH ###
-export PATH="$CUSTOM_BIN_DIR:/opt/homebrew/bin:$PATH"
+if [ "$DOTFILES_OS" = "macos" ]; then
+    export PATH="$CUSTOM_BIN_DIR:/opt/homebrew/bin:$PATH"
+else
+    export PATH="$CUSTOM_BIN_DIR:$PATH"
+fi
 export PATH="$PATH:$HOME/.cargo/bin"
 export PATH="$PATH:$HOME/.docker/bin"
 export PATH="$PATH:$HOME/.local/bin"
@@ -28,15 +39,20 @@ export PATH="$PATH:$ANDROID_HOME/tools/bin"
 export PATH="$PATH:$HOME/.bun/bin"
 
 ### TOOLCHAIN ###
-export GCC_VERSION="15"
-export CC="/opt/homebrew/bin/gcc-$GCC_VERSION"
-export CXX="/opt/homebrew/bin/g++-$GCC_VERSION"
-export CMAKE_C_COMPILER="/opt/homebrew/bin/gcc-$GCC_VERSION"
-export CMAKE_CXX_COMPILER="/opt/homebrew/bin/g++-$GCC_VERSION"
+if [ "$DOTFILES_OS" = "macos" ]; then
+    export GCC_VERSION="15"
+    export CC="/opt/homebrew/bin/gcc-$GCC_VERSION"
+    export CXX="/opt/homebrew/bin/g++-$GCC_VERSION"
+    export CMAKE_MAKE_PROGRAM="$(which ninja)"
+else
+    export CC="gcc"
+    export CXX="g++"
+fi
+export CMAKE_C_COMPILER="$CC"
+export CMAKE_CXX_COMPILER="$CXX"
 export CMAKE_CXX_FLAGS="-std=c++17"
 export CMAKE_CXX_STANDARD="17"
 export CMAKE_EXE_LINKER_FLAGS="-lstdc++fs"
-export CMAKE_MAKE_PROGRAM=$(which ninja)
 export CMAKE_OPTIONS="-DUSE_SYSTEM_LIBCLANG=ON"
 
 ### DIRECTORIES ###
@@ -58,7 +74,11 @@ export VIM_PLUGINS_DIR="$HOME/.vim_runtime/my_plugins"
 export VIM_RUNTIME_DIR="$HOME/.vim_runtime"
 
 ### EDITOR ###
-export EDITOR=/opt/homebrew/bin/vim
+if [ "$DOTFILES_OS" = "macos" ]; then
+    export EDITOR=/opt/homebrew/bin/vim
+else
+    export EDITOR=vim
+fi
 export VISUAL="$EDITOR"
 export MANPAGER="less -X"
 export LESS='-R'
@@ -84,15 +104,20 @@ export PROMPT_DIRTRIM=2
 export KEYTIMEOUT=1
 
 ### TOOL CONFIG ###
-export BREW_CASK_IGNORELIST="mixed-in-key\\|my-cask-to-pin"
-export HOMEBREW_CASK_OPTS="--appdir=/Applications"
-export HOMEBREW_NO_ASK=1
 export CRONTAB_FILE="$DOTFILESPATH/cron/crontab"
 export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
 export KEYGUARD_BRIDGE_CONFIG_FILE="$DOCUMENTDIR/Keepass/bridge.yaml"
 export KEYGUARD_SECRETS_FILE="$DOCUMENTDIR/Keepass/keyguard.enc"
-export POSH_THEMES_PATH="/opt/homebrew/opt/oh-my-posh/themes"
 export SDKMAN_DIR="$HOME/.sdkman"
+if [ "$DOTFILES_OS" = "macos" ]; then
+    export BREW_CASK_IGNORELIST="mixed-in-key\\|my-cask-to-pin"
+    export HOMEBREW_CASK_OPTS="--appdir=/Applications"
+    export HOMEBREW_NO_ASK=1
+    export POSH_THEMES_PATH="/opt/homebrew/opt/oh-my-posh/themes"
+fi
 
 ### LOAD .env ###
-source "$DOTFILESPATH/.env"
+# Gitignored, so a fresh clone (the container image) has none.
+if [ -f "$DOTFILESPATH/.env" ]; then
+    source "$DOTFILESPATH/.env"
+fi

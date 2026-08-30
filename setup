@@ -12,12 +12,6 @@ install_if_missing() {
     command -v "$cmd" >/dev/null || eval "$installer"
 }
 
-clone_if_missing() {
-    local dir=$1
-    shift
-    [[ -e "$dir" ]] || git clone "$@" "$dir"
-}
-
 run_if_exists() {
     local file=$1
     if [[ -e "$file" ]]; then
@@ -79,10 +73,7 @@ for version in 21.0.8-tem 25-tem; do
 done
 bash -c "source '$HOME/.sdkman/bin/sdkman-init.sh' && sdk default java 21.0.8-tem"
 
-echo "Preparing Vim before dotfiles setup"
-clone_if_missing "$HOME/.vim_runtime" "https://github.com/amix/vimrc.git" --depth=1
-
-echo "Setting up dotfiles"
+echo "Setting up dotfiles and shell runtimes"
 run_if_exists ./stowsetup && source "$HOME/.bashrc"
 
 echo "Installing Node packages"
@@ -93,33 +84,7 @@ echo "Installing Python tools"
 uv tool install --python 3.14 "yt-dlp[default,curl-cffi,deno]"
 
 echo "Setting up terminal"
-clone_if_missing "$HOME/.tmux" "https://github.com/gpakosz/.tmux.git"
-clone_if_missing "${ZDOTDIR:-$HOME}/.zprezto" "https://github.com/sorin-ionescu/prezto.git" --recursive
-clone_if_missing "$HOME/.zgen" "https://github.com/tarjoilija/zgen.git"
 [[ "$SHELL" != "/bin/zsh" ]] && chsh -s /bin/zsh
-
-echo "Setting up Vim"
-sh "$HOME/.vim_runtime/install_awesome_vimrc.sh"
-
-mkdir -p "$VIM_PLUGINS_DIR"
-for plugin in \
-    Glench/Vim-Jinja2-Syntax \
-    neoclide/coc.nvim \
-    ap/vim-css-color \
-    benmills/vimux \
-    editorconfig/editorconfig-vim \
-    jceb/vim-orgmode \
-    junegunn/fzf.vim \
-    mattn/emmet-vim \
-    scrooloose/nerdcommenter \
-    tmux-plugins/vim-tmux-focus-events \
-    tomlion/vim-solidity \
-    tpope/vim-dispatch \
-    vim-airline/vim-airline
-do
-    name=$(basename "$plugin")
-    clone_if_missing "$VIM_PLUGINS_DIR/$name" "https://github.com/$plugin.git"
-done
 
 if $IS_MAC; then
   echo "Building CoC plugin"
