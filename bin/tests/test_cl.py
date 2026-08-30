@@ -16,6 +16,29 @@ def cl(load_script):
     return load_script("cl")
 
 
+@pytest.fixture(autouse=True)
+def _allow_non_mac_host(cl):
+    """The host guard is about where cl runs, not what it does; CI is Linux."""
+    with patch.object(cl, "ensure_launchable_host", lambda: None):
+        yield
+
+
+class TestEnsureLaunchableHost:
+    """Loads its own copy, since the autouse fixture neutralises the guard."""
+
+    def test_should_exit_when_the_opencode_project_is_absent(self, load_script, monkeypatch, tmp_path):
+        script = load_script("cl")
+        monkeypatch.setattr(script, "OPENCODE_ROOT", tmp_path / "nonexistent")
+        with pytest.raises(SystemExit) as exit_info:
+            script.ensure_launchable_host()
+        assert exit_info.value.code == 1
+
+    def test_should_return_when_the_opencode_project_is_present(self, load_script, monkeypatch, tmp_path):
+        script = load_script("cl")
+        monkeypatch.setattr(script, "OPENCODE_ROOT", tmp_path)
+        script.ensure_launchable_host()
+
+
 class TestIsGitCryptRepo:
     def test_gpg_user_flow_detected_via_dot_git_crypt(self, cl, tmp_path):
         (tmp_path / ".git-crypt").mkdir()
@@ -1477,7 +1500,7 @@ class TestOrphanGuardEndToEnd:
         project = tmp_path / "project"
         project.mkdir()
         (project / "main.py").write_text("")
-        (tmp_path / "home").mkdir()
+        (tmp_path / "home" / "Projects" / "private" / "opencode").mkdir(parents=True)
         return project
 
     def _run_cl(self, run_cli, tmp_path, project, docker_mock):

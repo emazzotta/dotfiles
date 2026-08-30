@@ -675,6 +675,23 @@ def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
     return ["-v", f"{pwd / relative_path}:/workspace/code/{relative_path}"]
 
 
+def ensure_launchable_host() -> None:
+    """cl starts the opencode container from the Mac; inside one there is nothing to start.
+
+    Every path below is a Mac path and the daemon it talks to is the Mac's. The
+    dev box has this script on PATH only because the image bakes the dotfiles in,
+    so without this it half-runs and fails somewhere less obvious.
+    """
+    if OPENCODE_ROOT.is_dir():
+        return
+    print(
+        f"cl: no opencode project at {OPENCODE_ROOT}, so there is nothing to launch.\n"
+        "    On the dev box you are already inside that environment - run `claude` directly.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def main() -> None:
     pwd = Path.cwd()
 
@@ -718,6 +735,7 @@ def main() -> None:
     )
 
     args, claude_args = parser.parse_known_args()
+    ensure_launchable_host()
     _profile("argparse")
 
     ignores: list = args.excludes
