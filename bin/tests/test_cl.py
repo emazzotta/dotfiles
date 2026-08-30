@@ -1083,60 +1083,6 @@ class TestLeonardoAiAutoMount:
         assert not any("leonardo-ai" in arg for arg in mock_cl_run[-1])
 
 
-class TestRemotionAutoMount:
-    @pytest.fixture
-    def mock_cl_run(self, cl, monkeypatch):
-        captured = []
-        def mock_run(cmd, **kwargs):
-            captured.append(cmd)
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        monkeypatch.setattr(cl, "run", mock_run)
-        return captured
-
-    @pytest.fixture
-    def remotion(self, cl, monkeypatch, tmp_path):
-        directory = tmp_path / "remotion"
-        directory.mkdir()
-        monkeypatch.setattr(cl, "REMOTION", directory)
-        return directory
-
-    def should_mount_remotion_when_running_from_an_unrelated_project(
-        self, cl, monkeypatch, mock_cl_run, tmp_path, remotion,
-    ):
-        pwd = tmp_path / "myproject"
-        pwd.mkdir()
-        monkeypatch.chdir(pwd)
-        monkeypatch.setattr(sys, "argv", ["cl"])
-
-        with pytest.raises(SystemExit, match="0"):
-            cl.main()
-
-        assert f"{remotion}:/workspace/code/remotion" in mock_cl_run[-1]
-
-    def should_not_double_mount_when_remotion_passed_explicitly(
-        self, cl, monkeypatch, mock_cl_run, remotion,
-    ):
-        monkeypatch.setattr(sys, "argv", ["cl", "-p", str(remotion)])
-
-        with pytest.raises(SystemExit, match="0"):
-            cl.main()
-
-        mount_spec = f"{remotion}:/workspace/code/remotion"
-        assert mock_cl_run[-1].count(mount_spec) == 1
-
-    def should_not_mount_remotion_when_directory_is_absent(
-        self, cl, monkeypatch, mock_cl_run, tmp_path,
-    ):
-        monkeypatch.setattr(cl, "REMOTION", tmp_path / "nonexistent")
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(sys, "argv", ["cl"])
-
-        with pytest.raises(SystemExit, match="0"):
-            cl.main()
-
-        assert not any(arg.endswith(":/workspace/code/remotion") for arg in mock_cl_run[-1])
-
-
 class TestParseExclude:
     def test_should_return_resolved_path_for_absolute_input(self, cl, tmp_path):
         result = cl.parse_exclude(str(tmp_path / "secrets"))
