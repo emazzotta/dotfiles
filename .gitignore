@@ -18,8 +18,6 @@ node_modules
 
 Cache-Management.ps1
 
-workspace/
-dotfiles/
 vim/.vim_runtime/my_plugins/
 
 !**/.gnupg/gpg-agent.conf
