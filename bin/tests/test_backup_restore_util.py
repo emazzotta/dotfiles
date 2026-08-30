@@ -104,3 +104,49 @@ class TestFindFileSize:
     def test_nonexistent_file(self, mod):
         result = mod.find_file_size("/tmp/nonexistent_12345.img")
         assert result is None
+
+
+REQUIRED_COMMAND_MOCKS = {"dd": "exit 1", "diskutil": "exit 1", "df": "exit 1", "rsync": "exit 1"}
+
+
+class TestCheckDependencies:
+    def test_should_pass_when_every_required_command_is_present(self, mod, monkeypatch):
+        monkeypatch.setattr(mod.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+        mod.check_dependencies()
+
+    def test_should_exit_when_a_required_command_is_missing(self, mod, monkeypatch, capsys):
+        monkeypatch.setattr(mod.shutil, "which",
+                            lambda name: None if name == "diskutil" else f"/usr/bin/{name}")
+
+        with pytest.raises(SystemExit):
+            mod.check_dependencies()
+
+        assert "diskutil" in capsys.readouterr().err
+
+    def test_should_require_rsync_only_when_asked(self, mod, monkeypatch):
+        monkeypatch.setattr(mod.shutil, "which",
+                            lambda name: None if name == "rsync" else f"/usr/bin/{name}")
+
+        mod.check_dependencies()
+
+        with pytest.raises(SystemExit):
+            mod.check_dependencies(require_rsync=True)
+
+
+class TestCli:
+    def test_should_report_an_unknown_disk_without_crashing(self, run_cli, tmp_path):
+        result = run_cli("backup_restore_util",
+                         ["backup", "definitely-not-a-disk", str(tmp_path / "out.img")],
+                         mock_bins=REQUIRED_COMMAND_MOCKS, stdin="")
+
+        assert result.returncode == 1
+        assert "Traceback" not in result.stderr
+        assert "not found" in result.stderr
+
+    def test_should_report_missing_dependencies_without_crashing(self, run_cli, tmp_path):
+        result = run_cli("backup_restore_util",
+                         ["backup", "definitely-not-a-disk", str(tmp_path / "out.img")],
+                         isolate_path=True, stdin="")
+
+        assert "Traceback" not in result.stderr

@@ -3,6 +3,7 @@
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -83,7 +84,7 @@ def check_dependencies(require_rsync: bool = False) -> None:
         base_commands.append('rsync')
 
     for cmd in base_commands:
-        if not command_exists(cmd):
+        if not shutil.which(cmd):
             missing_commands.append(cmd)
 
     if missing_commands:
@@ -92,47 +93,10 @@ def check_dependencies(require_rsync: bool = False) -> None:
 
 
 def check_hdiutil_available() -> bool:
-    if not command_exists('hdiutil'):
+    if not shutil.which('hdiutil'):
         error("hdiutil command not found. DMG creation requires macOS.")
         return False
     return True
-
-
-def command_exists(command: str) -> bool:
-    try:
-        subprocess.run(
-            ['command', '-v', command],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True
-        )
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
-def display_disks() -> None:
-    info("Available disks:")
-    subprocess.run(['diskutil', 'list'])
-
-
-def display_volumes() -> None:
-    info("Mounted volumes:")
-    volumes_path = Path('/Volumes')
-    if volumes_path.exists():
-        try:
-            volumes = [v.name for v in volumes_path.iterdir() if v.is_dir()]
-            if volumes:
-                for volume in volumes:
-                    print(f"  {volume}")
-            else:
-                log("No volumes found in /Volumes/")
-        except PermissionError:
-            log("No volumes found in /Volumes/")
-    else:
-        log("No volumes found in /Volumes/")
-    print()
-    info("You can also use 'diskutil list' to see all disks and volumes")
 
 
 def find_disk_for_volume(input_str: str) -> Optional[str]:
