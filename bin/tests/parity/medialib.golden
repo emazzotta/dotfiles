@@ -1,0 +1,695 @@
+# fixtures: 11 media names, 17 durations
+# rows: 693
+audiotox	format_time	0.0	'0.0s'
+audiotox	format_time	0.04	'0.0s'
+audiotox	format_time	0.05	'0.1s'
+audiotox	format_time	1.0	'1.0s'
+audiotox	format_time	59.0	'59.0s'
+audiotox	format_time	59.94	'59.9s'
+audiotox	format_time	59.95	'60.0s'
+audiotox	format_time	60.0	'1m 0s'
+audiotox	format_time	60.5	'1m 0s'
+audiotox	format_time	119.9	'1m 59s'
+audiotox	format_time	3599.0	'59m 59s'
+audiotox	format_time	3600.0	'60m 0s'
+audiotox	format_time	3661.0	'61m 1s'
+audiotox	format_time	86399.0	'1439m 59s'
+audiotox	format_time	-1.0	'-1.0s'
+audiotox	format_time	-60.0	'-60.0s'
+audiotox	format_time	1000000000.0	'16666666m 40s'
+audiotox	list_inputs	file	"[PosixPath(<ROOT>/tree_audiotox/a.mp3)]"
+audiotox	list_inputs	file_uppercase	"[PosixPath(<ROOT>/tree_audiotox/B.MP3)]"
+audiotox	list_inputs	file_unmatched_ext	"[PosixPath(<ROOT>/tree_audiotox/i.txt)]"
+audiotox	list_inputs	dir	"[PosixPath(<ROOT>/tree_audiotox/B.MP3), PosixPath(<ROOT>/tree_audiotox/a.mp3), PosixPath(<ROOT>/tree_audiotox/c.wav), PosixPath(<ROOT>/tree_audiotox/d.WAV), PosixPath(<ROOT>/tree_audiotox/e.flac), PosixPath(<ROOT>/tree_audiotox/nested/B.MP3), PosixPath(<ROOT>/tree_audiotox/nested/a.mp3), PosixPath(<ROOT>/tree_audiotox/nested/c.wav), PosixPath(<ROOT>/tree_audiotox/nested/d.WAV), PosixPath(<ROOT>/tree_audiotox/nested/deep/z.mp3), PosixPath(<ROOT>/tree_audiotox/nested/e.flac)]"
+audiotox	list_inputs	dir_nested	"[PosixPath(<ROOT>/tree_audiotox/nested/B.MP3), PosixPath(<ROOT>/tree_audiotox/nested/a.mp3), PosixPath(<ROOT>/tree_audiotox/nested/c.wav), PosixPath(<ROOT>/tree_audiotox/nested/d.WAV), PosixPath(<ROOT>/tree_audiotox/nested/deep/z.mp3), PosixPath(<ROOT>/tree_audiotox/nested/e.flac)]"
+audiotox	list_inputs	dir_empty	[]
+audiotox	list_inputs	missing	EX:SystemExit(1)
+audiotox	collect_inputs	single_file	"[PosixPath(<ROOT>/tree_audiotox/a.mp3)]"
+audiotox	collect_inputs	two_files	"[PosixPath(<ROOT>/tree_audiotox/a.mp3), PosixPath(<ROOT>/tree_audiotox/c.wav)]"
+audiotox	collect_inputs	duplicate_file	"[PosixPath(<ROOT>/tree_audiotox/a.mp3)]"
+audiotox	collect_inputs	dir_and_member	"[PosixPath(<ROOT>/tree_audiotox/B.MP3), PosixPath(<ROOT>/tree_audiotox/a.mp3), PosixPath(<ROOT>/tree_audiotox/c.wav), PosixPath(<ROOT>/tree_audiotox/d.WAV), PosixPath(<ROOT>/tree_audiotox/e.flac), PosixPath(<ROOT>/tree_audiotox/nested/B.MP3), PosixPath(<ROOT>/tree_audiotox/nested/a.mp3), PosixPath(<ROOT>/tree_audiotox/nested/c.wav), PosixPath(<ROOT>/tree_audiotox/nested/d.WAV), PosixPath(<ROOT>/tree_audiotox/nested/deep/z.mp3), PosixPath(<ROOT>/tree_audiotox/nested/e.flac)]"
+audiotox	collect_inputs	two_dirs	"[PosixPath(<ROOT>/tree_audiotox/nested/B.MP3), PosixPath(<ROOT>/tree_audiotox/nested/a.mp3), PosixPath(<ROOT>/tree_audiotox/nested/c.wav), PosixPath(<ROOT>/tree_audiotox/nested/d.WAV), PosixPath(<ROOT>/tree_audiotox/nested/deep/z.mp3), PosixPath(<ROOT>/tree_audiotox/nested/e.flac)]"
+audiotox	collect_inputs	empty_list	[]
+audiotox	collect_inputs	with_missing	EX:SystemExit(1)
+audiotox	get_output_path	arg=mp3|resp=y|outdir=False|pre=0	PosixPath('<ROOT>/gop_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=y|outdir=False|pre=0	[]
+audiotox	get_output_path	arg=mp3|resp=y|outdir=False|pre=1	PosixPath('<ROOT>/gop_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=y|outdir=False|pre=1	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=y|outdir=False|pre=2	PosixPath('<ROOT>/gop_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=y|outdir=False|pre=2	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=y|outdir=False|pre=3	PosixPath('<ROOT>/gop_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=y|outdir=False|pre=3	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=y|outdir=False|pre=4	PosixPath('<ROOT>/gop_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=y|outdir=False|pre=4	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=y|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=y|outdir=True|pre=0	[]
+audiotox	get_output_path	arg=mp3|resp=y|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=y|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=y|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=y|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=y|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=y|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=y|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=y|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=n|outdir=False|pre=0	PosixPath('<ROOT>/gop_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=n|outdir=False|pre=0	[]
+audiotox	get_output_path	arg=mp3|resp=n|outdir=False|pre=1	PosixPath('<ROOT>/gop_audiotox/song_converted.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=n|outdir=False|pre=1	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=n|outdir=False|pre=2	PosixPath('<ROOT>/gop_audiotox/song_converted_2.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=n|outdir=False|pre=2	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=n|outdir=False|pre=3	PosixPath('<ROOT>/gop_audiotox/song_converted_3.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=n|outdir=False|pre=3	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=n|outdir=False|pre=4	PosixPath('<ROOT>/gop_audiotox/song_converted_4.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=n|outdir=False|pre=4	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=n|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=n|outdir=True|pre=0	[]
+audiotox	get_output_path	arg=mp3|resp=n|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audiotox/song_converted.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=n|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=n|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audiotox/song_converted_2.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=n|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=n|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audiotox/song_converted_3.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=n|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=n|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audiotox/song_converted_4.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=n|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=|outdir=False|pre=0	PosixPath('<ROOT>/gop_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=|outdir=False|pre=0	[]
+audiotox	get_output_path	arg=mp3|resp=|outdir=False|pre=1	PosixPath('<ROOT>/gop_audiotox/song_converted.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=|outdir=False|pre=1	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=|outdir=False|pre=2	PosixPath('<ROOT>/gop_audiotox/song_converted_2.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=|outdir=False|pre=2	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=|outdir=False|pre=3	PosixPath('<ROOT>/gop_audiotox/song_converted_3.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=|outdir=False|pre=3	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=|outdir=False|pre=4	PosixPath('<ROOT>/gop_audiotox/song_converted_4.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=|outdir=False|pre=4	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=|outdir=True|pre=0	[]
+audiotox	get_output_path	arg=mp3|resp=|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audiotox/song_converted.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audiotox/song_converted_2.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audiotox/song_converted_3.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audiotox/song_converted_4.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=a|outdir=False|pre=0	PosixPath('<ROOT>/gop_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=a|outdir=False|pre=0	[]
+audiotox	get_output_path	arg=mp3|resp=a|outdir=False|pre=1	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp3|resp=a|outdir=False|pre=1	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=a|outdir=False|pre=2	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp3|resp=a|outdir=False|pre=2	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=a|outdir=False|pre=3	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp3|resp=a|outdir=False|pre=3	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=a|outdir=False|pre=4	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp3|resp=a|outdir=False|pre=4	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=a|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=a|outdir=True|pre=0	[]
+audiotox	get_output_path	arg=mp3|resp=a|outdir=True|pre=1	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp3|resp=a|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=a|outdir=True|pre=2	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp3|resp=a|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=a|outdir=True|pre=3	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp3|resp=a|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=a|outdir=True|pre=4	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp3|resp=a|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=Y|outdir=False|pre=0	PosixPath('<ROOT>/gop_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=False|pre=0	[]
+audiotox	get_output_path	arg=mp3|resp=Y|outdir=False|pre=1	PosixPath('<ROOT>/gop_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=False|pre=1	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=Y|outdir=False|pre=2	PosixPath('<ROOT>/gop_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=False|pre=2	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=Y|outdir=False|pre=3	PosixPath('<ROOT>/gop_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=False|pre=3	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=Y|outdir=False|pre=4	PosixPath('<ROOT>/gop_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=False|pre=4	['File exists: <ROOT>/gop_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=Y|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=True|pre=0	[]
+audiotox	get_output_path	arg=mp3|resp=Y|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=Y|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=Y|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp3|resp=Y|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audiotox/song.mp3')
+audiotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audiotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=y|outdir=False|pre=0	PosixPath('<ROOT>/gop_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=y|outdir=False|pre=0	[]
+audiotox	get_output_path	arg=mp4|resp=y|outdir=False|pre=1	PosixPath('<ROOT>/gop_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=y|outdir=False|pre=1	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=y|outdir=False|pre=2	PosixPath('<ROOT>/gop_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=y|outdir=False|pre=2	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=y|outdir=False|pre=3	PosixPath('<ROOT>/gop_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=y|outdir=False|pre=3	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=y|outdir=False|pre=4	PosixPath('<ROOT>/gop_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=y|outdir=False|pre=4	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=y|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=y|outdir=True|pre=0	[]
+audiotox	get_output_path	arg=mp4|resp=y|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=y|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=y|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=y|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=y|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=y|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=y|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=y|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=n|outdir=False|pre=0	PosixPath('<ROOT>/gop_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=n|outdir=False|pre=0	[]
+audiotox	get_output_path	arg=mp4|resp=n|outdir=False|pre=1	PosixPath('<ROOT>/gop_audiotox/song_converted.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=n|outdir=False|pre=1	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=n|outdir=False|pre=2	PosixPath('<ROOT>/gop_audiotox/song_converted_2.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=n|outdir=False|pre=2	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=n|outdir=False|pre=3	PosixPath('<ROOT>/gop_audiotox/song_converted_3.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=n|outdir=False|pre=3	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=n|outdir=False|pre=4	PosixPath('<ROOT>/gop_audiotox/song_converted_4.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=n|outdir=False|pre=4	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=n|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=n|outdir=True|pre=0	[]
+audiotox	get_output_path	arg=mp4|resp=n|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audiotox/song_converted.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=n|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=n|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audiotox/song_converted_2.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=n|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=n|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audiotox/song_converted_3.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=n|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=n|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audiotox/song_converted_4.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=n|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=|outdir=False|pre=0	PosixPath('<ROOT>/gop_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=|outdir=False|pre=0	[]
+audiotox	get_output_path	arg=mp4|resp=|outdir=False|pre=1	PosixPath('<ROOT>/gop_audiotox/song_converted.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=|outdir=False|pre=1	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=|outdir=False|pre=2	PosixPath('<ROOT>/gop_audiotox/song_converted_2.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=|outdir=False|pre=2	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=|outdir=False|pre=3	PosixPath('<ROOT>/gop_audiotox/song_converted_3.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=|outdir=False|pre=3	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=|outdir=False|pre=4	PosixPath('<ROOT>/gop_audiotox/song_converted_4.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=|outdir=False|pre=4	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=|outdir=True|pre=0	[]
+audiotox	get_output_path	arg=mp4|resp=|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audiotox/song_converted.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audiotox/song_converted_2.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audiotox/song_converted_3.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audiotox/song_converted_4.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=a|outdir=False|pre=0	PosixPath('<ROOT>/gop_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=a|outdir=False|pre=0	[]
+audiotox	get_output_path	arg=mp4|resp=a|outdir=False|pre=1	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp4|resp=a|outdir=False|pre=1	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=a|outdir=False|pre=2	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp4|resp=a|outdir=False|pre=2	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=a|outdir=False|pre=3	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp4|resp=a|outdir=False|pre=3	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=a|outdir=False|pre=4	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp4|resp=a|outdir=False|pre=4	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=a|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=a|outdir=True|pre=0	[]
+audiotox	get_output_path	arg=mp4|resp=a|outdir=True|pre=1	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp4|resp=a|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=a|outdir=True|pre=2	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp4|resp=a|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=a|outdir=True|pre=3	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp4|resp=a|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=a|outdir=True|pre=4	EX:SystemExit(1)
+audiotox	get_output_path_prompt	arg=mp4|resp=a|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=Y|outdir=False|pre=0	PosixPath('<ROOT>/gop_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=False|pre=0	[]
+audiotox	get_output_path	arg=mp4|resp=Y|outdir=False|pre=1	PosixPath('<ROOT>/gop_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=False|pre=1	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=Y|outdir=False|pre=2	PosixPath('<ROOT>/gop_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=False|pre=2	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=Y|outdir=False|pre=3	PosixPath('<ROOT>/gop_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=False|pre=3	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=Y|outdir=False|pre=4	PosixPath('<ROOT>/gop_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=False|pre=4	['File exists: <ROOT>/gop_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=Y|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=True|pre=0	[]
+audiotox	get_output_path	arg=mp4|resp=Y|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=Y|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=Y|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audiotox	get_output_path	arg=mp4|resp=Y|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audiotox/song.mp4')
+audiotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audiotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	format_time	0.0	'0.0s'
+videotox	format_time	0.04	'0.0s'
+videotox	format_time	0.05	'0.1s'
+videotox	format_time	1.0	'1.0s'
+videotox	format_time	59.0	'59.0s'
+videotox	format_time	59.94	'59.9s'
+videotox	format_time	59.95	'60.0s'
+videotox	format_time	60.0	'1m 0s'
+videotox	format_time	60.5	'1m 0s'
+videotox	format_time	119.9	'1m 59s'
+videotox	format_time	3599.0	'59m 59s'
+videotox	format_time	3600.0	'60m 0s'
+videotox	format_time	3661.0	'61m 1s'
+videotox	format_time	86399.0	'1439m 59s'
+videotox	format_time	-1.0	'-1.0s'
+videotox	format_time	-60.0	'-60.0s'
+videotox	format_time	1000000000.0	'16666666m 40s'
+videotox	list_inputs	file	"[PosixPath(<ROOT>/tree_videotox/a.mp3)]"
+videotox	list_inputs	file_uppercase	"[PosixPath(<ROOT>/tree_videotox/B.MP3)]"
+videotox	list_inputs	file_unmatched_ext	"[PosixPath(<ROOT>/tree_videotox/i.txt)]"
+videotox	list_inputs	dir	"[PosixPath(<ROOT>/tree_videotox/f.mp4), PosixPath(<ROOT>/tree_videotox/g.MOV), PosixPath(<ROOT>/tree_videotox/h.mkv), PosixPath(<ROOT>/tree_videotox/nested/f.mp4), PosixPath(<ROOT>/tree_videotox/nested/g.MOV), PosixPath(<ROOT>/tree_videotox/nested/h.mkv)]"
+videotox	list_inputs	dir_nested	"[PosixPath(<ROOT>/tree_videotox/nested/f.mp4), PosixPath(<ROOT>/tree_videotox/nested/g.MOV), PosixPath(<ROOT>/tree_videotox/nested/h.mkv)]"
+videotox	list_inputs	dir_empty	[]
+videotox	list_inputs	missing	EX:SystemExit(1)
+videotox	collect_inputs	single_file	"[PosixPath(<ROOT>/tree_videotox/a.mp3)]"
+videotox	collect_inputs	two_files	"[PosixPath(<ROOT>/tree_videotox/a.mp3), PosixPath(<ROOT>/tree_videotox/c.wav)]"
+videotox	collect_inputs	duplicate_file	"[PosixPath(<ROOT>/tree_videotox/a.mp3)]"
+videotox	collect_inputs	dir_and_member	"[PosixPath(<ROOT>/tree_videotox/f.mp4), PosixPath(<ROOT>/tree_videotox/g.MOV), PosixPath(<ROOT>/tree_videotox/h.mkv), PosixPath(<ROOT>/tree_videotox/nested/f.mp4), PosixPath(<ROOT>/tree_videotox/nested/g.MOV), PosixPath(<ROOT>/tree_videotox/nested/h.mkv), PosixPath(<ROOT>/tree_videotox/a.mp3)]"
+videotox	collect_inputs	two_dirs	"[PosixPath(<ROOT>/tree_videotox/nested/f.mp4), PosixPath(<ROOT>/tree_videotox/nested/g.MOV), PosixPath(<ROOT>/tree_videotox/nested/h.mkv)]"
+videotox	collect_inputs	empty_list	[]
+videotox	collect_inputs	with_missing	EX:SystemExit(1)
+videotox	get_output_path	arg=mp3|resp=y|outdir=False|pre=0	PosixPath('<ROOT>/gop_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=y|outdir=False|pre=0	[]
+videotox	get_output_path	arg=mp3|resp=y|outdir=False|pre=1	PosixPath('<ROOT>/gop_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=y|outdir=False|pre=1	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=y|outdir=False|pre=2	PosixPath('<ROOT>/gop_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=y|outdir=False|pre=2	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=y|outdir=False|pre=3	PosixPath('<ROOT>/gop_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=y|outdir=False|pre=3	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=y|outdir=False|pre=4	PosixPath('<ROOT>/gop_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=y|outdir=False|pre=4	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=y|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=y|outdir=True|pre=0	[]
+videotox	get_output_path	arg=mp3|resp=y|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=y|outdir=True|pre=1	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=y|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=y|outdir=True|pre=2	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=y|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=y|outdir=True|pre=3	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=y|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=y|outdir=True|pre=4	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=n|outdir=False|pre=0	PosixPath('<ROOT>/gop_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=n|outdir=False|pre=0	[]
+videotox	get_output_path	arg=mp3|resp=n|outdir=False|pre=1	PosixPath('<ROOT>/gop_videotox/song_converted.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=n|outdir=False|pre=1	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=n|outdir=False|pre=2	PosixPath('<ROOT>/gop_videotox/song_converted_2.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=n|outdir=False|pre=2	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=n|outdir=False|pre=3	PosixPath('<ROOT>/gop_videotox/song_converted_3.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=n|outdir=False|pre=3	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=n|outdir=False|pre=4	PosixPath('<ROOT>/gop_videotox/song_converted_4.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=n|outdir=False|pre=4	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=n|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=n|outdir=True|pre=0	[]
+videotox	get_output_path	arg=mp3|resp=n|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_videotox/song_converted.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=n|outdir=True|pre=1	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=n|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_videotox/song_converted_2.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=n|outdir=True|pre=2	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=n|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_videotox/song_converted_3.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=n|outdir=True|pre=3	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=n|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_videotox/song_converted_4.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=n|outdir=True|pre=4	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=|outdir=False|pre=0	PosixPath('<ROOT>/gop_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=|outdir=False|pre=0	[]
+videotox	get_output_path	arg=mp3|resp=|outdir=False|pre=1	PosixPath('<ROOT>/gop_videotox/song_converted.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=|outdir=False|pre=1	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=|outdir=False|pre=2	PosixPath('<ROOT>/gop_videotox/song_converted_2.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=|outdir=False|pre=2	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=|outdir=False|pre=3	PosixPath('<ROOT>/gop_videotox/song_converted_3.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=|outdir=False|pre=3	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=|outdir=False|pre=4	PosixPath('<ROOT>/gop_videotox/song_converted_4.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=|outdir=False|pre=4	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=|outdir=True|pre=0	[]
+videotox	get_output_path	arg=mp3|resp=|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_videotox/song_converted.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=|outdir=True|pre=1	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_videotox/song_converted_2.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=|outdir=True|pre=2	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_videotox/song_converted_3.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=|outdir=True|pre=3	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_videotox/song_converted_4.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=|outdir=True|pre=4	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=a|outdir=False|pre=0	PosixPath('<ROOT>/gop_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=a|outdir=False|pre=0	[]
+videotox	get_output_path	arg=mp3|resp=a|outdir=False|pre=1	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp3|resp=a|outdir=False|pre=1	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=a|outdir=False|pre=2	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp3|resp=a|outdir=False|pre=2	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=a|outdir=False|pre=3	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp3|resp=a|outdir=False|pre=3	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=a|outdir=False|pre=4	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp3|resp=a|outdir=False|pre=4	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=a|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=a|outdir=True|pre=0	[]
+videotox	get_output_path	arg=mp3|resp=a|outdir=True|pre=1	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp3|resp=a|outdir=True|pre=1	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=a|outdir=True|pre=2	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp3|resp=a|outdir=True|pre=2	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=a|outdir=True|pre=3	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp3|resp=a|outdir=True|pre=3	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=a|outdir=True|pre=4	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp3|resp=a|outdir=True|pre=4	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=Y|outdir=False|pre=0	PosixPath('<ROOT>/gop_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=False|pre=0	[]
+videotox	get_output_path	arg=mp3|resp=Y|outdir=False|pre=1	PosixPath('<ROOT>/gop_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=False|pre=1	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=Y|outdir=False|pre=2	PosixPath('<ROOT>/gop_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=False|pre=2	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=Y|outdir=False|pre=3	PosixPath('<ROOT>/gop_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=False|pre=3	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=Y|outdir=False|pre=4	PosixPath('<ROOT>/gop_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=False|pre=4	['File exists: <ROOT>/gop_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=Y|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=True|pre=0	[]
+videotox	get_output_path	arg=mp3|resp=Y|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=True|pre=1	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=Y|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=True|pre=2	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=Y|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=True|pre=3	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp3|resp=Y|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_videotox/song.mp3')
+videotox	get_output_path_prompt	arg=mp3|resp=Y|outdir=True|pre=4	['File exists: <ROOT>/gop_out_videotox/song.mp3\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=y|outdir=False|pre=0	PosixPath('<ROOT>/gop_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=y|outdir=False|pre=0	[]
+videotox	get_output_path	arg=mp4|resp=y|outdir=False|pre=1	PosixPath('<ROOT>/gop_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=y|outdir=False|pre=1	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=y|outdir=False|pre=2	PosixPath('<ROOT>/gop_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=y|outdir=False|pre=2	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=y|outdir=False|pre=3	PosixPath('<ROOT>/gop_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=y|outdir=False|pre=3	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=y|outdir=False|pre=4	PosixPath('<ROOT>/gop_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=y|outdir=False|pre=4	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=y|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=y|outdir=True|pre=0	[]
+videotox	get_output_path	arg=mp4|resp=y|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=y|outdir=True|pre=1	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=y|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=y|outdir=True|pre=2	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=y|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=y|outdir=True|pre=3	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=y|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=y|outdir=True|pre=4	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=n|outdir=False|pre=0	PosixPath('<ROOT>/gop_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=n|outdir=False|pre=0	[]
+videotox	get_output_path	arg=mp4|resp=n|outdir=False|pre=1	PosixPath('<ROOT>/gop_videotox/song_converted.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=n|outdir=False|pre=1	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=n|outdir=False|pre=2	PosixPath('<ROOT>/gop_videotox/song_converted_2.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=n|outdir=False|pre=2	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=n|outdir=False|pre=3	PosixPath('<ROOT>/gop_videotox/song_converted_3.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=n|outdir=False|pre=3	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=n|outdir=False|pre=4	PosixPath('<ROOT>/gop_videotox/song_converted_4.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=n|outdir=False|pre=4	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=n|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=n|outdir=True|pre=0	[]
+videotox	get_output_path	arg=mp4|resp=n|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_videotox/song_converted.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=n|outdir=True|pre=1	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=n|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_videotox/song_converted_2.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=n|outdir=True|pre=2	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=n|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_videotox/song_converted_3.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=n|outdir=True|pre=3	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=n|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_videotox/song_converted_4.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=n|outdir=True|pre=4	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=|outdir=False|pre=0	PosixPath('<ROOT>/gop_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=|outdir=False|pre=0	[]
+videotox	get_output_path	arg=mp4|resp=|outdir=False|pre=1	PosixPath('<ROOT>/gop_videotox/song_converted.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=|outdir=False|pre=1	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=|outdir=False|pre=2	PosixPath('<ROOT>/gop_videotox/song_converted_2.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=|outdir=False|pre=2	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=|outdir=False|pre=3	PosixPath('<ROOT>/gop_videotox/song_converted_3.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=|outdir=False|pre=3	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=|outdir=False|pre=4	PosixPath('<ROOT>/gop_videotox/song_converted_4.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=|outdir=False|pre=4	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=|outdir=True|pre=0	[]
+videotox	get_output_path	arg=mp4|resp=|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_videotox/song_converted.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=|outdir=True|pre=1	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_videotox/song_converted_2.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=|outdir=True|pre=2	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_videotox/song_converted_3.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=|outdir=True|pre=3	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_videotox/song_converted_4.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=|outdir=True|pre=4	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=a|outdir=False|pre=0	PosixPath('<ROOT>/gop_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=a|outdir=False|pre=0	[]
+videotox	get_output_path	arg=mp4|resp=a|outdir=False|pre=1	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp4|resp=a|outdir=False|pre=1	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=a|outdir=False|pre=2	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp4|resp=a|outdir=False|pre=2	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=a|outdir=False|pre=3	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp4|resp=a|outdir=False|pre=3	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=a|outdir=False|pre=4	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp4|resp=a|outdir=False|pre=4	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=a|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=a|outdir=True|pre=0	[]
+videotox	get_output_path	arg=mp4|resp=a|outdir=True|pre=1	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp4|resp=a|outdir=True|pre=1	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=a|outdir=True|pre=2	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp4|resp=a|outdir=True|pre=2	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=a|outdir=True|pre=3	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp4|resp=a|outdir=True|pre=3	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=a|outdir=True|pre=4	EX:SystemExit(1)
+videotox	get_output_path_prompt	arg=mp4|resp=a|outdir=True|pre=4	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=Y|outdir=False|pre=0	PosixPath('<ROOT>/gop_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=False|pre=0	[]
+videotox	get_output_path	arg=mp4|resp=Y|outdir=False|pre=1	PosixPath('<ROOT>/gop_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=False|pre=1	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=Y|outdir=False|pre=2	PosixPath('<ROOT>/gop_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=False|pre=2	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=Y|outdir=False|pre=3	PosixPath('<ROOT>/gop_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=False|pre=3	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=Y|outdir=False|pre=4	PosixPath('<ROOT>/gop_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=False|pre=4	['File exists: <ROOT>/gop_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=Y|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=True|pre=0	[]
+videotox	get_output_path	arg=mp4|resp=Y|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=True|pre=1	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=Y|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=True|pre=2	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=Y|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=True|pre=3	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+videotox	get_output_path	arg=mp4|resp=Y|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_videotox/song.mp4')
+videotox	get_output_path_prompt	arg=mp4|resp=Y|outdir=True|pre=4	['File exists: <ROOT>/gop_out_videotox/song.mp4\nOverwrite? [y/N/a] (N=add _converted, a=abort): ']
+audioboost	format_time	0.0	'0.0s'
+audioboost	format_time	0.04	'0.0s'
+audioboost	format_time	0.05	'0.1s'
+audioboost	format_time	1.0	'1.0s'
+audioboost	format_time	59.0	'59.0s'
+audioboost	format_time	59.94	'59.9s'
+audioboost	format_time	59.95	'60.0s'
+audioboost	format_time	60.0	'1m 0s'
+audioboost	format_time	60.5	'1m 0s'
+audioboost	format_time	119.9	'1m 59s'
+audioboost	format_time	3599.0	'59m 59s'
+audioboost	format_time	3600.0	'60m 0s'
+audioboost	format_time	3661.0	'61m 1s'
+audioboost	format_time	86399.0	'1439m 59s'
+audioboost	format_time	-1.0	'-1.0s'
+audioboost	format_time	-60.0	'-60.0s'
+audioboost	format_time	1000000000.0	'16666666m 40s'
+audioboost	list_inputs	file	"[PosixPath(<ROOT>/tree_audioboost/a.mp3)]"
+audioboost	list_inputs	file_uppercase	"[PosixPath(<ROOT>/tree_audioboost/B.MP3)]"
+audioboost	list_inputs	file_unmatched_ext	"[PosixPath(<ROOT>/tree_audioboost/i.txt)]"
+audioboost	list_inputs	dir	"[PosixPath(<ROOT>/tree_audioboost/B.MP3), PosixPath(<ROOT>/tree_audioboost/a.mp3), PosixPath(<ROOT>/tree_audioboost/c.wav), PosixPath(<ROOT>/tree_audioboost/d.WAV), PosixPath(<ROOT>/tree_audioboost/e.flac), PosixPath(<ROOT>/tree_audioboost/nested/B.MP3), PosixPath(<ROOT>/tree_audioboost/nested/a.mp3), PosixPath(<ROOT>/tree_audioboost/nested/c.wav), PosixPath(<ROOT>/tree_audioboost/nested/d.WAV), PosixPath(<ROOT>/tree_audioboost/nested/deep/z.mp3), PosixPath(<ROOT>/tree_audioboost/nested/e.flac)]"
+audioboost	list_inputs	dir_nested	"[PosixPath(<ROOT>/tree_audioboost/nested/B.MP3), PosixPath(<ROOT>/tree_audioboost/nested/a.mp3), PosixPath(<ROOT>/tree_audioboost/nested/c.wav), PosixPath(<ROOT>/tree_audioboost/nested/d.WAV), PosixPath(<ROOT>/tree_audioboost/nested/deep/z.mp3), PosixPath(<ROOT>/tree_audioboost/nested/e.flac)]"
+audioboost	list_inputs	dir_empty	[]
+audioboost	list_inputs	missing	EX:SystemExit(1)
+audioboost	collect_inputs	single_file	"[PosixPath(<ROOT>/tree_audioboost/a.mp3)]"
+audioboost	collect_inputs	two_files	"[PosixPath(<ROOT>/tree_audioboost/a.mp3), PosixPath(<ROOT>/tree_audioboost/c.wav)]"
+audioboost	collect_inputs	duplicate_file	"[PosixPath(<ROOT>/tree_audioboost/a.mp3)]"
+audioboost	collect_inputs	dir_and_member	"[PosixPath(<ROOT>/tree_audioboost/B.MP3), PosixPath(<ROOT>/tree_audioboost/a.mp3), PosixPath(<ROOT>/tree_audioboost/c.wav), PosixPath(<ROOT>/tree_audioboost/d.WAV), PosixPath(<ROOT>/tree_audioboost/e.flac), PosixPath(<ROOT>/tree_audioboost/nested/B.MP3), PosixPath(<ROOT>/tree_audioboost/nested/a.mp3), PosixPath(<ROOT>/tree_audioboost/nested/c.wav), PosixPath(<ROOT>/tree_audioboost/nested/d.WAV), PosixPath(<ROOT>/tree_audioboost/nested/deep/z.mp3), PosixPath(<ROOT>/tree_audioboost/nested/e.flac)]"
+audioboost	collect_inputs	two_dirs	"[PosixPath(<ROOT>/tree_audioboost/nested/B.MP3), PosixPath(<ROOT>/tree_audioboost/nested/a.mp3), PosixPath(<ROOT>/tree_audioboost/nested/c.wav), PosixPath(<ROOT>/tree_audioboost/nested/d.WAV), PosixPath(<ROOT>/tree_audioboost/nested/deep/z.mp3), PosixPath(<ROOT>/tree_audioboost/nested/e.flac)]"
+audioboost	collect_inputs	empty_list	[]
+audioboost	collect_inputs	with_missing	EX:SystemExit(1)
+audioboost	get_output_path	arg=_boosted|resp=y|outdir=False|pre=0	PosixPath('<ROOT>/gop_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=y|outdir=False|pre=0	[]
+audioboost	get_output_path	arg=_boosted|resp=y|outdir=False|pre=1	PosixPath('<ROOT>/gop_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=y|outdir=False|pre=1	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=y|outdir=False|pre=2	PosixPath('<ROOT>/gop_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=y|outdir=False|pre=2	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=y|outdir=False|pre=3	PosixPath('<ROOT>/gop_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=y|outdir=False|pre=3	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=y|outdir=False|pre=4	PosixPath('<ROOT>/gop_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=y|outdir=False|pre=4	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=y|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=y|outdir=True|pre=0	[]
+audioboost	get_output_path	arg=_boosted|resp=y|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=y|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=y|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=y|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=y|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=y|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=y|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=y|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=n|outdir=False|pre=0	PosixPath('<ROOT>/gop_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=n|outdir=False|pre=0	[]
+audioboost	get_output_path	arg=_boosted|resp=n|outdir=False|pre=1	PosixPath('<ROOT>/gop_audioboost/song_boosted_2.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=n|outdir=False|pre=1	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=n|outdir=False|pre=2	PosixPath('<ROOT>/gop_audioboost/song_boosted_3.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=n|outdir=False|pre=2	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=n|outdir=False|pre=3	PosixPath('<ROOT>/gop_audioboost/song_boosted_4.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=n|outdir=False|pre=3	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=n|outdir=False|pre=4	PosixPath('<ROOT>/gop_audioboost/song_boosted_5.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=n|outdir=False|pre=4	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=n|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=n|outdir=True|pre=0	[]
+audioboost	get_output_path	arg=_boosted|resp=n|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audioboost/song_boosted_2.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=n|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=n|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audioboost/song_boosted_3.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=n|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=n|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audioboost/song_boosted_4.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=n|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=n|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audioboost/song_boosted_5.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=n|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=|outdir=False|pre=0	PosixPath('<ROOT>/gop_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=|outdir=False|pre=0	[]
+audioboost	get_output_path	arg=_boosted|resp=|outdir=False|pre=1	PosixPath('<ROOT>/gop_audioboost/song_boosted_2.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=|outdir=False|pre=1	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=|outdir=False|pre=2	PosixPath('<ROOT>/gop_audioboost/song_boosted_3.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=|outdir=False|pre=2	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=|outdir=False|pre=3	PosixPath('<ROOT>/gop_audioboost/song_boosted_4.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=|outdir=False|pre=3	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=|outdir=False|pre=4	PosixPath('<ROOT>/gop_audioboost/song_boosted_5.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=|outdir=False|pre=4	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=|outdir=True|pre=0	[]
+audioboost	get_output_path	arg=_boosted|resp=|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audioboost/song_boosted_2.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audioboost/song_boosted_3.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audioboost/song_boosted_4.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audioboost/song_boosted_5.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=a|outdir=False|pre=0	PosixPath('<ROOT>/gop_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=a|outdir=False|pre=0	[]
+audioboost	get_output_path	arg=_boosted|resp=a|outdir=False|pre=1	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_boosted|resp=a|outdir=False|pre=1	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=a|outdir=False|pre=2	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_boosted|resp=a|outdir=False|pre=2	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=a|outdir=False|pre=3	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_boosted|resp=a|outdir=False|pre=3	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=a|outdir=False|pre=4	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_boosted|resp=a|outdir=False|pre=4	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=a|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=a|outdir=True|pre=0	[]
+audioboost	get_output_path	arg=_boosted|resp=a|outdir=True|pre=1	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_boosted|resp=a|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=a|outdir=True|pre=2	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_boosted|resp=a|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=a|outdir=True|pre=3	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_boosted|resp=a|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=a|outdir=True|pre=4	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_boosted|resp=a|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=Y|outdir=False|pre=0	PosixPath('<ROOT>/gop_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=Y|outdir=False|pre=0	[]
+audioboost	get_output_path	arg=_boosted|resp=Y|outdir=False|pre=1	PosixPath('<ROOT>/gop_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=Y|outdir=False|pre=1	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=Y|outdir=False|pre=2	PosixPath('<ROOT>/gop_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=Y|outdir=False|pre=2	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=Y|outdir=False|pre=3	PosixPath('<ROOT>/gop_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=Y|outdir=False|pre=3	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=Y|outdir=False|pre=4	PosixPath('<ROOT>/gop_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=Y|outdir=False|pre=4	['File exists: <ROOT>/gop_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=Y|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=Y|outdir=True|pre=0	[]
+audioboost	get_output_path	arg=_boosted|resp=Y|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=Y|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=Y|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=Y|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=Y|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=Y|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_boosted|resp=Y|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audioboost/song_boosted.wav')
+audioboost	get_output_path_prompt	arg=_boosted|resp=Y|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audioboost/song_boosted.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=y|outdir=False|pre=0	PosixPath('<ROOT>/gop_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=y|outdir=False|pre=0	[]
+audioboost	get_output_path	arg=_x|resp=y|outdir=False|pre=1	PosixPath('<ROOT>/gop_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=y|outdir=False|pre=1	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=y|outdir=False|pre=2	PosixPath('<ROOT>/gop_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=y|outdir=False|pre=2	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=y|outdir=False|pre=3	PosixPath('<ROOT>/gop_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=y|outdir=False|pre=3	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=y|outdir=False|pre=4	PosixPath('<ROOT>/gop_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=y|outdir=False|pre=4	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=y|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=y|outdir=True|pre=0	[]
+audioboost	get_output_path	arg=_x|resp=y|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=y|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=y|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=y|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=y|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=y|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=y|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=y|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=n|outdir=False|pre=0	PosixPath('<ROOT>/gop_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=n|outdir=False|pre=0	[]
+audioboost	get_output_path	arg=_x|resp=n|outdir=False|pre=1	PosixPath('<ROOT>/gop_audioboost/song_x_2.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=n|outdir=False|pre=1	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=n|outdir=False|pre=2	PosixPath('<ROOT>/gop_audioboost/song_x_3.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=n|outdir=False|pre=2	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=n|outdir=False|pre=3	PosixPath('<ROOT>/gop_audioboost/song_x_4.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=n|outdir=False|pre=3	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=n|outdir=False|pre=4	PosixPath('<ROOT>/gop_audioboost/song_x_5.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=n|outdir=False|pre=4	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=n|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=n|outdir=True|pre=0	[]
+audioboost	get_output_path	arg=_x|resp=n|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audioboost/song_x_2.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=n|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=n|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audioboost/song_x_3.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=n|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=n|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audioboost/song_x_4.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=n|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=n|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audioboost/song_x_5.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=n|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=|outdir=False|pre=0	PosixPath('<ROOT>/gop_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=|outdir=False|pre=0	[]
+audioboost	get_output_path	arg=_x|resp=|outdir=False|pre=1	PosixPath('<ROOT>/gop_audioboost/song_x_2.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=|outdir=False|pre=1	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=|outdir=False|pre=2	PosixPath('<ROOT>/gop_audioboost/song_x_3.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=|outdir=False|pre=2	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=|outdir=False|pre=3	PosixPath('<ROOT>/gop_audioboost/song_x_4.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=|outdir=False|pre=3	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=|outdir=False|pre=4	PosixPath('<ROOT>/gop_audioboost/song_x_5.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=|outdir=False|pre=4	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=|outdir=True|pre=0	[]
+audioboost	get_output_path	arg=_x|resp=|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audioboost/song_x_2.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audioboost/song_x_3.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audioboost/song_x_4.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audioboost/song_x_5.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=a|outdir=False|pre=0	PosixPath('<ROOT>/gop_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=a|outdir=False|pre=0	[]
+audioboost	get_output_path	arg=_x|resp=a|outdir=False|pre=1	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_x|resp=a|outdir=False|pre=1	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=a|outdir=False|pre=2	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_x|resp=a|outdir=False|pre=2	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=a|outdir=False|pre=3	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_x|resp=a|outdir=False|pre=3	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=a|outdir=False|pre=4	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_x|resp=a|outdir=False|pre=4	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=a|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=a|outdir=True|pre=0	[]
+audioboost	get_output_path	arg=_x|resp=a|outdir=True|pre=1	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_x|resp=a|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=a|outdir=True|pre=2	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_x|resp=a|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=a|outdir=True|pre=3	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_x|resp=a|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=a|outdir=True|pre=4	EX:SystemExit(1)
+audioboost	get_output_path_prompt	arg=_x|resp=a|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=Y|outdir=False|pre=0	PosixPath('<ROOT>/gop_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=Y|outdir=False|pre=0	[]
+audioboost	get_output_path	arg=_x|resp=Y|outdir=False|pre=1	PosixPath('<ROOT>/gop_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=Y|outdir=False|pre=1	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=Y|outdir=False|pre=2	PosixPath('<ROOT>/gop_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=Y|outdir=False|pre=2	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=Y|outdir=False|pre=3	PosixPath('<ROOT>/gop_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=Y|outdir=False|pre=3	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=Y|outdir=False|pre=4	PosixPath('<ROOT>/gop_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=Y|outdir=False|pre=4	['File exists: <ROOT>/gop_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=Y|outdir=True|pre=0	PosixPath('<ROOT>/gop_out_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=Y|outdir=True|pre=0	[]
+audioboost	get_output_path	arg=_x|resp=Y|outdir=True|pre=1	PosixPath('<ROOT>/gop_out_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=Y|outdir=True|pre=1	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=Y|outdir=True|pre=2	PosixPath('<ROOT>/gop_out_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=Y|outdir=True|pre=2	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=Y|outdir=True|pre=3	PosixPath('<ROOT>/gop_out_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=Y|outdir=True|pre=3	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']
+audioboost	get_output_path	arg=_x|resp=Y|outdir=True|pre=4	PosixPath('<ROOT>/gop_out_audioboost/song_x.wav')
+audioboost	get_output_path_prompt	arg=_x|resp=Y|outdir=True|pre=4	['File exists: <ROOT>/gop_out_audioboost/song_x.wav\nOverwrite? [y/N/a] (N=add _boosted, a=abort): ']

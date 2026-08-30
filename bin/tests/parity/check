@@ -1,0 +1,49 @@
+#!/bin/bash
+set -uo pipefail
+
+# Replays the frozen pre-refactor contracts against medialib and imagelib.
+# Exits non-zero on any divergence other than the ones ACCEPTED_* names.
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+# audioboost's conflict prompt used to hardcode "N=add _boosted" while honouring
+# whatever --suffix asked for. It now names the real suffix, so these rows differ
+# on purpose. See the commit that introduced medialib.
+ACCEPTED_MEDIALIB='audioboost\tget_output_path_prompt\targ=_x'
+
+status=0
+
+run() {
+    local name="$1" accepted="$2"
+    mkdir -p "$WORK/$name"
+    if ! python3 "$HERE/${name}_parity.py" "$WORK/$name" "$WORK/$name.txt" 2>"$WORK/$name.err"; then
+        echo "FAIL $name: harness errored"
+        cat "$WORK/$name.err"
+        status=1
+        return
+    fi
+
+    local differing unexpected
+    differing=$(diff "$HERE/$name.golden" "$WORK/$name.txt" | grep '^[<>]')
+    if [ -n "$accepted" ]; then
+        unexpected=$(printf '%s\n' "$differing" | grep -vP "$accepted")
+    else
+        unexpected="$differing"
+    fi
+    unexpected=$(printf '%s' "$unexpected" | grep -v '^$')
+
+    if [ -n "$unexpected" ]; then
+        echo "FAIL $name: diverged from the frozen contract"
+        echo "$unexpected"
+        status=1
+    else
+        echo "ok   $name ($(grep -c . "$HERE/$name.golden") frozen rows)"
+    fi
+}
+
+run medialib "$ACCEPTED_MEDIALIB"
+run imagelib ""
+
+exit $status

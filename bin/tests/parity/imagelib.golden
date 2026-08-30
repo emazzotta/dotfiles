@@ -1,0 +1,27 @@
+# rows: 26
+imgtox	find_image_files	tree	['<R>/tree/two.dots.jpg', '<R>/tree/.hidden.jpg', '<R>/tree/plain.jpg', '<R>/tree/uniè.jpg', '<R>/tree/with space.jpg', '<R>/tree/sub/nested.jpg', '<R>/tree/sub/.hid/deep.jpg', '<R>/tree/a.jpeg', '<R>/tree/b.png', '<R>/tree/sub/.hidden_nested.png', '<R>/tree/c.gif', '<R>/tree/d.bmp', '<R>/tree/e.tiff', '<R>/tree/f.webp', '<R>/tree/g.svg', '<R>/tree/h.heic', '<R>/tree/sub/deep/deeper/way.heic', '<R>/tree/UPPER.JPG', '<R>/tree/i.HEIC']
+imgtox	find_image_files	sub	['<R>/tree/sub/nested.jpg', '<R>/tree/sub/.hid/deep.jpg', '<R>/tree/sub/.hidden_nested.png', '<R>/tree/sub/deep/deeper/way.heic']
+imgtox	find_image_files	hidden_dir	['<R>/tree/sub/.hid/deep.jpg']
+imgtox	find_image_files	empty	[]
+imgtox	collect_input_files	single_file	['<R>/tree/plain.jpg']
+imgtox	collect_input_files	file_and_dir	['<R>/tree/plain.jpg', '<R>/tree/sub/nested.jpg', '<R>/tree/sub/.hid/deep.jpg', '<R>/tree/sub/.hidden_nested.png', '<R>/tree/sub/deep/deeper/way.heic']
+imgtox	collect_input_files	dir_twice	['<R>/tree/sub/nested.jpg', '<R>/tree/sub/.hid/deep.jpg', '<R>/tree/sub/.hidden_nested.png', '<R>/tree/sub/deep/deeper/way.heic']
+imgtox	collect_input_files	dir_and_member	['<R>/tree/two.dots.jpg', '<R>/tree/.hidden.jpg', '<R>/tree/plain.jpg', '<R>/tree/uniè.jpg', '<R>/tree/with space.jpg', '<R>/tree/sub/nested.jpg', '<R>/tree/sub/.hid/deep.jpg', '<R>/tree/a.jpeg', '<R>/tree/b.png', '<R>/tree/sub/.hidden_nested.png', '<R>/tree/c.gif', '<R>/tree/d.bmp', '<R>/tree/e.tiff', '<R>/tree/f.webp', '<R>/tree/g.svg', '<R>/tree/h.heic', '<R>/tree/sub/deep/deeper/way.heic', '<R>/tree/UPPER.JPG', '<R>/tree/i.HEIC']
+imgtox	collect_input_files	unlisted_ext_file	['<R>/tree/j.txt']
+imgtox	collect_input_files	empty_dir	[]
+imgtox	collect_input_files	no_inputs	[]
+imgtox	collect_input_files	missing	EX:SystemExit(1)
+imgtox	collect_input_files	file_then_missing	EX:SystemExit(1)
+imgcompress	find_image_files	tree	['<R>/tree/two.dots.jpg', '<R>/tree/.hidden.jpg', '<R>/tree/plain.jpg', '<R>/tree/uniè.jpg', '<R>/tree/with space.jpg', '<R>/tree/sub/nested.jpg', '<R>/tree/sub/.hid/deep.jpg', '<R>/tree/a.jpeg', '<R>/tree/b.png', '<R>/tree/sub/.hidden_nested.png', '<R>/tree/f.webp', '<R>/tree/e.tiff', '<R>/tree/d.bmp', '<R>/tree/h.heic', '<R>/tree/sub/deep/deeper/way.heic', '<R>/tree/UPPER.JPG', '<R>/tree/i.HEIC']
+imgcompress	find_image_files	sub	['<R>/tree/sub/nested.jpg', '<R>/tree/sub/.hid/deep.jpg', '<R>/tree/sub/.hidden_nested.png', '<R>/tree/sub/deep/deeper/way.heic']
+imgcompress	find_image_files	hidden_dir	['<R>/tree/sub/.hid/deep.jpg']
+imgcompress	find_image_files	empty	[]
+imgcompress	collect_input_files	single_file	['<R>/tree/plain.jpg']
+imgcompress	collect_input_files	file_and_dir	['<R>/tree/plain.jpg', '<R>/tree/sub/nested.jpg', '<R>/tree/sub/.hid/deep.jpg', '<R>/tree/sub/.hidden_nested.png', '<R>/tree/sub/deep/deeper/way.heic']
+imgcompress	collect_input_files	dir_twice	['<R>/tree/sub/nested.jpg', '<R>/tree/sub/.hid/deep.jpg', '<R>/tree/sub/.hidden_nested.png', '<R>/tree/sub/deep/deeper/way.heic']
+imgcompress	collect_input_files	dir_and_member	['<R>/tree/two.dots.jpg', '<R>/tree/.hidden.jpg', '<R>/tree/plain.jpg', '<R>/tree/uniè.jpg', '<R>/tree/with space.jpg', '<R>/tree/sub/nested.jpg', '<R>/tree/sub/.hid/deep.jpg', '<R>/tree/a.jpeg', '<R>/tree/b.png', '<R>/tree/sub/.hidden_nested.png', '<R>/tree/f.webp', '<R>/tree/e.tiff', '<R>/tree/d.bmp', '<R>/tree/h.heic', '<R>/tree/sub/deep/deeper/way.heic', '<R>/tree/UPPER.JPG', '<R>/tree/i.HEIC']
+imgcompress	collect_input_files	unlisted_ext_file	['<R>/tree/j.txt']
+imgcompress	collect_input_files	empty_dir	[]
+imgcompress	collect_input_files	no_inputs	[]
+imgcompress	collect_input_files	missing	EX:SystemExit(1)
+imgcompress	collect_input_files	file_then_missing	EX:SystemExit(1)
