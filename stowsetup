@@ -86,13 +86,15 @@ stow_packages() {
 }
 
 # gpakosz ships .tmux.conf in its own clone and expects a link to it; this repo
-# tracks only the .tmux.conf.local half that stow places.
+# tracks only the .tmux.conf.local half that stow places. Relative, like stow's
+# own links: the opencode container seeds a HOME under one path and mounts it at
+# another, and an absolute link would point at the staging path afterwards.
 link_tmux_conf() {
     if [ -e "$HOME/.tmux.conf" ] && [ ! -L "$HOME/.tmux.conf" ]; then
         printf '%s\n' "stowsetup: ~/.tmux.conf is a real file, leaving it alone" >&2
         return 0
     fi
-    ln -sf "$HOME/.tmux/.tmux.conf" "$HOME/.tmux.conf"
+    ln -sfn .tmux/.tmux.conf "$HOME/.tmux.conf"
 }
 
 main() {
