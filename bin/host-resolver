@@ -11,11 +11,23 @@ import time
 from collections.abc import Iterator
 from typing import Final
 
+import privateconf
+
 RESOLVE_TIMEOUT_MS: Final = 150
 IS_DARWIN: Final = platform.system() == "Darwin"
-HOSTS: Final[dict[str, tuple[str, ...]]] = {
-    "ci-macmini": ("ci-macmini.dyn.leonardo.local", "Mac-mini-von-Andreas.local"),
-}
+
+
+def parse_host_aliases(spec: str) -> dict[str, tuple[str, ...]]:
+    hosts = {}
+    for entry in spec.split(";"):
+        short_name, separator, aliases = entry.strip().partition(":")
+        resolved = tuple(alias.strip() for alias in aliases.split(",") if alias.strip())
+        if separator and short_name and resolved:
+            hosts[short_name] = resolved
+    return hosts
+
+
+HOSTS: Final[dict[str, tuple[str, ...]]] = parse_host_aliases(privateconf.value("HOST_ALIASES"))
 
 
 def resolve_ips(hostname: str, timeout_ms: float, dns_server: str | None = None) -> tuple[str, ...]:
@@ -108,8 +120,8 @@ def main() -> None:
         ),
         epilog=(
             "examples:\n"
-            "  # built-in short name from the HOSTS map\n"
-            "  host-resolver ci-macmini\n"
+            "  # short name from HOST_ALIASES in the private config\n"
+            "  host-resolver my-ci-box\n"
             "\n"
             "  # arbitrary hostname via system resolver (returns v4 or v6)\n"
             "  host-resolver one.one.one.one\n"
@@ -129,7 +141,7 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("host",
-                        help="short name from the built-in HOSTS map, or any hostname/IP (v4 or v6) to resolve directly")
+                        help="short name from HOST_ALIASES, or any hostname/IP (v4 or v6) to resolve directly")
     parser.add_argument("-t", "--timeout", type=float, default=RESOLVE_TIMEOUT_MS, metavar="MS",
                         help=f"per-address resolution and ping timeout in milliseconds (default: {RESOLVE_TIMEOUT_MS})")
     parser.add_argument("-f", "--fallback-ip", default=None, metavar="IP",

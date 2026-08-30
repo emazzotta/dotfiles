@@ -15,6 +15,12 @@ exit_or_return() {
     fi
 }
 
+PRIVATE_ENV="${DOTFILES_PRIVATE_ENV:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/private.env}"
+if [ -f "$PRIVATE_ENV" ]; then
+    # shellcheck disable=SC1090
+    source "$PRIVATE_ENV"
+fi
+
 export AD_ACCOUNT_KEYCHAIN_NAME="LeonardoActiveDirectoryUsername"
 
 ensure_credentials_exist() {
@@ -71,12 +77,16 @@ export AD_PASSWORD_NAME="LeonardoActiveDirectory:$AD_ACCOUNT"
 
 export VPN_SHARED_SECRET_NAME="LeonardoVPNSecret"
 
-export NETWORK_DRIVE_FOLDER="Daten"
-export NETWORK_DRIVE_SERVER_IP=192.168.5.155
+if [ -z "${NETWORK_DRIVE_SERVER_IP:-}" ] || [ -z "${VM_DRIVE_MOUNT_POINT:-}" ]; then
+    echo "Error: NETWORK_DRIVE_SERVER_IP and VM_DRIVE_MOUNT_POINT must be set in $PRIVATE_ENV" >&2
+    exit_or_return 1
+fi
+
+export NETWORK_DRIVE_FOLDER="${NETWORK_DRIVE_FOLDER:-Daten}"
+export NETWORK_DRIVE_SERVER_IP
 export NETWORK_DRIVE_FULL_URL="smb://$AD_ACCOUNT@$NETWORK_DRIVE_SERVER_IP/$NETWORK_DRIVE_FOLDER"
 export NETWORK_DRIVE_MOUNT_POINT="$HOME/$NETWORK_DRIVE_FOLDER"
-
-export VM_DRIVE_MOUNT_POINT="smb://admin@192.168.5.7:4445/Devserver-Windows-VM"
+export VM_DRIVE_MOUNT_POINT
 
 ensure_passwords_exist() {
     add_password_to_keychain "$AD_ACCOUNT" "$AD_PASSWORD_NAME"

@@ -1,8 +1,14 @@
 import pytest
 
 
+NETWORK_DRIVE_SERVER = "fileserver.test"
+
+
 @pytest.fixture
-def leopath(load_script):
+def leopath(load_script, tmp_path, monkeypatch):
+    config = tmp_path / "private.env"
+    config.write_text(f"NETWORK_DRIVE_SERVER_IP={NETWORK_DRIVE_SERVER}\n")
+    monkeypatch.setenv("DOTFILES_PRIVATE_ENV", str(config))
     return load_script("leopath")
 
 
@@ -12,11 +18,11 @@ TEST_CASES = [
                  "K:\\Daten\\Bereich_Informatik\\PROJEKTE\\file.leon", id="k_drive_without_daten"),
     pytest.param("K:\\Daten\\Bereich_Informatik\\PROJEKTE\\file.leon",
                  "K:\\Daten\\Bereich_Informatik\\PROJEKTE\\file.leon", id="k_drive_with_daten"),
-    pytest.param("\\\\192.168.5.155\\Bereich_Informatik\\PROJEKTE\\file.leon",
+    pytest.param(f"\\\\{NETWORK_DRIVE_SERVER}\\Bereich_Informatik\\PROJEKTE\\file.leon",
                  "K:\\Daten\\Bereich_Informatik\\PROJEKTE\\file.leon", id="unc_path_without_daten"),
-    pytest.param("\\192.168.5.155\\Bereich_Informatik\\PROJEKTE\\file.leon",
+    pytest.param(f"\\{NETWORK_DRIVE_SERVER}\\Bereich_Informatik\\PROJEKTE\\file.leon",
                  "K:\\Daten\\Bereich_Informatik\\PROJEKTE\\file.leon", id="unc_path_single_slash"),
-    pytest.param("\\\\192.168.5.155\\Daten\\Bereich_Informatik\\PROJEKTE\\file.leon",
+    pytest.param(f"\\\\{NETWORK_DRIVE_SERVER}\\Daten\\Bereich_Informatik\\PROJEKTE\\file.leon",
                  "K:\\Daten\\Bereich_Informatik\\PROJEKTE\\file.leon", id="unc_path_with_daten"),
     pytest.param("C:\\emanuelemazzotta\\windows_mount\\Daten\\Bereich_Informatik\\file.leon",
                  "K:\\Daten\\Bereich_Informatik\\file.leon", id="c_drive_with_daten"),
@@ -60,5 +66,5 @@ def test_normalize_path_home_daten(leopath, suffix, expected):
 
 @pytest.mark.parametrize("invalid_path", INVALID_CASES)
 def test_normalize_path_raises_error(leopath, invalid_path):
-    with pytest.raises(ValueError, match="Path must contain 'Daten' or start with K: or 192.168.5.155"):
+    with pytest.raises(ValueError, match="Path must contain 'Daten', start with K:, or start with the network drive server"):
         leopath.normalize_path(invalid_path)

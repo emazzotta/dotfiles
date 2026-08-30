@@ -5,8 +5,14 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 
+HOST_ALIASES = "ci-host:ci-host.example.test,ci-host-local.test"
+
+
 @pytest.fixture
-def mod(load_script):
+def mod(load_script, tmp_path, monkeypatch):
+    config = tmp_path / "private.env"
+    config.write_text(f"HOST_ALIASES={HOST_ALIASES}\n")
+    monkeypatch.setenv("DOTFILES_PRIVATE_ENV", str(config))
     return load_script("host-resolver")
 
 
@@ -55,9 +61,18 @@ class TestEnforceTimeout:
 
 
 class TestHostsLookup:
-    def test_known_host_has_aliases(self, mod):
-        assert "ci-macmini" in mod.HOSTS
-        assert len(mod.HOSTS["ci-macmini"]) >= 1
+    def test_should_expose_aliases_from_the_private_config(self, mod):
+        assert mod.HOSTS["ci-host"] == ("ci-host.example.test", "ci-host-local.test")
+
+    def test_should_parse_several_hosts(self, mod):
+        assert mod.parse_host_aliases("a:a1.test,a2.test;b:b1.test") == {
+            "a": ("a1.test", "a2.test"), "b": ("b1.test",)}
+
+    def test_should_return_empty_mapping_when_unconfigured(self, mod):
+        assert mod.parse_host_aliases("") == {}
+
+    def test_should_skip_entries_without_a_name_or_aliases(self, mod):
+        assert mod.parse_host_aliases(":a1.test;b:;c:c1.test") == {"c": ("c1.test",)}
 
     def test_unknown_host_falls_back_to_literal(self, mod):
         hostnames = mod.HOSTS.get("unknown-host-xyz", ("unknown-host-xyz",))

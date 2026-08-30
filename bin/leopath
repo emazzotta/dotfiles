@@ -7,12 +7,14 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 
+import privateconf
 from scriptlog import Logger
 
 logger = Logger(use_timestamps=False)
 
 FILE_PROTOCOL_PREFIX = 'file://'
 HOME_DATEN = os.path.join(os.path.expanduser("~"), "Daten")
+NETWORK_DRIVE_SERVER = privateconf.value('NETWORK_DRIVE_SERVER_IP')
 
 
 def is_file_url(path: str) -> bool:
@@ -69,10 +71,10 @@ def normalize_path(path: str) -> str:
     if path.startswith('K:\\'):
         return path.replace('K:\\', 'K:\\Daten\\', 1)
 
-    if path.startswith('192.168.5.155\\'):
-        return path.replace('192.168.5.155\\', 'K:\\Daten\\', 1)
+    if NETWORK_DRIVE_SERVER and path.startswith(f'{NETWORK_DRIVE_SERVER}\\'):
+        return path.replace(f'{NETWORK_DRIVE_SERVER}\\', 'K:\\Daten\\', 1)
 
-    raise ValueError("Path must contain 'Daten' or start with K: or 192.168.5.155")
+    raise ValueError("Path must contain 'Daten', start with K:, or start with the network drive server")
 
 
 def to_mac_path(windows_path: str) -> str:
