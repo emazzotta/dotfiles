@@ -5,8 +5,10 @@ import argparse
 import subprocess
 import time
 from pathlib import Path
-from glob import glob
 import sys
+
+import medialib
+from medialib import OutputNaming
 from scriptlog import Logger
 
 logger = Logger()
@@ -33,45 +35,6 @@ EXTRA_ARGS = {
     "ogg": ["-q:a", "6"],
 }
 
-AUDIO_EXTS = ["mp3", "m4a", "aac", "flac", "wav", "aif", "aiff", "alac", "ogg", "opus", "wma", "ape", "wv"]
-
-
-def get_output_path(input_file: Path, fmt: str, output_dir: Path | None) -> Path:
-    base_name = input_file.stem
-    ext = f".{fmt}"
-
-    if output_dir:
-        output_path = output_dir / f"{base_name}{ext}"
-    else:
-        output_path = input_file.parent / f"{base_name}{ext}"
-
-    if output_path.exists():
-        response = input(f"File exists: {output_path}\nOverwrite? [y/N/a] (N=add _converted, a=abort): ").lower()
-        if response == 'a':
-            logger.error("Aborted")
-            sys.exit(1)
-        elif response != 'y':
-            counter = ""
-            while True:
-                suffix = f"_converted{counter}"
-                if output_dir:
-                    output_path = output_dir / f"{base_name}{suffix}{ext}"
-                else:
-                    output_path = input_file.parent / f"{base_name}{suffix}{ext}"
-                if not output_path.exists():
-                    break
-                counter = "_2" if not counter else f"_{int(counter[1:]) + 1}"
-
-    return output_path
-
-
-def format_time(seconds: float) -> str:
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    minutes = int(seconds // 60)
-    secs = int(seconds % 60)
-    return f"{minutes}m {secs}s"
-
 
 def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_original: bool, file_num: int, total_files: int) -> Path | None:
     codec = AUDIO_CODECS.get(fmt)
@@ -79,7 +42,7 @@ def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_orig
         logger.error(f"Unsupported format: {fmt}")
         return None
 
-    output_file = get_output_path(input_file, fmt, output_dir)
+    output_file = medialib.resolve_output_path(input_file, output_dir, OutputNaming(extension=f".{fmt}"))
 
     cmd = [
               "ffmpeg",
@@ -95,34 +58,14 @@ def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_orig
         subprocess.run(cmd, check=True)
         elapsed = time.time() - start_time
         print()
-        logger.success(f"Converted in {format_time(elapsed)}: {input_file.name} -> {output_file.name}")
+        logger.success(f"Converted in {medialib.format_time(elapsed)}: {input_file.name} -> {output_file.name}")
         if delete_original:
             input_file.unlink(missing_ok=True)
         return output_file
-    except subprocess.CalledProcessError as e:
+    except subprocess.CalledProcessError:
         print()
         logger.error(f"Failed: {input_file.name}")
         return None
-
-
-def list_inputs(path: Path) -> list[Path]:
-    if path.is_file():
-        return [path]
-    if path.is_dir():
-        files = []
-        for ext in AUDIO_EXTS:
-            files.extend(Path(p) for p in glob(str(path / f"**/*.{ext}"), recursive=True))
-            files.extend(Path(p) for p in glob(str(path / f"**/*.{ext.upper()}"), recursive=True))
-        return sorted(set(files))
-    logger.error(f"Input not found: {path}")
-    sys.exit(1)
-
-
-def collect_inputs(paths: list[Path]) -> list[Path]:
-    files: list[Path] = []
-    for path in paths:
-        files.extend(list_inputs(path))
-    return list(dict.fromkeys(files))
 
 
 def main():
@@ -139,7 +82,7 @@ def main():
     if out_dir:
         out_dir.mkdir(parents=True, exist_ok=True)
 
-    inputs = collect_inputs(sources)
+    inputs = medialib.collect_inputs(sources, medialib.AUDIO_EXTS)
     if not inputs:
         logger.error("No audio files found")
         sys.exit(1)
@@ -158,7 +101,7 @@ def main():
 
     batch_elapsed = time.time() - batch_start_time
     print()
-    logger.log(f"Summary: {len(results)} succeeded, {failed} failed, {len(inputs)} total in {format_time(batch_elapsed)}")
+    logger.log(f"Summary: {len(results)} succeeded, {failed} failed, {len(inputs)} total in {medialib.format_time(batch_elapsed)}")
 
 
 if __name__ == "__main__":
