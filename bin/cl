@@ -675,97 +675,8 @@ def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
     return ["-v", f"{pwd / relative_path}:/workspace/code/{relative_path}"]
 
 
-def ensure_launchable_host() -> None:
-    """cl starts the opencode container from the Mac; inside one there is nothing to start.
-
-    Every path below is a Mac path and the daemon it talks to is the Mac's. The
-    dev box has this script on PATH only because the image bakes the dotfiles in,
-    so without this it half-runs and fails somewhere less obvious.
-    """
-    if OPENCODE_ROOT.is_dir():
-        return
-    print(
-        f"cl: no opencode project at {OPENCODE_ROOT}, so there is nothing to launch.\n"
-        "    On the dev box you are already inside that environment - run `claude` directly.",
-        file=sys.stderr,
-    )
-    sys.exit(1)
-
-
-def main() -> None:
-    pwd = Path.cwd()
-
-    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n | -s] [-r [SESSION]] [CLAUDE_ARGS...]")
-    parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
-    parser.add_argument(
-        "-p", "--path",
-        dest="paths", action="append", type=parse_path, default=[], metavar="PATH",
-        help="directory to mount; may be repeated: -p ~/a -p ~/b",
-    )
-    parser.add_argument(
-        "-x", "--exclude",
-        dest="excludes", action="append", type=parse_exclude, default=[], metavar="EXCLUDE",
-        help="path or pattern to exclude from mounts; may be repeated: -x ~/a/secrets -x '*.env'",
-    )
-    permission_mode = parser.add_mutually_exclusive_group()
-    permission_mode.add_argument(
-        "-n", "--no-skip", action="store_true", default=False,
-        help="prompt for every permission instead of using the configured auto mode",
-    )
-    permission_mode.add_argument(
-        "-s", "--skip", action="store_true", default=False,
-        help="skip every permission prompt (--dangerously-skip-permissions) instead of using the configured auto mode",
-    )
-    parser.add_argument(
-        "--git-ignore-mount", dest="git_ignore_mount", action="store_true", default=False,
-        help="mount only git-tracked files from PWD (respects .gitignore); requires .git and .gitignore",
-    )
-    parser.add_argument("-o", "--opencode", action="store_true", default=False, help="run opencode instead of claude")
-    parser.add_argument("-m", "--hermes", action="store_true", default=False, help="run hermes agent")
-    parser.add_argument(
-        "-r", "--resume",
-        nargs="?", const="", default=None, metavar="SESSION",
-        help="resume a session: a session id opens it directly, any other text prefilters the picker",
-    )
-    parser.add_argument("--convert", action="store_true", default=False, help="convert sessions between claude and opencode")
-    parser.add_argument(
-        "--rm",
-        dest="rm", nargs="?", const="", default=None, metavar="SEARCH",
-        help="remove sessions via interactive picker (claude by default, opencode with -o)",
-    )
-
-    args, claude_args = parser.parse_known_args()
-    ensure_launchable_host()
-    _profile("argparse")
-
-    ignores: list = args.excludes
-
-    warn_if_offline()
-    _profile("internet check")
-
-    lock_targets = args.paths or [pwd]
-    locked_roots = _lock_git_crypt_roots(lock_targets)
-    _profile("git-crypt lock (targets)")
-
-    if args.opencode and args.rm is None:
-        sync_script = OPENCODE_ROOT / "opencode" / "workspace" / ".claude" / "scripts" / "sync-local-models"
-        if sync_script.is_file():
-            run([str(sync_script)], cwd=OPENCODE_ROOT)
-        _profile("sync-local-models")
-
-    volume_args = build_volume_args(args.files, args.paths, pwd, git_ignore_mount=args.git_ignore_mount, ignores=ignores)
-    _profile("build_volume_args")
-    dotfiles_volume_args = build_dotfiles_volume_args()
-    _profile("build_dotfiles_volume_args")
-    volume_args = _mount_always_available(volume_args, LEONARDO_COMMONS, "/workspace/code/leonardo-commons", locked_roots)
-    _profile("leonardo-commons lock/mount")
-    volume_args = _mount_always_available(volume_args, LEONARDO_AI, "/workspace/code/leonardo-ai", locked_roots)
-    _profile("leonardo-ai lock/mount")
-    volume_args = _mount_always_available(volume_args, KEYGUARD, "/workspace/code/keyguard", locked_roots)
-    _profile("keyguard lock/mount")
-    volume_args = _mount_always_available(volume_args, DESKTOP, "/workspace/code/Desktop", locked_roots, lock=False)
-    _profile("desktop mount")
-    container_name = f"opencode-{int(time())}"
+def build_entrypoint_invocation(args, claude_args: list[str]) -> tuple[str, list[str], list[str]]:
+    """Resolve which tool to run and with what, independent of how it gets run."""
     permission_args = build_permission_args(args.no_skip, args.skip)
     effort_args = build_effort_args(claude_args)
 
@@ -814,6 +725,103 @@ def main() -> None:
             entrypoint_args = [*entrypoint_args, "--", *forwarded]
         plugin_args = []
 
+    return entrypoint, plugin_args, entrypoint_args
+
+
+def run_in_place(entrypoint: str, plugin_args: list[str], entrypoint_args: list[str]) -> None:
+    """Run the tool directly instead of launching a container around it.
+
+    With no opencode project present we are already inside the environment cl
+    would otherwise start - the dev box, where the image bakes these dotfiles in.
+    The argument handling still applies; only docker does not.
+    """
+    if shutil.which(entrypoint) is None:
+        print(
+            f"cl: no opencode project at {OPENCODE_ROOT} to launch, and {entrypoint} is not on PATH",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    os.execvp(entrypoint, [entrypoint, *plugin_args, *entrypoint_args])
+
+
+def main() -> None:
+    pwd = Path.cwd()
+
+    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n | -s] [-r [SESSION]] [CLAUDE_ARGS...]")
+    parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
+    parser.add_argument(
+        "-p", "--path",
+        dest="paths", action="append", type=parse_path, default=[], metavar="PATH",
+        help="directory to mount; may be repeated: -p ~/a -p ~/b",
+    )
+    parser.add_argument(
+        "-x", "--exclude",
+        dest="excludes", action="append", type=parse_exclude, default=[], metavar="EXCLUDE",
+        help="path or pattern to exclude from mounts; may be repeated: -x ~/a/secrets -x '*.env'",
+    )
+    permission_mode = parser.add_mutually_exclusive_group()
+    permission_mode.add_argument(
+        "-n", "--no-skip", action="store_true", default=False,
+        help="prompt for every permission instead of using the configured auto mode",
+    )
+    permission_mode.add_argument(
+        "-s", "--skip", action="store_true", default=False,
+        help="skip every permission prompt (--dangerously-skip-permissions) instead of using the configured auto mode",
+    )
+    parser.add_argument(
+        "--git-ignore-mount", dest="git_ignore_mount", action="store_true", default=False,
+        help="mount only git-tracked files from PWD (respects .gitignore); requires .git and .gitignore",
+    )
+    parser.add_argument("-o", "--opencode", action="store_true", default=False, help="run opencode instead of claude")
+    parser.add_argument("-m", "--hermes", action="store_true", default=False, help="run hermes agent")
+    parser.add_argument(
+        "-r", "--resume",
+        nargs="?", const="", default=None, metavar="SESSION",
+        help="resume a session: a session id opens it directly, any other text prefilters the picker",
+    )
+    parser.add_argument("--convert", action="store_true", default=False, help="convert sessions between claude and opencode")
+    parser.add_argument(
+        "--rm",
+        dest="rm", nargs="?", const="", default=None, metavar="SEARCH",
+        help="remove sessions via interactive picker (claude by default, opencode with -o)",
+    )
+
+    args, claude_args = parser.parse_known_args()
+
+    if not OPENCODE_ROOT.is_dir():
+        run_in_place(*build_entrypoint_invocation(args, claude_args))
+
+    _profile("argparse")
+
+    ignores: list = args.excludes
+
+    warn_if_offline()
+    _profile("internet check")
+
+    lock_targets = args.paths or [pwd]
+    locked_roots = _lock_git_crypt_roots(lock_targets)
+    _profile("git-crypt lock (targets)")
+
+    if args.opencode and args.rm is None:
+        sync_script = OPENCODE_ROOT / "opencode" / "workspace" / ".claude" / "scripts" / "sync-local-models"
+        if sync_script.is_file():
+            run([str(sync_script)], cwd=OPENCODE_ROOT)
+        _profile("sync-local-models")
+
+    volume_args = build_volume_args(args.files, args.paths, pwd, git_ignore_mount=args.git_ignore_mount, ignores=ignores)
+    _profile("build_volume_args")
+    dotfiles_volume_args = build_dotfiles_volume_args()
+    _profile("build_dotfiles_volume_args")
+    volume_args = _mount_always_available(volume_args, LEONARDO_COMMONS, "/workspace/code/leonardo-commons", locked_roots)
+    _profile("leonardo-commons lock/mount")
+    volume_args = _mount_always_available(volume_args, LEONARDO_AI, "/workspace/code/leonardo-ai", locked_roots)
+    _profile("leonardo-ai lock/mount")
+    volume_args = _mount_always_available(volume_args, KEYGUARD, "/workspace/code/keyguard", locked_roots)
+    _profile("keyguard lock/mount")
+    volume_args = _mount_always_available(volume_args, DESKTOP, "/workspace/code/Desktop", locked_roots, lock=False)
+    _profile("desktop mount")
+    container_name = f"opencode-{int(time())}"
+    entrypoint, plugin_args, entrypoint_args = build_entrypoint_invocation(args, claude_args)
     _profile("plugin dir scan")
     command = [
         "docker", "compose",

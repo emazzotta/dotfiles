@@ -17,26 +17,47 @@ def cl(load_script):
 
 
 @pytest.fixture(autouse=True)
-def _allow_non_mac_host(cl):
-    """The host guard is about where cl runs, not what it does; CI is Linux."""
-    with patch.object(cl, "ensure_launchable_host", lambda: None):
-        yield
+def _assume_a_host_with_the_project(cl, tmp_path, monkeypatch):
+    """Most tests exercise the container path; that needs an opencode project present."""
+    root = tmp_path / "opencode-root"
+    root.mkdir(exist_ok=True)
+    monkeypatch.setattr(cl, "OPENCODE_ROOT", root)
 
 
-class TestEnsureLaunchableHost:
-    """Loads its own copy, since the autouse fixture neutralises the guard."""
+class TestRunInPlace:
+    def test_should_exec_the_entrypoint_with_its_arguments(self, cl, monkeypatch):
+        execed = {}
+        monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/claude")
+        monkeypatch.setattr(cl.os, "execvp", lambda f, a: execed.update(file=f, argv=a))
 
-    def test_should_exit_when_the_opencode_project_is_absent(self, load_script, monkeypatch, tmp_path):
-        script = load_script("cl")
-        monkeypatch.setattr(script, "OPENCODE_ROOT", tmp_path / "nonexistent")
+        cl.run_in_place("claude", ["--plugin-dir", "/p"], ["--resume", "abc"])
+
+        assert execed["file"] == "claude"
+        assert execed["argv"] == ["claude", "--plugin-dir", "/p", "--resume", "abc"]
+
+    def test_should_exit_when_the_entrypoint_is_not_installed(self, cl, monkeypatch):
+        monkeypatch.setattr(cl.shutil, "which", lambda _: None)
         with pytest.raises(SystemExit) as exit_info:
-            script.ensure_launchable_host()
+            cl.run_in_place("claude", [], [])
         assert exit_info.value.code == 1
 
-    def test_should_return_when_the_opencode_project_is_present(self, load_script, monkeypatch, tmp_path):
-        script = load_script("cl")
-        monkeypatch.setattr(script, "OPENCODE_ROOT", tmp_path)
-        script.ensure_launchable_host()
+
+class TestBuildEntrypointInvocation:
+    def test_should_default_to_claude(self, cl):
+        args = argparse.Namespace(
+            rm=None, convert=False, opencode=False, hermes=False, resume=None,
+            no_skip=False, skip=False,
+        )
+        entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(args, [])
+        assert entrypoint == "claude"
+
+    def test_should_pick_opencode_when_asked(self, cl):
+        args = argparse.Namespace(
+            rm=None, convert=False, opencode=True, hermes=False, resume=None,
+            no_skip=False, skip=False,
+        )
+        entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(args, [])
+        assert entrypoint == "opencode"
 
 
 class TestIsGitCryptRepo:
