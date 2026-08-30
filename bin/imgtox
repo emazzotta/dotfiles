@@ -22,12 +22,7 @@ def convert_image(input_file: Path, output_format: str, output_path: Path | None
         logger.warn(f"Output file '{output_file}' already exists, skipping...")
         return None
 
-    command = ["magick", str(input_file), str(output_file)]
-    result = subprocess.run(command, check=True)
-
-    if result.returncode != 0:
-        logger.error(f"Conversion failed for '{input_file}'")
-        sys.exit(1)
+    subprocess.run(["magick", str(input_file), str(output_file)], check=True)
 
     if delete_original:
         input_file.unlink()
@@ -46,34 +41,49 @@ def find_image_files(directory: Path) -> list[Path]:
     return image_files
 
 
+def collect_input_files(inputs: list[Path]) -> list[Path]:
+    input_files: list[Path] = []
+    for input_path in inputs:
+        if input_path.is_file():
+            input_files.append(input_path)
+        elif input_path.is_dir():
+            input_files.extend(find_image_files(input_path))
+        else:
+            logger.error(f"Input '{input_path}' not found!")
+            sys.exit(1)
+    return list(dict.fromkeys(input_files))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Convert image files.')
-    parser.add_argument('-i', '--input', required=True, help='The image file or directory of image files to convert.')
+    parser.add_argument('-i', '--input', required=True, nargs='+',
+                        help='The image files or directories of image files to convert.')
     parser.add_argument('-f', '--format', required=True, dest='output_format',
                         help='The format of the output image file.')
     parser.add_argument('-d', '--delete', action='store_true', help='Delete the original file(s) after conversion.')
     parser.add_argument('-o', '--output-path', help='Path where to save the converted file(s).')
     args = parser.parse_args()
 
-    input_path = Path(args.input)
+    input_files = collect_input_files([Path(i) for i in args.input])
     output_path = Path(args.output_path) if args.output_path else None
 
-    if input_path.is_file():
-        input_files = [input_path]
-    elif input_path.is_dir():
-        input_files = find_image_files(input_path)
-    else:
-        logger.error(f"Input '{args.input}' not found!")
-        sys.exit(1)
-
     converted_files = []
+    failures = 0
     for input_file in input_files:
-        result = convert_image(input_file, args.output_format, output_path, args.delete)
-        if result:
-            converted_files.append(result)
+        try:
+            converted_file = convert_image(input_file, args.output_format, output_path, args.delete)
+        except subprocess.CalledProcessError:
+            logger.error(f"Conversion failed for '{input_file}'")
+            failures += 1
+            continue
+        if converted_file:
+            converted_files.append(converted_file)
 
     for converted_file in converted_files:
         logger.success(f"Conversion complete: '{converted_file}'")
+
+    if failures:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -89,9 +89,22 @@ def find_image_files(directory: Path) -> list[Path]:
     return files
 
 
+def collect_input_files(inputs: list[Path]) -> list[Path]:
+    input_files: list[Path] = []
+    for input_path in inputs:
+        if input_path.is_file():
+            input_files.append(input_path)
+        elif input_path.is_dir():
+            input_files.extend(find_image_files(input_path))
+        else:
+            logger.error(f"Input '{input_path}' not found!")
+            sys.exit(1)
+    return list(dict.fromkeys(input_files))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compress image files using ImageMagick.")
-    parser.add_argument("-i", "--input", required=True, help="Image file or directory of image files to compress.")
+    parser.add_argument("-i", "--input", required=True, nargs="+", help="Image files or directories of image files to compress.")
     parser.add_argument("-q", "--quality", type=int, default=82, help="Quality 1-100 (higher = better quality, less compression). Default: 82.")
     parser.add_argument("-s", "--scale", type=int, default=50, help="Scale resolution as percentage of original (e.g. 50 = half size). Default: 50.")
     parser.add_argument("--rm-original", action="store_true", help="Delete original file after compression.")
@@ -106,19 +119,12 @@ def main() -> None:
         logger.error("Scale must be between 1 and 100.")
         sys.exit(1)
 
-    input_path = Path(args.input)
     output_path = Path(args.output_path) if args.output_path else None
 
     if output_path:
         output_path.mkdir(parents=True, exist_ok=True)
 
-    if input_path.is_file():
-        input_files = [input_path]
-    elif input_path.is_dir():
-        input_files = find_image_files(input_path)
-    else:
-        logger.error(f"Input '{args.input}' not found!")
-        sys.exit(1)
+    input_files = collect_input_files([Path(i) for i in args.input])
 
     if not input_files:
         logger.warn("No image files found.")

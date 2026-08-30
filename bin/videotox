@@ -116,9 +116,16 @@ def list_inputs(path: Path) -> list[Path]:
     sys.exit(1)
 
 
+def collect_inputs(paths: list[Path]) -> list[Path]:
+    files: list[Path] = []
+    for path in paths:
+        files.extend(list_inputs(path))
+    return list(dict.fromkeys(files))
+
+
 def main():
     p = argparse.ArgumentParser(description="Convert video files")
-    p.add_argument("-i", "--input", required=True, help="Video file or directory")
+    p.add_argument("-i", "--input", required=True, nargs="+", help="Video files or directories")
     p.add_argument("-f", "--format", dest="fmt", default="mp4",
                    choices=FORMAT_CODECS.keys(), help="Output format (default: mp4)")
     p.add_argument("-o", "--output-path", help="Output directory")
@@ -126,12 +133,12 @@ def main():
     p.add_argument("-q", "--quality", default="23", help="CRF quality (0-51, default: 23)")
     args = p.parse_args()
 
-    src = Path(args.input).expanduser().resolve()
+    sources = [Path(i).expanduser().resolve() for i in args.input]
     out_dir = Path(args.output_path).expanduser().resolve() if args.output_path else None
     if out_dir:
         out_dir.mkdir(parents=True, exist_ok=True)
 
-    inputs = list_inputs(src)
+    inputs = collect_inputs(sources)
     if not inputs:
         logger.error("No video files found")
         sys.exit(1)
