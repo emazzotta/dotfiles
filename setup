@@ -88,6 +88,10 @@ run_if_exists ./stowsetup && source "$HOME/.bashrc"
 echo "Installing Node packages"
 npm install -g eslint vue yarn @cometix/ccline
 
+echo "Installing Python tools"
+# Pin the interpreter - uv otherwise picks system Python 3.9 and silently resolves yt-dlp to a year-old release
+uv tool install --python 3.14 "yt-dlp[default,curl-cffi,deno]"
+
 echo "Setting up terminal"
 clone_if_missing "$HOME/.tmux" "https://github.com/gpakosz/.tmux.git"
 clone_if_missing "${ZDOTDIR:-$HOME}/.zprezto" "https://github.com/sorin-ionescu/prezto.git" --recursive

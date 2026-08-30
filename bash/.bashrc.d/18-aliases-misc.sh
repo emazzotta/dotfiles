@@ -3,7 +3,7 @@
 alias brew='arch -arm64 brew'
 alias bri='brew install'
 alias bru='brew uninstall'
-alias bup='echo "Updating Brew";git -C "$(brew --repo)" fetch --tags;brew update;brew upgrade;brew cu pin mixed-in-key;brew cu -afy --cleanup;brew cleanup;rm_brew_pkg'
+alias bup='echo "Updating Brew and uv tools";git -C "$(brew --repo)" fetch --tags;brew update;brew upgrade;brew cu pin mixed-in-key;brew cu -afy --cleanup;brew cleanup;rm_brew_pkg;uv tool upgrade --all'
 
 ### PYTHON / VENV ###
 alias av='if [ -f "./venv/bin/activate"  ]; then source "./venv/bin/activate"; else source "$VENV_PYTHON_3/bin/activate"; fi'
