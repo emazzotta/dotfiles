@@ -21,7 +21,9 @@ remote_branches_file=$(mktemp)
 status_file=$(mktemp)
 links_file=$(mktemp)
 pull_requests_file=$(mktemp)
-trap 'rm -f "${output_file}" "${branches_file}" "${remote_branches_file}" "${status_file}" "${links_file}" "${pull_requests_file}"' EXIT
+warnings_file=$(mktemp)
+fetch_error_file=$(mktemp)
+trap 'rm -f "${output_file}" "${branches_file}" "${remote_branches_file}" "${status_file}" "${links_file}" "${pull_requests_file}" "${warnings_file}" "${fetch_error_file}"' EXIT
 
 separator() {
     printf "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
@@ -52,6 +54,14 @@ tree_url_prefix() {
     esac
 }
 
+warn_pull_requests() {
+    local message="${1}"
+    if grep -qxF "${message}" "${warnings_file}"; then
+        return 0
+    fi
+    printf '%s\n' "${message}" >> "${warnings_file}"
+}
+
 fetch_pull_requests() {
     local slug="${1}"
     local cache_file
@@ -60,21 +70,36 @@ fetch_pull_requests() {
         cat "${cache_file}"
         return 0
     fi
-    local pairs=""
+    local client
+    local client_command
     case "${slug%%/*}" in
         github.com)
-            if command -v gh > /dev/null; then
-                pairs=$(gh pr list --repo "${slug#*/}" --state open --limit 100 \
-                    --json headRefName,url --jq '.[] | "\(.headRefName)\t\(.url)"' 2>/dev/null) || pairs=""
-            fi
+            client="gh"
+            client_command=(gh pr list --repo "${slug#*/}" --state open --limit 100
+                --json "headRefName,url" --jq '.[] | "\(.headRefName)\t\(.url)"')
             ;;
         *)
-            if command -v glab > /dev/null; then
-                pairs=$(glab mr list --repo "https://${slug}" --per-page 100 --output json \
-                    --jq '.[] | "\(.source_branch)\t\(.web_url)"' 2>/dev/null) || pairs=""
-            fi
+            client="glab"
+            client_command=(glab mr list --repo "https://${slug}" --per-page 100 --output json
+                --jq '.[] | "\(.source_branch)\t\(.web_url)"')
             ;;
     esac
+    if ! command -v "${client}" > /dev/null; then
+        warn_pull_requests "${slug}: ${client} is not installed"
+        return 0
+    fi
+    local pairs=""
+    local status=0
+    pairs=$("${client_command[@]}" 2> "${fetch_error_file}") || status=$?
+    if [ "${status}" -ne 0 ]; then
+        local reason
+        reason=$(head -1 "${fetch_error_file}")
+        if [ -z "${reason}" ]; then
+            reason="${client} exited with status ${status}"
+        fi
+        warn_pull_requests "${slug}: ${reason}"
+        return 0
+    fi
     printf '%s\n' "${pairs}" | tee "${cache_file}"
 }
 
@@ -207,6 +232,14 @@ if [ -s "${remote_branches_file}" ]; then
     dim_separator
     cat "${remote_branches_file}"
     dim_separator
+fi
+
+if [ -s "${warnings_file}" ]; then
+    echo
+    error "No pull request links, falling back to branch links:"
+    while IFS= read -r warning; do
+        substep_error "${warning}"
+    done < "${warnings_file}"
 fi
 
 echo
