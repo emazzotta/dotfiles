@@ -11,7 +11,7 @@ import time
 from collections.abc import Iterator
 from typing import Final
 
-import privateconf
+import siteconf
 
 RESOLVE_TIMEOUT_MS: Final = 150
 IS_DARWIN: Final = platform.system() == "Darwin"
@@ -27,7 +27,7 @@ def parse_host_aliases(spec: str) -> dict[str, tuple[str, ...]]:
     return hosts
 
 
-HOSTS: Final[dict[str, tuple[str, ...]]] = parse_host_aliases(privateconf.value("HOST_ALIASES"))
+HOSTS: Final[dict[str, tuple[str, ...]]] = parse_host_aliases(siteconf.value("HOST_ALIASES"))
 
 
 def resolve_ips(hostname: str, timeout_ms: float, dns_server: str | None = None) -> tuple[str, ...]:
@@ -120,7 +120,7 @@ def main() -> None:
         ),
         epilog=(
             "examples:\n"
-            "  # short name from HOST_ALIASES in the private config\n"
+            "  # short name from HOST_ALIASES in the site config\n"
             "  host-resolver my-ci-box\n"
             "\n"
             "  # arbitrary hostname via system resolver (returns v4 or v6)\n"

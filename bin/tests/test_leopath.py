@@ -6,9 +6,10 @@ NETWORK_DRIVE_SERVER = "fileserver.test"
 
 @pytest.fixture
 def leopath(load_script, tmp_path, monkeypatch):
-    config = tmp_path / "private.env"
+    config = tmp_path / "site.env"
     config.write_text(f"NETWORK_DRIVE_SERVER_IP={NETWORK_DRIVE_SERVER}\n")
-    monkeypatch.setenv("DOTFILES_PRIVATE_ENV", str(config))
+    monkeypatch.setenv("DOTFILES_SITE_ENV", str(config))
+    monkeypatch.setenv("DOTFILES_SITE_DEFAULTS", str(tmp_path / "no-defaults.env"))
     return load_script("leopath")
 
 

@@ -7,14 +7,14 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 
-import privateconf
+import siteconf
 from scriptlog import Logger
 
 logger = Logger(use_timestamps=False)
 
 FILE_PROTOCOL_PREFIX = 'file://'
 HOME_DATEN = os.path.join(os.path.expanduser("~"), "Daten")
-NETWORK_DRIVE_SERVER = privateconf.value('NETWORK_DRIVE_SERVER_IP')
+NETWORK_DRIVE_SERVER = siteconf.value('NETWORK_DRIVE_SERVER_IP')
 
 
 def is_file_url(path: str) -> bool:

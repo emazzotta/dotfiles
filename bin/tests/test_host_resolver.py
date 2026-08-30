@@ -10,9 +10,10 @@ HOST_ALIASES = "ci-host:ci-host.example.test,ci-host-local.test"
 
 @pytest.fixture
 def mod(load_script, tmp_path, monkeypatch):
-    config = tmp_path / "private.env"
+    config = tmp_path / "site.env"
     config.write_text(f"HOST_ALIASES={HOST_ALIASES}\n")
-    monkeypatch.setenv("DOTFILES_PRIVATE_ENV", str(config))
+    monkeypatch.setenv("DOTFILES_SITE_ENV", str(config))
+    monkeypatch.setenv("DOTFILES_SITE_DEFAULTS", str(tmp_path / "no-defaults.env"))
     return load_script("host-resolver")
 
 
@@ -61,7 +62,7 @@ class TestEnforceTimeout:
 
 
 class TestHostsLookup:
-    def test_should_expose_aliases_from_the_private_config(self, mod):
+    def test_should_expose_aliases_from_the_site_config(self, mod):
         assert mod.HOSTS["ci-host"] == ("ci-host.example.test", "ci-host-local.test")
 
     def test_should_parse_several_hosts(self, mod):

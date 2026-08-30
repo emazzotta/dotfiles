@@ -8,7 +8,7 @@ STATUS_HOST="${LEONARDO_STATUS_HOST:-}"
 TIMEOUT_IN_MS=350
 
 if [ -z "$STATUS_HOST" ]; then
-    echo "Error: LEONARDO_STATUS_HOST must be set in $PRIVATE_ENV" >&2
+    echo "Error: LEONARDO_STATUS_HOST must be set in $SITE_DEFAULTS or $SITE_ENV" >&2
     exit 1
 fi
 

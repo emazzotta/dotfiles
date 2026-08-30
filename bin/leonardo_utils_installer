@@ -20,6 +20,11 @@ readonly SCRIPTS=(
     "prettyprint"
     "tailscale-toggle-exit-node"
 )
+# Not executable, and read by the scripts above rather than run.
+readonly SUPPORT_FILES=(
+    "siteconf.py"
+    "site.env"
+)
 readonly DEFAULT_INSTALL_DIR="/usr/local/bin"
 
 RED='\033[0;31m'
@@ -68,6 +73,11 @@ Scripts installed:
   - leonardo_vpn_toggle
   - prettyprint
   - tailscale-toggle-exit-node
+
+Also installed (not executable):
+  - siteconf.py   reads the two files below
+  - site.env      network defaults; --force overwrites it, so put per-machine
+                  changes in ~/.config/dotfiles/site.env instead
 
 Examples:
   $(basename "$0")                        Install to ${DEFAULT_INSTALL_DIR}
@@ -201,6 +211,7 @@ download_script() {
 install_script() {
     local script_name="$1"
     local install_dir="$2"
+    local make_executable="${3:-true}"
     local target="${install_dir}/${script_name}"
     local temp_file="${install_dir}/.${script_name}.tmp"
 
@@ -218,7 +229,9 @@ install_script() {
 
     log "Installing $script_name to $install_dir..."
     /bin/mv "$temp_file" "$target"
-    chmod +x "$target"
+    if [ "$make_executable" = true ]; then
+        chmod +x "$target"
+    fi
 
     return 0
 }
@@ -234,7 +247,7 @@ uninstall_scripts() {
 
     log "Uninstalling scripts from $install_dir..."
 
-    for script in "${SCRIPTS[@]}"; do
+    for script in "${SCRIPTS[@]}" "${SUPPORT_FILES[@]}"; do
         local target="${install_dir}/${script}"
         if [ -f "$target" ]; then
             log "Removing $script..."
@@ -304,11 +317,16 @@ main() {
     local installed_count=0
     local skipped_count=0
 
-    for script in "${SCRIPTS[@]}"; do
+    for script in "${SCRIPTS[@]}" "${SUPPORT_FILES[@]}"; do
+        local executable=true
+        for support_file in "${SUPPORT_FILES[@]}"; do
+            [ "$script" = "$support_file" ] && executable=false
+        done
+
         if [ -f "${INSTALL_DIR}/${script}" ] && [ "$FORCE_INSTALL" = false ]; then
             skipped_count=$((skipped_count + 1))
-            install_script "$script" "$INSTALL_DIR"
-        elif install_script "$script" "$INSTALL_DIR"; then
+            install_script "$script" "$INSTALL_DIR" "$executable"
+        elif install_script "$script" "$INSTALL_DIR" "$executable"; then
             installed_count=$((installed_count + 1))
         else
             failed_scripts+=("$script")
