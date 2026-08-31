@@ -278,7 +278,11 @@ set -g default-terminal screen-256color
 set -g status-keys vi
 set -g history-limit 10000
 set -sg escape-time 0
-set -g default-command "reattach-to-user-namespace -l ${SHELL}"
+# reattach-to-user-namespace is macOS-only (clipboard access). Without this
+# guard every pane on Linux execs a missing binary and dies instantly.
+if-shell 'command -v reattach-to-user-namespace >/dev/null 2>&1' \
+    'set -g default-command "reattach-to-user-namespace -l ${SHELL}"' \
+    'set -g default-command "${SHELL}"'
 setw -g mode-keys vi
 setw -g mouse on
 
