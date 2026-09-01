@@ -124,3 +124,56 @@ class TestMain:
 
         assert mod.main([str(html), "Session recap"]) == 0
         assert "<title>Session recap</title>" in html.read_text(encoding="utf-8")
+
+
+REPLAY_DATA = (
+    '{"meta":{"sessionId":"ba40747f","title":"old title"},'
+    '"scenes":[{"text":"see <\\/script> below"}]}'
+)
+
+
+@pytest.fixture
+def replay():
+    return (
+        "<html><head><title>old title — vibe-replay</title>"
+        f'<script id="vibe-replay-data">window.__VIBE_REPLAY_DATA__ = {REPLAY_DATA};</script>'
+        '</head><body><div id="root"></div></body></html>'
+    )
+
+
+class TestReplayTitle:
+    def should_rewrite_the_title_inside_the_replay_data(self, mod, replay):
+        result, _ = mod.set_title(replay, "Swapping the renderer")
+
+        assert '"title":"Swapping the renderer"' in result
+        assert "old title" not in result
+
+    def should_suffix_the_document_title_the_way_the_renderer_does(self, mod, replay):
+        result, _ = mod.set_title(replay, "Swapping the renderer")
+
+        assert "<title>Swapping the renderer — vibe-replay</title>" in result
+
+    def should_keep_the_rest_of_the_replay_data(self, mod, replay):
+        result, _ = mod.set_title(replay, "Swapping the renderer")
+
+        assert '"sessionId":"ba40747f"' in result
+        assert '"scenes":[{"text":"see <\\/script> below"}]' in result
+
+    def should_report_the_document_and_data_replacements(self, mod, replay):
+        _, replacements = mod.set_title(replay, "Swapping the renderer")
+
+        assert replacements == 2
+
+    def should_be_repeatable(self, mod, replay):
+        once, _ = mod.set_title(replay, "Same title")
+        twice, replacements = mod.set_title(once, "Same title")
+
+        assert once == twice
+        assert replacements == 2
+
+    def should_leave_a_legacy_header_alone_when_replay_data_is_present(self, mod, replay):
+        with_header = replay.replace("<div id=\"root\"></div>", '<h1 id="title">legacy</h1>')
+
+        result, _ = mod.set_title(with_header, "Swapping the renderer")
+
+        assert '<h1 id="title">legacy</h1>' in result

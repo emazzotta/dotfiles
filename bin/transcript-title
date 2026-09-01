@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Set the title of a claude-code-log HTML transcript.
+"""Set the title of a published session replay, in place.
 
-claude-code-log derives its title from the session's project path, so every
-transcript ends up called the same thing ("Claude Transcript - -workspace") and
-browser tabs, bookmarks and link previews carry no hint of what the session was
-about. Its CLI has no --title flag and both the <title> element and the
-<h1 id="title"> header render the same template variable, so this rewrites both
-in place to a caller-supplied summary title.
+Re-rendering to change a title would pick up everything that happened in the
+session after the first publish; this rewrites the title alone, so a URL already
+in circulation keeps the snapshot its readers saw.
+
+vibe-replay carries the title twice: in <title> and in the meta block of the
+replay JSON it embeds, which is the one the page itself renders. Transcripts
+published before the vibe-replay switch came from claude-code-log, which carries
+it in <title> and <h1 id="title"> instead - both formats are still online, so
+both are handled here.
 
 Usage:
     transcript-title <FILE.html> <TITLE>   retitle in place
@@ -17,6 +20,7 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 import argparse
+import json
 import re
 import sys
 
@@ -24,17 +28,41 @@ DOC_TITLE_PATTERN = re.compile(r"(<title[^>]*>).*?(</title>)", re.DOTALL | re.IG
 HEADER_PATTERN = re.compile(
     r"(<h1[^>]*\sid=[\"']title[\"'][^>]*>).*?(</h1>)", re.DOTALL | re.IGNORECASE
 )
+REPLAY_DATA_PATTERN = re.compile(
+    r'(<script id="vibe-replay-data">window\.__VIBE_REPLAY_DATA__ = )(.*?)(;</script>)',
+    re.DOTALL,
+)
+VIEWER_TITLE_SUFFIX = " — vibe-replay"
+
+
+def set_replay_title(html: str, title: str) -> tuple[str, int]:
+    """Rewrite the title in the embedded vibe-replay JSON. Returns (html, hits)."""
+
+    def replace(match: re.Match[str]) -> str:
+        replay = json.loads(match.group(2))
+        replay["meta"]["title"] = title
+        # The generator escapes </ so the blob cannot close its own script tag.
+        data = json.dumps(replay, ensure_ascii=False, separators=(",", ":")).replace(
+            "</", "<\\/"
+        )
+        return match.group(1) + data + match.group(3)
+
+    return REPLAY_DATA_PATTERN.subn(replace, html, count=1)
+
+
+def replace_element_text(pattern: re.Pattern[str], html: str, text: str) -> tuple[str, int]:
+    safe = escape(text)
+    return pattern.subn(lambda match: match.group(1) + safe + match.group(2), html, count=1)
 
 
 def set_title(html: str, title: str) -> tuple[str, int]:
-    """Return (html, replacements). Rewrites <title> and <h1 id="title">."""
-    safe = escape(title)
-
-    def replace(match: re.Match[str]) -> str:
-        return match.group(1) + safe + match.group(2)
-
-    html, doc_hits = DOC_TITLE_PATTERN.subn(replace, html, count=1)
-    html, header_hits = HEADER_PATTERN.subn(replace, html, count=1)
+    """Return (html, replacements) with every carrier of the title rewritten."""
+    html, replay_hits = set_replay_title(html, title)
+    doc_title = title + VIEWER_TITLE_SUFFIX if replay_hits else title
+    html, doc_hits = replace_element_text(DOC_TITLE_PATTERN, html, doc_title)
+    if replay_hits:
+        return html, replay_hits + doc_hits
+    html, header_hits = replace_element_text(HEADER_PATTERN, html, title)
     return html, doc_hits + header_hits
 
 
@@ -47,10 +75,8 @@ def process_file(path: Path, title: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Set the title of a claude-code-log HTML transcript."
-    )
-    parser.add_argument("html", type=Path, help="HTML transcript to retitle in place")
+    parser = argparse.ArgumentParser(description="Set the title of a session replay.")
+    parser.add_argument("html", type=Path, help="HTML replay to retitle in place")
     parser.add_argument("title", help="title to use for the document and header")
     args = parser.parse_args(argv)
 
