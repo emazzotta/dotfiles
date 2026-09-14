@@ -13,7 +13,7 @@ import threading
 import importlib.util
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
-from subprocess import PIPE, Popen, run
+from subprocess import DEVNULL, PIPE, Popen, SubprocessError, run
 from time import perf_counter, sleep, time, time_ns
 from types import FrameType
 
@@ -150,6 +150,8 @@ LEONARDO_AI = Path.home() / "Projects" / "leo-productions" / "leonardo-ai"
 KEYGUARD = Path.home() / "Projects" / "private" / "keyguard"
 DESKTOP = Path.home() / "Desktop"
 DOTFILES = Path.home() / "dotfiles"
+CLAUDE_SYNC = Path(__file__).resolve().parent / "claude-sync"
+SYNC_PULL_TIMEOUT_SECONDS = 10
 DOTFILES_CONTAINER = "/home/opencode/dotfiles"
 DOTFILES_CRUFT_PATTERNS = (
     "__pycache__", "*.pyc", "*.pyo",
@@ -675,6 +677,20 @@ def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
     return ["-v", f"{pwd / relative_path}:/workspace/code/{relative_path}"]
 
 
+def sync_transcripts(resuming: bool) -> None:
+    """A resume picker built from a stale list makes you fork a session that moved on elsewhere."""
+    if not CLAUDE_SYNC.is_file():
+        return
+    try:
+        if resuming:
+            run([str(CLAUDE_SYNC), "--pull"], timeout=SYNC_PULL_TIMEOUT_SECONDS,
+                stdout=DEVNULL, stderr=DEVNULL)
+        background = [str(CLAUDE_SYNC), "--push"] if resuming else [str(CLAUDE_SYNC)]
+        Popen(background, stdout=DEVNULL, stderr=DEVNULL, start_new_session=True)
+    except (OSError, SubprocessError):
+        pass
+
+
 def build_entrypoint_invocation(args, claude_args: list[str]) -> tuple[str, list[str], list[str]]:
     """Resolve which tool to run and with what, independent of how it gets run."""
     permission_args = build_permission_args(args.no_skip, args.skip)
@@ -821,6 +837,8 @@ def main() -> None:
     volume_args = _mount_always_available(volume_args, DESKTOP, "/workspace/code/Desktop", locked_roots, lock=False)
     _profile("desktop mount")
     container_name = f"opencode-{int(time())}"
+    sync_transcripts(args.resume is not None)
+    _profile("transcript sync")
     entrypoint, plugin_args, entrypoint_args = build_entrypoint_invocation(args, claude_args)
     _profile("plugin dir scan")
     command = [

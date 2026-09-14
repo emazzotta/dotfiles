@@ -1545,3 +1545,49 @@ class TestOrphanGuardEndToEnd:
 
         assert not any(call.startswith("rm ") for call in docker_calls)
         assert result.returncode == 0
+
+
+class TestTranscriptSync:
+    @pytest.fixture
+    def calls(self, cl, tmp_path, monkeypatch):
+        recorded = {"blocking": [], "background": []}
+        script = tmp_path / "claude-sync"
+        script.write_text("")
+        monkeypatch.setattr(cl, "CLAUDE_SYNC", script)
+        monkeypatch.setattr(cl, "run", lambda argv, **kw: recorded["blocking"].append((argv, kw)))
+        monkeypatch.setattr(cl, "Popen", lambda argv, **kw: recorded["background"].append(argv))
+        return recorded
+
+    def should_block_on_a_pull_before_the_resume_picker(self, cl, calls):
+        cl.sync_transcripts(resuming=True)
+
+        argv, kwargs = calls["blocking"][0]
+        assert argv[1] == "--pull"
+        assert kwargs["timeout"] == cl.SYNC_PULL_TIMEOUT_SECONDS
+
+    def should_push_in_the_background_after_a_resume_pull(self, cl, calls):
+        cl.sync_transcripts(resuming=True)
+
+        assert calls["background"][0][1] == "--push"
+
+    def should_not_block_the_launch_when_not_resuming(self, cl, calls):
+        cl.sync_transcripts(resuming=False)
+
+        assert calls["blocking"] == []
+        assert len(calls["background"]) == 1
+
+    def should_do_nothing_when_the_sync_script_is_absent(self, cl, tmp_path, monkeypatch, calls):
+        monkeypatch.setattr(cl, "CLAUDE_SYNC", tmp_path / "gone")
+
+        cl.sync_transcripts(resuming=True)
+
+        assert calls["blocking"] == []
+        assert calls["background"] == []
+
+    def should_never_fail_the_launch_when_the_sync_errors(self, cl, calls, monkeypatch):
+        def explode(*_args, **_kwargs):
+            raise OSError("no route to host")
+
+        monkeypatch.setattr(cl, "run", explode)
+
+        cl.sync_transcripts(resuming=True)
