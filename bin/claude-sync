@@ -13,13 +13,13 @@ import time
 from pathlib import Path
 
 SYNC_PATHS = ("projects", "file-history", "tasks", "paste-cache")
-SSH_COMMAND = "ssh -o BatchMode=yes -o ConnectTimeout=5"
+SSH_COMMAND = "ssh -o BatchMode=yes -o ConnectTimeout=5 -o RequestTTY=no"
 RSYNC_TIMEOUT_SECONDS = 20
 MAX_LOG_BYTES = 1_000_000
 UUID_PATTERN = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
 
 DEFAULT_HOME = "~/.claude"
-DEFAULT_REMOTE = "opencode@devbox.asymptote-bass.ts.net"
+DEFAULT_REMOTE = "devbox"
 DEFAULT_REMOTE_HOME = "/home/opencode/.claude"
 
 
@@ -94,11 +94,21 @@ def session_transfers(home: Path, session: str) -> list[list[str]]:
     return [command]
 
 
-def transfer(home: Path, commands: list[list[str]]) -> None:
+def interactive() -> bool:
+    return sys.stderr.isatty()
+
+
+def transfer(home: Path, commands: list[list[str]]) -> int:
+    failures = 0
     for command in commands:
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode != 0:
-            log(home, f"rsync exit {result.returncode}: {result.stderr.strip()}")
+            failures += 1
+            detail = result.stderr.strip()
+            log(home, f"rsync exit {result.returncode}: {detail}")
+            if interactive():
+                sys.stderr.write(f"claude-sync: {detail}\n")
+    return failures
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -135,6 +145,11 @@ def hold_lock(home: Path):
     return handle
 
 
+def report(failures: int) -> int:
+    """A hook or a detached launch must never fail; a person at a terminal must never be left guessing."""
+    return 1 if failures and interactive() else 0
+
+
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     session = resolve_session(args)
@@ -147,15 +162,15 @@ def main(argv: list[str]) -> int:
         return 0
 
     if session:
-        transfer(home, session_transfers(home, session))
-        return 0
+        return report(transfer(home, session_transfers(home, session)))
 
     excludes = find_live_sessions(home)
+    failures = 0
     if not args.pull:
-        transfer(home, full_transfers(home, pull=False, excludes=excludes))
+        failures += transfer(home, full_transfers(home, pull=False, excludes=excludes))
     if not args.push:
-        transfer(home, full_transfers(home, pull=True, excludes=excludes))
-    return 0
+        failures += transfer(home, full_transfers(home, pull=True, excludes=excludes))
+    return report(failures)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 import fcntl
 import json
-import os
 
 import pytest
 
@@ -8,6 +7,13 @@ UUID_A = "11111111-2222-3333-4444-555555555555"
 UUID_B = "66666666-7777-8888-9999-000000000000"
 
 CAPTURE = 'printf "%s\\n" "$*" >> "$RSYNC_LOG"'
+
+
+class FailedRsync:
+    returncode = 255
+
+    def __init__(self, stderr):
+        self.stderr = stderr
 
 
 @pytest.fixture
@@ -181,3 +187,37 @@ class TestHelp:
         assert result.returncode == 0
         assert "claude-sync" in result.stdout
         assert invocations(rsync_log) == []
+
+
+class TestRemoteDefaults:
+    @pytest.fixture
+    def script(self, load_script, monkeypatch):
+        for name in ("CLAUDE_SYNC_REMOTE", "CLAUDE_SYNC_REMOTE_HOME"):
+            monkeypatch.delenv(name, raising=False)
+        return load_script("claude-sync")
+
+    def should_reach_the_dev_box_through_its_ssh_alias(self, script):
+        assert script.remote_base().startswith("devbox:")
+
+    def should_not_request_a_tty_for_a_binary_transfer(self, script):
+        assert "RequestTTY=no" in script.SSH_COMMAND
+
+
+class TestVisibility:
+    def should_stay_silent_when_not_attached_to_a_terminal(self, sync):
+        result = sync(["--push"], rsync_exit=255)
+
+        assert result.returncode == 0
+        assert result.stderr == ""
+
+    def should_report_the_failure_when_attached_to_a_terminal(self, load_script, monkeypatch, capsys):
+        script = load_script("claude-sync")
+        monkeypatch.setattr(script, "interactive", lambda: True)
+        monkeypatch.setattr(script.subprocess, "run",
+                            lambda *_args, **_kwargs: FailedRsync("Permission denied (publickey)."))
+
+        failures = script.transfer(script.local_home(), [["rsync", "src", "dst"]])
+
+        assert failures == 1
+        assert "Permission denied" in capsys.readouterr().err
+        assert script.report(failures) == 1
