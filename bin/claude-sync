@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Sync Claude Code transcripts between this Mac and the dev box."""
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+SYNC_PATHS = ("projects", "file-history", "tasks", "paste-cache")
+SSH_COMMAND = "ssh -o BatchMode=yes -o ConnectTimeout=5"
+RSYNC_TIMEOUT_SECONDS = 20
+MAX_LOG_BYTES = 1_000_000
+UUID_PATTERN = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
+
+DEFAULT_HOME = "~/.claude"
+DEFAULT_REMOTE = "opencode@devbox.asymptote-bass.ts.net"
+DEFAULT_REMOTE_HOME = "/home/opencode/.claude"
+
+
+def local_home() -> Path:
+    return Path(os.environ.get("CLAUDE_HOME", DEFAULT_HOME)).expanduser()
+
+
+def remote_base() -> str:
+    remote = os.environ.get("CLAUDE_SYNC_REMOTE", DEFAULT_REMOTE)
+    home = os.environ.get("CLAUDE_SYNC_REMOTE_HOME", DEFAULT_REMOTE_HOME)
+    return f"{remote}:{home.rstrip('/')}"
+
+
+def log(home: Path, message: str) -> None:
+    logfile = home / "claude-sync.log"
+    try:
+        if logfile.exists() and logfile.stat().st_size > MAX_LOG_BYTES:
+            logfile.replace(logfile.with_suffix(".log.1"))
+        with open(logfile, "a") as handle:
+            handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
+    except OSError:
+        pass
+
+
+def find_live_sessions(home: Path) -> list[str]:
+    live = set()
+    for entry in sorted((home / "sessions").glob("*.json")):
+        try:
+            record = json.loads(entry.read_text())
+        except (OSError, ValueError):
+            continue
+        session_id = record.get("sessionId")
+        if record.get("status") == "running" and isinstance(session_id, str):
+            live.add(session_id)
+    return sorted(live)
+
+
+def rsync_command(sources: list[str], destination: str, excludes: list[str]) -> list[str]:
+    command = [
+        "rsync", "-a", "--update",
+        f"--timeout={RSYNC_TIMEOUT_SECONDS}",
+        "-e", SSH_COMMAND,
+    ]
+    command += [f"--exclude={session}*" for session in excludes]
+    return command + sources + [destination]
+
+
+def full_transfers(home: Path, pull: bool, excludes: list[str]) -> list[list[str]]:
+    transfers = []
+    for name in SYNC_PATHS:
+        local = f"{home / name}/"
+        remote = f"{remote_base()}/{name}/"
+        if pull:
+            transfers.append(rsync_command([remote], local, excludes))
+        elif (home / name).is_dir():
+            transfers.append(rsync_command([local], remote, excludes))
+    return transfers
+
+
+def session_transfers(home: Path, session: str) -> list[list[str]]:
+    sources = [str(path) for path in sorted((home / "projects").glob(f"*/{session}.jsonl"))]
+    for name in ("file-history", "tasks"):
+        if (home / name / session).is_dir():
+            sources.append(f"{home / name / session}/")
+    if (home / "paste-cache").is_dir():
+        sources.append(f"{home / 'paste-cache'}/")
+    if not sources:
+        return []
+    relative = [source.replace(str(home) + "/", str(home) + "/./", 1) for source in sources]
+    command = rsync_command(relative, f"{remote_base()}/", [])
+    command.insert(1, "--relative")
+    return [command]
+
+
+def transfer(home: Path, commands: list[list[str]]) -> None:
+    for command in commands:
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            log(home, f"rsync exit {result.returncode}: {result.stderr.strip()}")
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="claude-sync",
+        description="Sync Claude Code transcripts between this Mac and the dev box.",
+    )
+    direction = parser.add_mutually_exclusive_group()
+    direction.add_argument("--push", action="store_true", help="local to remote only")
+    direction.add_argument("--pull", action="store_true", help="remote to local only")
+    direction.add_argument("--both", action="store_true", help="both directions (default)")
+    parser.add_argument("--session", metavar="UUID", help="push one finished session")
+    parser.add_argument("--push-stdin", action="store_true", help="push the session id read from stdin")
+    return parser.parse_args(argv)
+
+
+def resolve_session(args: argparse.Namespace) -> str | None:
+    session = sys.stdin.read().strip() if args.push_stdin else args.session
+    if session is None:
+        return None
+    if not UUID_PATTERN.match(session):
+        sys.stderr.write(f"claude-sync: not a session id: {session}\n")
+        raise SystemExit(2)
+    return session
+
+
+def hold_lock(home: Path):
+    lock = home / "claude-sync.lock"
+    try:
+        handle = open(lock, "a")
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return None
+    return handle
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    session = resolve_session(args)
+    home = local_home()
+    if not home.is_dir():
+        return 0
+
+    handle = hold_lock(home)
+    if handle is None:
+        return 0
+
+    if session:
+        transfer(home, session_transfers(home, session))
+        return 0
+
+    excludes = find_live_sessions(home)
+    if not args.pull:
+        transfer(home, full_transfers(home, pull=False, excludes=excludes))
+    if not args.push:
+        transfer(home, full_transfers(home, pull=True, excludes=excludes))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
