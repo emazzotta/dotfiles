@@ -220,4 +220,25 @@ class TestVisibility:
 
         assert failures == 1
         assert "Permission denied" in capsys.readouterr().err
-        assert script.report(failures) == 1
+        assert script.report(failures, "up to date") == 1
+
+    def should_say_when_another_run_holds_the_lock(self, sync, claude_home, rsync_log):
+        lock = claude_home / "claude-sync.lock"
+        lock.touch()
+        with open(lock) as held:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+            result = sync(["--push"])
+
+        assert result.returncode == 0
+        assert invocations(rsync_log) == []
+
+    def should_stream_progress_when_verbose(self, sync, rsync_log):
+        sync(["--push", "--verbose"])
+
+        assert all("--info=progress2" in i for i in invocations(rsync_log))
+
+    def should_swallow_progress_by_default(self, sync, rsync_log):
+        sync(["--push"])
+
+        assert all("--info=progress2" not in i for i in invocations(rsync_log))

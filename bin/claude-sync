@@ -98,15 +98,17 @@ def interactive() -> bool:
     return sys.stderr.isatty()
 
 
-def transfer(home: Path, commands: list[list[str]]) -> int:
+def transfer(home: Path, commands: list[list[str]], stream: bool = False) -> int:
     failures = 0
     for command in commands:
-        result = subprocess.run(command, capture_output=True, text=True)
+        if stream:
+            command = command[:1] + ["--info=progress2"] + command[1:]
+        result = subprocess.run(command, capture_output=not stream, text=True)
         if result.returncode != 0:
             failures += 1
-            detail = result.stderr.strip()
+            detail = (result.stderr or "").strip()
             log(home, f"rsync exit {result.returncode}: {detail}")
-            if interactive():
+            if interactive() and not stream:
                 sys.stderr.write(f"claude-sync: {detail}\n")
     return failures
 
@@ -122,6 +124,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     direction.add_argument("--both", action="store_true", help="both directions (default)")
     parser.add_argument("--session", metavar="UUID", help="push one finished session")
     parser.add_argument("--push-stdin", action="store_true", help="push the session id read from stdin")
+    parser.add_argument("-v", "--verbose", action="store_true", help="stream rsync progress instead of swallowing it")
     return parser.parse_args(argv)
 
 
@@ -145,9 +148,17 @@ def hold_lock(home: Path):
     return handle
 
 
-def report(failures: int) -> int:
+def announce(message: str) -> None:
+    if interactive():
+        sys.stderr.write(f"claude-sync: {message}\n")
+
+
+def report(failures: int, done: str) -> int:
     """A hook or a detached launch must never fail; a person at a terminal must never be left guessing."""
-    return 1 if failures and interactive() else 0
+    if not failures:
+        announce(done)
+        return 0
+    return 1 if interactive() else 0
 
 
 def main(argv: list[str]) -> int:
@@ -159,18 +170,19 @@ def main(argv: list[str]) -> int:
 
     handle = hold_lock(home)
     if handle is None:
+        announce("another sync is already running, nothing to do")
         return 0
 
     if session:
-        return report(transfer(home, session_transfers(home, session)))
+        return report(transfer(home, session_transfers(home, session), args.verbose), "pushed session")
 
     excludes = find_live_sessions(home)
     failures = 0
     if not args.pull:
-        failures += transfer(home, full_transfers(home, pull=False, excludes=excludes))
+        failures += transfer(home, full_transfers(home, pull=False, excludes=excludes), args.verbose)
     if not args.push:
-        failures += transfer(home, full_transfers(home, pull=True, excludes=excludes))
-    return report(failures)
+        failures += transfer(home, full_transfers(home, pull=True, excludes=excludes), args.verbose)
+    return report(failures, "up to date")
 
 
 if __name__ == "__main__":
