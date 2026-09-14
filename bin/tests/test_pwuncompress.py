@@ -54,7 +54,7 @@ class TestArchiveDiscovery:
         result = uncompress()
 
         assert result.returncode == 1
-        assert "No .7z archive found" in result.stderr
+        assert "no 7z file in" in result.stderr
         assert not (tmp_path / "7z.log").exists()
 
     def test_should_offer_every_archive_to_the_picker_when_several_exist(self, uncompress, tmp_path, workspace):
@@ -77,7 +77,7 @@ class TestArchiveDiscovery:
         result = uncompress(picker=PICKER_CANCELLED)
 
         assert result.returncode == 1
-        assert "No archive selected" in result.stderr
+        assert "nothing selected" in result.stderr
         assert not (tmp_path / "7z.log").exists()
 
     def test_should_ignore_discovery_when_an_archive_is_named(self, uncompress, tmp_path, workspace):

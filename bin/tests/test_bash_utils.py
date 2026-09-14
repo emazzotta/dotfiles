@@ -100,11 +100,6 @@ class TestCompress:
 
 
 class TestExtract:
-    def test_no_args_shows_usage(self, run_bash):
-        result = run_bash("extract")
-        combined = result.stdout + result.stderr
-        assert "usage" in combined.lower()
-
     def test_unsupported_extension(self, run_bash, tmp_path):
         fake = tmp_path / "test.xyz123"
         fake.write_text("not an archive")

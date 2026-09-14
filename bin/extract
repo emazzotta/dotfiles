@@ -1,38 +1,55 @@
 #!/bin/bash
 
+set -uo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/shelllog.sh"
 
-if [ -f "${1}" ] ; then
-    log "archive to decompress: ${1}"
-    case "${1}" in
-        *.tar.bz2) tar xvjf "${1}" ;;
-        *.tar.gz) tar xvzf "${1}" ;;
-        *.tar.xz) tar xvJf "${1}" ;;
-        *.bz2) bunzip2 "${1}" ;;
-        *.rar) rar x "${1}" ;;
-        *.gz) gunzip "${1}" ;;
-        *.tar) tar xvf "${1}" ;;
-        *.tbz2) tar xvjf "${1}" ;;
-        *.tgz) tar xvzf "${1}" ;;
-        *.zip) unzip "${1}" ;;
-        *.Z) uncompress "${1}" ;;
-        *.7z) 7z x "${1}" ;;
-        *.xz) unxz "${1}" ;;
-        *.exe) 7z x "${1}" ;;
-        *.msi) 7z x "${1}" ;;
-        *.pkg) 7z x "${1}" ;;
-        *.deb) w x "${1}" ;;
-        *.rpm) rpm2cpio "${1}" | cpio -idmv ;;
-        *.dmg) 7z x "${1}" ;;
-        *.iso) 7z x "${1}" ;;
-        *.cab) cabextract "${1}" ;;
-        *) error "don't know '${1}'..." ;;
-    esac
-elif ! test "${1}" || [[ "${1}" == "--help" ]] || [[ "${1}" == "-h" ]]; then
-    log "usage: $(basename "${0}") <file>"
-    log "help :  -h, --help"
-else
-    error "'${1}' is not a valid file/option!"
-    log "usage: $(basename "${0}")"
+ARCHIVE_EXTENSIONS=(tar.bz2 tar.gz tar.xz bz2 rar gz tar tbz2 tgz zip Z 7z xz exe msi pkg deb rpm dmg iso cab)
+
+show_usage() {
+    log "usage: $(basename "${0}") [file]"
+    log "no file: the single archive in the current directory, or a picker among several"
+}
+
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    show_usage
+    exit 0
 fi
+
+archive="${1:-}"
+if [ -z "${archive}" ]; then
+    archive="$(pickfile --header "Select archive:" "${ARCHIVE_EXTENSIONS[@]}")" || exit 1
+fi
+
+if [ ! -f "${archive}" ]; then
+    error "'${archive}' is not a valid file/option!"
+    show_usage
+    exit 1
+fi
+
+log "archive to decompress: ${archive}"
+case "${archive}" in
+    *.tar.bz2) tar xvjf "${archive}" ;;
+    *.tar.gz) tar xvzf "${archive}" ;;
+    *.tar.xz) tar xvJf "${archive}" ;;
+    *.bz2) bunzip2 "${archive}" ;;
+    *.rar) rar x "${archive}" ;;
+    *.gz) gunzip "${archive}" ;;
+    *.tar) tar xvf "${archive}" ;;
+    *.tbz2) tar xvjf "${archive}" ;;
+    *.tgz) tar xvzf "${archive}" ;;
+    *.zip) unzip "${archive}" ;;
+    *.Z) uncompress "${archive}" ;;
+    *.7z) 7z x "${archive}" ;;
+    *.xz) unxz "${archive}" ;;
+    *.exe) 7z x "${archive}" ;;
+    *.msi) 7z x "${archive}" ;;
+    *.pkg) 7z x "${archive}" ;;
+    *.deb) w x "${archive}" ;;
+    *.rpm) rpm2cpio "${archive}" | cpio -idmv ;;
+    *.dmg) 7z x "${archive}" ;;
+    *.iso) 7z x "${archive}" ;;
+    *.cab) cabextract "${archive}" ;;
+    *) error "don't know '${archive}'..." ;;
+esac
