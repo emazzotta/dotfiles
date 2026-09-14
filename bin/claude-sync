@@ -148,6 +148,11 @@ def hold_lock(home: Path):
     return handle
 
 
+def wrong_host() -> bool:
+    """devbox_key and the tailnet route live on the Mac; in the container the default remote can only fail confusingly."""
+    return Path("/.dockerenv").exists() and "CLAUDE_SYNC_REMOTE" not in os.environ
+
+
 def announce(message: str) -> None:
     if interactive():
         sys.stderr.write(f"claude-sync: {message}\n")
@@ -163,6 +168,9 @@ def report(failures: int, done: str) -> int:
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
+    if wrong_host():
+        announce("runs on the Mac host, not inside the container")
+        return 0
     session = resolve_session(args)
     home = local_home()
     if not home.is_dir():

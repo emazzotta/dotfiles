@@ -242,3 +242,11 @@ class TestVisibility:
         sync(["--push"])
 
         assert all("--info=progress2" not in i for i in invocations(rsync_log))
+
+    def should_refuse_to_run_inside_the_container(self, load_script, monkeypatch, capsys):
+        script = load_script("claude-sync")
+        monkeypatch.setattr(script, "wrong_host", lambda: True)
+        monkeypatch.setattr(script, "interactive", lambda: True)
+
+        assert script.main(["--push"]) == 0
+        assert "Mac host" in capsys.readouterr().err
