@@ -7,13 +7,18 @@ source "$SCRIPT_DIR/shelllog.sh"
 
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") [-o OUTPUT_DIR] [-h] <archive-file>
+Usage: $(basename "$0") [-o OUTPUT_DIR] [-h] [archive-file]
 
 Extracts a password-protected 7z archive using \$PASSWORD_ZIPS.
 
 Options:
   -o OUTPUT_DIR  Extract to this directory (skips destination prompt)
   -h             Show this help
+
+Archive resolution (when <archive-file> is omitted):
+  1. One *.7z in cwd         -> extract that one
+  2. Several                 -> pick via picker
+  3. None                    -> error
 
 Destination resolution (when -o is omitted):
   1. Archive is in \$DESKDIR  -> extract to \$DESKDIR
@@ -25,10 +30,47 @@ Environment:
   GLOBAL_ENV_FILE  Optional env file sourced before extraction
 
 Examples:
+  $(basename "$0")
   $(basename "$0") archive.7z
   $(basename "$0") -o /tmp/out archive.7z
   $(basename "$0") /path/to/archive.7z
 EOF
+}
+
+find_archive_in_cwd() {
+    local candidates="" candidate selected
+    local count=0
+
+    for candidate in *.7z; do
+        if [ -f "$candidate" ]; then
+            candidates="${candidates}${candidate}"$'\n'
+            count=$((count + 1))
+        fi
+    done
+
+    if [ "$count" -eq 0 ]; then
+        error "No .7z archive found in $(pwd)"
+        return 1
+    fi
+
+    if [ "$count" -eq 1 ]; then
+        printf '%s\n' "${candidates%$'\n'}"
+        return 0
+    fi
+
+    if ! command -v picker >/dev/null 2>&1; then
+        error "Multiple .7z archives found; pass one explicitly or install fzf/gum"
+        printf '%s' "$candidates" >&2
+        return 1
+    fi
+
+    selected="$(printf '%s' "$candidates" | picker --header "Select archive:" || true)"
+    if [ -z "$selected" ]; then
+        error "No archive selected"
+        return 1
+    fi
+
+    printf '%s\n' "$selected"
 }
 
 OUTPUT_DIR=""
@@ -59,8 +101,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$ARCHIVE" ]; then
-    show_usage
-    exit 1
+    ARCHIVE="$(find_archive_in_cwd)" || exit 1
 fi
 
 if [ ! -f "$ARCHIVE" ]; then
