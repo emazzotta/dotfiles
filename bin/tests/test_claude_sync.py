@@ -17,6 +17,13 @@ class FailedRsync:
         self.stderr = stderr
 
 
+@pytest.fixture(autouse=True)
+def _never_touch_the_real_home(tmp_path, monkeypatch):
+    """Without this a test that forgets CLAUDE_HOME writes into the user's live ~/.claude."""
+    monkeypatch.setenv("CLAUDE_HOME", str(tmp_path / "isolated"))
+    (tmp_path / "isolated").mkdir()
+
+
 @pytest.fixture
 def claude_home(tmp_path):
     home = tmp_path / "claude"
@@ -226,13 +233,13 @@ class TestVisibility:
         assert result.returncode == 0
         assert result.stderr == ""
 
-    def should_report_the_failure_when_attached_to_a_terminal(self, load_script, monkeypatch, capsys):
+    def should_report_the_failure_when_attached_to_a_terminal(self, load_script, monkeypatch, capsys, tmp_path):
         script = load_script("claude-sync")
         monkeypatch.setattr(script, "interactive", lambda: True)
         monkeypatch.setattr(script.subprocess, "run",
                             lambda *_args, **_kwargs: FailedRsync("Permission denied (publickey)."))
 
-        failures = script.transfer(script.local_home(), [["rsync", "src", "dst"]])
+        failures = script.transfer(tmp_path, [["rsync", "src", "dst"]])
 
         assert failures == 1
         assert "Permission denied" in capsys.readouterr().err
