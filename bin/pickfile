@@ -1,0 +1,97 @@
+#!/bin/bash
+# Resolve one file in the current directory by extension.
+#
+# Globs for the given extensions, then:
+#   none -> error
+#   one  -> print it
+#   many -> hand them to `picker` and print the selection
+#
+# Extensions match case-insensitively, with or without a leading dot, and
+# compound forms work (tar.gz). The resolved path goes to stdout and
+# everything else to stderr, so it composes into a one-line default:
+#
+#   input="$(pickfile pdf)" || exit 1
+#   archive="$(pickfile --header 'Select archive:' 7z zip tar.gz)" || exit 1
+#
+# Usage:
+#   pickfile [--header TEXT] EXT [EXT...]
+#
+# Exit codes:
+#   0   resolved (path on stdout)
+#   1   nothing found, or cancelled
+#   2   usage error
+
+set -uo pipefail
+shopt -s nocaseglob
+
+show_help() {
+    awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"
+}
+
+header="Select file:"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --header)
+            if [ -z "${2:-}" ]; then
+                echo "pickfile: --header requires a value" >&2
+                exit 2
+            fi
+            header="$2"
+            shift 2
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -*)
+            echo "pickfile: unknown option: $1" >&2
+            exit 2
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [ $# -eq 0 ]; then
+    echo "pickfile: at least one extension required" >&2
+    exit 2
+fi
+
+matches=""
+for extension in "$@"; do
+    for candidate in *."${extension#.}"; do
+        if [ -f "$candidate" ]; then
+            matches="${matches}${candidate}"$'\n'
+        fi
+    done
+done
+matches="$(printf '%s' "$matches" | sort -u)"
+
+if [ -z "$matches" ]; then
+    echo "pickfile: no ${*} file in $(pwd)" >&2
+    exit 1
+fi
+
+match_count="$(printf '%s\n' "$matches" | wc -l | tr -d ' ')"
+
+if [ "$match_count" -eq 1 ]; then
+    printf '%s\n' "$matches"
+    exit 0
+fi
+
+if ! command -v picker >/dev/null 2>&1; then
+    echo "pickfile: several matches but picker is unavailable:" >&2
+    printf '%s\n' "$matches" >&2
+    exit 1
+fi
+
+selected="$(printf '%s\n' "$matches" | picker --header "$header")"
+
+if [ -z "$selected" ]; then
+    echo "pickfile: nothing selected" >&2
+    exit 1
+fi
+
+printf '%s\n' "$selected"
