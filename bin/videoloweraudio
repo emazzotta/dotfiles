@@ -2,14 +2,16 @@
 
 set -e
 
-if test "${1}"; then
-    input_file="${1}"
-    extension="${1#*.}"
-    name="${1%%.*}"
-    output_file="${name}_lower_audio.${extension}"
-	# Reduce audio to 20%
-	ffmpeg -i "${input_file}" -vcodec copy -af "volume=0.2" "${output_file}"
-else
-    echo "usage: $(basename "${0}") <input_file>"
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    echo "usage: $(basename "${0}") [input_file]"
+    exit 0
 fi
 
+input_file="${1:-$(pickfile --class video)}"
+[ -n "${input_file}" ] || exit 1
+
+extension="${input_file#*.}"
+name="${input_file%%.*}"
+output_file="${name}_lower_audio.${extension}"
+# Reduce audio to 20%
+ffmpeg -i "${input_file}" -vcodec copy -af "volume=0.2" "${output_file}"

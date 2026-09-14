@@ -1,27 +1,29 @@
 #!/bin/bash
 
-if [ -z "$1" ]; then
-  echo "Usage: $0 <file.pdf>"
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+  echo "Usage: $(basename "$0") [file.pdf]"
+  exit 0
+fi
+
+pdf="${1:-$(pickfile pdf)}"
+[ -n "$pdf" ] || exit 1
+
+if [ ! -f "$pdf" ]; then
+  echo "Error: File '$pdf' not found."
   exit 1
 fi
 
-if [ ! -f "$1" ]; then
-  echo "Error: File '$1' not found."
-  exit 1
-fi
-
-pages=$(pdfinfo "$1" | grep 'Pages' | awk '{print $2}')
+pages=$(pdfinfo "$pdf" | grep 'Pages' | awk '{print $2}')
 
 if ! [[ $pages =~ ^[0-9]+$ ]]; then
-  echo "Error: Failed to determine the number of pages in '$1'."
+  echo "Error: Failed to determine the number of pages in '$pdf'."
   exit 1
 fi
 
 counter=1
 while [ $counter -le $pages ]; do
-  name="$(echo "$1" | sed 's/.pdf$//')_${counter}.pdf"
+  name="$(echo "$pdf" | sed 's/.pdf$//')_${counter}.pdf"
   echo "Creating page [${counter}] with name [${name}]"
-  gs -dBATCH -dNOPAUSE -sDEVICE=pdfwrite -sOutputFile="${name}" -dFirstPage=${counter} -dLastPage=${counter} "$1" >/dev/null 2>&1
+  gs -dBATCH -dNOPAUSE -sDEVICE=pdfwrite -sOutputFile="${name}" -dFirstPage=${counter} -dLastPage=${counter} "$pdf" >/dev/null 2>&1
   counter=$((counter + 1))
 done
-

@@ -1,9 +1,15 @@
 #!/bin/bash
 
-if test "${1}"; then
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    echo "usage: $(basename "${0}") [asciicast to convert]"
+    exit 0
+fi
+
+if [ -n "${1:-}" ]; then
     input="${1}"
     [[ "${input}" != *.cast ]] && input="${input}.cast"
-    docker run --rm -it -u $(id -u):$(id -g) -v $PWD:/data agg "${input}" video.gif
 else
-    echo "usage: $(basename "${0}") <asciicast to convert>"
+    input="$(pickfile cast)" || exit 1
 fi
+
+docker run --rm -it -u "$(id -u):$(id -g)" -v "$PWD:/data" agg "${input}" video.gif

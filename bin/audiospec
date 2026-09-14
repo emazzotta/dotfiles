@@ -2,11 +2,13 @@
 
 set -e
 
-if test "${1}"; then
-    input_file="${1}"
-    output_file="${input_file%.*}_spectrogram.png"
-   sox "${input_file}" -n spectrogram -o "${output_file}"
-    # ffmpeg -i "${input_file}" -lavfi showspectrumpic=s=800x400:scale=lin:legend=enabled:color=moreland:saturation=1:fscale=log -y "${output_file}"
-else
-    echo "usage: $(basename "${0}") <audio file>"
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    echo "usage: $(basename "${0}") [audio file]"
+    exit 0
 fi
+
+input_file="${1:-$(pickfile --class audio)}"
+[ -n "${input_file}" ] || exit 1
+
+output_file="${input_file%.*}_spectrogram.png"
+sox "${input_file}" -n spectrogram -o "${output_file}"

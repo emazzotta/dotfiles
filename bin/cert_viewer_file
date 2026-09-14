@@ -2,8 +2,12 @@
 
 set -e
 
-if test "${1}"; then
-    openssl x509 -in "${1}" -text -noout
-else
-    echo "usage: $(basename "${0}") <certificate file>"
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    echo "usage: $(basename "${0}") [certificate file]"
+    exit 0
 fi
+
+certificate="${1:-$(pickfile pem crt cer der)}"
+[ -n "${certificate}" ] || exit 1
+
+openssl x509 -in "${certificate}" -text -noout

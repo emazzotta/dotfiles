@@ -1,7 +1,11 @@
 #!/bin/bash
 
-if test "${1}"; then
-    exiftool -all= -overwrite_original_in_place "${1}"
-else
-    echo "usage: $(basename "${0}") <file>"
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    echo "usage: $(basename "${0}") [file]"
+    exit 0
 fi
+
+input_file="${1:-$(pickfile --class image)}"
+[ -n "${input_file}" ] || exit 1
+
+exiftool -all= -overwrite_original_in_place "${input_file}"

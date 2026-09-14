@@ -2,10 +2,14 @@
 
 set -e
 
-if test "${1}"; then
-    output_file="${1%.*}_mirrored.${1##*.}"
-    echo "Converting to ${output_file}"...
-    convert "${1}" -flop "${output_file}"
-else
-    echo "usage: $(basename "${0}") <input_file>"
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    echo "usage: $(basename "${0}") [input_file]"
+    exit 0
 fi
+
+input_file="${1:-$(pickfile --class image)}"
+[ -n "${input_file}" ] || exit 1
+
+output_file="${input_file%.*}_mirrored.${input_file##*.}"
+echo "Converting to ${output_file}..."
+convert "${input_file}" -flop "${output_file}"

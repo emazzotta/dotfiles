@@ -1,12 +1,13 @@
 #!/bin/bash
 set -e
 
-if [ -z "$1" ]; then
-  echo "Usage: $0 <file.ppk>"
-  exit 1
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+  echo "Usage: $(basename "$0") [file.ppk]"
+  exit 0
 fi
 
-PPK_FILE="$1"
+PPK_FILE="${1:-$(pickfile ppk)}"
+[ -n "$PPK_FILE" ] || exit 1
 PEM_FILE="${PPK_FILE%.ppk}.pem"
 
 if [ ! -f "$PPK_FILE" ]; then
@@ -19,5 +20,3 @@ echo "Converting $PPK_FILE to $PEM_FILE..."
 docker run --rm -ti -v "$(dirname "$PPK_FILE"):/keys" alpine sh -c \
   "apk add putty > /dev/null 2>&1 && \
    puttygen /keys/$(basename "$PPK_FILE") -O private-openssh -o /keys/$(basename "$PEM_FILE")"
-
-chmod 600 "$PEM_FILE"

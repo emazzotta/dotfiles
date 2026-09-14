@@ -1,10 +1,12 @@
 #!/bin/bash
 
-if test "${1}"; then
-    input_file="${1}"
-    output_file="${input_file%.*}_compressed.pdf"
-    gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -sOutputFile="${output_file}" "${input_file}"
-else
-    echo "usage: $(basename "${0}") <inputfile>"
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    echo "usage: $(basename "${0}") [inputfile]"
+    exit 0
 fi
 
+input_file="${1:-$(pickfile pdf)}"
+[ -n "${input_file}" ] || exit 1
+
+output_file="${input_file%.*}_compressed.pdf"
+gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -sOutputFile="${output_file}" "${input_file}"

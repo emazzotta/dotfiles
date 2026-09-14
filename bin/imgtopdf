@@ -4,10 +4,14 @@ set -e
 
 source "$(dirname "${BASH_SOURCE[0]}")/shelllog.sh"
 
-if test "${1}"; then
-    output_file="${1%.*}.pdf"
-    log "Converting to ${output_file}..."
-    magick "${1}" "${output_file}"
-else
-    log "usage: $(basename "${0}") <input_file>"
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    log "usage: $(basename "${0}") [input_file]"
+    exit 0
 fi
+
+input_file="${1:-$(pickfile --class image)}"
+[ -n "${input_file}" ] || exit 1
+
+output_file="${input_file%.*}.pdf"
+log "Converting to ${output_file}..."
+magick "${input_file}" "${output_file}"

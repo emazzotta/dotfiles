@@ -1,9 +1,13 @@
 #!/bin/bash
 
-if test "${1}"; then
-    echo "${1%.*}.img"
-    hdiutil convert -format UDRW -o "${1%.*}.img" "${1}"
-    mv "${1%.*}.img.dmg" "${1%.*}.img"
-else
-    echo "usage: $(basename "${0}") <iso file to convert>"
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    echo "usage: $(basename "${0}") [iso file to convert]"
+    exit 0
 fi
+
+iso_file="${1:-$(pickfile iso)}"
+[ -n "${iso_file}" ] || exit 1
+
+echo "${iso_file%.*}.img"
+hdiutil convert -format UDRW -o "${iso_file%.*}.img" "${iso_file}"
+mv "${iso_file%.*}.img.dmg" "${iso_file%.*}.img"
