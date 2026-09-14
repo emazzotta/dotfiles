@@ -123,7 +123,8 @@ def transfer(home: Path, commands: list[list[str]], stream: bool = False) -> int
         if result.returncode != 0:
             failures += 1
             detail = (result.stderr or "").strip()
-            log(home, f"rsync exit {result.returncode} [{invoker()}]: {detail}")
+            log(home, f"rsync exit {result.returncode} [{invoker()}, home={os.environ.get('HOME', '?')}]"
+                      f" -> {command[-1]}: {detail}")
             if interactive() and not stream:
                 sys.stderr.write(f"claude-sync: {detail}\n")
     return failures
