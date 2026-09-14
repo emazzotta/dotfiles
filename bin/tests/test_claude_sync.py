@@ -68,25 +68,40 @@ class TestScope:
         for excluded in ("shell-snapshots", "history.jsonl", "sessions/", "credentials"):
             assert excluded not in synced
 
-    def should_push_local_tree_to_the_remote(self, sync, claude_home, rsync_log):
+    def should_push_every_path_in_one_invocation(self, sync, claude_home, rsync_log):
         sync(["--push"])
 
-        projects = next(i for i in invocations(rsync_log) if "projects/" in i)
-        assert f"{claude_home}/projects/" in projects
-        assert "opencode@devbox.example.ts.net:/home/opencode/.claude/projects/" in projects
+        assert len(invocations(rsync_log)) == 1
+        pushed = invocations(rsync_log)[0]
+        assert "--relative" in pushed
+        for name in ("projects", "file-history", "tasks", "paste-cache"):
+            assert f"{claude_home}/./{name}/" in pushed
+        assert pushed.rstrip().endswith("opencode@devbox.example.ts.net:/home/opencode/.claude/")
 
-    def should_pull_remote_tree_to_local(self, sync, claude_home, rsync_log):
+    def should_pull_every_path_in_one_invocation(self, sync, claude_home, rsync_log):
         sync(["--pull"])
 
-        projects = next(i for i in invocations(rsync_log) if "projects/" in i)
-        assert "opencode@devbox.example.ts.net:/home/opencode/.claude/projects/" in projects
-        assert projects.rstrip().endswith(f"{claude_home}/projects/")
+        assert len(invocations(rsync_log)) == 1
+        pulled = invocations(rsync_log)[0]
+        for name in ("projects", "file-history", "tasks", "paste-cache"):
+            assert f"/home/opencode/.claude/{name} " in pulled + " "
+        assert pulled.rstrip().endswith(f"{claude_home}/")
+
+    def should_keep_each_pulled_path_in_its_own_directory(self, sync, rsync_log):
+        """A trailing slash on a multi-source pull flattens every path into the config root."""
+        sync(["--pull"])
+
+        assert "/home/opencode/.claude/projects/ " not in invocations(rsync_log)[0] + " "
 
     def should_run_both_directions_by_default(self, sync, rsync_log):
         sync()
 
-        projects = [i for i in invocations(rsync_log) if "projects/" in i]
-        assert len(projects) == 2
+        assert len(invocations(rsync_log)) == 2
+
+    def should_reuse_one_ssh_connection(self, sync, rsync_log):
+        sync(["--push"])
+
+        assert "ControlMaster=auto" in invocations(rsync_log)[0]
 
 
 class TestSafety:

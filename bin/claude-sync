@@ -13,7 +13,8 @@ import time
 from pathlib import Path
 
 SYNC_PATHS = ("projects", "file-history", "tasks", "paste-cache")
-SSH_COMMAND = "ssh -o BatchMode=yes -o ConnectTimeout=5 -o RequestTTY=no"
+SSH_COMMAND = ("ssh -o BatchMode=yes -o ConnectTimeout=5 -o RequestTTY=no"
+               " -o ControlMaster=auto -o ControlPath=~/.ssh/claude-sync-%C -o ControlPersist=60")
 RSYNC_TIMEOUT_SECONDS = 20
 MAX_LOG_BYTES = 1_000_000
 UUID_PATTERN = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
@@ -67,16 +68,22 @@ def rsync_command(sources: list[str], destination: str, excludes: list[str]) -> 
     return command + sources + [destination]
 
 
+def relative(command: list[str]) -> list[str]:
+    """One invocation carrying several paths, so the whole sync costs one rsync and one ssh."""
+    return command[:1] + ["--relative"] + command[1:]
+
+
 def full_transfers(home: Path, pull: bool, excludes: list[str]) -> list[list[str]]:
-    transfers = []
-    for name in SYNC_PATHS:
-        local = f"{home / name}/"
-        remote = f"{remote_base()}/{name}/"
-        if pull:
-            transfers.append(rsync_command([remote], local, excludes))
-        elif (home / name).is_dir():
-            transfers.append(rsync_command([local], remote, excludes))
-    return transfers
+    if pull:
+        # No trailing slash: with one, rsync copies each source's *contents* into
+        # the destination and flattens every path into the config root.
+        return [rsync_command([f"{remote_base()}/{name}" for name in SYNC_PATHS],
+                              f"{home}/", excludes)]
+    present = [name for name in SYNC_PATHS if (home / name).is_dir()]
+    if not present:
+        return []
+    return [relative(rsync_command([f"{home}/./{name}/" for name in present],
+                                   f"{remote_base()}/", excludes))]
 
 
 def session_transfers(home: Path, session: str) -> list[list[str]]:
@@ -88,10 +95,8 @@ def session_transfers(home: Path, session: str) -> list[list[str]]:
         sources.append(f"{home / 'paste-cache'}/")
     if not sources:
         return []
-    relative = [source.replace(str(home) + "/", str(home) + "/./", 1) for source in sources]
-    command = rsync_command(relative, f"{remote_base()}/", [])
-    command.insert(1, "--relative")
-    return [command]
+    rooted = [source.replace(str(home) + "/", str(home) + "/./", 1) for source in sources]
+    return [relative(rsync_command(rooted, f"{remote_base()}/", []))]
 
 
 def interactive() -> bool:
