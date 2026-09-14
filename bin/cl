@@ -21,12 +21,16 @@ INTERNET_CHECK_HOST = "one.one.one.one"
 INTERNET_CHECK_TIMEOUT_MS = 1000
 
 
-def warn_if_offline() -> None:
+def load_host_resolver():
     path = Path(__file__).resolve().parent / "host-resolver"
     spec = importlib.util.spec_from_loader("host_resolver", SourceFileLoader("host_resolver", str(path)))
     host_resolver = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(host_resolver)
-    if host_resolver.try_host(INTERNET_CHECK_HOST, INTERNET_CHECK_TIMEOUT_MS, silent=True):
+    return host_resolver
+
+
+def warn_if_offline() -> None:
+    if load_host_resolver().try_host(INTERNET_CHECK_HOST, INTERNET_CHECK_TIMEOUT_MS, silent=True):
         return
     print(f"\033[33mcl: warning - no internet (could not reach {INTERNET_CHECK_HOST}). LLM calls will likely fail.\033[0m", file=sys.stderr)
 
@@ -152,6 +156,8 @@ DESKTOP = Path.home() / "Desktop"
 DOTFILES = Path.home() / "dotfiles"
 CLAUDE_SYNC = Path(__file__).resolve().parent / "claude-sync"
 SYNC_PULL_TIMEOUT_SECONDS = 10
+DEVBOX_HOST = "devbox.asymptote-bass.ts.net"
+DEVBOX_REACHABLE_TIMEOUT_MS = 500
 DOTFILES_CONTAINER = "/home/opencode/dotfiles"
 DOTFILES_CRUFT_PATTERNS = (
     "__pycache__", "*.pyc", "*.pyo",
@@ -677,12 +683,18 @@ def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
     return ["-v", f"{pwd / relative_path}:/workspace/code/{relative_path}"]
 
 
+def devbox_reachable() -> bool:
+    return load_host_resolver().try_host(DEVBOX_HOST, DEVBOX_REACHABLE_TIMEOUT_MS, silent=True) is not None
+
+
 def sync_transcripts(resuming: bool) -> None:
     """A resume picker built from a stale list makes you fork a session that moved on elsewhere."""
     if not CLAUDE_SYNC.is_file():
         return
     try:
         if resuming:
+            if not devbox_reachable():
+                return
             run([str(CLAUDE_SYNC), "--pull"], timeout=SYNC_PULL_TIMEOUT_SECONDS,
                 stdout=DEVNULL, stderr=DEVNULL)
         background = [str(CLAUDE_SYNC), "--push"] if resuming else [str(CLAUDE_SYNC)]

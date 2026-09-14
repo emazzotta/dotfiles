@@ -17,6 +17,12 @@ def cl(load_script):
 
 
 @pytest.fixture(autouse=True)
+def _no_transcript_sync(cl, tmp_path, monkeypatch):
+    """Without this every --resume test pays a real reachability probe against the dev box."""
+    monkeypatch.setattr(cl, "CLAUDE_SYNC", tmp_path / "nonexistent")
+
+
+@pytest.fixture(autouse=True)
 def _assume_a_host_with_the_project(cl, tmp_path, monkeypatch):
     """Most tests exercise the container path; that needs an opencode project present."""
     root = tmp_path / "opencode-root"
@@ -1556,6 +1562,7 @@ class TestTranscriptSync:
         monkeypatch.setattr(cl, "CLAUDE_SYNC", script)
         monkeypatch.setattr(cl, "run", lambda argv, **kw: recorded["blocking"].append((argv, kw)))
         monkeypatch.setattr(cl, "Popen", lambda argv, **kw: recorded["background"].append(argv))
+        monkeypatch.setattr(cl, "devbox_reachable", lambda: True)
         return recorded
 
     def should_block_on_a_pull_before_the_resume_picker(self, cl, calls):
@@ -1591,3 +1598,27 @@ class TestTranscriptSync:
         monkeypatch.setattr(cl, "run", explode)
 
         cl.sync_transcripts(resuming=True)
+
+    def should_skip_the_blocking_pull_when_the_dev_box_is_unreachable(self, cl, calls, monkeypatch):
+        monkeypatch.setattr(cl, "devbox_reachable", lambda: False)
+
+        cl.sync_transcripts(resuming=True)
+
+        assert calls["blocking"] == []
+        assert calls["background"] == []
+
+    def should_pull_when_the_dev_box_answers(self, cl, calls, monkeypatch):
+        monkeypatch.setattr(cl, "devbox_reachable", lambda: True)
+
+        cl.sync_transcripts(resuming=True)
+
+        assert calls["blocking"][0][0][1] == "--pull"
+
+    def should_not_probe_reachability_for_a_detached_sync(self, cl, calls, monkeypatch):
+        probed = []
+        monkeypatch.setattr(cl, "devbox_reachable", lambda: probed.append(True) or True)
+
+        cl.sync_transcripts(resuming=False)
+
+        assert probed == []
+        assert len(calls["background"]) == 1
