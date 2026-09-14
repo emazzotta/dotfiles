@@ -12,9 +12,13 @@
 #
 #   input="$(pickfile pdf)" || exit 1
 #   archive="$(pickfile --header 'Select archive:' 7z zip tar.gz)" || exit 1
+#   clip="$(pickfile --class video)" || exit 1
+#
+# Classes name the extension sets that several scripts share: image, video,
+# audio. Combine them freely with bare extensions.
 #
 # Usage:
-#   pickfile [--header TEXT] EXT [EXT...]
+#   pickfile [--header TEXT] [--class NAME] [EXT...]
 #
 # Exit codes:
 #   0   resolved (path on stdout)
@@ -24,14 +28,38 @@
 set -uo pipefail
 shopt -s nocaseglob
 
+IMAGE_EXTENSIONS="jpg jpeg png gif bmp tiff webp svg heic"
+VIDEO_EXTENSIONS="mp4 m4v mov mkv avi webm mpg mpeg wmv flv 3gp mts m2ts"
+AUDIO_EXTENSIONS="mp3 m4a aac flac wav aif aiff alac ogg opus wma ape wv"
+
+expand_class() {
+    case "$1" in
+        image) echo "$IMAGE_EXTENSIONS" ;;
+        video) echo "$VIDEO_EXTENSIONS" ;;
+        audio) echo "$AUDIO_EXTENSIONS" ;;
+        *) return 1 ;;
+    esac
+}
+
 show_help() {
     awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"
 }
 
 header="Select file:"
+extensions=""
+class_labels=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
+        --class)
+            if ! expanded="$(expand_class "${2:-}")"; then
+                echo "pickfile: unknown class: ${2:-} (want image, video or audio)" >&2
+                exit 2
+            fi
+            extensions="${extensions} ${expanded}"
+            class_labels="${class_labels} ${2}"
+            shift 2
+            ;;
         --header)
             if [ -z "${2:-}" ]; then
                 echo "pickfile: --header requires a value" >&2
@@ -54,8 +82,15 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+bare_extensions="$*"
+description="${class_labels}${bare_extensions:+ ${bare_extensions}}"
+
+# Deliberate word splitting: every class and bare extension becomes one argument.
+# shellcheck disable=SC2086
+set -- ${extensions} "$@"
+
 if [ $# -eq 0 ]; then
-    echo "pickfile: at least one extension required" >&2
+    echo "pickfile: at least one extension or class required" >&2
     exit 2
 fi
 
@@ -70,7 +105,7 @@ done
 matches="$(printf '%s' "$matches" | sort -u)"
 
 if [ -z "$matches" ]; then
-    echo "pickfile: no ${*} file in $(pwd)" >&2
+    echo "pickfile: no${description} file in $(pwd)" >&2
     exit 1
 fi
 

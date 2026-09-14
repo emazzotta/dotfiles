@@ -1,4 +1,9 @@
+import re
+from pathlib import Path
+
 import pytest
+
+BIN = Path(__file__).parent.parent
 
 PICKER_PICKS_FIRST = 'echo "$*" > "$PICKER_LOG"\nsed -n 1p'
 PICKER_CANCELLED = 'echo "$*" > "$PICKER_LOG"\ncat > /dev/null\nexit 130'
@@ -129,5 +134,49 @@ class TestUsage:
 
         assert result.returncode == 0
         assert "Usage:" in result.stdout
-        assert "pickfile [--header TEXT] EXT [EXT...]" in result.stdout
+        assert "pickfile [--header TEXT] [--class NAME] [EXT...]" in result.stdout
         assert "#" not in result.stdout
+
+
+class TestExtensionClasses:
+    def test_should_resolve_a_named_class(self, pickfile):
+        (pickfile.work / "clip.mov").touch()
+        (pickfile.work / "notes.txt").touch()
+
+        result = pickfile(["--class", "video"])
+
+        assert result.stdout == "clip.mov\n"
+
+    def test_should_combine_a_class_with_a_bare_extension(self, pickfile):
+        (pickfile.work / "song.flac").touch()
+
+        result = pickfile(["--class", "video", "flac"])
+
+        assert result.stdout == "song.flac\n"
+
+    def test_should_name_the_class_rather_than_its_extensions_when_nothing_matches(self, pickfile):
+        result = pickfile(["--class", "image"])
+
+        assert result.returncode == 1
+        assert "no image file in" in result.stderr
+
+    def test_should_reject_an_unknown_class(self, pickfile):
+        result = pickfile(["--class", "spreadsheet"])
+
+        assert result.returncode == 2
+        assert "unknown class: spreadsheet" in result.stderr
+
+    @pytest.mark.parametrize(
+        "class_name,constant",
+        [("VIDEO", "VIDEO_EXTS"), ("AUDIO", "AUDIO_EXTS")],
+    )
+    def test_should_keep_its_media_classes_in_step_with_medialib(self, class_name, constant):
+        declared = re.search(
+            rf'{class_name}_EXTENSIONS="([^"]*)"', (BIN / "pickfile").read_text()
+        ).group(1).split()
+        canonical = re.findall(
+            r'"([^"]+)"',
+            re.search(rf"{constant} = \[([^\]]*)\]", (BIN / "medialib.py").read_text()).group(1),
+        )
+
+        assert declared == canonical
