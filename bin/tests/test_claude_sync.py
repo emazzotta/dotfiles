@@ -11,6 +11,7 @@ CAPTURE = 'printf "%s\\n" "$*" >> "$RSYNC_LOG"'
 
 class FailedRsync:
     returncode = 255
+    stdout = ""
 
     def __init__(self, stderr):
         self.stderr = stderr
@@ -265,3 +266,8 @@ class TestVisibility:
 
         assert script.main(["--push"]) == 0
         assert "Mac host" in capsys.readouterr().err
+
+    def should_name_the_invoker_in_a_failure(self, sync, claude_home):
+        sync(["--push"], rsync_exit=255)
+
+        assert "no-agent" in (claude_home / "claude-sync.log").read_text()

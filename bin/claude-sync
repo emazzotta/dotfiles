@@ -99,6 +99,17 @@ def session_transfers(home: Path, session: str) -> list[list[str]]:
     return [relative(rsync_command(rooted, f"{remote_base()}/", []))]
 
 
+def invoker() -> str:
+    """A failure that names who started it beats guessing which caller has the broken environment."""
+    try:
+        parent = subprocess.run(["ps", "-o", "comm=", "-p", str(os.getppid())],
+                                capture_output=True, text=True, timeout=2).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        parent = "unknown"
+    agent = "agent" if os.environ.get("SSH_AUTH_SOCK") else "no-agent"
+    return f"{parent or 'unknown'}, {agent}"
+
+
 def interactive() -> bool:
     return sys.stderr.isatty()
 
@@ -112,7 +123,7 @@ def transfer(home: Path, commands: list[list[str]], stream: bool = False) -> int
         if result.returncode != 0:
             failures += 1
             detail = (result.stderr or "").strip()
-            log(home, f"rsync exit {result.returncode}: {detail}")
+            log(home, f"rsync exit {result.returncode} [{invoker()}]: {detail}")
             if interactive() and not stream:
                 sys.stderr.write(f"claude-sync: {detail}\n")
     return failures
