@@ -187,6 +187,24 @@ build_git_rewrite_config() {
     done < <(find_ssh_mirror_targets)
 }
 
+# git takes ~/.gitconfig.lock with a bare O_EXCL create and never retries, so the
+# concurrent SessionStart hook writing safe.directory entries to the same file
+# makes whichever write loses the race fail outright.
+write_global_config() {
+    local err
+    for _ in 1 2 3 4 5; do
+        if err="$(git config --global "$@" 2>&1)"; then
+            return 0
+        fi
+        case "$err" in
+            *"could not lock config file"*) sleep "0.$(((RANDOM % 4) + 1))" ;;
+            *) printf '%s\n' "$err" >&2; return 1 ;;
+        esac
+    done
+    printf '%s\n' "$err" >&2
+    return 1
+}
+
 write_git_rewrites() {
     refuse_on_mac "--write-git-rewrites" || return 1
     local content include_key
@@ -199,7 +217,7 @@ write_git_rewrites() {
     fi
     include_key="includeIf.gitdir:$PLUGINS_DIR/.path"
     if [ "$(git config --global --get "$include_key" 2>/dev/null)" != "$REWRITES_FILE" ]; then
-        git config --global "$include_key" "$REWRITES_FILE"
+        write_global_config "$include_key" "$REWRITES_FILE"
     fi
 }
 
