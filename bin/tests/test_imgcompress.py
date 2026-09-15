@@ -85,3 +85,26 @@ class TestCli:
         assert result.returncode == 0, result.stderr
         assert {p.name for p in work.glob("*_compressed.jpg")} == {
             "one_compressed.jpg", "two_compressed.jpg", "three_compressed.jpg"}
+
+class TestCwdDefault:
+    def test_should_compress_the_sole_image_when_no_input_is_given(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "photo.jpg").write_text("original content, larger than the mock output")
+        (work / "notes.txt").write_text("ignore me")
+
+        result = run_cli("imgcompress", [], mock_bins={"magick": MAGICK_OK}, cwd=work)
+
+        assert result.returncode == 0, result.stderr
+        assert (work / "photo_compressed.jpg").exists()
+
+    def test_should_exit_when_several_images_match_and_no_terminal_can_prompt(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        for name in ("one.jpg", "two.jpg"):
+            (work / name).write_text("original content, larger than the mock output")
+
+        result = run_cli("imgcompress", [], mock_bins={"magick": MAGICK_OK}, cwd=work)
+
+        assert result.returncode != 0
+        assert not list(work.glob("*_compressed.jpg"))

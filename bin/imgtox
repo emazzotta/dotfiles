@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import imagelib
+import medialib
 from scriptlog import Logger
 
 logger = Logger()
@@ -36,15 +37,18 @@ def convert_image(input_file: Path, output_format: str, output_path: Path | None
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Convert image files.')
-    parser.add_argument('-i', '--input', required=True, nargs='+',
-                        help='The image files or directories of image files to convert.')
+    parser.add_argument('-i', '--input', nargs='+',
+                        help='The image files or directories (default: pick from the current directory).')
     parser.add_argument('-f', '--format', required=True, dest='output_format',
                         help='The format of the output image file.')
     parser.add_argument('-d', '--delete', action='store_true', help='Delete the original file(s) after conversion.')
     parser.add_argument('-o', '--output-path', help='Path where to save the converted file(s).')
     args = parser.parse_args()
 
-    input_files = imagelib.collect_images([Path(i) for i in args.input], IMAGE_EXTENSIONS)
+    if args.input:
+        input_files = imagelib.collect_images([Path(i) for i in args.input], IMAGE_EXTENSIONS)
+    else:
+        input_files = medialib.resolve_inputs_or_pick(IMAGE_EXTENSIONS, "image")
     output_path = Path(args.output_path) if args.output_path else None
 
     converted_files = []

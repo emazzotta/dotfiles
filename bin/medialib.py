@@ -1,6 +1,8 @@
-"""Input collection, output naming and duration formatting shared by the media scripts."""
+"""Input collection, output naming and duration formatting shared by the media and image scripts."""
 from __future__ import annotations
 
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from glob import glob
@@ -40,6 +42,48 @@ def list_inputs(path: Path, extensions: list[str]) -> list[Path]:
         return sorted(set(files))
     logger.error(f"Input not found: {path}")
     sys.exit(1)
+
+
+def find_in_cwd(extensions: list[str]) -> list[Path]:
+    cwd = Path.cwd()
+    matches: set[Path] = set()
+    for ext in extensions:
+        for pattern in (f"*.{ext}", f"*.{ext.upper()}"):
+            matches.update(path for path in cwd.glob(pattern) if path.is_file())
+    return sorted(matches)
+
+
+def can_prompt() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty() and shutil.which("gum") is not None
+
+
+def pick_from(candidates: list[Path], label: str) -> list[Path]:
+    if not can_prompt():
+        logger.error(f"Several {label} files here; pass -i to choose")
+        sys.exit(1)
+    convert_all = f"Convert all ({len(candidates)})"
+    result = subprocess.run(
+        ["gum", "choose", "--header", f"Select {label} input:",
+         convert_all, *(path.name for path in candidates)],
+        capture_output=True, text=True,
+    )
+    chosen = result.stdout.strip()
+    if not chosen:
+        logger.error("Nothing selected")
+        sys.exit(1)
+    if chosen == convert_all:
+        return candidates
+    return [Path.cwd() / chosen]
+
+
+def resolve_inputs_or_pick(extensions: list[str], label: str) -> list[Path]:
+    candidates = find_in_cwd(extensions)
+    if not candidates:
+        logger.error(f"No {label} files in {Path.cwd()}")
+        sys.exit(1)
+    if len(candidates) == 1:
+        return candidates
+    return pick_from(candidates, label)
 
 
 def collect_inputs(paths: list[Path], extensions: list[str]) -> list[Path]:

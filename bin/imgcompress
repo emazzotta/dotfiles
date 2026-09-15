@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import imagelib
+import medialib
 from scriptlog import Logger
 
 logger = Logger()
@@ -84,7 +85,7 @@ def compress_image(input_file: Path, quality: int, scale: int, output_path: Path
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compress image files using ImageMagick.")
-    parser.add_argument("-i", "--input", required=True, nargs="+", help="Image files or directories of image files to compress.")
+    parser.add_argument("-i", "--input", nargs="+", help="Image files or directories (default: pick from the current directory).")
     parser.add_argument("-q", "--quality", type=int, default=82, help="Quality 1-100 (higher = better quality, less compression). Default: 82.")
     parser.add_argument("-s", "--scale", type=int, default=50, help="Scale resolution as percentage of original (e.g. 50 = half size). Default: 50.")
     parser.add_argument("--rm-original", action="store_true", help="Delete original file after compression.")
@@ -104,7 +105,10 @@ def main() -> None:
     if output_path:
         output_path.mkdir(parents=True, exist_ok=True)
 
-    input_files = imagelib.collect_images([Path(i) for i in args.input], IMAGE_EXTENSIONS)
+    if args.input:
+        input_files = imagelib.collect_images([Path(i) for i in args.input], IMAGE_EXTENSIONS)
+    else:
+        input_files = medialib.resolve_inputs_or_pick(IMAGE_EXTENSIONS, "image")
 
     if not input_files:
         logger.warn("No image files found.")

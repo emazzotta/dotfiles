@@ -1,4 +1,11 @@
 import pytest
+from types import SimpleNamespace
+
+
+def _fake_gum(stdout):
+    return lambda *args, **kwargs: SimpleNamespace(stdout=stdout, returncode=0)
+
+
 
 
 @pytest.fixture
@@ -178,3 +185,86 @@ class TestResolveOutputPath:
                                                  conflict_suffix="_loud"))
 
         assert "N=add _loud" in prompts[0]
+
+
+class TestFindInCwd:
+    def test_should_find_only_matching_extensions_in_the_current_directory(self, mod, tmp_path, monkeypatch):
+        for name in ("a.mp3", "b.flac", "skip.txt"):
+            (tmp_path / name).touch()
+        monkeypatch.chdir(tmp_path)
+
+        assert [path.name for path in mod.find_in_cwd(mod.AUDIO_EXTS)] == ["a.mp3", "b.flac"]
+
+    def test_should_not_descend_into_subdirectories(self, mod, tmp_path, monkeypatch):
+        (tmp_path / "top.mp3").touch()
+        nested = tmp_path / "sub"
+        nested.mkdir()
+        (nested / "buried.mp3").touch()
+        monkeypatch.chdir(tmp_path)
+
+        assert [path.name for path in mod.find_in_cwd(mod.AUDIO_EXTS)] == ["top.mp3"]
+
+    def test_should_match_uppercase_extensions(self, mod, tmp_path, monkeypatch):
+        (tmp_path / "loud.WAV").touch()
+        monkeypatch.chdir(tmp_path)
+
+        assert [path.name for path in mod.find_in_cwd(mod.AUDIO_EXTS)] == ["loud.WAV"]
+
+
+class TestResolveInputsOrPick:
+    def test_should_return_the_sole_candidate_without_prompting(self, mod, tmp_path, monkeypatch):
+        (tmp_path / "only.wav").touch()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(mod, "can_prompt", lambda: pytest.fail("must not prompt for one file"))
+
+        result = mod.resolve_inputs_or_pick(mod.AUDIO_EXTS, "audio")
+
+        assert [path.name for path in result] == ["only.wav"]
+
+    def test_should_exit_when_no_candidate_matches(self, mod, tmp_path, monkeypatch):
+        (tmp_path / "notes.txt").touch()
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(SystemExit):
+            mod.resolve_inputs_or_pick(mod.AUDIO_EXTS, "audio")
+
+    def test_should_exit_when_several_match_but_prompting_is_impossible(self, mod, tmp_path, monkeypatch):
+        for name in ("a.wav", "b.wav"):
+            (tmp_path / name).touch()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(mod, "can_prompt", lambda: False)
+
+        with pytest.raises(SystemExit):
+            mod.resolve_inputs_or_pick(mod.AUDIO_EXTS, "audio")
+
+    def test_should_return_every_candidate_when_the_user_picks_convert_all(self, mod, tmp_path, monkeypatch):
+        for name in ("a.wav", "b.wav"):
+            (tmp_path / name).touch()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(mod, "can_prompt", lambda: True)
+        monkeypatch.setattr(mod.subprocess, "run", _fake_gum("Convert all (2)"))
+
+        result = mod.resolve_inputs_or_pick(mod.AUDIO_EXTS, "audio")
+
+        assert [path.name for path in result] == ["a.wav", "b.wav"]
+
+    def test_should_return_only_the_chosen_file_when_the_user_picks_one(self, mod, tmp_path, monkeypatch):
+        for name in ("a.wav", "b.wav"):
+            (tmp_path / name).touch()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(mod, "can_prompt", lambda: True)
+        monkeypatch.setattr(mod.subprocess, "run", _fake_gum("b.wav"))
+
+        result = mod.resolve_inputs_or_pick(mod.AUDIO_EXTS, "audio")
+
+        assert [path.name for path in result] == ["b.wav"]
+
+    def test_should_exit_when_the_picker_selects_nothing(self, mod, tmp_path, monkeypatch):
+        for name in ("a.wav", "b.wav"):
+            (tmp_path / name).touch()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(mod, "can_prompt", lambda: True)
+        monkeypatch.setattr(mod.subprocess, "run", _fake_gum(""))
+
+        with pytest.raises(SystemExit):
+            mod.resolve_inputs_or_pick(mod.AUDIO_EXTS, "audio")

@@ -44,3 +44,26 @@ class TestCli:
 
         assert result.returncode == 0, result.stderr
         assert {p.name for p in work.glob("*.mp4")} == {"one.mp4", "two.mp4"}
+
+class TestCwdDefault:
+    def test_should_convert_the_sole_video_file_when_no_input_is_given(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "clip.mkv").touch()
+        (work / "notes.txt").touch()
+
+        result = run_cli("videotox", ["-f", "mp4"], mock_bins={"ffmpeg": FFMPEG_OK}, cwd=work)
+
+        assert result.returncode == 0, result.stderr
+        assert (work / "clip.mp4").exists()
+
+    def test_should_exit_when_several_video_files_match_and_no_terminal_can_prompt(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        for name in ("one.mkv", "two.mkv"):
+            (work / name).touch()
+
+        result = run_cli("videotox", ["-f", "mp4"], mock_bins={"ffmpeg": FFMPEG_OK}, cwd=work)
+
+        assert result.returncode != 0
+        assert not list(work.glob("*.mp4"))

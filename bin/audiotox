@@ -70,19 +70,22 @@ def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_orig
 
 def main():
     p = argparse.ArgumentParser(description="Convert audio files")
-    p.add_argument("-i", "--input", required=True, nargs="+", help="Audio files or directories")
+    p.add_argument("-i", "--input", nargs="+", help="Audio files or directories (default: pick from the current directory)")
     p.add_argument("-f", "--format", dest="fmt", default="mp3",
                    choices=AUDIO_CODECS.keys(), help="Output format (default: mp3)")
     p.add_argument("-o", "--output-path", help="Output directory")
     p.add_argument("-d", "--delete", action="store_true", help="Delete original after conversion")
     args = p.parse_args()
 
-    sources = [Path(i).expanduser().resolve() for i in args.input]
     out_dir = Path(args.output_path).expanduser().resolve() if args.output_path else None
     if out_dir:
         out_dir.mkdir(parents=True, exist_ok=True)
 
-    inputs = medialib.collect_inputs(sources, medialib.AUDIO_EXTS)
+    if args.input:
+        sources = [Path(i).expanduser().resolve() for i in args.input]
+        inputs = medialib.collect_inputs(sources, medialib.AUDIO_EXTS)
+    else:
+        inputs = medialib.resolve_inputs_or_pick(medialib.AUDIO_EXTS, "audio")
     if not inputs:
         logger.error("No audio files found")
         sys.exit(1)

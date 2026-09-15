@@ -44,3 +44,26 @@ class TestCli:
 
         assert result.returncode == 0, result.stderr
         assert {p.name for p in work.glob("*.mp3")} == {"one.mp3", "two.mp3"}
+
+class TestCwdDefault:
+    def test_should_convert_the_sole_audio_file_when_no_input_is_given(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "voice.wav").touch()
+        (work / "notes.txt").touch()
+
+        result = run_cli("audiotox", ["-f", "mp3"], mock_bins={"ffmpeg": FFMPEG_OK}, cwd=work)
+
+        assert result.returncode == 0, result.stderr
+        assert (work / "voice.mp3").exists()
+
+    def test_should_exit_when_several_audio_files_match_and_no_terminal_can_prompt(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        for name in ("one.wav", "two.wav"):
+            (work / name).touch()
+
+        result = run_cli("audiotox", ["-f", "mp3"], mock_bins={"ffmpeg": FFMPEG_OK}, cwd=work)
+
+        assert result.returncode != 0
+        assert not list(work.glob("*.mp3"))
