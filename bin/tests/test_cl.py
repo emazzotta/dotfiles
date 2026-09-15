@@ -47,23 +47,76 @@ class TestRunInPlace:
             cl.run_in_place("claude", [], [])
         assert exit_info.value.code == 1
 
+    def test_should_start_in_the_container_workspace_compose_would_have_used(self, cl, monkeypatch, tmp_path):
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        monkeypatch.setattr(cl, "CONTAINER_WORKSPACE", workspace)
+        monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/claude-resume")
+        monkeypatch.setattr(cl.os, "execvp", lambda _file, _argv: None)
+        visited = []
+        monkeypatch.setattr(cl.os, "chdir", visited.append)
+
+        cl.run_in_place("claude-resume", [], [])
+
+        assert visited == [workspace]
+
+    def test_should_stay_put_when_there_is_no_container_workspace(self, cl, monkeypatch, tmp_path):
+        monkeypatch.setattr(cl, "CONTAINER_WORKSPACE", tmp_path / "absent")
+        monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/claude")
+        monkeypatch.setattr(cl.os, "execvp", lambda _file, _argv: None)
+        visited = []
+        monkeypatch.setattr(cl.os, "chdir", visited.append)
+
+        cl.run_in_place("claude", [], [])
+
+        assert visited == []
+
 
 class TestBuildEntrypointInvocation:
-    def test_should_default_to_claude(self, cl):
-        args = argparse.Namespace(
+    @staticmethod
+    def args(**overrides):
+        defaults = dict(
             rm=None, convert=False, opencode=False, hermes=False, resume=None,
-            no_skip=False, skip=False,
+            no_skip=False, skip=False, all_projects=False,
         )
-        entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(args, [])
+        return argparse.Namespace(**(defaults | overrides))
+
+    @staticmethod
+    def picker_args(entrypoint_args):
+        """Everything before the separator - what the picker itself parses."""
+        return entrypoint_args[:entrypoint_args.index("--")] if "--" in entrypoint_args else entrypoint_args
+
+    def test_should_default_to_claude(self, cl):
+        entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(self.args(), [])
         assert entrypoint == "claude"
 
     def test_should_pick_opencode_when_asked(self, cl):
-        args = argparse.Namespace(
-            rm=None, convert=False, opencode=True, hermes=False, resume=None,
-            no_skip=False, skip=False,
-        )
-        entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(args, [])
+        entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(self.args(opencode=True), [])
         assert entrypoint == "opencode"
+
+    def test_should_open_the_picker_across_every_project_when_all_is_the_only_flag(self, cl):
+        entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(self.args(all_projects=True), [])
+        assert entrypoint == "claude-resume"
+        assert self.picker_args(entrypoint_args) == ["-a"]
+
+    def test_should_scope_the_picker_to_the_current_project_without_all(self, cl):
+        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(self.args(resume=""), [])
+        assert self.picker_args(entrypoint_args) == []
+
+    def test_should_widen_the_removal_picker_when_all_is_given(self, cl):
+        entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(self.args(rm="", all_projects=True), [])
+        assert entrypoint == "claude-rm"
+        assert entrypoint_args == ["-a"]
+
+    def test_should_keep_all_ahead_of_the_forwarded_claude_args(self, cl):
+        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(resume="oauth", all_projects=True), ["--effort", "high"])
+        assert entrypoint_args[:3] == ["oauth", "-a", "--"]
+
+    def test_should_open_a_named_session_directly_even_when_all_is_given(self, cl):
+        entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(resume=CLAUDE_SESSION_ID, all_projects=True), [])
+        assert entrypoint == "claude"
 
 
 class TestIsGitCryptRepo:
@@ -921,6 +974,21 @@ class TestMain:
         cmd = mock_cl_run[-1]
         assert "--resume" not in cmd
         assert "claude-resume" not in cmd
+
+    @pytest.mark.parametrize("flag", ["-a", "--all"])
+    def should_open_the_picker_across_all_projects_when_all_is_the_only_flag(self, cl, monkeypatch, mock_cl_run, flag):
+        monkeypatch.setattr(sys, "argv", ["cl", flag])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert cmd[cmd.index("claude-resume") + 1] == "-a"
+
+    def should_reject_all_for_opencode_because_its_sessions_share_one_store(self, cl, monkeypatch, mock_cl_run, capsys):
+        monkeypatch.setattr(sys, "argv", ["cl", "-o", "-a"])
+        with pytest.raises(SystemExit) as exit_info:
+            cl.main()
+        assert exit_info.value.code == 2
+        assert "--all" in capsys.readouterr().err
 
     @pytest.mark.parametrize("explicit", [["--effort", "high"], ["--effort=high"]])
     def should_keep_an_explicit_effort_instead_of_injecting_the_default(self, cl, monkeypatch, mock_cl_run, explicit):

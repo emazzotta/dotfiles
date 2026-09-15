@@ -159,6 +159,7 @@ SYNC_PULL_TIMEOUT_SECONDS = 10
 DEVBOX_HOST = "devbox.asymptote-bass.ts.net"
 DEVBOX_REACHABLE_TIMEOUT_MS = 500
 DOTFILES_CONTAINER = "/home/opencode/dotfiles"
+CONTAINER_WORKSPACE = Path("/workspace")
 DOTFILES_CRUFT_PATTERNS = (
     "__pycache__", "*.pyc", "*.pyo",
     ".DS_Store",
@@ -709,13 +710,14 @@ def build_entrypoint_invocation(args, claude_args: list[str]) -> tuple[str, list
     effort_args = build_effort_args(claude_args)
 
     session_id = resolve_session_id(args.resume, args.opencode)
-    use_picker = args.resume is not None and not session_id
+    scope_args = ["-a"] if args.all_projects else []
+    use_picker = (args.resume is not None or args.all_projects) and not session_id
     search_args = [args.resume] if use_picker and args.resume else []
 
     if args.rm is not None:
         entrypoint = "opencode-rm" if args.opencode else "claude-rm"
         rm_args = [args.rm] if args.rm else []
-        entrypoint_args = [*rm_args, *claude_args]
+        entrypoint_args = [*rm_args, *scope_args, *claude_args]
     elif args.convert:
         entrypoint = "session-convert"
         entrypoint_args = claude_args
@@ -732,7 +734,7 @@ def build_entrypoint_invocation(args, claude_args: list[str]) -> tuple[str, list
         entrypoint_args = claude_args
     elif use_picker:
         entrypoint = "claude-resume"
-        entrypoint_args = [*search_args]
+        entrypoint_args = [*search_args, *scope_args]
     else:
         entrypoint = "claude"
         resume_args = ["--resume", session_id] if session_id else []
@@ -762,6 +764,10 @@ def run_in_place(entrypoint: str, plugin_args: list[str], entrypoint_args: list[
     With no opencode project present we are already inside the environment cl
     would otherwise start - the dev box, where the image bakes these dotfiles in.
     The argument handling still applies; only docker does not.
+
+    Compose always starts the container in CONTAINER_WORKSPACE and Claude Code
+    keys its session store on that directory, so inheriting the caller's shell
+    cwd would split the store across slugs and hide every session from -r.
     """
     if shutil.which(entrypoint) is None:
         print(
@@ -769,13 +775,15 @@ def run_in_place(entrypoint: str, plugin_args: list[str], entrypoint_args: list[
             file=sys.stderr,
         )
         sys.exit(1)
+    if CONTAINER_WORKSPACE.is_dir():
+        os.chdir(CONTAINER_WORKSPACE)
     os.execvp(entrypoint, [entrypoint, *plugin_args, *entrypoint_args])
 
 
 def main() -> None:
     pwd = Path.cwd()
 
-    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n | -s] [-r [SESSION]] [CLAUDE_ARGS...]")
+    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n | -s] [-r [SESSION]] [-a] [CLAUDE_ARGS...]")
     parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
     parser.add_argument(
         "-p", "--path",
@@ -807,6 +815,10 @@ def main() -> None:
         nargs="?", const="", default=None, metavar="SESSION",
         help="resume a session: a session id opens it directly, any other text prefilters the picker",
     )
+    parser.add_argument(
+        "-a", "--all", dest="all_projects", action="store_true", default=False,
+        help="let the session picker span every project instead of the current one; implies -r",
+    )
     parser.add_argument("--convert", action="store_true", default=False, help="convert sessions between claude and opencode")
     parser.add_argument(
         "--rm",
@@ -815,6 +827,9 @@ def main() -> None:
     )
 
     args, claude_args = parser.parse_known_args()
+
+    if args.all_projects and args.opencode:
+        parser.error("-a/--all scopes claude sessions by project; opencode keeps a single session store")
 
     if not OPENCODE_ROOT.is_dir():
         run_in_place(*build_entrypoint_invocation(args, claude_args))

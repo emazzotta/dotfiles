@@ -245,32 +245,61 @@ _keyguard_complete_existing_keys()
 
 _keyguard()
 {
-  local cur prev
+  local cur prev cmd
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
+  cmd="${COMP_WORDS[1]}"
+
+  # keyguard owns both lists; --complete reads neither the store nor the
+  # Keychain, so TAB never prompts for a fingerprint.
+  if [[ -z "${_KEYGUARD_COMMANDS}" ]]; then
+    _KEYGUARD_COMMANDS=$(keyguard --complete commands 2>/dev/null | tr '\n' ' ')
+  fi
 
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "get set list mv rename" -- "${cur}"))
+    COMPREPLY=($(compgen -W "${_KEYGUARD_COMMANDS}" -- "${cur}"))
     return 0
   fi
 
-  case "${COMP_WORDS[1]}" in
-    get|set)
-      _keyguard_complete_existing_keys
+  case "${prev}" in
+    --cache-duration)
       return 0
       ;;
-    mv|rename)
-      # mv OLD NEW [--force]: complete both positions from existing keys, --force at the end
-      if [[ ${COMP_CWORD} -eq 2 || ${COMP_CWORD} -eq 3 ]]; then
-        _keyguard_complete_existing_keys
-      elif [[ ${COMP_CWORD} -ge 4 ]]; then
-        COMPREPLY=($(compgen -W "--force" -- "${cur}"))
-      fi
+    --bridge-endpoint)
+      local _bcache="${HOME}/.cache/envify-bridge-endpoints"
+      [[ -f "$_bcache" ]] && COMPREPLY=($(compgen -W "$(cat "$_bcache")" -- "${cur}"))
       return 0
       ;;
   esac
+
+  if [[ "${cur}" == -* ]]; then
+    if [[ "${_KEYGUARD_FLAGS_FOR}" != "${cmd}" ]]; then
+      _KEYGUARD_FLAGS_FOR="${cmd}"
+      _KEYGUARD_FLAGS=$(keyguard --complete flags "${cmd}" 2>/dev/null | tr '\n' ' ')
+    fi
+    COMPREPLY=($(compgen -W "${_KEYGUARD_FLAGS}" -- "${cur}"))
+    return 0
+  fi
+
+  case "${cmd}" in
+    get)
+      _keyguard_complete_existing_keys
+      ;;
+    set|delete|rm)
+      # One key, then a value or nothing - never complete a key where a secret goes.
+      [[ ${COMP_CWORD} -eq 2 ]] && _keyguard_complete_existing_keys
+      ;;
+    mv|rename)
+      [[ ${COMP_CWORD} -eq 2 || ${COMP_CWORD} -eq 3 ]] && _keyguard_complete_existing_keys
+      ;;
+    import)
+      [[ ${COMP_CWORD} -eq 2 ]] && COMPREPLY=($(compgen -f -- "${cur}"))
+      ;;
+  esac
+  return 0
 }
+
 _dcp_running_containers() { "${_DCP_DOCKER:-docker}" ps --format '{{.Names}}' 2>/dev/null; }
 
 # Token under the cursor, treating ':' as part of the word so leading-colon
