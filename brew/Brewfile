@@ -1,6 +1,5 @@
 tap "buo/cask-upgrade"
 tap "jandedobbeleer/oh-my-posh"
-tap "homebrew-ffmpeg/ffmpeg"
 
 brew "adr-tools"
 brew "age"
@@ -17,7 +16,7 @@ brew "duti"
 brew "exiftool"
 brew "fastfetch"
 brew "fdk-aac" # Git Video
-brew "ffmpeg-full"
+brew "ffmpeg-full", link: true
 brew "flac"
 brew "fluxcd/tap/flux"
 brew "fzf"
@@ -38,7 +37,6 @@ brew "gource" # Git Video
 brew "graphviz"
 brew "gum"
 brew "helm"
-brew "homebrew-ffmpeg/ffmpeg/ffmpeg"
 brew "htop"
 brew "icdiff"
 brew "id3v2"
