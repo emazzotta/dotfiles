@@ -229,18 +229,17 @@ _envify()
 
   [[ -f "$_cache" ]] && COMPREPLY=($(compgen -W "$(cat "$_cache")" -- "$cur"))
 }
+# Names live in this shell process and nowhere else. The store salts its
+# filenames precisely so a copy of it reveals no variable names; a plaintext
+# cache under ~/.cache would have handed them over for a plain file read.
+# Cost of that choice: one fingerprint per shell, on the first TAB.
 _keyguard_complete_existing_keys()
 {
-  local _ttl="${KEYGUARD_COMPLETION_TTL:-3600}"
-  local _cache="${HOME}/.cache/keyguard-keys"
-  local _now _mtime
-  _now=$(date +%s)
-  mkdir -p "${HOME}/.cache"
-  _mtime=$(date -r "$_cache" +%s 2>/dev/null || echo 0)
-  if (( _now - _mtime >= _ttl )); then
-    keyguard list > "$_cache" 2>/dev/null || true
+  if [[ -z "${_KEYGUARD_KEYS}" ]]; then
+    _KEYGUARD_KEYS=$(keyguard list 2>/dev/null | tr '\n' ' ')
+    [[ -z "${_KEYGUARD_KEYS}" ]] && return 0
   fi
-  [[ -f "$_cache" ]] && COMPREPLY=($(compgen -W "$(cat "$_cache")" -- "$cur"))
+  COMPREPLY=($(compgen -W "${_KEYGUARD_KEYS}" -- "$cur"))
 }
 
 _keyguard()
