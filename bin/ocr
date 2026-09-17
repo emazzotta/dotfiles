@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""OCR PDFs and images to markdown with Baidu's Unlimited-OCR, fully local.
+
+Runs the model through MLX (Apple silicon only) inside a self-provisioned venv,
+so the caller's python3 never needs mlx-vlm installed.
+"""
+from __future__ import annotations
+
+import argparse
+import contextlib
+import importlib.util
+import os
+import platform
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, Final, Optional
+
+import medialib
+from medialib import OutputNaming
+from scriptlog import Logger
+
+if TYPE_CHECKING:
+    import mlx.core as mx
+
+logger = Logger()
+
+DEFAULT_MODEL: Final = "baidu/Unlimited-OCR"
+RUNTIME_PYTHON: Final = "3.12"
+RUNTIME_PACKAGES: Final = ("mlx-vlm>=0.7.1", "pymupdf")
+VENV: Final = Path.home() / ".cache" / "ocr" / "venv"
+BOOTSTRAP_FLAG: Final = "OCR_BOOTSTRAPPED"
+IMAGE_EXTENSIONS: Final = ["jpg", "jpeg", "png", "tif", "tiff", "bmp", "webp"]
+DOCUMENT_EXTENSIONS: Final = [*IMAGE_EXTENSIONS, "pdf"]
+OUTPUT_NAMING: Final = OutputNaming(".md")
+DEFAULT_DPI: Final = 300
+PDF_POINTS_PER_INCH: Final = 72
+DEFAULT_MAX_TOKENS: Final = 32768
+BASE_SIZE: Final = 1024
+NGRAM_SIZE: Final = 35
+PAGE_MARKER: Final = "<PAGE>"
+IMAGE_BLOCK: Final = "image"
+DETECTION_TAG: Final[re.Pattern[str]] = re.compile(
+    r"<\|det\|>([^<\s]+)(?:\s*\[[^\]]*\])?\s*<\|/det\|>(.*)", re.DOTALL
+)
+
+
+@dataclass(frozen=True)
+class ParseProfile:
+    prompt: str
+    cropping: bool
+    image_size: int
+    ngram_window: int
+
+
+SINGLE_PAGE: Final = ParseProfile("document parsing.", cropping=True, image_size=640, ngram_window=128)
+MULTI_PAGE: Final = ParseProfile("Multi page parsing.", cropping=False, image_size=1024, ngram_window=1024)
+
+
+def banned_tokens(sequence: list[int], ngram_size: int, window: int) -> set[int]:
+    if len(sequence) < ngram_size:
+        return set()
+    search_start = max(0, len(sequence) - window)
+    search_end = len(sequence) - ngram_size + 1
+    prefix = sequence[len(sequence) - ngram_size + 1:] if ngram_size > 1 else []
+    return {
+        sequence[idx + ngram_size - 1]
+        for idx in range(search_start, search_end)
+        if sequence[idx:idx + ngram_size - 1] == prefix
+    }
+
+
+class NoRepeatNgramGuard:
+    """Port of upstream SlidingWindowNoRepeatNgramProcessor for mlx-vlm's logits_processors."""
+
+    def __init__(self, ngram_size: int, window: int) -> None:
+        self.ngram_size = ngram_size
+        self.window = window
+
+    def __call__(self, tokens: mx.array, logits: mx.array) -> mx.array:
+        banned = banned_tokens(tokens[-self.window:].tolist(), self.ngram_size, self.window)
+        if banned:
+            logits[:, sorted(banned)] = float("-inf")
+        return logits
+
+
+def strip_layout_markers(raw: str) -> str:
+    blocks: list[list[str]] = [[]]
+    for line in filter(None, (line.rstrip() for line in raw.splitlines())):
+        match = DETECTION_TAG.match(line)
+        if match is None:
+            blocks[-1].append(line)
+        elif match.group(1).strip() != IMAGE_BLOCK:
+            content = match.group(2).strip()
+            blocks.append([content] if content else [])
+    return "\n\n".join("\n".join(block) for block in blocks if block).strip()
+
+
+def split_pages(raw: str) -> list[str]:
+    return [page.strip() for page in raw.split(PAGE_MARKER) if page.strip()]
+
+
+def join_pages(pages: list[str]) -> str:
+    if len(pages) == 1:
+        return pages[0] + "\n"
+    labelled = (f"<!-- page {number} -->\n\n{page}" for number, page in enumerate(pages, start=1))
+    return "\n\n".join(labelled) + "\n"
+
+
+def progress(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
+class OcrEngine:
+    def __init__(self, model: Any, processor: Any, max_tokens: int) -> None:
+        self.model = model
+        self.processor = processor
+        self.max_tokens = max_tokens
+
+    @classmethod
+    def load(cls, model_id: str, max_tokens: int) -> OcrEngine:
+        from mlx_vlm import load
+
+        with contextlib.redirect_stdout(sys.stderr):
+            model, processor = load(model_id)
+        return cls(model, processor, max_tokens)
+
+    def parse(self, images: list[Path], profile: ParseProfile) -> str:
+        from mlx_vlm import generate
+        from mlx_vlm.prompt_utils import apply_chat_template
+
+        prompt = apply_chat_template(self.processor, self.model.config, profile.prompt, num_images=len(images))
+        with contextlib.redirect_stdout(sys.stderr):
+            result = generate(
+                self.model, self.processor, prompt,
+                image=[str(image) for image in images],
+                max_tokens=self.max_tokens, temperature=0.0,
+                cropping=profile.cropping, image_size=profile.image_size, base_size=BASE_SIZE,
+                logits_processors=[NoRepeatNgramGuard(NGRAM_SIZE, profile.ngram_window)],
+            )
+        return result.text
+
+
+def parse_document(engine: OcrEngine, pages: list[Path], one_shot: bool, raw: bool) -> str:
+    if one_shot:
+        outputs = split_pages(engine.parse(pages, MULTI_PAGE))
+    else:
+        outputs = [parse_page(engine, page, number, len(pages)) for number, page in enumerate(pages, start=1)]
+    clean: Callable[[str], str] = str.strip if raw else strip_layout_markers
+    return join_pages([clean(output) for output in outputs])
+
+
+def parse_page(engine: OcrEngine, page: Path, number: int, total: int) -> str:
+    started = time.perf_counter()
+    output = engine.parse([page], SINGLE_PAGE)
+    progress(f"  page {number}/{total} ({time.perf_counter() - started:.1f}s)")
+    return output
+
+
+def render_pdf(pdf: Path, dpi: int, out_dir: Path) -> list[Path]:
+    import pymupdf
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    zoom = pymupdf.Matrix(dpi / PDF_POINTS_PER_INCH, dpi / PDF_POINTS_PER_INCH)
+    pages = []
+    with pymupdf.open(pdf) as document:
+        for number, page in enumerate(document, start=1):
+            target = out_dir / f"page_{number:04d}.png"
+            page.get_pixmap(matrix=zoom, alpha=False).save(target)
+            pages.append(target)
+    return pages
+
+
+def collect_pages(input_file: Path, dpi: int, work_dir: Path) -> list[Path]:
+    if input_file.suffix.lower() != ".pdf":
+        return [input_file]
+    return render_pdf(input_file, dpi, work_dir / input_file.stem)
+
+
+def provision_python() -> str:
+    progress("Setting up the MLX OCR runtime (one-time)...")
+    VENV.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["uv", "venv", "--python", RUNTIME_PYTHON, "--clear", str(VENV)], check=True)
+    env = {**os.environ, "UV_HTTP_TIMEOUT": "120", "VIRTUAL_ENV": str(VENV)}
+    subprocess.run(["uv", "pip", "install", "-q", *RUNTIME_PACKAGES], check=True, env=env)
+    return str(VENV / "bin" / "python")
+
+
+def ensure_runtime() -> None:
+    if importlib.util.find_spec("mlx_vlm") is not None:
+        return
+    if os.environ.get(BOOTSTRAP_FLAG):
+        sys.exit(f"mlx-vlm unavailable even after bootstrap; remove {VENV} and retry")
+    venv_python = VENV / "bin" / "python"
+    python = str(venv_python) if venv_python.exists() else provision_python()
+    os.execve(
+        python, [python, str(Path(__file__).resolve()), *sys.argv[1:]],
+        {**os.environ, BOOTSTRAP_FLAG: "1"},
+    )
+
+
+def ensure_apple_silicon() -> None:
+    if platform.system() != "Darwin" or platform.machine() != "arm64":
+        sys.exit("ocr runs Unlimited-OCR through MLX, which needs Apple silicon")
+
+
+def process(engine: OcrEngine, input_file: Path, args: argparse.Namespace, work_dir: Path) -> None:
+    pages = collect_pages(input_file, args.dpi, work_dir)
+    progress(f"{input_file.name}: {len(pages)} page(s)")
+    markdown = parse_document(engine, pages, args.one_shot, args.raw)
+    if args.stdout:
+        sys.stdout.write(markdown)
+        return
+    output_dir = Path(args.output_path) if args.output_path else None
+    output = medialib.resolve_output_path(input_file, output_dir, OUTPUT_NAMING)
+    output.write_text(markdown, encoding="utf-8")
+    logger.success(f"Wrote {output}")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="OCR PDFs and images to markdown with Unlimited-OCR on Apple silicon (MLX).",
+    )
+    parser.add_argument("-i", "--input", nargs="+",
+                        help="PDF/image files or directories (default: pick from the current directory)")
+    parser.add_argument("-o", "--output-path", help="directory for the .md files (default: next to each input)")
+    parser.add_argument("--stdout", action="store_true", help="print the markdown instead of writing .md files")
+    parser.add_argument("--one-shot", action="store_true",
+                        help="feed all pages of a PDF in one pass (lower per-page resolution, 32K token cap)")
+    parser.add_argument("--raw", action="store_true", help="keep the <|det|> layout boxes in the output")
+    parser.add_argument("--dpi", type=int, default=DEFAULT_DPI, help=f"PDF render resolution (default: {DEFAULT_DPI})")
+    parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS,
+                        help=f"output budget per model call (default: {DEFAULT_MAX_TOKENS})")
+    parser.add_argument("--model", default=DEFAULT_MODEL,
+                        help=f"Hugging Face model id or local path (default: {DEFAULT_MODEL})")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    explicit_inputs: Optional[list[Path]] = [Path(p) for p in args.input] if args.input else None
+    inputs = medialib.collect_inputs(explicit_inputs, DOCUMENT_EXTENSIONS) if explicit_inputs else None
+    ensure_apple_silicon()
+    ensure_runtime()
+    if inputs is None:
+        inputs = medialib.resolve_inputs_or_pick(DOCUMENT_EXTENSIONS, "document")
+    progress(f"Loading {args.model} (first run downloads the weights, ~6.7 GB)")
+    engine = OcrEngine.load(args.model, args.max_tokens)
+    with tempfile.TemporaryDirectory(prefix="ocr_") as work_dir:
+        for input_file in inputs:
+            process(engine, input_file, args, Path(work_dir))
+
+
+if __name__ == "__main__":
+    main()
