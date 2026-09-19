@@ -1,0 +1,119 @@
+#!/bin/bash
+set -euo pipefail
+
+# shellcheck disable=SC1091
+source prettyprint
+
+DEVBOX_HOST="devbox-1.asymptote-bass.ts.net"
+DEVBOX_SHARE_USER="emanuele"
+DEVBOX_SHARE="Devbox"
+DEVBOX_MOUNT_POINT="${DESKDIR:-$HOME/Desktop}/Devbox"
+REACHABLE_TIMEOUT_MS=500
+
+show_usage() {
+    cat <<USAGE
+Usage: $(basename "$0") [--mount | --unmount | --status]
+
+Mounts smb://$DEVBOX_HOST/$DEVBOX_SHARE at $DEVBOX_MOUNT_POINT.
+
+  -m, --mount    Mount the share (one Touch ID for the Samba password)
+  -u, --unmount  Unmount the share
+  -s, --status   Show whether the share is mounted
+USAGE
+}
+
+is_mounted() {
+    mount | grep -q " on $DEVBOX_MOUNT_POINT "
+}
+
+check_reachable() {
+    local resolved
+    resolved=$(host-resolver -t "$REACHABLE_TIMEOUT_MS" -s "$DEVBOX_HOST" 2>/dev/null || true)
+    if [ -z "$resolved" ] || [ "$resolved" = "127.0.0.1" ]; then
+        error "Devbox '$DEVBOX_HOST' is not reachable - is Tailscale connected?"
+        return 1
+    fi
+}
+
+load_password() {
+    # shellcheck disable=SC1091
+    source envify DEVBOX_SAMBA_PASSWORD
+    if [ -z "${DEVBOX_SAMBA_PASSWORD:-}" ]; then
+        error "DEVBOX_SAMBA_PASSWORD not loaded - Touch ID dismissed or secret missing from keyguard"
+        return 1
+    fi
+}
+
+run_mount_smbfs() {
+    DEVBOX_PASSWORD="$DEVBOX_SAMBA_PASSWORD" expect -c "
+        log_user 1
+        spawn mount_smbfs //$DEVBOX_SHARE_USER@$DEVBOX_HOST/$DEVBOX_SHARE $DEVBOX_MOUNT_POINT
+        expect {
+            \"Password for *:\" {
+                send \"\$env(DEVBOX_PASSWORD)\r\"
+                exp_continue
+            }
+            eof
+        }
+    " 2>&1
+}
+
+mount_share() {
+    if is_mounted; then
+        success "$DEVBOX_SHARE share is already mounted at $DEVBOX_MOUNT_POINT"
+        return
+    fi
+    check_reachable
+    load_password
+    mkdir -p "$DEVBOX_MOUNT_POINT"
+
+    local mount_output
+    mount_output=$(run_mount_smbfs || true)
+
+    if is_mounted; then
+        success "$DEVBOX_SHARE share mounted at $DEVBOX_MOUNT_POINT"
+        return
+    fi
+    error "Failed to mount $DEVBOX_SHARE share at $DEVBOX_MOUNT_POINT"
+    printf '%s\n' "${mount_output//"$DEVBOX_SAMBA_PASSWORD"/***}" >&2
+    return 1
+}
+
+status_share() {
+    if is_mounted; then
+        success "$DEVBOX_SHARE share is mounted at $DEVBOX_MOUNT_POINT"
+    else
+        info "$DEVBOX_SHARE share is not mounted"
+    fi
+}
+
+unmount_share() {
+    if ! is_mounted; then
+        info "$DEVBOX_SHARE share is not mounted"
+        return
+    fi
+    if umount "$DEVBOX_MOUNT_POINT"; then
+        success "$DEVBOX_SHARE share unmounted"
+    else
+        error "Failed to unmount $DEVBOX_SHARE share from $DEVBOX_MOUNT_POINT"
+        return 1
+    fi
+}
+
+main() {
+    case "${1:-}" in
+        -m|--mount)     mount_share ;;
+        -u|--unmount)   unmount_share ;;
+        -s|--status)    status_share ;;
+        ""|-h|--help)   show_usage ;;
+        *)
+            error "Unknown parameter: $1"
+            show_usage >&2
+            exit 2
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

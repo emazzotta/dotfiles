@@ -100,6 +100,7 @@ superocd() {
 
     sshkeyadd && \
     ocd && \
+    devbox-drive --mount && \
     update && \
     rmraycastclipboard && \
     rmmac && \
