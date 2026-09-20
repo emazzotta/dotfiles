@@ -1,4 +1,5 @@
 {
+  "cleanupPeriodDays": 365,
   "permissions": {
     "defaultMode": "auto"
   },
@@ -111,7 +112,6 @@
     "superpowers@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
     "leonardo@leonardo-skills": true,
-    "at@auto-task": true,
     "aiup-core@ai-unified-process-marketplace": true,
     "aiup-vaadin-jooq@ai-unified-process-marketplace": true,
     "jdtls-lsp@claude-plugins-official": true,
@@ -122,13 +122,6 @@
       "source": {
         "source": "git",
         "url": "git@gitlab.leonardo.local:leonardo-developers/leonardo-ai.git"
-      },
-      "autoUpdate": true
-    },
-    "auto-task": {
-      "source": {
-        "source": "git",
-        "url": "git@github.com:patforna/auto-task.git"
       },
       "autoUpdate": true
     },
@@ -149,6 +142,5 @@
   "effortLevel": "xhigh",
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
-  "theme": "dark",
-  "cleanupPeriodDays": 365
+  "theme": "dark"
 }
