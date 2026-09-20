@@ -108,6 +108,7 @@ export CRONTAB_FILE="$DOTFILESPATH/cron/crontab"
 export JAVA_HOME="$HOME/.sdkman/candidates/java/current"
 export KEYGUARD_BRIDGE_CONFIG_FILE="$DOCUMENTDIR/Keepass/bridge.yaml"
 export KEYGUARD_SECRETS_FILE="$DOCUMENTDIR/Keepass/keyguard.enc"
+export KEYGUARD_STORE_URL="https://unlock.asymptote-bass.ts.net"
 export SDKMAN_DIR="$HOME/.sdkman"
 if [ "$DOTFILES_OS" = "macos" ]; then
     export BREW_CASK_IGNORELIST="mixed-in-key\\|my-cask-to-pin"
