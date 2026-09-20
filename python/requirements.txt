@@ -7,4 +7,5 @@ ptpython==3.0.32
 pytest-sugar==1.1.1
 pytest==9.0.3
 requests==2.33.0
+telethon==1.45.0
 tesla_dashcam==0.1.21

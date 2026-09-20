@@ -22,6 +22,7 @@ from typing import NoReturn
 
 _SERVER_PORT: int = int(os.environ.get("PARAM_SERVER_PORT", "7777"))
 _CACHE_TIMEOUT: int = int(os.environ.get("ENVIFY_CACHE_TIMEOUT", "120"))
+_STORE_TIMEOUT: int = 120
 _GLOBAL_ENV_FILE: Path = Path.home() / "dotfiles" / ".env"
 _BRIDGE_TOKEN_KEY: str = "MAC_BRIDGE_TOKEN"
 _CANDIDATE_HOSTS: tuple[str, ...] = ("localhost", "host.docker.internal")
@@ -137,17 +138,40 @@ def _resolve_via_server(*keys: str) -> dict[str, str]:
     return _parse_kv_output(output, tuple(keys))
 
 
-def resolve_params(keys: list[str]) -> None:
+def _resolve_missing(keys: tuple[str, ...]) -> dict[str, str]:
     missing = [k for k in keys if k not in os.environ]
     if not missing:
-        return
+        return {}
     resolved = (
         _resolve_via_keyguard(*missing)
         if _keyguard_available()
         else _resolve_via_server(*missing)
     )
-    for key, value in resolved.items():
-        print(f"export {key}={shlex.quote(_decode_value(value))}")
+    return {key: _decode_value(value) for key, value in resolved.items()}
+
+
+def resolve_params(keys: list[str]) -> None:
+    for key, value in _resolve_missing(tuple(keys)).items():
+        print(f"export {key}={shlex.quote(value)}")
+
+
+def load_env(keys: tuple[str, ...]) -> None:
+    _load_global_env()
+    os.environ.update(_resolve_missing(keys))
+
+
+def store_param(key: str, value: str) -> None:
+    host = _require_host()
+    req = urllib.request.Request(
+        f"http://{host}:{_SERVER_PORT}/{key}", data=value.encode(), method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=_STORE_TIMEOUT):
+            pass
+    except urllib.error.HTTPError as e:
+        _die(f"server refused to store {key}: {e.code} {e.read().decode().strip()}")
+    except urllib.error.URLError as e:
+        _die(f"server unreachable: {e.reason}")
 
 
 # ---------------------------------------------------------------------------

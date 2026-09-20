@@ -1,0 +1,396 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import asyncio
+import base64
+import json
+import os
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+from typing import Any, Callable, Final, Iterator, Optional
+
+from envify import load_env, store_param
+from scriptlog import Logger
+
+try:
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+except ImportError:
+    TelegramClient = None
+    StringSession = None
+
+logger = Logger()
+
+DEFAULT_PLAYLIST: Final = "01 Sort'n'Load"
+DJ_DIR: Final = Path(os.environ.get("DJ_DIR", str(Path.home() / "Music" / "01_DJ")))
+DEFAULT_DEST: Final = DJ_DIR / "01_Inbox"
+DEFAULT_STATE: Final = Path.home() / ".local" / "state" / "snl-sync" / "done.json"
+DEFAULT_QUALITY: Final = "flac"
+DEFAULT_REPLY_TIMEOUT_SECONDS: Final = 60.0
+SPOTIFY_VARS: Final = ("SPOTIPY_CLIENT_ID", "SPOTIPY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN")
+TELEGRAM_APP_VARS: Final = ("TELEGRAM_API_ID", "TELEGRAM_API_HASH")
+TELEGRAM_SESSION_VAR: Final = "TELEGRAM_SESSION"
+TELEGRAM_BOT_VAR: Final = "TELEGRAM_MUSIC_BOT"
+TELEGRAM_VARS: Final = TELEGRAM_APP_VARS + (TELEGRAM_SESSION_VAR, TELEGRAM_BOT_VAR)
+SPOTIFY_TRACK_URL: Final = "https://open.spotify.com/track/{id}"
+SPOTIFY_TOKEN_URL: Final = "https://accounts.spotify.com/api/token"
+SPOTIFY_PLAYLISTS_URL: Final = "https://api.spotify.com/v1/me/playlists?limit=50"
+SPOTIFY_TRACKS_URL: Final = (
+    "https://api.spotify.com/v1/playlists/{id}/tracks"
+    "?limit=100&fields=next,items(track(id,name,is_local,artists(name)))"
+)
+HTTP_TIMEOUT_SECONDS: Final = 30
+QUALITY_PREFERENCES: Final[dict[str, tuple[str, ...]]] = {
+    "flac": ("flac", "320", "mp3"),
+    "320": ("320", "mp3", "flac"),
+}
+MAX_REPLIES: Final = 8
+DEFAULT_DELAY_SECONDS: Final = 3.0
+
+
+class SyncError(Exception):
+    pass
+
+
+class FetchError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class Track:
+    id: str
+    name: str
+    artists: tuple[str, ...]
+
+    @classmethod
+    def from_playlist_item(cls, item: dict) -> Optional[Track]:
+        track = item.get("track")
+        if not track or track.get("is_local") or not track.get("id"):
+            return None
+        artists = tuple(artist["name"] for artist in track.get("artists", []))
+        return cls(id=track["id"], name=track["name"], artists=artists)
+
+    @property
+    def url(self) -> str:
+        return SPOTIFY_TRACK_URL.format(id=self.id)
+
+    @property
+    def label(self) -> str:
+        return f"{', '.join(self.artists)} - {self.name}"
+
+
+@dataclass(frozen=True)
+class Playlist:
+    id: str
+    name: str
+
+
+def _normalise_name(name: str) -> str:
+    return name.replace("_", " ").casefold()
+
+
+def find_playlist(playlists: list[dict], wanted: str) -> Playlist:
+    for playlist in playlists:
+        if _normalise_name(playlist["name"]) == _normalise_name(wanted):
+            return Playlist(id=playlist["id"], name=playlist["name"])
+    raise SyncError(f"playlist '{wanted}' not found")
+
+
+class SyncState:
+    def __init__(self, path: Path, done: dict[str, dict]) -> None:
+        self.path = path
+        self._done = done
+
+    @classmethod
+    def load(cls, path: Path) -> SyncState:
+        if not path.exists():
+            return cls(path, {})
+        return cls(path, json.loads(path.read_text()))
+
+    def is_done(self, track_id: str) -> bool:
+        return track_id in self._done
+
+    def mark_done(self, track: Track, file: Path) -> None:
+        self._done[track.id] = {"label": track.label, "file": str(file)}
+
+    def save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(self._done, indent=2, ensure_ascii=False) + "\n")
+
+
+def select_new_tracks(tracks: list[Track], state: SyncState) -> list[Track]:
+    return [track for track in tracks if not state.is_done(track.id)]
+
+
+HttpJson = Callable[[str, dict[str, str], Optional[bytes]], dict]
+
+
+def http_json(url: str, headers: dict[str, str], data: Optional[bytes] = None) -> dict:
+    request = urllib.request.Request(url, headers=headers, data=data)
+    with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        return json.loads(response.read())
+
+
+def mint_user_token(client_id: str, client_secret: str, refresh_token: str,
+                    http: HttpJson = http_json) -> str:
+    basic = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    grant = {"grant_type": "refresh_token", "refresh_token": refresh_token}
+    body = urllib.parse.urlencode(grant).encode()
+    return http(SPOTIFY_TOKEN_URL, {"Authorization": f"Basic {basic}"}, body)["access_token"]
+
+
+class SpotifyClient:
+    def __init__(self, token: str, http: HttpJson = http_json) -> None:
+        self._headers = {"Authorization": f"Bearer {token}"}
+        self._http = http
+
+    def find_playlist(self, name: str) -> Playlist:
+        for page in self._pages(SPOTIFY_PLAYLISTS_URL):
+            try:
+                return find_playlist(page["items"], name)
+            except SyncError:
+                continue
+        raise SyncError(f"playlist '{name}' not found")
+
+    def fetch_tracks(self, playlist: Playlist) -> list[Track]:
+        pages = self._pages(SPOTIFY_TRACKS_URL.format(id=playlist.id))
+        items = (item for page in pages for item in page["items"])
+        tracks = (Track.from_playlist_item(item) for item in items)
+        return [track for track in tracks if track is not None]
+
+    def _pages(self, url: Optional[str]) -> Iterator[dict]:
+        while url:
+            page = self._http(url, self._headers, None)
+            yield page
+            url = page.get("next")
+
+
+class QueryMode(Enum):
+    LINK = "link"
+    TEXT = "text"
+
+    def render(self, track: Track) -> str:
+        return track.url if self is QueryMode.LINK else track.label
+
+
+def is_audio(message: Any) -> bool:
+    if message.audio is not None:
+        return True
+    if message.document is None or message.file is None:
+        return False
+    return str(message.file.mime_type).startswith("audio/")
+
+
+def button_labels(message: Any) -> list[str]:
+    return [button.text for row in (message.buttons or []) for button in row]
+
+
+def pick_button(labels: list[str], preferences: tuple[str, ...]) -> Optional[str]:
+    for preference in preferences:
+        for label in labels:
+            if preference in label.casefold():
+                return label
+    return None
+
+
+async def fetch_track(conv: Any, track: Track, dest: Path, preferences: tuple[str, ...], *,
+                      query: QueryMode = QueryMode.LINK, max_replies: int = MAX_REPLIES) -> Path:
+    await conv.send_message(query.render(track))
+    last_text = ""
+    for _ in range(max_replies):
+        reply = await _next_reply(conv, last_text)
+        if is_audio(reply):
+            return await _download(reply, dest)
+        labels = button_labels(reply)
+        if labels:
+            await _choose(reply, labels, preferences)
+            continue
+        last_text = reply.raw_text or last_text
+    raise FetchError(f"no audio after {max_replies} replies (last: {last_text!r})")
+
+
+async def _next_reply(conv: Any, last_text: str) -> Any:
+    try:
+        return await conv.get_response()
+    except asyncio.TimeoutError:
+        raise FetchError(f"bot said {last_text!r}" if last_text else "no reply from bot") from None
+
+
+async def _download(reply: Any, dest: Path) -> Path:
+    saved = await reply.download_media(file=str(dest))
+    if saved is None:
+        raise FetchError("audio reply carried nothing to download")
+    return Path(saved)
+
+
+async def _choose(reply: Any, labels: list[str], preferences: tuple[str, ...]) -> None:
+    label = pick_button(labels, preferences)
+    if label is None:
+        raise FetchError(f"unexpected buttons: {', '.join(labels)}")
+    await reply.click(text=label)
+
+
+@dataclass
+class SyncReport:
+    downloaded: list[tuple[Track, Path]] = field(default_factory=list)
+    failed: list[tuple[Track, str]] = field(default_factory=list)
+
+
+async def run_sync(tracks: list[Track], open_conversation: Callable[[], Any], dest: Path,
+                   state: SyncState, preferences: tuple[str, ...], *,
+                   query: QueryMode = QueryMode.LINK,
+                   delay: float = DEFAULT_DELAY_SECONDS) -> SyncReport:
+    dest.mkdir(parents=True, exist_ok=True)
+    report = SyncReport()
+    for index, track in enumerate(tracks):
+        if index:
+            await asyncio.sleep(delay)
+        await _sync_one(track, open_conversation, dest, state, preferences, query, report)
+    return report
+
+
+async def _sync_one(track: Track, open_conversation: Callable[[], Any], dest: Path,
+                    state: SyncState, preferences: tuple[str, ...], query: QueryMode,
+                    report: SyncReport) -> None:
+    logger.log(f"fetching {track.label}")
+    try:
+        async with open_conversation() as conv:
+            saved = await fetch_track(conv, track, dest, preferences, query=query)
+    except FetchError as error:
+        logger.warn(f"{track.label}: {error}")
+        report.failed.append((track, str(error)))
+        return
+    state.mark_done(track, saved)
+    state.save()
+    logger.success(f"{track.label} -> {saved.name}")
+    report.downloaded.append((track, saved))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="snl-sync",
+        description="Fetch new tracks of a Spotify playlist through a Telegram music bot.",
+        epilog=f"Keyguard: {', '.join(SPOTIFY_VARS)}, "
+               f"{', '.join(TELEGRAM_APP_VARS)} (my.telegram.org), "
+               f"{TELEGRAM_BOT_VAR} (the bot's username), "
+               f"{TELEGRAM_SESSION_VAR} (written by --login). "
+               "First run: snl-sync --login, then snl-sync --limit 1.",
+    )
+    parser.add_argument("--playlist", default=DEFAULT_PLAYLIST,
+                        help="Spotify playlist name (default: %(default)s)")
+    parser.add_argument("--dest", type=Path, default=DEFAULT_DEST,
+                        help="download directory (default: %(default)s)")
+    parser.add_argument("--state", type=Path, default=DEFAULT_STATE,
+                        help="done-tracks file (default: %(default)s)")
+    parser.add_argument("--quality", choices=sorted(QUALITY_PREFERENCES), default=DEFAULT_QUALITY,
+                        help="preferred format when the bot offers a choice (default: %(default)s)")
+    parser.add_argument("--query", choices=[mode.value for mode in QueryMode],
+                        default=QueryMode.LINK.value,
+                        help="send the Spotify link or 'Artist - Title' (default: %(default)s)")
+    parser.add_argument("--limit", type=int, help="fetch at most N tracks this run")
+    parser.add_argument("--delay", type=float, default=DEFAULT_DELAY_SECONDS,
+                        help="seconds between tracks (default: %(default)s)")
+    parser.add_argument("--reply-timeout", type=float, default=DEFAULT_REPLY_TIMEOUT_SECONDS,
+                        help="seconds to wait for each bot reply (default: %(default)s)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="list pending tracks, do not touch Telegram")
+    parser.add_argument("--login", action="store_true",
+                        help="log in to Telegram once and store the session in keyguard")
+    return parser
+
+
+def require_telethon() -> None:
+    if TelegramClient is None:
+        raise SyncError("python package 'telethon' missing: pip install telethon")
+
+
+def login() -> int:
+    require_telethon()
+    load_env(TELEGRAM_APP_VARS)
+    store_param(TELEGRAM_SESSION_VAR, asyncio.run(_interactive_login()))
+    logger.success(f"{TELEGRAM_SESSION_VAR} stored in keyguard")
+    return 0
+
+
+async def _interactive_login() -> str:
+    client = _telegram_client(StringSession())
+    await client.start()
+    try:
+        return client.session.save()
+    finally:
+        await client.disconnect()
+
+
+def _telegram_client(session: Any) -> Any:
+    api_id = int(os.environ["TELEGRAM_API_ID"])
+    return TelegramClient(session, api_id, os.environ["TELEGRAM_API_HASH"])
+
+
+def _load_credentials(dry_run: bool) -> None:
+    if dry_run:
+        load_env(SPOTIFY_VARS)
+        return
+    require_telethon()
+    load_env(SPOTIFY_VARS + TELEGRAM_VARS)
+
+
+def sync(args: argparse.Namespace) -> int:
+    _load_credentials(args.dry_run)
+    spotify = SpotifyClient(mint_user_token(*(os.environ[var] for var in SPOTIFY_VARS)))
+    playlist = spotify.find_playlist(args.playlist)
+    state = SyncState.load(args.state)
+    tracks = spotify.fetch_tracks(playlist)
+    pending = select_new_tracks(tracks, state)[: args.limit]
+    logger.info(f"{playlist.name}: {len(tracks)} tracks, {len(pending)} to fetch")
+    if not pending:
+        return 0
+    if args.dry_run:
+        for track in pending:
+            logger.log(track.label)
+        return 0
+    return summarise(asyncio.run(download(pending, args, state)))
+
+
+async def download(pending: list[Track], args: argparse.Namespace, state: SyncState) -> SyncReport:
+    client = _telegram_client(StringSession(os.environ[TELEGRAM_SESSION_VAR]))
+    await client.connect()
+    try:
+        if not await client.is_user_authorized():
+            raise SyncError("Telegram session rejected, run: snl-sync --login")
+        bot = await _resolve_bot(client)
+        return await run_sync(
+            pending, lambda: client.conversation(bot, timeout=args.reply_timeout), args.dest,
+            state, QUALITY_PREFERENCES[args.quality], query=QueryMode(args.query), delay=args.delay,
+        )
+    finally:
+        await client.disconnect()
+
+
+async def _resolve_bot(client: Any) -> Any:
+    name = os.environ[TELEGRAM_BOT_VAR]
+    try:
+        return await client.get_input_entity(name)
+    except ValueError:
+        raise SyncError(f"{TELEGRAM_BOT_VAR}={name!r} is not a Telegram username") from None
+
+
+def summarise(report: SyncReport) -> int:
+    logger.info(f"{len(report.downloaded)} downloaded, {len(report.failed)} failed")
+    return 1 if report.failed else 0
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return login() if args.login else sync(args)
+    except SyncError as error:
+        logger.error(str(error))
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
