@@ -7,7 +7,7 @@ source prettyprint
 DEVBOX_HOST="devbox-1.asymptote-bass.ts.net"
 DEVBOX_SHARE_USER="emanuele"
 DEVBOX_SHARE="Devbox"
-DEVBOX_MOUNT_POINT="${DESKDIR:-$HOME/Desktop}/Devbox"
+DEVBOX_MOUNT_POINT="$HOME/Devbox"
 REACHABLE_TIMEOUT_MS=500
 
 show_usage() {
