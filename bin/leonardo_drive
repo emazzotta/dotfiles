@@ -11,6 +11,10 @@ show_usage() {
     echo "  -s, --status   Show whether the network drive is mounted"
 }
 
+is_mounted() {
+    mount | grep -qiF " on $NETWORK_DRIVE_MOUNT_POINT "
+}
+
 check_reachable() {
     local resolved
     resolved=$(host-resolver -t 500 "$NETWORK_DRIVE_SERVER_IP" 2>/dev/null)
@@ -23,7 +27,7 @@ check_reachable() {
 mount_drive() {
     check_reachable || return
 
-    if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
+    if is_mounted; then
         printf "${GREEN}●${RESET} Network drive '$NETWORK_DRIVE_FOLDER' is already mounted\n"
         return
     fi
@@ -45,7 +49,7 @@ mount_drive() {
     }
     " 2>&1)
 
-    if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
+    if is_mounted; then
         printf "${GREEN}●${RESET} Network drive '$NETWORK_DRIVE_FOLDER' mounted at $NETWORK_DRIVE_MOUNT_POINT\n"
         return
     fi
@@ -60,7 +64,7 @@ mount_drive() {
 }
 
 status_drive() {
-    if mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
+    if is_mounted; then
         printf "${GREEN}●${RESET} Network drive '$NETWORK_DRIVE_FOLDER' is mounted at $NETWORK_DRIVE_MOUNT_POINT\n"
     else
         printf "${YELLOW}●${RESET} Network drive '$NETWORK_DRIVE_FOLDER' is not mounted\n"
@@ -68,7 +72,7 @@ status_drive() {
 }
 
 unmount_drive() {
-    if ! mount | grep " on $NETWORK_DRIVE_MOUNT_POINT " > /dev/null; then
+    if ! is_mounted; then
         return
     fi
     if umount "$NETWORK_DRIVE_MOUNT_POINT" > /dev/null 2>&1; then
