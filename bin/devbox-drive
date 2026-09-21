@@ -23,7 +23,15 @@ USAGE
 }
 
 is_mounted() {
-    mount | grep -q " on $DEVBOX_MOUNT_POINT "
+    mount | grep -qiF " on $DEVBOX_MOUNT_POINT "
+}
+
+ensure_empty_mount_point() {
+    mkdir -p "$DEVBOX_MOUNT_POINT"
+    if [ -n "$(find "$DEVBOX_MOUNT_POINT" -mindepth 1 -maxdepth 1 ! -name .DS_Store | head -1)" ]; then
+        error "Mount point $DEVBOX_MOUNT_POINT is not empty - refusing to mount over its contents"
+        return 1
+    fi
 }
 
 check_reachable() {
@@ -64,8 +72,8 @@ mount_share() {
         return
     fi
     check_reachable
+    ensure_empty_mount_point
     load_password
-    mkdir -p "$DEVBOX_MOUNT_POINT"
 
     local mount_output
     mount_output=$(run_mount_smbfs || true)
