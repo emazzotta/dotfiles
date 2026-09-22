@@ -153,6 +153,7 @@ LEONARDO_COMMONS = Path.home() / "Projects" / "leo-productions" / "leonardo-comm
 LEONARDO_AI = Path.home() / "Projects" / "leo-productions" / "leonardo-ai"
 KEYGUARD = Path.home() / "Projects" / "private" / "keyguard"
 DESKTOP = Path.home() / "Desktop"
+DOWNLOADS = Path.home() / "Downloads"
 DOTFILES = Path.home() / "dotfiles"
 CLAUDE_SYNC = Path(__file__).resolve().parent / "claude-sync"
 SYNC_PULL_TIMEOUT_SECONDS = 10
@@ -863,6 +864,8 @@ def main() -> None:
     _profile("keyguard lock/mount")
     volume_args = _mount_always_available(volume_args, DESKTOP, "/workspace/code/Desktop", locked_roots, lock=False)
     _profile("desktop mount")
+    volume_args = _mount_always_available(volume_args, DOWNLOADS, "/workspace/code/Downloads", locked_roots, lock=False)
+    _profile("downloads mount")
     container_name = f"opencode-{int(time())}"
     sync_transcripts(args.resume is not None)
     _profile("transcript sync")

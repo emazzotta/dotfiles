@@ -1201,6 +1201,39 @@ class TestLeonardoAiAutoMount:
         assert not any("leonardo-ai" in arg for arg in mock_cl_run[-1])
 
 
+class TestHomeFolderAutoMount:
+    @pytest.fixture(autouse=True)
+    def _no_leonardo_repos(self, cl, monkeypatch, tmp_path):
+        monkeypatch.setattr(cl, "LEONARDO_COMMONS", tmp_path / "nonexistent")
+        monkeypatch.setattr(cl, "LEONARDO_AI", tmp_path / "nonexistent")
+
+    @pytest.fixture
+    def mock_cl_run(self, cl, monkeypatch):
+        captured = []
+        def mock_run(cmd, **kwargs):
+            captured.append(cmd)
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        monkeypatch.setattr(cl, "run", mock_run)
+        return captured
+
+    @pytest.mark.parametrize("constant,folder", [("DESKTOP", "Desktop"), ("DOWNLOADS", "Downloads")])
+    def should_mount_the_home_folder_whatever_the_project(
+        self, cl, monkeypatch, mock_cl_run, tmp_path, constant, folder,
+    ):
+        home_folder = tmp_path / folder
+        home_folder.mkdir()
+        monkeypatch.setattr(cl, constant, home_folder)
+        pwd = tmp_path / "myproject"
+        pwd.mkdir()
+        monkeypatch.chdir(pwd)
+        monkeypatch.setattr(sys, "argv", ["cl"])
+
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+
+        assert f"{home_folder}:/workspace/code/{folder}" in mock_cl_run[-1]
+
+
 class TestParseExclude:
     def test_should_return_resolved_path_for_absolute_input(self, cl, tmp_path):
         result = cl.parse_exclude(str(tmp_path / "secrets"))
