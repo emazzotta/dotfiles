@@ -5,12 +5,14 @@ import argparse
 import fnmatch
 import os
 import re
+import select
 import shlex
 import shutil
 import signal
 import sys
 import threading
 import importlib.util
+from collections.abc import Callable
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from subprocess import DEVNULL, PIPE, Popen, SubprocessError, run
@@ -19,6 +21,26 @@ from types import FrameType
 
 INTERNET_CHECK_HOST = "one.one.one.one"
 INTERNET_CHECK_TIMEOUT_MS = 1000
+DIM = "\033[2m"
+YELLOW = "\033[33m"
+RESET = "\033[0m"
+
+
+def _note(text: str) -> None:
+    print(f"{DIM}{text}{RESET}", file=sys.stderr)
+
+
+def _warn(headline: str, hint: str = "") -> None:
+    print(f"{YELLOW}▲ {headline}{RESET}", file=sys.stderr)
+    if hint:
+        print(f"{DIM}  {hint}{RESET}", file=sys.stderr)
+
+
+def _display_path(path: Path) -> str:
+    try:
+        return f"~/{path.relative_to(Path.home())}"
+    except ValueError:
+        return str(path)
 
 
 def load_host_resolver():
@@ -32,7 +54,7 @@ def load_host_resolver():
 def warn_if_offline() -> None:
     if load_host_resolver().try_host(INTERNET_CHECK_HOST, INTERNET_CHECK_TIMEOUT_MS, silent=True):
         return
-    print(f"\033[33mcl: warning - no internet (could not reach {INTERNET_CHECK_HOST}). LLM calls will likely fail.\033[0m", file=sys.stderr)
+    _warn(f"No internet, {INTERNET_CHECK_HOST} is unreachable", "LLM calls will likely fail")
 
 
 _PROFILE_ENABLED = os.environ.get("CL_PROFILE") == "1"
@@ -116,6 +138,88 @@ def _print_docker_events(monitor: tuple[Popen, threading.Thread] | None) -> None
     if stderr_output:
         for line in stderr_output.splitlines():
             print(f"[cl-profile] docker events: stderr: {line}", file=sys.stderr)
+
+
+STDERR_SCAN_LIMIT_BYTES = 8192
+STDERR_CHUNK_BYTES = 65536
+STDERR_RELAY_JOIN_SECONDS = 1.0
+STDERR_IDLE_FLUSH_SECONDS = 0.1
+DOCKER_HOST_MOUNT_PREFIX = "/host_mnt"
+MOUNT_SOURCE_DENIED = re.compile(r"error while creating mount source path '([^']+)'")
+COMPOSE_PROGRESS = re.compile(r"\s*(\[\+\] |Container \S+ +(Creating|Created|Starting|Started|Stopping|Stopped|Removing|Removed)\s*$)")
+
+
+def _is_startup_noise(line: str, optional_paths: list[Path]) -> bool:
+    if COMPOSE_PROGRESS.match(line):
+        return True
+    denied = MOUNT_SOURCE_DENIED.search(line)
+    return denied is not None and _optional_mount(denied.group(1), optional_paths) is not None
+
+
+def _write_stderr(data: bytes) -> None:
+    sys.stderr.buffer.write(data)
+    sys.stderr.buffer.flush()
+
+
+def _flush_pending(pending: bytes) -> bytes:
+    if pending:
+        _write_stderr(pending)
+    return b""
+
+
+def _emit_lines(pending: bytes, optional_paths: list[Path]) -> bytes:
+    while b"\n" in pending:
+        line, pending = pending.split(b"\n", 1)
+        if not _is_startup_noise(line.decode(errors="replace"), optional_paths):
+            _write_stderr(line + b"\n")
+    return pending
+
+
+def _read_or_empty(read_fd: int) -> bytes:
+    try:
+        return os.read(read_fd, STDERR_CHUNK_BYTES)
+    except OSError:
+        return b""
+
+
+def _relay_stderr(read_fd: int, captured: bytearray, optional_paths: list[Path]) -> None:
+    """Pass docker's stderr through line by line, dropping the lines cl reports itself.
+
+    A line that stops arriving mid-way is flushed raw rather than held, so
+    nothing a session prints without a newline can stall behind the filter.
+    """
+    pending = b""
+    while True:
+        if not select.select([read_fd], [], [], STDERR_IDLE_FLUSH_SECONDS)[0]:
+            pending = _flush_pending(pending)
+            continue
+        chunk = _read_or_empty(read_fd)
+        if not chunk:
+            _flush_pending(pending)
+            return
+        if len(captured) < STDERR_SCAN_LIMIT_BYTES:
+            captured += chunk
+        pending = _emit_lines(pending + chunk, optional_paths)
+
+
+def _run_capturing_stderr(command: list[str], optional_paths: list[Path]) -> tuple[int, str]:
+    """Run docker with its stderr relayed through us, minus the startup chatter.
+
+    Keeps the head of the stream so a refused mount can be read back after the
+    run, and swallows the daemon's raw complaint about one: the caller says it
+    better, and the container lines it sits between are noise either way.
+    """
+    read_fd, write_fd = os.pipe()
+    captured = bytearray()
+    relay = threading.Thread(target=_relay_stderr, args=(read_fd, captured, optional_paths), daemon=True)
+    relay.start()
+    try:
+        returncode = run(command, stderr=write_fd).returncode
+    finally:
+        os.close(write_fd)
+        relay.join(timeout=STDERR_RELAY_JOIN_SECONDS)
+        os.close(read_fd)
+    return returncode, captured.decode(errors="replace")
 
 
 CONTAINER_REMOVE_ATTEMPTS = 2
@@ -263,11 +367,9 @@ def lock_git_crypt(pwd: Path, repo_root: Path | None = None) -> None:
     try:
         result = run(["git-crypt", "lock"], cwd=repo_root, capture_output=True, text=True)
         if result.returncode == 0:
-            print(f"git-crypt: locked {repo_root.name}")
-        elif "already locked" in result.stderr.lower():
-            print(f"git-crypt: {repo_root.name} already locked")
-        else:
-            print(f"git-crypt: failed to lock {repo_root.name} - {result.stderr.strip()}", file=sys.stderr)
+            _note(f"git-crypt locked {repo_root.name}")
+        elif "already locked" not in result.stderr.lower():
+            _warn(f"git-crypt could not lock {repo_root.name}", result.stderr.strip())
             sys.exit(1)
     finally:
         _git_stash_pop(repo_root, stashed)
@@ -311,6 +413,18 @@ def _is_path_mounted(volume_args: list[str], host_path: Path) -> bool:
     return any(arg.startswith(prefix) for arg in volume_args)
 
 
+def _remove_mounts(args: list[str], drop_source: Callable[[str], bool]) -> list[str]:
+    result: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == "-v" and i + 1 < len(args) and drop_source(args[i + 1].split(":")[0]):
+            i += 2
+            continue
+        result.append(args[i])
+        i += 1
+    return result
+
+
 def _remove_submounts(volume_args: list[str], directory: Path) -> list[str]:
     """Remove individual file mounts that are subpaths of directory.
 
@@ -319,17 +433,38 @@ def _remove_submounts(volume_args: list[str], directory: Path) -> list[str]:
     the directory mount - remove them so the directory mount wins cleanly.
     """
     prefix = str(directory) + "/"
-    result: list[str] = []
-    i = 0
-    while i < len(volume_args):
-        if volume_args[i] == "-v" and i + 1 < len(volume_args):
-            host_path = volume_args[i + 1].split(":")[0]
-            if host_path.startswith(prefix):
-                i += 2
-                continue
-        result.append(volume_args[i])
-        i += 1
-    return result
+    return _remove_mounts(volume_args, lambda source: source.startswith(prefix))
+
+
+def _drop_mount(args: list[str], host_path: Path) -> list[str]:
+    return _remove_mounts(args, lambda source: source == str(host_path))
+
+
+def _optional_mount(denied: str, optional_paths: list[Path]) -> Path | None:
+    """The auto-mount docker names in a refusal, ignoring mounts the user asked for by hand."""
+    if denied.startswith(f"{DOCKER_HOST_MOUNT_PREFIX}/"):
+        denied = denied[len(DOCKER_HOST_MOUNT_PREFIX):]
+    return next((path for path in optional_paths if str(path) == denied), None)
+
+
+def _denied_mount(stderr_text: str, optional_paths: list[Path]) -> Path | None:
+    match = MOUNT_SOURCE_DENIED.search(stderr_text)
+    return _optional_mount(match.group(1), optional_paths) if match else None
+
+
+def _retry_without_denied_mount(
+    command: list[str], stderr_text: str, optional_paths: list[Path], container_name: str,
+) -> int | None:
+    """Rerun without an auto-mounted folder docker refused, so one of them cannot kill the session."""
+    denied = _denied_mount(stderr_text, optional_paths)
+    if denied is None:
+        return None
+    _warn(
+        f"{_display_path(denied)} not mounted, Docker has no access to it",
+        "Allow it under System Settings › Privacy & Security › Files and Folders › Docker",
+    )
+    _remove_container(container_name)
+    return _run_capturing_stderr(_drop_mount(command, denied), optional_paths)[0]
 
 
 def _mount_always_available(
@@ -856,16 +991,16 @@ def main() -> None:
     _profile("build_volume_args")
     dotfiles_volume_args = build_dotfiles_volume_args()
     _profile("build_dotfiles_volume_args")
-    volume_args = _mount_always_available(volume_args, LEONARDO_COMMONS, "/workspace/code/leonardo-commons", locked_roots)
-    _profile("leonardo-commons lock/mount")
-    volume_args = _mount_always_available(volume_args, LEONARDO_AI, "/workspace/code/leonardo-ai", locked_roots)
-    _profile("leonardo-ai lock/mount")
-    volume_args = _mount_always_available(volume_args, KEYGUARD, "/workspace/code/keyguard", locked_roots)
-    _profile("keyguard lock/mount")
-    volume_args = _mount_always_available(volume_args, DESKTOP, "/workspace/code/Desktop", locked_roots, lock=False)
-    _profile("desktop mount")
-    volume_args = _mount_always_available(volume_args, DOWNLOADS, "/workspace/code/Downloads", locked_roots, lock=False)
-    _profile("downloads mount")
+    auto_mounts = (
+        (LEONARDO_COMMONS, "/workspace/code/leonardo-commons", True),
+        (LEONARDO_AI, "/workspace/code/leonardo-ai", True),
+        (KEYGUARD, "/workspace/code/keyguard", True),
+        (DESKTOP, "/workspace/code/Desktop", False),
+        (DOWNLOADS, "/workspace/code/Downloads", False),
+    )
+    for host_path, container_path, lock in auto_mounts:
+        volume_args = _mount_always_available(volume_args, host_path, container_path, locked_roots, lock=lock)
+        _profile(f"{Path(container_path).name} mount")
     container_name = f"opencode-{int(time())}"
     sync_transcripts(args.resume is not None)
     _profile("transcript sync")
@@ -888,15 +1023,19 @@ def main() -> None:
 
     _install_orphan_guard(container_name)
     monitor = _start_docker_events_monitor(container_name, time_ns())
+    optional_paths = [host_path for host_path, _, _ in auto_mounts]
     try:
-        result = run(command)
+        returncode, stderr_text = _run_capturing_stderr(command, optional_paths)
+        if returncode:
+            retried = _retry_without_denied_mount(command, stderr_text, optional_paths, container_name)
+            returncode = returncode if retried is None else retried
     finally:
         if monitor is not None:
             events_proc, events_thread = monitor
             events_proc.terminate()
             events_thread.join(timeout=1.0)
         _print_docker_events(monitor)
-    sys.exit(result.returncode)
+    sys.exit(returncode)
 
 
 if __name__ == "__main__":

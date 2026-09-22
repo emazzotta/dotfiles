@@ -226,12 +226,19 @@ class TestLockGitCrypt:
         lock_calls = [c for c in mock_run.call_args_list if c[0][0][:2] == ["git-crypt", "lock"]]
         assert len(lock_calls) == 1
 
-    def test_already_locked(self, cl, tmp_path, capsys):
+    def should_say_nothing_when_the_repo_was_already_locked(self, cl, tmp_path, capsys):
         (tmp_path / ".git-crypt").mkdir()
         with patch.object(cl, "run") as mock_run:
             mock_run.return_value = type("R", (), {"returncode": 1, "stdout": "", "stderr": "already locked"})()
             cl.lock_git_crypt(tmp_path)
-        assert "already locked" in capsys.readouterr().out
+        assert capsys.readouterr() == ("", "")
+
+    def should_report_a_repo_it_just_locked(self, cl, tmp_path, capsys):
+        (tmp_path / ".git-crypt").mkdir()
+        with patch.object(cl, "run") as mock_run:
+            mock_run.return_value = type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            cl.lock_git_crypt(tmp_path)
+        assert f"git-crypt locked {tmp_path.name}" in capsys.readouterr().err
 
     def test_locks_at_repo_root_from_subdir(self, cl, tmp_path):
         (tmp_path / ".git-crypt").mkdir()
@@ -1232,6 +1239,83 @@ class TestHomeFolderAutoMount:
             cl.main()
 
         assert f"{home_folder}:/workspace/code/{folder}" in mock_cl_run[-1]
+
+
+class TestDeniedMountRetry:
+    DAEMON_ERROR = (
+        "Error response from daemon: error while creating mount source path "
+        "'/host_mnt/Users/emanuelemazzotta/Downloads': mkdir "
+        "/host_mnt/Users/emanuelemazzotta/Downloads: operation not permitted\n"
+    )
+
+    def should_name_the_auto_mount_docker_refused(self, cl):
+        downloads = Path("/Users/emanuelemazzotta/Downloads")
+
+        assert cl._denied_mount(self.DAEMON_ERROR, [downloads]) == downloads
+
+    def should_ignore_a_refusal_for_a_mount_the_user_asked_for(self, cl, tmp_path):
+        assert cl._denied_mount(self.DAEMON_ERROR, [tmp_path / "Downloads"]) is None
+
+    def should_ignore_stderr_without_a_mount_refusal(self, cl):
+        assert cl._denied_mount("claude exited with 1\n", [Path("/Users/me/Downloads")]) is None
+
+    def should_drop_only_the_refused_mount(self, cl):
+        args = ["-v", "/a:/workspace/code/a", "-v", "/b:/workspace/code/b"]
+
+        assert cl._drop_mount(args, Path("/a")) == ["-v", "/b:/workspace/code/b"]
+
+    def should_restart_the_session_without_the_refused_folder(self, cl, monkeypatch, tmp_path):
+        downloads = tmp_path / "Downloads"
+        downloads.mkdir()
+        monkeypatch.setattr(cl, "DOWNLOADS", downloads)
+        for absent in ("LEONARDO_COMMONS", "LEONARDO_AI", "KEYGUARD", "DESKTOP"):
+            monkeypatch.setattr(cl, absent, tmp_path / "nonexistent")
+        attempts = []
+        removed = []
+        monkeypatch.setattr(cl, "_remove_container", removed.append)
+        results = [(1, self.DAEMON_ERROR.replace("/Users/emanuelemazzotta/Downloads", str(downloads))), (0, "")]
+
+        def fake_run(command, optional_paths):
+            attempts.append(command)
+            return results[len(attempts) - 1]
+
+        monkeypatch.setattr(cl, "_run_capturing_stderr", fake_run)
+        pwd = tmp_path / "myproject"
+        pwd.mkdir()
+        monkeypatch.chdir(pwd)
+        monkeypatch.setattr(sys, "argv", ["cl"])
+
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+
+        assert f"{downloads}:/workspace/code/Downloads" in attempts[0]
+        assert not any(str(downloads) in arg for arg in attempts[1])
+        assert removed == [attempts[0][attempts[0].index("--name") + 1]]
+
+    def should_relay_stderr_while_capturing_it(self, cl, capfd):
+        returncode, captured = cl._run_capturing_stderr(["sh", "-c", "echo boom >&2; exit 7"], [])
+
+        assert returncode == 7
+        assert "boom" in captured
+        assert "boom" in capfd.readouterr().err
+
+    def should_hide_compose_chatter_but_keep_it_in_the_capture(self, cl, capfd):
+        chatter = "echo 'Container opencode-1 Created' >&2; echo boom >&2"
+
+        _, captured = cl._run_capturing_stderr(["sh", "-c", chatter], [])
+
+        assert "Container opencode-1 Created" in captured
+        relayed = capfd.readouterr().err
+        assert relayed.strip() == "boom"
+
+    def should_hide_the_daemon_complaint_about_an_auto_mount(self, cl, tmp_path):
+        denied = f"error while creating mount source path '/host_mnt{tmp_path}'"
+
+        assert cl._is_startup_noise(denied, [tmp_path])
+        assert not cl._is_startup_noise(denied, [tmp_path / "other"])
+
+    def should_keep_lines_that_are_not_startup_chatter(self, cl):
+        assert not cl._is_startup_noise("claude: something went wrong", [])
 
 
 class TestParseExclude:
