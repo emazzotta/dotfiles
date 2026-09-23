@@ -1,6 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    echo "Usage: $(basename "$0") [--disconnect]"
+    echo ""
+    echo "Without an option, connects the VPN when needed and mounts the network drive."
+    echo "  --disconnect  Unmount the network drive and disconnect the VPN"
+    exit 0
+fi
+
 source leonardo_account
 source envify PRIMARY_EMAIL
 

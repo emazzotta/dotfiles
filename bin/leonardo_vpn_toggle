@@ -1,6 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    echo "Usage: $(basename "$0") [--enable | --disable]"
+    echo ""
+    echo "Without an option, offers to disconnect a connected VPN."
+    echo "  --enable   Connect the VPN"
+    echo "  --disable  Disconnect the VPN"
+    exit 0
+fi
+
 source leonardo_account
 
 VPN_NAME="LeonardoVPN"

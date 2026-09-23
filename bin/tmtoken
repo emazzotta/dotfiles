@@ -1,5 +1,10 @@
 #!/bin/bash
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    echo "Usage: $(basename "$0") [--token-only]"
+    exit 0
+fi
+
 [[ -z "${TM_USER:-}" ]] && source envify TM_USER
 
 if ! test "${TM_USER}"; then

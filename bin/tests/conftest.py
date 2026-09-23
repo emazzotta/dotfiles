@@ -39,6 +39,10 @@ def _essential_bin_dirs() -> list[str]:
     return [d for d in dirs if Path(d).is_dir()]
 
 
+def marker_mocks(tmp_path: Path, *names: str) -> dict[str, str]:
+    return {name: f'echo {name} >> "{tmp_path / "calls"}"' for name in names}
+
+
 def _run_in_mocked_env(command, tmp_path, env_extra, mock_bins, stdin, isolate_path, cwd=None):
     mock_dir = tmp_path / "mock_bin"
     mock_dir.mkdir(exist_ok=True)

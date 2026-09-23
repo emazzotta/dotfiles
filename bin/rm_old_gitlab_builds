@@ -7,7 +7,13 @@ set -euo pipefail
 BUILDS_DIR="${HOME}/builds"
 DRY_RUN=false
 
-[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
+case "${1:-}" in
+    -h|--help)
+        echo "Usage: $(basename "$0") [--dry-run]"
+        exit 0
+        ;;
+    --dry-run) DRY_RUN=true ;;
+esac
 
 if [[ ! -d "$BUILDS_DIR" ]]; then
     echo "Directory $BUILDS_DIR does not exist, skipping..."

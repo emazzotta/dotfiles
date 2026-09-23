@@ -14,3 +14,18 @@ class TestLeonardoDrive:
 
         assert result.returncode == 0
         assert "is mounted" in result.stdout
+
+    def test_should_print_usage_for_help_before_reading_the_keychain(self, run_bash,
+                                                                    tmp_path):
+        keychain_reads = tmp_path / "keychain-reads"
+
+        result = run_bash(
+            "leonardo_drive", ["--help"],
+            env_extra={"HOME": str(tmp_path)},
+            mock_bins={"security": f'echo read >> "{keychain_reads}"'},
+            isolate_path=True,
+        )
+
+        assert result.returncode == 0
+        assert "--mount" in result.stdout
+        assert not keychain_reads.exists()

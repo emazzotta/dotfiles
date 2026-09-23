@@ -1,8 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-source leonardo_account
-
 show_usage() {
     echo "Usage: $(basename "$0") [--mount | --unmount | --status]"
     echo ""
@@ -10,6 +8,15 @@ show_usage() {
     echo "  -u, --unmount  Unmount the network drive"
     echo "  -s, --status   Show whether the network drive is mounted"
 }
+
+case "${1:-}" in
+    ""|-h|--help)
+        show_usage
+        exit 0
+        ;;
+esac
+
+source leonardo_account
 
 is_mounted() {
     mount | grep -qiF " on $NETWORK_DRIVE_MOUNT_POINT "
@@ -81,11 +88,6 @@ unmount_drive() {
         printf "${RED}●${RESET} Failed to unmount network drive '$NETWORK_DRIVE_FOLDER' from $NETWORK_DRIVE_MOUNT_POINT\n"
     fi
 }
-
-if [ $# -eq 0 ]; then
-    show_usage
-    exit 0
-fi
 
 case "$1" in
     -m|--mount)   mount_drive ;;
