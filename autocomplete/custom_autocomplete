@@ -4,6 +4,10 @@ if test "${ZSH_VERSION}"; then
     bashcompinit
     autoload -U add-zsh-hook
     compdef sshrc=ssh
+    compdef o=open 2>/dev/null
+    compdef y=yarn 2>/dev/null
+    _confirm_command() { _arguments '1:prompt: ' '*:::command:_normal'; }
+    compdef _confirm_command confirm
     # Drop the cached dcp container pick on every new prompt (after Enter or
     # Ctrl-C), so each dcp invocation forces a fresh pick if ambiguous.
     _dcp_clear_picked() { rm -f "/tmp/.dcp_picked_$$"; }
@@ -530,6 +534,249 @@ _git-wt()
   done < <(git wt --complete "${words[@]:1:$((CURRENT - 2))}" 2>/dev/null)
   compadd -- "${candidates[@]}"
 }
+_reply_lines()
+{
+  local line
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] && COMPREPLY+=("${line}")
+  done
+}
+_help_parse()
+{
+  awk -v cmd="$1" '
+    function remember(flag, choices) {
+      if (!(flag in seen)) order[++count] = flag
+      if (!(flag in seen) || choices != "") seen[flag] = choices
+    }
+    function scan(text,    flag, choices) {
+      text = " " text
+      while (match(text, /[ \t,(|[][-][-]?[A-Za-z][A-Za-z0-9_-]*/)) {
+        flag = substr(text, RSTART + 1, RLENGTH - 1)
+        text = substr(text, RSTART + RLENGTH)
+        choices = ""
+        if (match(text, /^[ =][{][^}]*[}]/)) {
+          choices = substr(text, 3, RLENGTH - 3)
+          gsub(/,/, " ", choices)
+        }
+        remember(flag, choices)
+      }
+    }
+    {
+      gsub(/\033\[[0-9;]*m/, "")
+      if (match($0, /^[ \t]*[{][^}]*[}]/)) {
+        group = substr($0, RSTART, RLENGTH)
+        sub(/^[ \t]*[{]/, "", group)
+        sub(/[}]$/, "", group)
+        gsub(/,/, " ", group)
+        remember("@", group)
+      }
+      if ($0 ~ /^[ \t]*-[-]?[A-Za-z]/) {
+        spec = $0
+        sub(/^[ \t]+/, "", spec)
+        if (match(spec, /  |\t/)) spec = substr(spec, 1, RSTART - 1)
+        scan(spec)
+      }
+      rest = $0
+      while (match(rest, /[[][^]]*[]]/)) {
+        group = substr(rest, RSTART + 1, RLENGTH - 2)
+        rest = substr(rest, RSTART + RLENGTH)
+        scan(group)
+      }
+    }
+    END {
+      print cmd "\t"
+      for (i = 1; i <= count; i++) print cmd "\t" order[i] "\t" seen[order[i]]
+    }'
+}
+_help_table()
+{
+  local key="$*"
+  if ! printf '%s\n' "${_HELP_TABLE}" | awk -F'\t' -v c="${key}" '$1 == c { found = 1 } END { exit !found }'; then
+    _HELP_TABLE="${_HELP_TABLE}
+$("$@" --help </dev/null 2>&1 | _help_parse "${key}")"
+  fi
+}
+_complete_help()
+{
+  local cur="${COMP_WORDS[COMP_CWORD]}" prev="${COMP_WORDS[COMP_CWORD-1]}" rows choices
+  [[ $# -gt 0 ]] || set -- "${COMP_WORDS[0]}"
+  _help_table "$@"
+  rows=$(printf '%s\n' "${_HELP_TABLE}" | awk -F'\t' -v c="$*" '$1 == c && $2 != "" && $2 != "@"')
+  choices=$(printf '%s\n' "${rows}" | awk -F'\t' -v f="${prev}" '$2 == f { print $3; exit }')
+  if [[ -n "${choices}" ]]; then
+    _reply_lines < <(compgen -W "${choices}" -- "${cur}")
+    return 0
+  fi
+  [[ "${cur}" == -* ]] || return 1
+  _reply_lines < <(compgen -W "$(printf '%s\n' "${rows}" | cut -f2)" -- "${cur}")
+}
+_complete_help_files()
+{
+  COMPREPLY=()
+  _complete_help || _reply_lines < <(compgen -f -- "${COMP_WORDS[COMP_CWORD]}")
+}
+_complete_help_flags()
+{
+  COMPREPLY=()
+  _complete_help
+}
+_complete_nothing()
+{
+  COMPREPLY=()
+}
+_reply_matching()
+{
+  local cur="${COMP_WORDS[COMP_CWORD]}" line
+  while IFS= read -r line; do
+    [[ -n "${line}" && "${line}" == "${cur}"* ]] && COMPREPLY+=("${line}")
+  done
+}
+_wleorun()
+{
+  COMPREPLY=()
+  _complete_help leorun
+}
+_gretag()
+{
+  COMPREPLY=()
+  [[ ${COMP_CWORD} -eq 1 ]] && _reply_matching < <(git tag -l 2>/dev/null)
+}
+_git_squash_commits_x_y()
+{
+  COMPREPLY=()
+  case "${COMP_CWORD}" in
+    1) _reply_matching < <(git for-each-ref --format='%(refname:lstrip=2)' refs/heads 2>/dev/null) ;;
+    2|3) _reply_matching < <(git log --format=%h -n 50 "${COMP_WORDS[1]}" -- 2>/dev/null) ;;
+  esac
+}
+_gunstage()
+{
+  COMPREPLY=()
+  _reply_matching < <(git diff --cached --name-only --relative 2>/dev/null)
+}
+_gpg_key_emails()
+{
+  gpg "$1" --with-colons 2>/dev/null \
+    | awk -F: '$1 == "uid" && match($10, /<[^>]+>/) { print substr($10, RSTART + 1, RLENGTH - 2) }' \
+    | sort -u
+}
+_gpgpub()
+{
+  COMPREPLY=()
+  [[ ${COMP_CWORD} -eq 1 ]] && _reply_matching < <(_gpg_key_emails --list-keys)
+}
+_gpgencrypt()
+{
+  COMPREPLY=()
+  case "${COMP_CWORD}" in
+    1) _reply_matching < <(_gpg_key_emails --list-keys) ;;
+    2) _reply_lines < <(compgen -f -- "${COMP_WORDS[COMP_CWORD]}") ;;
+  esac
+}
+_gpgsign()
+{
+  COMPREPLY=()
+  [[ ${COMP_CWORD} -eq 2 ]] && _reply_matching < <(_gpg_key_emails --list-secret-keys)
+}
+_process_names()
+{
+  COMPREPLY=()
+  [[ ${COMP_CWORD} -eq 1 ]] && _reply_matching < <(ps -A -o comm= 2>/dev/null | sed 's|.*/||' | sort -u)
+}
+_tma()
+{
+  COMPREPLY=()
+  [[ ${COMP_CWORD} -eq 1 ]] && _reply_matching < <(tmux list-sessions -F '#S' 2>/dev/null)
+}
+_external_disks()
+{
+  COMPREPLY=()
+  [[ ${COMP_CWORD} -eq 1 ]] && _reply_matching < <(diskutil list external physical 2>/dev/null \
+    | awk '/^\/dev\/disk/ { sub("/dev/", "", $1); print $1 }')
+}
+_external_partitions()
+{
+  COMPREPLY=()
+  [[ ${COMP_CWORD} -eq 1 ]] && _reply_matching < <(diskutil list external 2>/dev/null \
+    | awk '$1 ~ /^[1-9][0-9]*:$/ { print $NF }')
+}
+_ssh_config_hosts()
+{
+  local config="${HOME}/.ssh/config" pattern file
+  {
+    cat "${config}"
+    while IFS= read -r pattern; do
+      pattern="${pattern/#\~/${HOME}}"
+      [[ "${pattern}" == /* ]] || pattern="${HOME}/.ssh/${pattern}"
+      for file in ${pattern}; do
+        cat "${file}"
+      done
+    done < <(awk 'tolower($1) == "include" { for (i = 2; i <= NF; i++) print $i }' "${config}")
+  } 2>/dev/null | awk 'tolower($1) == "host" { for (i = 2; i <= NF; i++) if ($i !~ /[*?!]/) print $i }' | sort -u
+}
+_docker_script()
+{
+  local cur="${COMP_WORDS[COMP_CWORD]}" prev="${COMP_WORDS[COMP_CWORD-1]}" i server="" container=""
+  COMPREPLY=()
+  for (( i = 1; i < COMP_CWORD; i++ )); do
+    case "${COMP_WORDS[i]}" in
+      -s|--server) server="${COMP_WORDS[i+1]}"; i=$((i + 1)) ;;
+      -c) container="${COMP_WORDS[i+1]}"; i=$((i + 1)) ;;
+      -*) ;;
+      *) container="${COMP_WORDS[i]}" ;;
+    esac
+  done
+  case "${prev}" in
+    -s|--server) _reply_matching < <(_ssh_config_hosts); return 0 ;;
+    -c) [[ -z "${server}" ]] && _reply_matching < <(_dcp_running_containers | sort); return 0 ;;
+  esac
+  if [[ "${cur}" == -* ]]; then
+    _complete_help
+    return 0
+  fi
+  [[ -n "${server}" ]] && return 0
+  [[ -n "${container}" && "${COMP_WORDS[0]##*/}" != docker-inspect ]] && return 0
+  _reply_matching < <(_dcp_running_containers | sort)
+}
+_complete_help_subcommands()
+{
+  local cmd="${COMP_WORDS[0]}" subcommands
+  COMPREPLY=()
+  _help_table "${cmd}"
+  subcommands=$(printf '%s\n' "${_HELP_TABLE}" | awk -F'\t' -v c="${cmd}" '$1 == c && $2 == "@" { print $3 }')
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    _complete_help || _reply_lines < <(compgen -W "${subcommands}" -- "${COMP_WORDS[1]}")
+  elif [[ " ${subcommands} " == *" ${COMP_WORDS[1]} "* ]]; then
+    _complete_help "${cmd}" "${COMP_WORDS[1]}" || _reply_lines < <(compgen -f -- "${COMP_WORDS[COMP_CWORD]}")
+  fi
+}
+_complete_script_words()
+{
+  COMPREPLY=()
+  if [[ "${COMP_WORDS[COMP_CWORD]}" == -* ]]; then
+    _complete_help
+    return 0
+  fi
+  _reply_matching < <("${COMP_WORDS[0]}" --complete "${COMP_WORDS[@]:1:$((COMP_CWORD - 1))}" 2>/dev/null)
+}
+_audiomerge()
+{
+  COMPREPLY=()
+  case "${COMP_WORDS[COMP_CWORD-1]}" in
+    -f|--format) _complete_help audiotox ;;
+    *) _complete_help_files ;;
+  esac
+}
+_host_resolver()
+{
+  COMPREPLY=()
+  _complete_help && return 0
+  case "${COMP_WORDS[COMP_CWORD-1]}" in
+    -t|--timeout|-f|--fallback-ip|-d|--dns) return 0 ;;
+  esac
+  [[ -z "${_HOST_RESOLVER_HOSTS}" ]] && _HOST_RESOLVER_HOSTS=$(host-resolver --complete hosts 2>/dev/null)
+  _reply_matching <<< "${_HOST_RESOLVER_HOSTS}"
+}
 complete -F _dcp dcp docker-cp
 complete -F _envify envify
 complete -F _keyguard keyguard
@@ -545,3 +792,38 @@ complete -F _ags ags
 complete -F _make_targets make m
 complete -F _fileserver fileserver fs fget fls frm fup
 complete -F _timemachine timemachine
+complete -o filenames -F _complete_help_files agedist asciicast2gif audio_silence_generator \
+  audioboost audiospec audiotags_manager audiotox cert_viewer_file compress convert-to-utf8 exifrm \
+  extract fix-html-charset git_gallcontrib gpe gpgverify gsheet_backup hashify imgcompress imgmirror \
+  imgtopdf imgtox isotoimg leonardo_utils_installer notion_backup ocr pdfcompress pdfify pdfsplit \
+  pdftoimg putty2pem pwcompress pwuncompress robust-rsync snl-sync sync_file trackduplication_info \
+  transcript-title videoloweraudio videormaudio videotoaudio videotox
+complete -F _complete_help_flags bcrypt_hash claude-resume claude-rm claude-sync devbox-drive gunco \
+  json_format leonardo_drive leonardo_start leonardo_vpn_toggle leorun opencode-resume opencode-rm \
+  resolve-mcp-setup resolve-mcp-verify rm_old_gitlab_builds showip tmtoken
+complete -F _complete_nothing backup_mini_rsync bookmarks_backup cert_viewer_url codecost \
+  coding_server cpu crontab_editor ctof datefmt dnscheckemail ftoc gac gacp git_average \
+  git_squash_commits_last_n gitio gitvid gp gpd gpdd gpgkbimport gpgkeyid gptcopy hsamba imgtovideo \
+  import_gpg json_diff kill_unwanted_processes killportlisteners kmtom kw leonardo_password_refresh \
+  leonardo_updater lofi macexec mark mem mpcpwcompress mtokm nocontrib ocd openclipboardlinks \
+  playwright-launch-chrome-claude ports random regextest replace_action_plugin_version \
+  rm_build_files rm_eclipse_project_files rm_launch_items rmmac session-convert sizefmt slugify \
+  ssl_verify tailscale-toggle-exit-node tgb tgm tgup tldify tmbackup tpage tracks_stats \
+  update_github_actions urldecode urlencode urr uuid vimpluginupdate vm vmup wpsh zipsplit
+complete -o filenames -F _audiomerge audiomerge
+complete -o filenames -F _complete_help_subcommands backup_restore_util
+complete -F _complete_script_words claude-plugin-update ref-pin tmux-overview
+complete -F _docker_script docker-debug docker-exec docker-inspect
+complete -F _external_disks flash_disk_with_zeros
+complete -F _external_partitions mount_ext
+complete -F _git_squash_commits_x_y git_squash_commits_x_y
+complete -o filenames -F _gpgencrypt gpgencrypt
+complete -F _gpgpub gpgpub
+complete -F _gpgsign gpgsign
+complete -F _gretag gretag
+complete -o filenames -F _gunstage gunstage
+complete -F _host_resolver host-resolver
+complete -F _process_names killgrep killprocess
+complete -c tldr
+complete -F _tma tma
+complete -F _wleorun wleorun
