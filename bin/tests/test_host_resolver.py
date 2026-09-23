@@ -151,3 +151,11 @@ class TestAlertMode:
         with patch.object(mod, "resolve_hosts", return_value="192.168.0.61"):
             with patch.object(mod.sys, "argv", ["host-resolver", "myhost"]):
                 mod.main()
+
+
+class TestComplete:
+    def test_should_offer_the_built_in_short_names(self, mod, capsys):
+        with patch.object(mod.sys, "argv", ["host-resolver", "--complete", "hosts"]):
+            mod.main()
+
+        assert capsys.readouterr().out.split() == list(mod.HOSTS)

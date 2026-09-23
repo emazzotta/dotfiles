@@ -298,9 +298,29 @@ sparse paths from the registry. Symlinks use relative targets (../<name>-referen
 USAGE
 }
 
+complete_next_word() {
+    case $# in
+        0)
+            printf '%s\n' list help
+            load_workspace
+            registry_entries | cut -d'|' -f1
+            ;;
+        1)
+            case "$1" in
+                list | help) ;;
+                *) printf '%s\n' init status fetch diff bump restore help ;;
+            esac
+            ;;
+    esac
+}
+
 main() {
     case "${1:-}" in
         help | -h | --help | "") cmd_help ;;
+        --complete)
+            shift
+            complete_next_word "$@"
+            ;;
         list)
             load_workspace
             cmd_list

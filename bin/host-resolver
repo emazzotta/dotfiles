@@ -100,6 +100,10 @@ def resolve_hosts(short_name: str, timeout_ms: float, fallback_ip: str | None = 
 
 
 def main() -> None:
+    if sys.argv[1:2] == ["--complete"]:
+        if sys.argv[2:3] == ["hosts"]:
+            print("\n".join(HOSTS))
+        return
     parser = argparse.ArgumentParser(
         description=(
             "Resolve a host to a reachable IPv4 or IPv6 address. "

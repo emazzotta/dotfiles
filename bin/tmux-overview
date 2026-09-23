@@ -369,6 +369,7 @@ status() {
 }
 
 case "${1:-toggle}" in
+    --complete) [ $# -gt 1 ] || printf '%s\n' toggle status ;;
     toggle)    toggle ;;
     tile)      shift; tile "$@" ;;
     reconcile) reconcile ;;

@@ -25,9 +25,8 @@ def hash_data(algorithm: str, data: bytes) -> str:
 
 
 def main() -> int:
-    algorithms = ', '.join(sorted(hashlib.algorithms_available))
     parser = argparse.ArgumentParser(
-        description=f"Hash text or file content. Default algorithm: sha256. Supported: {algorithms}",
+        description="Hash text or file content. Default algorithm: sha256.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
@@ -53,7 +52,8 @@ examples:
 
     parser.add_argument(
         '-a', '--algorithm',
-        type=str,
+        type=str.lower,
+        choices=sorted({name.lower() for name in hashlib.algorithms_available}),
         default='sha256',
         help="Hash algorithm to use (default: sha256)"
     )

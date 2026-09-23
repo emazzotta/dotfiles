@@ -308,6 +308,10 @@ main() {
             show_usage
             return 0
             ;;
+        --complete)
+            [ "${*: -1}" = "--add" ] || find_user_scope_plugins
+            return 0
+            ;;
         --write-git-rewrites)
             check_required_commands envify git python3 || return 1
             write_git_rewrites

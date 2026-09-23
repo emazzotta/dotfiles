@@ -231,3 +231,22 @@ class TestRestore:
 
         assert result.returncode == 1
         assert "not cloned - run 'ref-pin full init'" in result.stderr
+
+
+class TestComplete:
+    def should_offer_list_help_and_every_reference_first(self, ref_pin):
+        result = ref_pin("--complete")
+
+        assert result.stdout.split() == ["list", "help", "sparse", "full"]
+
+    def should_offer_the_actions_after_a_reference(self, ref_pin):
+        result = ref_pin("--complete", "full")
+
+        assert result.stdout.split() == ["init", "status", "fetch", "diff", "bump", "restore",
+                                         "help"]
+
+    def should_offer_nothing_after_list(self, ref_pin):
+        result = ref_pin("--complete", "list")
+
+        assert result.returncode == 0
+        assert result.stdout == ""

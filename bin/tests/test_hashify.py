@@ -1,4 +1,5 @@
 import hashlib
+import re
 
 import pytest
 
@@ -48,3 +49,16 @@ class TestHashData:
     def test_unsupported_algorithm(self, hashify):
         with pytest.raises(SystemExit):
             hashify.hash_data("nonexistent_algo", b"test")
+
+
+class TestAlgorithmChoices:
+    def test_should_list_the_algorithms_as_choices_in_help(self, run_cli):
+        result = run_cli("hashify", ["--help"])
+
+        assert re.search(r"-a \{[^}]*\bsha256\b[^}]*\}", result.stdout)
+
+    def test_should_accept_an_algorithm_name_in_any_case(self, run_cli):
+        result = run_cli("hashify", ["-a", "SHA256", "test"])
+
+        assert result.returncode == 0
+        assert hashlib.sha256(b"test").hexdigest() in result.stdout

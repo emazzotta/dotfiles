@@ -370,3 +370,17 @@ class TestUpdateInContainer:
 
         assert "Bridge call failed" in result.stderr
         assert "wanted@mp-ssh" in log.read_text()
+
+
+class TestComplete:
+    def should_offer_the_user_scope_plugins(self, run_bash, container_home):
+        result = run_bash(SCRIPT, ["--complete"], env_extra={"HOME": str(container_home)})
+
+        assert sorted(result.stdout.split()) == ["other@mp-https", "wanted@mp-ssh"]
+
+    def should_offer_nothing_as_the_marketplace_url_of_add(self, run_bash, container_home):
+        result = run_bash(SCRIPT, ["--complete", "--add"],
+                          env_extra={"HOME": str(container_home)})
+
+        assert result.returncode == 0
+        assert result.stdout == ""
