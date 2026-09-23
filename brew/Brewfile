@@ -154,6 +154,7 @@ cask "tunnelblick"
 cask "utm"
 cask "vlc"
 cask "vnc-viewer"
+cask "vorssaint"
 cask "windows-app"
 cask "xquartz"
 
