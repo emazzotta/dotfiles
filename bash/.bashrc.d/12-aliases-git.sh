@@ -17,7 +17,7 @@ alias gitgimmeprevious='git checkout HEAD~1'
 alias gup='git pull --rebase --autostash'
 
 ### BRANCHES ###
-alias gbrrmlocal='git branch -D'
+alias gbrrmlocal='git wt rm'
 alias gbrrmremote='git push origin --delete'
 
 ### STASH ###

@@ -1,0 +1,204 @@
+#!/bin/bash
+set -uo pipefail
+
+readonly WORKTREE_DIR=".claude/worktrees"
+
+show_usage() {
+    cat <<EOF
+Usage: git wt <command>
+
+  add <branch> [<start>]  create the worktree $WORKTREE_DIR/<branch> in the main checkout;
+                          a new branch starts from <start> (default origin/HEAD)
+  rm <branch>...          delete each branch and the worktree holding it, also when that
+                          worktree was registered from the other side of a container mount
+  sweep [-n]              remove clean worktrees whose branch is merged or upstream gone, and registrations
+                          whose $WORKTREE_DIR directory is gone; -n only lists them
+EOF
+}
+
+usage_error() {
+    show_usage >&2
+    exit 2
+}
+
+main_worktree() {
+    git worktree list --porcelain | awk '/^worktree / && !seen { print substr($0, 10); seen = 1 }'
+}
+
+linked_worktrees() {
+    git worktree list --porcelain | awk '
+        /^worktree / { path = substr($0, 10); count++ }
+        /^branch refs\/heads\// { branch = substr($0, 19) }
+        /^$/ { if (count > 1) print path "\t" branch; branch = "" }'
+}
+
+worktree_of_branch() {
+    linked_worktrees | awk -F '\t' -v branch="$1" '$2 == branch { print $1 }'
+}
+
+common_dir() {
+    git rev-parse --path-format=absolute --git-common-dir
+}
+
+admin_dir_of() {
+    local gitdir_file
+    for gitdir_file in "$(common_dir)"/worktrees/*/gitdir; do
+        if [ -f "$gitdir_file" ] && [ "$(cat "$gitdir_file")" = "$1/.git" ]; then
+            printf '%s\n' "${gitdir_file%/gitdir}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+locate_worktree() {
+    local registered="$1" twin
+    if [ -e "$registered" ]; then
+        printf '%s\n' "$registered"
+        return 0
+    fi
+    case "$registered" in
+        */"$WORKTREE_DIR"/*) twin="$PWD/$WORKTREE_DIR/${registered#*/"$WORKTREE_DIR"/}" ;;
+        *) return 1 ;;
+    esac
+    [ -e "$twin" ] || return 1
+    printf '%s\n' "$twin"
+}
+
+is_clean() {
+    local admin status
+    admin=$(admin_dir_of "$1") || return 1
+    status=$(git --no-optional-locks --git-dir="$admin" --work-tree="$2" status --porcelain) || return 1
+    [ -z "$status" ]
+}
+
+delete_worktree() {
+    local registered="$1" local_path="${2:-}"
+    if [ -z "$local_path" ]; then
+        git worktree remove "$registered"
+        return
+    fi
+    if [ "$local_path" != "$registered" ]; then
+        git worktree repair "$local_path" >/dev/null 2>&1 || return 1
+    fi
+    git worktree remove "$local_path"
+}
+
+remove_if_clean() {
+    local registered="$1" local_path
+    if ! local_path=$(locate_worktree "$registered"); then
+        delete_worktree "$registered" || return 1
+        echo "dropped $registered (directory not on this machine)"
+        return 0
+    fi
+    if ! is_clean "$registered" "$local_path"; then
+        echo "kept $local_path: uncommitted changes" >&2
+        return 1
+    fi
+    delete_worktree "$registered" "$local_path"
+}
+
+remove_branches() {
+    local branch registered failed=0
+    for branch in "$@"; do
+        registered=$(worktree_of_branch "$branch")
+        if [ -n "$registered" ] && ! remove_if_clean "$registered"; then
+            failed=1
+            continue
+        fi
+        git branch -D "$branch" || failed=1
+    done
+    return "$failed"
+}
+
+exclude_worktree_dir() {
+    local info
+    git check-ignore -q "$WORKTREE_DIR/" && return 0
+    info="$(common_dir)/info"
+    mkdir -p "$info"
+    printf '/%s/\n' "$WORKTREE_DIR" >>"$info/exclude"
+}
+
+trust_like_main_checkout() {
+    if git config --global --get-all safe.directory | grep -qxF "$PWD"; then
+        git config --global --add safe.directory "$1"
+    fi
+}
+
+add_worktree() {
+    local branch="$1" start="${2:-}" path
+    path="$PWD/$WORKTREE_DIR/$branch"
+    exclude_worktree_dir
+    if git show-ref --verify --quiet "refs/heads/$branch"; then
+        git worktree add "$path" "$branch" >&2 || return 1
+    elif [ -z "$start" ] && git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+        git worktree add --track -b "$branch" "$path" "origin/$branch" >&2 || return 1
+    else
+        git worktree add --no-track -b "$branch" "$path" "${start:-origin/HEAD}" >&2 || return 1
+    fi
+    trust_like_main_checkout "$path"
+    printf '%s\n' "$path"
+}
+
+sweep_reason() {
+    local registered="$1" branch="$2" local_path reason
+    if ! local_path=$(locate_worktree "$registered"); then
+        case "$registered" in
+            */"$WORKTREE_DIR"/*) echo "directory gone" ;;
+            *) return 1 ;;
+        esac
+        return 0
+    fi
+    [ -n "$branch" ] || return 1
+    if [ "$(git for-each-ref --format='%(upstream:track)' "refs/heads/$branch")" = "[gone]" ]; then
+        reason="upstream gone"
+    elif merged_into_origin_head "$branch"; then
+        reason="merged"
+    else
+        return 1
+    fi
+    is_clean "$registered" "$local_path" || return 1
+    echo "$reason"
+}
+
+merged_into_origin_head() {
+    local merged
+    git merge-base --is-ancestor "refs/heads/$1" origin/HEAD 2>/dev/null && return 1
+    merged=$(git merge-tree --write-tree origin/HEAD "refs/heads/$1" 2>/dev/null) || return 1
+    [ "$merged" = "$(git rev-parse 'origin/HEAD^{tree}')" ]
+}
+
+sweep() {
+    local dry_run="$1" registered branch reason
+    while IFS=$'\t' read -r registered branch; do
+        reason=$(sweep_reason "$registered" "$branch") || continue
+        if [ "$dry_run" = true ]; then
+            echo "would remove $registered ($reason)"
+        elif delete_worktree "$registered" "$(locate_worktree "$registered")"; then
+            echo "removed $registered ($reason)"
+        fi
+    done < <(linked_worktrees)
+}
+
+main() {
+    local command="${1:-}" main_checkout
+    case "$command" in
+        -h|--help) show_usage; return 0 ;;
+        add) [ $# -ge 2 ] && [ $# -le 3 ] || usage_error ;;
+        rm) [ $# -ge 2 ] || usage_error ;;
+        sweep) [ $# -eq 1 ] || { [ $# -eq 2 ] && [ "$2" = "-n" ]; } || usage_error ;;
+        *) usage_error ;;
+    esac
+    shift
+    main_checkout=$(main_worktree)
+    [ -n "$main_checkout" ] && cd "$main_checkout" || return 1
+    case "$command" in
+        add) add_worktree "$@" ;;
+        rm) remove_branches "$@" ;;
+        sweep) sweep "$([ "${1:-}" = "-n" ] && echo true || echo false)" ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
