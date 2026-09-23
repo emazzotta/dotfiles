@@ -317,3 +317,39 @@ class TestSweep:
         assert result.returncode == 0, result.stderr
         assert not (other_side / WORKTREES / "feature").exists()
         assert registered_paths(git, other_side) == [str(other_side)]
+
+
+class TestComplete:
+    def should_offer_the_commands_when_none_is_typed_yet(self, wt):
+        result = wt("--complete")
+
+        assert result.stdout.split() == ["add", "rm", "sweep"]
+
+    def should_offer_every_local_branch_to_each_rm_argument(self, wt, git, project):
+        git(project, "branch", "plain")
+        git(project, "push", "origin", "main:refs/heads/remote-only")
+        git(project, "fetch", "origin")
+
+        result = wt("--complete", "rm", "plain")
+
+        assert result.stdout.split() == ["main", "plain"]
+
+    def should_offer_local_and_origin_branches_once_each_to_add(self, wt, git, project):
+        git(project, "branch", "local-only")
+        git(project, "push", "origin", "main:refs/heads/remote-only")
+        git(project, "fetch", "origin")
+
+        result = wt("--complete", "add")
+
+        assert result.stdout.split() == ["local-only", "main", "remote-only"]
+
+    def should_offer_nothing_once_add_has_its_branch(self, wt):
+        result = wt("--complete", "add", "feature")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == ""
+
+    def should_offer_the_dry_run_flag_to_sweep(self, wt):
+        result = wt("--complete", "sweep")
+
+        assert result.stdout.split() == ["-n"]

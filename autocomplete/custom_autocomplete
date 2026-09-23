@@ -515,6 +515,21 @@ _timemachine()
       COMPREPLY=($(compgen -W "${_TIMEMACHINE_DESTINATIONS}" -- "${cur}")) ;;
   esac
 }
+# Unregistered on purpose: git's bash completion and Homebrew's zsh _git call _git_wt, zsh's own _git calls _git-wt.
+# shellcheck disable=SC2154
+_git_wt()
+{
+  __gitcomp_nl "$(__git wt --complete "${words[@]:$((__git_cmd_idx + 1)):$((cword - __git_cmd_idx - 1))}")"
+}
+_git-wt()
+{
+  local -a candidates
+  local candidate
+  while IFS= read -r candidate; do
+    candidates+=("${candidate}")
+  done < <(git wt --complete "${words[@]:1:$((CURRENT - 2))}" 2>/dev/null)
+  compadd -- "${candidates[@]}"
+}
 complete -F _dcp dcp docker-cp
 complete -F _envify envify
 complete -F _keyguard keyguard
