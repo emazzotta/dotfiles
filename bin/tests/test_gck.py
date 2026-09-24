@@ -13,9 +13,10 @@ GLAB_MOCK = r'''
 printf '%s\n' "$*" >> "${GLAB_CALLS:-/dev/null}"
 case "$*" in
     "mr list"*) ;;
-    *"pipelines?ref=main&"*) echo '[{"id": 1, "status": "success", "updated_at": "t1", "web_url": "https://gitlab.example.com/p/1"}]' ;;
-    *"pipelines?ref=feature&"*) echo '[{"id": 2, "status": "failed", "updated_at": "t2", "web_url": "https://gitlab.example.com/p/2"}]' ;;
-    *"pipelines?ref=remote-only&"*) echo '[{"id": 3, "status": "running", "updated_at": "t3", "web_url": "https://gitlab.example.com/p/3"}]' ;;
+    *"pipelines?scope=branches&"*) echo '[
+        {"id": 3, "ref": "remote-only", "status": "running", "updated_at": "t3", "web_url": "https://gitlab.example.com/p/3"},
+        {"id": 2, "ref": "feature", "status": "failed", "updated_at": "t2", "web_url": "https://gitlab.example.com/p/2"},
+        {"id": 1, "ref": "main", "status": "success", "updated_at": "t1", "web_url": "https://gitlab.example.com/p/1"}]' ;;
     *"pipelines/2/jobs"*) echo '[{"id": 20, "name": "Test", "failure_reason": "script_failure", "allow_failure": false}]' ;;
     *"jobs/20/trace"*) echo '[ERROR] There are test failures.' ;;
     *) echo '[]' ;;

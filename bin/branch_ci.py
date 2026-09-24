@@ -11,14 +11,17 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Final, Iterable, Optional, Union
+from typing import Callable, Final, Iterable, Optional, TypeVar, Union
 from urllib.parse import quote
 
 CACHE_DIR: Final = Path.home() / ".cache" / "gck" / "ci"
 COMMAND_TIMEOUT_SECONDS: Final = 30
+TRANSPORT_ATTEMPTS: Final = 2
 PARALLEL_LOOKUPS: Final = 8
 GITLAB_PAGE_SIZE: Final = 100
+GITHUB_RUNS_PAGE_SIZE: Final = 100
 GITHUB_RUNS_PER_BRANCH: Final = 20
+GITHUB_RUN_FIELDS: Final = "databaseId,headBranch,headSha,status,conclusion,url,updatedAt"
 SUCCESS: Final = "success"
 FAILED: Final = "failed"
 RUNNING: Final = "running"
@@ -37,10 +40,13 @@ LOG_CATEGORIES: Final = (
 )
 
 Run = Callable[[list[str]], str]
+T = TypeVar("T")
 
 
 class CommandFailed(Exception):
-    pass
+    def __init__(self, reason: str, transient: bool = False):
+        super().__init__(reason)
+        self.transient = transient
 
 
 @dataclass(frozen=True)
@@ -87,14 +93,15 @@ class GitLab:
         project_path = quote(self.project, safe="")
         return self.run([self.CLIENT, "api", "--hostname", self.host, f"projects/{project_path}/{endpoint}"])
 
+    def recent_pipelines(self) -> tuple[dict[str, Pipeline], bool]:
+        pipelines = json.loads(self._api(f"pipelines?scope=branches&per_page={GITLAB_PAGE_SIZE}"))
+        oldest_first = sorted(pipelines, key=lambda pipeline: pipeline["id"])
+        return ({pipeline["ref"]: self._pipeline(pipeline) for pipeline in oldest_first},
+                len(pipelines) < GITLAB_PAGE_SIZE)
+
     def latest_pipeline(self, branch: str) -> Optional[Pipeline]:
         pipelines = json.loads(self._api(f"pipelines?ref={quote(branch, safe='')}&per_page=1"))
-        if not pipelines:
-            return None
-        latest = pipelines[0]
-        failed_ids = (str(latest["id"]),) if latest["status"] == FAILED else ()
-        cache_key = f"{self.host}/{self.project} {latest['id']} {latest['updated_at']}"
-        return Pipeline(latest["status"], latest["web_url"], failed_ids, cache_key)
+        return self._pipeline(pipelines[0]) if pipelines else None
 
     def failure_categories(self, pipeline: Pipeline) -> list[str]:
         categories = []
@@ -107,6 +114,11 @@ class GitLab:
         return classify_job(job.get("failure_reason") or "", job["name"],
                             lambda: self._api(f"jobs/{job['id']}/trace"))
 
+    def _pipeline(self, pipeline: dict) -> Pipeline:
+        failed_ids = (str(pipeline["id"]),) if pipeline["status"] == FAILED else ()
+        cache_key = f"{self.host}/{self.project} {pipeline['id']} {pipeline['updated_at']}"
+        return Pipeline(pipeline["status"], pipeline["web_url"], failed_ids, cache_key)
+
 
 class GitHub:
     CLIENT = "gh"
@@ -118,18 +130,18 @@ class GitHub:
     def _gh(self, *args: str) -> str:
         return self.run([self.CLIENT, *args, "--repo", self.repo])
 
+    def recent_pipelines(self) -> tuple[dict[str, Pipeline], bool]:
+        runs = json.loads(self._gh("run", "list", "--limit", str(GITHUB_RUNS_PAGE_SIZE), "--json", GITHUB_RUN_FIELDS))
+        runs_by_branch: dict[str, list[dict]] = {}
+        for run in runs:
+            runs_by_branch.setdefault(run["headBranch"], []).append(run)
+        return ({branch: self._pipeline(branch_runs) for branch, branch_runs in runs_by_branch.items()},
+                len(runs) < GITHUB_RUNS_PAGE_SIZE)
+
     def latest_pipeline(self, branch: str) -> Optional[Pipeline]:
         runs = json.loads(self._gh("run", "list", "--branch", branch, "--limit", str(GITHUB_RUNS_PER_BRANCH),
-                                   "--json", "databaseId,headSha,status,conclusion,url,updatedAt"))
-        if not runs:
-            return None
-        head_runs = [run for run in runs if run["headSha"] == runs[0]["headSha"]]
-        failed_runs = [run for run in head_runs if run["conclusion"] in GITHUB_FAILED_CONCLUSIONS]
-        shown = failed_runs[0] if failed_runs else head_runs[0]
-        cache_key = f"github.com/{self.repo} " + " ".join(f"{run['databaseId']}@{run['updatedAt']}"
-                                                          for run in head_runs)
-        return Pipeline(github_state(head_runs), shown["url"],
-                        tuple(str(run["databaseId"]) for run in failed_runs), cache_key)
+                                   "--json", GITHUB_RUN_FIELDS))
+        return self._pipeline(runs) if runs else None
 
     def failure_categories(self, pipeline: Pipeline) -> list[str]:
         return [self._run_category(run_id) for run_id in pipeline.failed_ids]
@@ -138,6 +150,15 @@ class GitHub:
         jobs = json.loads(self._gh("run", "view", run_id, "--json", "jobs"))["jobs"]
         failed_jobs = ", ".join(job["name"] for job in jobs if job["conclusion"] in GITHUB_FAILED_CONCLUSIONS)
         return classify_log(self._gh("run", "view", run_id, "--log-failed"), failed_jobs)
+
+    def _pipeline(self, runs: list[dict]) -> Pipeline:
+        head_runs = [run for run in runs if run["headSha"] == runs[0]["headSha"]]
+        failed_runs = [run for run in head_runs if run["conclusion"] in GITHUB_FAILED_CONCLUSIONS]
+        shown = failed_runs[0] if failed_runs else head_runs[0]
+        cache_key = f"github.com/{self.repo} " + " ".join(f"{run['databaseId']}@{run['updatedAt']}"
+                                                          for run in head_runs)
+        return Pipeline(github_state(head_runs), shown["url"],
+                        tuple(str(run["databaseId"]) for run in failed_runs), cache_key)
 
 
 Provider = Union[GitLab, GitHub]
@@ -163,43 +184,72 @@ def cached(key: str, compute: Callable[[], str]) -> str:
     return value
 
 
-def lookup(provider: Provider, branch: str) -> BranchState:
-    pipeline = provider.latest_pipeline(branch)
+def describe(provider: Provider, branch: str, pipeline: Optional[Pipeline],
+             complete: bool) -> tuple[Optional[BranchState], str]:
+    if pipeline is None and not complete:
+        pipeline, warning = warn_on_failure(lambda: provider.latest_pipeline(branch), provider)
+        if warning:
+            return None, warning
     if pipeline is None:
-        return BranchState(branch, NO_PIPELINE, "", "")
-    category = ""
-    if pipeline.state == FAILED:
-        category = cached(pipeline.cache_key,
-                          lambda: ", ".join(dict.fromkeys(provider.failure_categories(pipeline))))
-    return BranchState(branch, pipeline.state, category, pipeline.url)
+        return BranchState(branch, NO_PIPELINE, "", ""), ""
+    found = pipeline
+    category, warning = warn_on_failure(lambda: failure_category(provider, found), provider)
+    return BranchState(branch, found.state, category or "", found.url), warning
 
 
-def lookup_or_warn(provider: Provider, branch: str) -> tuple[Optional[BranchState], str]:
+def failure_category(provider: Provider, pipeline: Pipeline) -> str:
+    if pipeline.state != FAILED:
+        return ""
+    return cached(pipeline.cache_key, lambda: ", ".join(dict.fromkeys(provider.failure_categories(pipeline))))
+
+
+def lookup_all(provider: Provider, branches: list[str]) -> tuple[list[BranchState], list[str]]:
+    recent, warning = warn_on_failure(provider.recent_pipelines, provider)
+    if recent is None:
+        return [], [warning]
+    pipelines, complete = recent
+    with ThreadPoolExecutor(PARALLEL_LOOKUPS) as pool:
+        results = list(pool.map(lambda branch: describe(provider, branch, pipelines.get(branch), complete), branches))
+    return ([state for state, _ in results if state],
+            list(dict.fromkeys(warning for _, warning in results if warning)))
+
+
+def warn_on_failure(call: Callable[[], T], provider: Provider) -> tuple[Optional[T], str]:
     try:
-        return lookup(provider, branch), ""
+        return call(), ""
     except CommandFailed as error:
         return None, str(error)
     except (ValueError, LookupError, TypeError):
-        return None, f"unexpected {provider.CLIENT} response for {branch}"
+        return None, f"unexpected {provider.CLIENT} response"
 
 
 def run_command(args: list[str]) -> str:
+    for _ in range(TRANSPORT_ATTEMPTS - 1):
+        try:
+            return run_once(args)
+        except CommandFailed as failure:
+            if not failure.transient:
+                raise
+    return run_once(args)
+
+
+def run_once(args: list[str]) -> str:
     try:
         completed = subprocess.run(args, capture_output=True, text=True, errors="replace",
                                    timeout=COMMAND_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        raise CommandFailed(f"{args[0]} timed out after {COMMAND_TIMEOUT_SECONDS}s") from None
+        raise CommandFailed(f"{args[0]} timed out after {COMMAND_TIMEOUT_SECONDS}s", transient=True) from None
     if completed.returncode != 0:
-        raise CommandFailed(failure_reason(completed.stderr, f"{args[0]} exited with status {completed.returncode}"))
+        raise failure_from(completed.stderr, f"{args[0]} exited with status {completed.returncode}")
     return completed.stdout
 
 
-def failure_reason(stderr: str, fallback: str) -> str:
+def failure_from(stderr: str, fallback: str) -> CommandFailed:
     message = unwrap(line.strip() for line in stderr.splitlines() if line.strip() not in ("", ERROR_BANNER))
-    if not message:
-        return fallback
     transport_error = TRANSPORT_ERROR.match(message)
-    return transport_error.group("cause") if transport_error else message
+    if transport_error:
+        return CommandFailed(transport_error.group("cause"), transient=True)
+    return CommandFailed(message or fallback)
 
 
 def unwrap(lines: Iterable[str]) -> str:
@@ -229,13 +279,10 @@ def main(argv: list[str]) -> int:
     if shutil.which(provider.CLIENT) is None:
         print(f"{provider.CLIENT} is not installed", file=sys.stderr)
         return 0
-    branches = [line.strip() for line in sys.stdin if line.strip()]
-    with ThreadPoolExecutor(PARALLEL_LOOKUPS) as pool:
-        results = list(pool.map(lambda branch: lookup_or_warn(provider, branch), branches))
-    for state, _ in results:
-        if state:
-            print(state.as_line())
-    for warning in dict.fromkeys(warning for _, warning in results if warning):
+    states, warnings = lookup_all(provider, [line.strip() for line in sys.stdin if line.strip()])
+    for state in states:
+        print(state.as_line())
+    for warning in warnings:
         print(warning, file=sys.stderr)
     return 0
 

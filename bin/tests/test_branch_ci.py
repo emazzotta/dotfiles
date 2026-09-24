@@ -7,14 +7,27 @@ PIPELINE_URL = "https://gitlab.example.com/group/project/-/pipelines/{}"
 SUREFIRE_FAILURE = "[ERROR] Failed to execute goal maven-surefire-plugin:test: There are test failures.\n"
 COMPILE_FAILURE = ("[ERROR] Failed to execute goal maven-compiler-plugin:compile: Compilation failure\n"
                    "[ERROR] Main.java:[163,35] Symbol nicht gefunden\n")
+LOOKUP_TIMEOUT_BANNER = ("          \n   ERROR  \n          \n"
+                         '  Get "https://gitlab.example.com/api/v4/x": dial tcp: lookup gitlab.example.com: '
+                         "i/o timeout.   \n\n")
 
-GLAB_MOCK = r'''
+LOG_GLAB_CALL = 'printf \'%s\\n\' "$*" >> "$HOME/glab-calls"\n'
+ANSWER_BRANCH_PIPELINES = r'''
 case "$*" in
-    *"pipelines?ref=main&"*) echo '[{"id": 1, "status": "success", "updated_at": "t", "web_url": "https://gitlab.example.com/p/1"}]' ;;
-    *"pipelines?ref=broken&"*) echo "401 Unauthorized" >&2; exit 1 ;;
+    *"pipelines?scope=branches&"*) echo '[{"id": 1, "ref": "main", "status": "success", "updated_at": "t", "web_url": "https://gitlab.example.com/p/1"}]' ;;
     *) echo '[]' ;;
 esac
 '''
+GLAB_ANSWERING = LOG_GLAB_CALL + ANSWER_BRANCH_PIPELINES
+GLAB_TIMING_OUT = LOG_GLAB_CALL + f"printf '%s' '{LOOKUP_TIMEOUT_BANNER}' >&2\nexit 1\n"
+GLAB_TIMING_OUT_ONCE = LOG_GLAB_CALL + f'''
+if [ ! -e "$HOME/timed-out" ]; then
+    touch "$HOME/timed-out"
+    printf '%s' '{LOOKUP_TIMEOUT_BANNER}' >&2
+    exit 1
+fi
+''' + ANSWER_BRANCH_PIPELINES
+GLAB_UNAUTHORIZED = LOG_GLAB_CALL + 'echo "glab: 401 Unauthorized (HTTP 401)" >&2\nexit 1\n'
 
 
 class FakeCli:
@@ -27,13 +40,19 @@ class FakeCli:
         self.calls.append(command)
         for fragment, output in self.responses.items():
             if fragment in command:
+                if isinstance(output, Exception):
+                    raise output
                 return output
         raise AssertionError(f"unexpected call: {command}")
 
 
-def gitlab_pipelines(pipeline_id, status, updated_at="2026-09-24T07:22:46Z"):
-    return json.dumps([{"id": pipeline_id, "status": status, "updated_at": updated_at,
-                        "web_url": PIPELINE_URL.format(pipeline_id)}])
+def gitlab_pipeline(pipeline_id, status, ref="feature", updated_at="2026-09-24T07:22:46Z"):
+    return {"id": pipeline_id, "ref": ref, "status": status, "updated_at": updated_at,
+            "web_url": PIPELINE_URL.format(pipeline_id)}
+
+
+def gitlab_pipelines(*pipelines):
+    return json.dumps(list(pipelines))
 
 
 def gitlab_jobs(*jobs):
@@ -41,10 +60,13 @@ def gitlab_jobs(*jobs):
                        for job_id, name, reason, allowed in jobs])
 
 
-def github_run(run_id, sha, status="completed", conclusion="success"):
-    return {"databaseId": run_id, "headSha": sha, "status": status, "conclusion": conclusion,
-            "url": f"https://github.com/owner/repo/actions/runs/{run_id}",
-            "updatedAt": "2026-09-24T07:00:00Z"}
+def github_run(run_id, sha, status="completed", conclusion="success", branch="feature"):
+    return {"databaseId": run_id, "headBranch": branch, "headSha": sha, "status": status, "conclusion": conclusion,
+            "url": f"https://github.com/owner/repo/actions/runs/{run_id}", "updatedAt": "2026-09-24T07:00:00Z"}
+
+
+def branch_states(states):
+    return [(state.branch, state.state) for state in states]
 
 
 @pytest.fixture
@@ -70,6 +92,11 @@ def github(branch_ci):
     return _github
 
 
+@pytest.fixture
+def glab_calls(tmp_path):
+    return lambda: (tmp_path / "glab-calls").read_text().splitlines()
+
+
 @pytest.mark.parametrize("log, category", [
     ("error: RPC failed; curl 56 Recv failure: Operation timed out\nfatal: early EOF\n", "infra"),
     ("[exec] bash: ../commons/verify.sh: No such file or directory\n"
@@ -83,27 +110,70 @@ def should_classify_a_failed_job_by_its_log(branch_ci, log, category):
     assert branch_ci.classify_log(log, "Build") == category
 
 
-@pytest.mark.parametrize("stderr, reason", [
-    ("glab: 404 Project Not Found (HTTP 404)\n", "glab: 404 Project Not Found (HTTP 404)"),
-    ("          \n   ERROR  \n          \n"
-     '  Get "https://gitlab.example.com/api/v4/projects/x": dial tcp: lookup gitlab.example.com: i/o timeout.   \n\n',
-     "dial tcp: lookup gitlab.example.com: i/o timeout."),
-    ("          \n   ERROR  \n          \n"
-     '  Get "https://gitlab.example.com/api/v4/projects/group%2Fproject/pipelines?ref=LEO-1234-a-long-branch- \n'
-     '  name&per_page=1": dial tcp: lookup gitlab.example.com: no such host.                                  \n\n',
-     "dial tcp: lookup gitlab.example.com: no such host."),
-    ("", "glab exited with status 1"),
-])
-def should_report_the_cause_of_a_failed_command_without_glab_banner_url_or_line_wrapping(branch_ci, stderr, reason):
-    assert branch_ci.failure_reason(stderr, "glab exited with status 1") == reason
-
-
 def should_fall_back_to_the_job_name_when_the_log_matches_no_category(branch_ci):
     assert branch_ci.classify_log("ERROR: Job failed: exit status 1\n", "Build & Deploy") == "Build & Deploy"
 
 
+@pytest.mark.parametrize("stderr, reason, transient", [
+    ("glab: 404 Project Not Found (HTTP 404)\n", "glab: 404 Project Not Found (HTTP 404)", False),
+    (LOOKUP_TIMEOUT_BANNER, "dial tcp: lookup gitlab.example.com: i/o timeout.", True),
+    ("          \n   ERROR  \n          \n"
+     '  Get "https://gitlab.example.com/api/v4/projects/group%2Fproject/pipelines?ref=LEO-1234-a-long-branch- \n'
+     '  name&per_page=1": dial tcp: lookup gitlab.example.com: no such host.                                  \n\n',
+     "dial tcp: lookup gitlab.example.com: no such host.", True),
+    ("", "glab exited with status 1", False),
+])
+def should_report_the_cause_of_a_failed_command_and_whether_a_retry_can_help(branch_ci, stderr, reason, transient):
+    failure = branch_ci.failure_from(stderr, "glab exited with status 1")
+
+    assert (str(failure), failure.transient) == (reason, transient)
+
+
+def should_read_every_branch_from_one_gitlab_request_when_the_page_is_not_full(branch_ci, gitlab):
+    provider, cli = gitlab({"pipelines?scope=branches": gitlab_pipelines(
+        gitlab_pipeline(3, "running"), gitlab_pipeline(1, "success", ref="main"))})
+
+    states, warnings = branch_ci.lookup_all(provider, ["main", "feature", "never-built"])
+
+    assert branch_states(states) == [("main", "success"), ("feature", "running"), ("never-built", "none")]
+    assert warnings == []
+    assert cli.calls == ["glab api --hostname gitlab.example.com "
+                         "projects/group%2Fproject/pipelines?scope=branches&per_page=100"]
+
+
+def should_look_up_branches_missing_from_a_full_page_one_by_one(branch_ci, gitlab, monkeypatch):
+    monkeypatch.setattr(branch_ci, "GITLAB_PAGE_SIZE", 1)
+    provider, cli = gitlab({
+        "pipelines?scope=branches": gitlab_pipelines(gitlab_pipeline(2, "success", ref="main")),
+        "pipelines?ref=old-branch": gitlab_pipelines(gitlab_pipeline(1, "failed", ref="old-branch")),
+        "pipelines/1/jobs": gitlab_jobs(),
+    })
+
+    states, _ = branch_ci.lookup_all(provider, ["main", "old-branch"])
+
+    assert branch_states(states) == [("main", "success"), ("old-branch", "failed")]
+    assert sum("pipelines?ref=" in call for call in cli.calls) == 1
+
+
+def should_keep_a_failed_pipeline_failed_and_retry_its_category_next_run_when_the_jobs_cannot_be_fetched(
+        branch_ci, gitlab):
+    timeout = branch_ci.CommandFailed("dial tcp: lookup gitlab.example.com: i/o timeout.", transient=True)
+    provider, cli = gitlab({
+        "pipelines?scope=branches": gitlab_pipelines(gitlab_pipeline(2, "failed")),
+        "pipelines/2/jobs": timeout,
+        "jobs/1/trace": SUREFIRE_FAILURE,
+    })
+
+    first = branch_ci.lookup_all(provider, ["feature"])
+    cli.responses["pipelines/2/jobs"] = gitlab_jobs((1, "Test", "script_failure", False))
+    second = branch_ci.lookup_all(provider, ["feature"])
+
+    assert first == ([branch_ci.BranchState("feature", "failed", "", PIPELINE_URL.format(2))], [str(timeout)])
+    assert second == ([branch_ci.BranchState("feature", "failed", "tests", PIPELINE_URL.format(2))], [])
+
+
 def should_query_the_latest_gitlab_pipeline_of_a_branch_by_its_encoded_name(gitlab):
-    provider, cli = gitlab({"pipelines?ref=": gitlab_pipelines(1, "success")})
+    provider, cli = gitlab({"pipelines?ref=": gitlab_pipelines(gitlab_pipeline(1, "success"))})
 
     pipeline = provider.latest_pipeline("refactor/double-api")
 
@@ -120,7 +190,7 @@ def should_report_no_pipeline_for_a_branch_gitlab_never_built(gitlab):
 
 def should_categorize_failed_gitlab_jobs_by_log_or_else_by_failure_reason(gitlab):
     provider, cli = gitlab({
-        "pipelines?ref=": gitlab_pipelines(2, "failed"),
+        "pipelines?ref=": gitlab_pipelines(gitlab_pipeline(2, "failed")),
         "pipelines/2/jobs?scope=failed": gitlab_jobs((1, "Build", "script_failure", False),
                                                      (2, "Deploy", "runner_system_failure", False)),
         "jobs/1/trace": COMPILE_FAILURE,
@@ -134,13 +204,25 @@ def should_categorize_failed_gitlab_jobs_by_log_or_else_by_failure_reason(gitlab
 
 def should_ignore_gitlab_jobs_that_are_allowed_to_fail(gitlab):
     provider, _ = gitlab({
-        "pipelines?ref=": gitlab_pipelines(3, "failed"),
+        "pipelines?ref=": gitlab_pipelines(gitlab_pipeline(3, "failed")),
         "pipelines/3/jobs?scope=failed": gitlab_jobs((1, "Lint", "script_failure", True),
                                                      (2, "Test", "script_failure", False)),
         "jobs/2/trace": SUREFIRE_FAILURE,
     })
 
     assert provider.failure_categories(provider.latest_pipeline("feature")) == ["tests"]
+
+
+def should_group_recent_github_runs_by_branch_and_judge_each_by_its_head_commit(github):
+    runs = [github_run(4, "b1", branch="docs"), github_run(3, "a2", conclusion="failure"),
+            github_run(2, "a2"), github_run(1, "a1")]
+    provider, cli = github({"run list": json.dumps(runs)})
+
+    pipelines, complete = provider.recent_pipelines()
+
+    assert {branch: pipeline.state for branch, pipeline in pipelines.items()} == {"docs": "success", "feature": "failed"}
+    assert complete
+    assert "--branch" not in cli.calls[0]
 
 
 def should_report_github_runs_of_the_head_commit_as_failed_when_any_workflow_failed(github):
@@ -172,38 +254,61 @@ def should_name_the_failed_github_jobs_when_their_log_matches_no_category(github
 
 def should_reuse_the_cached_category_while_the_failed_pipeline_is_unchanged(branch_ci, gitlab):
     provider, cli = gitlab({
-        "pipelines?ref=": gitlab_pipelines(4, "failed"),
+        "pipelines?scope=branches": gitlab_pipelines(gitlab_pipeline(4, "failed")),
         "jobs?scope=failed": gitlab_jobs((1, "Build & Deploy", "script_failure", False)),
         "jobs/1/trace": SUREFIRE_FAILURE,
     })
 
-    first = branch_ci.lookup(provider, "feature")
-    second = branch_ci.lookup(provider, "feature")
+    first = branch_ci.lookup_all(provider, ["feature"])
+    second = branch_ci.lookup_all(provider, ["feature"])
 
-    assert first == second == branch_ci.BranchState("feature", "failed", "tests", PIPELINE_URL.format(4))
+    assert first == second == ([branch_ci.BranchState("feature", "failed", "tests", PIPELINE_URL.format(4))], [])
     assert sum("trace" in call for call in cli.calls) == 1
 
 
 def should_recategorize_a_failed_pipeline_once_it_was_updated(branch_ci, gitlab):
     provider, cli = gitlab({
-        "pipelines?ref=": gitlab_pipelines(4, "failed"),
+        "pipelines?scope=branches": gitlab_pipelines(gitlab_pipeline(4, "failed")),
         "jobs?scope=failed": gitlab_jobs((1, "Build & Deploy", "script_failure", False)),
         "jobs/1/trace": SUREFIRE_FAILURE,
     })
-    branch_ci.lookup(provider, "feature")
-    cli.responses["pipelines?ref="] = gitlab_pipelines(4, "failed", updated_at="2026-09-24T08:00:00Z")
+    branch_ci.lookup_all(provider, ["feature"])
+    cli.responses["pipelines?scope=branches"] = gitlab_pipelines(
+        gitlab_pipeline(4, "failed", updated_at="2026-09-24T08:00:00Z"))
     cli.responses["jobs/1/trace"] = COMPILE_FAILURE
 
-    assert branch_ci.lookup(provider, "feature").category == "compile"
+    states, _ = branch_ci.lookup_all(provider, ["feature"])
+
+    assert states[0].category == "compile"
 
 
-def should_print_a_tab_separated_line_per_looked_up_branch_and_warn_about_failed_lookups(run_cli, tmp_path):
-    result = run_cli("branch_ci.py", [GITLAB_SLUG], stdin="main\nbroken\nnever-built\n",
-                     mock_bins={"glab": GLAB_MOCK}, env_extra={"HOME": str(tmp_path)})
+def should_print_a_tab_separated_line_per_branch_from_a_single_request(run_cli, tmp_path, glab_calls):
+    result = run_cli("branch_ci.py", [GITLAB_SLUG], stdin="main\nnever-built\n",
+                     mock_bins={"glab": GLAB_ANSWERING}, env_extra={"HOME": str(tmp_path)})
 
-    assert result.returncode == 0
+    assert (result.returncode, result.stderr) == (0, "")
     assert result.stdout == "main\tsuccess\t\thttps://gitlab.example.com/p/1\nnever-built\tnone\t\t\n"
-    assert result.stderr == "401 Unauthorized\n"
+    assert len(glab_calls()) == 1
+
+
+def should_retry_a_lookup_that_timed_out(run_cli, tmp_path, glab_calls):
+    result = run_cli("branch_ci.py", [GITLAB_SLUG], stdin="main\n",
+                     mock_bins={"glab": GLAB_TIMING_OUT_ONCE}, env_extra={"HOME": str(tmp_path)})
+
+    assert (result.stdout, result.stderr) == ("main\tsuccess\t\thttps://gitlab.example.com/p/1\n", "")
+    assert len(glab_calls()) == 2
+
+
+@pytest.mark.parametrize("glab, warning, attempts", [
+    (GLAB_TIMING_OUT, "dial tcp: lookup gitlab.example.com: i/o timeout.\n", 2),
+    (GLAB_UNAUTHORIZED, "glab: 401 Unauthorized (HTTP 401)\n", 1),
+])
+def should_warn_once_when_the_repository_lookup_keeps_failing(run_cli, tmp_path, glab_calls, glab, warning, attempts):
+    result = run_cli("branch_ci.py", [GITLAB_SLUG], stdin="main\nfeature\n",
+                     mock_bins={"glab": glab}, env_extra={"HOME": str(tmp_path)})
+
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", warning)
+    assert len(glab_calls()) == attempts
 
 
 def should_warn_once_when_the_ci_client_is_not_installed(run_cli, tmp_path):
