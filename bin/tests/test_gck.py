@@ -9,6 +9,8 @@ import pytest
 
 BIN_DIR = Path(__file__).parent.parent
 TERMINAL_ESCAPES = re.compile(r"\x1b\]8;;[^\x1b]*\x1b\\|\x1b\[[0-9;]*m")
+DIM = "\x1b[2m"
+RESET = "\x1b[0m"
 LOCAL = "💻"
 REMOTE_ONLY = "⛅"
 
@@ -179,7 +181,7 @@ def should_skip_the_ci_lookups_but_still_show_the_branches_in_fast_mode(gck, wor
 def should_mark_how_each_branch_differs_from_origin_without_listing_its_commits(gck, unpushed_workspace):
     output = gck(unpushed_workspace)
 
-    assert re.search(rf"^  {LOCAL} ✗  feature\s+↓2\s+tests  ↑1$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} ✗  feature\s+↓2\s+↑1  tests$", output, re.MULTILINE)
     assert re.search(rf"^  {LOCAL} 💤 rewritten\s+↑1 diverged$", output, re.MULTILINE)
     assert re.search(rf"^  {LOCAL} 💤 merged\s+↑1 gone from origin$", output, re.MULTILINE)
     assert re.search(rf"^  {LOCAL} 💤 spike\s+↑1 not on origin$", output, re.MULTILINE)
@@ -189,7 +191,7 @@ def should_mark_how_each_branch_differs_from_origin_without_listing_its_commits(
 def should_list_the_unpushed_commits_under_their_branch_in_verbose_mode(gck, unpushed_workspace):
     output = gck(unpushed_workspace, "--verbose")
 
-    assert re.search(r"feature\s+↓2\s+tests  ↑1\n {8}[0-9a-f]+ - Test, .+: Not pushed yet$", output, re.MULTILINE)
+    assert re.search(r"feature\s+↓2\s+↑1  tests\n {8}[0-9a-f]+ - Test, .+: Not pushed yet$", output, re.MULTILINE)
     assert re.search(r"rewritten\s+↑1 diverged\n {8}[0-9a-f]+ - Test, .+: Pushed once, then amended$",
                      output, re.MULTILINE)
     assert re.search(r"merged\s+↑1 gone from origin\n {8}.+: Squash merged upstream$", output, re.MULTILINE)
@@ -237,7 +239,7 @@ def should_count_the_uncommitted_files_on_the_branch_the_main_checkout_is_on(gck
     output = gck(dirty_workspace)
 
     assert re.search(r"^project  main ✓  ✭1$", output, re.MULTILINE)
-    assert re.search(rf"^  {LOCAL} ✗  feature\s+↓2\s+tests  ✎3$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} ✗  feature\s+↓2\s+✎3  tests$", output, re.MULTILINE)
 
 
 def should_list_the_uncommitted_files_and_stashes_under_the_repository_in_verbose_mode(gck, dirty_workspace):
@@ -246,6 +248,34 @@ def should_list_the_uncommitted_files_and_stashes_under_the_repository_in_verbos
     assert re.search(r"^project  main ✓  ✎3  ✭1\n {8}\?\? drafts/one\.txt$", output, re.MULTILINE)
     assert re.search(r"^ {8}\?\? notes\.txt$", output, re.MULTILINE)
     assert re.search(r"^ {8}stash@\{0\}: On main: Half-baked idea$", output, re.MULTILINE)
+
+
+def should_list_the_repositories_that_need_action_first_and_set_the_others_apart(gck, workspace, git, tmp_path):
+    busy = workspace / "busy"
+    git(tmp_path, "clone", "-q", str(tmp_path / "origin.git"), str(busy))
+    (busy / "notes.txt").write_text("todo\n")
+
+    output = gck(workspace)
+
+    assert re.match(r"busy  main  ✎1\n(?:  .+\n)+\nproject  main ✓\n", output), output
+
+
+def is_dimmed_throughout(line):
+    return line.startswith(DIM) and all(part.startswith(DIM) for part in line.split(RESET)[1:-1])
+
+
+def should_dim_the_branches_that_need_no_action(run_gck, unpushed_workspace):
+    lines = run_gck(str(unpushed_workspace)).stdout.splitlines()
+
+    assert not lines[0].startswith(DIM)
+    assert not next(line for line in lines if "feature" in line).startswith(DIM)
+    assert is_dimmed_throughout(next(line for line in lines if "remote-only" in line))
+
+
+def should_dim_a_repository_that_needs_no_action(run_gck, workspace):
+    lines = run_gck(str(workspace)).stdout.splitlines()
+
+    assert all(is_dimmed_throughout(line) for line in lines[:3])
 
 
 def should_describe_the_fast_and_verbose_modes_in_the_help(run_gck):

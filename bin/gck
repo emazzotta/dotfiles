@@ -10,7 +10,8 @@ Usage: $(basename "${0}") [-f|--fast] [-v|--verbose] [dir]
 
 Show each git repo under dir (default: \$WDIR) that has uncommitted, unpushed or
 stashed work or branches besides the default branch: the default branch with its
-CI state, then one row per branch.
+CI state, then one row per branch. Repos with work to push, commit or unstash
+come first; everything that needs no action is dimmed.
 
   💻        local branch
   ⛅        branch only on origin
@@ -56,7 +57,10 @@ uncommitted_mark="✎"
 stash_mark="✭"
 mkdir -p "${pull_request_cache_dir}"
 
-output_file=$(mktemp)
+action_file=$(mktemp)
+info_file=$(mktemp)
+block_file=$(mktemp)
+rows_file=$(mktemp)
 status_file=$(mktemp)
 links_file=$(mktemp)
 pull_requests_file=$(mktemp)
@@ -65,7 +69,7 @@ fetch_error_file=$(mktemp)
 ci_states_file=$(mktemp)
 ci_errors_file=$(mktemp)
 ci_warnings_file=$(mktemp)
-trap 'rm -f "${output_file}" "${status_file}" "${links_file}" "${pull_requests_file}" "${pull_request_warnings_file}" "${fetch_error_file}" "${ci_states_file}" "${ci_errors_file}" "${ci_warnings_file}"' EXIT
+trap 'rm -f "${action_file}" "${info_file}" "${block_file}" "${rows_file}" "${status_file}" "${links_file}" "${pull_requests_file}" "${pull_request_warnings_file}" "${fetch_error_file}" "${ci_states_file}" "${ci_errors_file}" "${ci_warnings_file}"' EXIT
 
 remote_slug() {
     local dir="${1}"
@@ -305,8 +309,13 @@ count_note() {
     local mark="${2}"
     local count="${3}"
     if [ "${count}" -gt 0 ]; then
-        printf '%s%s%s%s' "${color}" "${mark}" "${count}" "${RESET}"
+        printf '%s%s%s%s%s' "${BOLD}" "${color}" "${mark}" "${count}" "${RESET}"
     fi
+}
+
+dim_line() {
+    local redim="${RESET}${DIM}"
+    printf '%s%s%s' "${DIM}" "${1//"${RESET}"/${redim}}" "${RESET}"
 }
 
 render_branch_row() {
@@ -316,14 +325,19 @@ render_branch_row() {
     local default_ref="${4}"
     local width="${5}"
     local location_mark="${6}"
-    local notes="${7}"
+    local actions="${7}"
+    local notes="${8}"
     local behind
     behind=$(count_behind "${dir}" "${ref}" "${default_ref}")
     load_ci_state "${branch}"
     local row
     row="  ${location_mark} ${ci_mark}${ci_mark_padding} $(format_branch "${branch}" "$(branch_emphasis "${branch}")")$(pad $((width - ${#branch} + 2)))"
-    row="${row}$(format_behind "${behind}") $(join_notes "${ci_label}" "${notes}")"
-    printf '%s\n' "${row%"${row##*[![:space:]]}"}"
+    row="${row}$(format_behind "${behind}") $(join_notes "${actions}" "${ci_label}" "${notes}")"
+    row="${row%"${row##*[![:space:]]}"}"
+    if [ -z "${actions}" ]; then
+        row=$(dim_line "${row}")
+    fi
+    printf '%s\n' "${row}"
 }
 
 unpushed_branches() {
@@ -370,7 +384,7 @@ push_note() {
     local dir="${1}"
     local branch="${2}"
     if [ -n "${branch}" ] && is_listed "${branch}" "${unpushed}"; then
-        printf '%s%s%s' "${YELLOW}" "$(describe_push_state "${dir}" "${branch}")" "${RESET}"
+        printf '%s%s%s' "${BOLD}${YELLOW}" "$(describe_push_state "${dir}" "${branch}")" "${RESET}"
     fi
 }
 
@@ -445,11 +459,20 @@ repo_link() {
     hyperlink "file://${path}" "${YELLOW}${label}${RESET}"
 }
 
-render_repo_header() {
+repo_actions() {
     local dir="${1}"
     local branch="${2}"
     local uncommitted="${3}"
     local stashes="${4}"
+    join_notes "$(push_note "${dir}" "${branch}")" \
+        "$(count_note "${RED}" "${uncommitted_mark}" "${uncommitted}")" \
+        "$(count_note "${CYAN}" "${stash_mark}" "${stashes}")"
+}
+
+render_repo_header() {
+    local dir="${1}"
+    local branch="${2}"
+    local actions="${3}"
     local header
     header=$(repo_link "${dir}")
     load_ci_state "${branch}"
@@ -460,10 +483,12 @@ render_repo_header() {
         header="${header} ${ci_mark}"
     fi
     local notes
-    notes=$(join_notes "${ci_label}" "$(push_note "${dir}" "${branch}")" \
-        "$(count_note "${RED}" "${uncommitted_mark}" "${uncommitted}")" \
-        "$(count_note "${CYAN}" "${stash_mark}" "${stashes}")")
-    printf '%s\n' "${header}${notes:+  ${notes}}"
+    notes=$(join_notes "${ci_label}" "${actions}")
+    header="${header}${notes:+  ${notes}}"
+    if [ "${needs_action}" = false ]; then
+        header=$(dim_line "${header}")
+    fi
+    printf '%s\n' "${header}"
 }
 
 render_local_branch() {
@@ -471,7 +496,7 @@ render_local_branch() {
     local dir="${2}"
     local default_ref="${3}"
     local width="${4}"
-    local checkout="" uncommitted=0 missing=""
+    local checkout="" uncommitted=0 missing="" actions=""
     if checkout=$(checkout_of "${dir}" "${branch}"); then
         if [ -n "${checkout}" ]; then
             uncommitted=$(count_uncommitted "${checkout}")
@@ -479,8 +504,12 @@ render_local_branch() {
     else
         missing="${CYAN}worktree missing here${RESET}"
     fi
+    actions=$(join_notes "$(push_note "${dir}" "${branch}")" "$(count_note "${RED}" "${uncommitted_mark}" "${uncommitted}")")
+    if [ -n "${actions}" ]; then
+        needs_action=true
+    fi
     render_branch_row "${dir}" "${branch}" "refs/heads/${branch}" "${default_ref}" "${width}" "${local_branch_mark}" \
-        "$(join_notes "$(push_note "${dir}" "${branch}")" "$(count_note "${RED}" "${uncommitted_mark}" "${uncommitted}")" "${missing}")"
+        "${actions}" "${missing}"
     if [ "${verbose}" = true ]; then
         render_details "${dir}" "${branch}" "${checkout}" "${uncommitted}"
     fi
@@ -491,7 +520,7 @@ render_remote_branch() {
     local dir="${2}"
     local default_ref="${3}"
     local width="${4}"
-    render_branch_row "${dir}" "${branch}" "refs/remotes/origin/${branch}" "${default_ref}" "${width}" "${remote_only_mark}" ""
+    render_branch_row "${dir}" "${branch}" "refs/remotes/origin/${branch}" "${default_ref}" "${width}" "${remote_only_mark}" "" ""
 }
 
 render_rows() {
@@ -557,17 +586,23 @@ render_repo() {
     local remote_branches="${4}"
     local uncommitted="${5}"
     local stashes="${6}"
-    local default_ref header_branch width
+    local default_ref header_branch width actions
     default_ref=$(default_branch_ref "${dir}")
     header_branch=$(header_branch_of "${default_ref}")
     fetch_branch_states "${dir}" "${origin_branches}" "$(printf '%s\n' "${header_branch}" "${local_branches}" "${remote_branches}")"
-    render_repo_header "${dir}" "${header_branch}" "${uncommitted}" "${stashes}"
+    actions=$(repo_actions "${dir}" "${header_branch}" "${uncommitted}" "${stashes}")
+    needs_action=false
+    if [ -n "${actions}" ]; then
+        needs_action=true
+    fi
+    width=$(printf '%s\n' "${local_branches}" "${remote_branches}" | longest_name)
+    render_rows render_local_branch "${local_branches}" "${dir}" "${default_ref}" "${width}" > "${rows_file}"
+    render_rows render_remote_branch "${remote_branches}" "${dir}" "${default_ref}" "${width}" >> "${rows_file}"
+    render_repo_header "${dir}" "${header_branch}" "${actions}"
     if [ "${verbose}" = true ]; then
         render_repo_details "${dir}" "${header_branch}" "${uncommitted}" "${stashes}"
     fi
-    width=$(printf '%s\n' "${local_branches}" "${remote_branches}" | longest_name)
-    render_rows render_local_branch "${local_branches}" "${dir}" "${default_ref}" "${width}"
-    render_rows render_remote_branch "${remote_branches}" "${dir}" "${default_ref}" "${width}"
+    cat "${rows_file}"
 }
 
 scan_repo() {
@@ -588,7 +623,12 @@ scan_repo() {
     if is_listed "${current_branch}" "${local_branches}"; then
         uncommitted=0
     fi
-    render_repo "${dir}" "${origin_branches}" "${local_branches}" "${remote_only}" "${uncommitted}" "${stashes}"
+    render_repo "${dir}" "${origin_branches}" "${local_branches}" "${remote_only}" "${uncommitted}" "${stashes}" > "${block_file}"
+    local target="${info_file}"
+    if [ "${needs_action}" = true ]; then
+        target="${action_file}"
+    fi
+    cat "${block_file}" >> "${target}"
 }
 
 is_ignored() {
@@ -605,7 +645,7 @@ is_ignored() {
 scan_repos() {
     find "${scan_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
         if [ -d "${dir}/.git" ] && ! is_ignored "${dir}"; then
-            scan_repo "${dir}" >> "${output_file}"
+            scan_repo "${dir}"
         fi
     done
 }
@@ -628,7 +668,11 @@ SCAN_PID=$!
 spin
 wait "${SCAN_PID}"
 
-cat "${output_file}"
+cat "${action_file}"
+if [ -s "${action_file}" ] && [ -s "${info_file}" ]; then
+    echo
+fi
+cat "${info_file}"
 
 print_warnings "No pull request links, falling back to branch links:" "${pull_request_warnings_file}"
 print_warnings "No CI status:" "${ci_warnings_file}"

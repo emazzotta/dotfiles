@@ -1,5 +1,6 @@
 #!/bin/bash
 export BOLD=$'\033[1m'
+export DIM=$'\033[2m'
 export RED=$'\033[31m'
 export GREEN=$'\033[32m'
 export YELLOW=$'\033[33m'
