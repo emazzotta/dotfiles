@@ -127,7 +127,6 @@ main() {
     stow_packages "$HOME" "${MACOS_ONLY_PACKAGES[@]}"
     stow_packages "$VS_CODE_DIR" vscode
     sudo stow -d "$DIR" -t "$RESOLVER_DIR" dns-resolver
-    "$DIR/bin/hosts-sync"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

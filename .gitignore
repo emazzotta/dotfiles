@@ -31,5 +31,3 @@ vim/.vim_runtime/my_plugins/
 !**/.claude/hooks/**
 !**/.claude/scripts/**
 !**/karabiner/karabiner.json
-
-dns-hosts/*.hosts
