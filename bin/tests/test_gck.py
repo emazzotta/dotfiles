@@ -9,6 +9,7 @@ BIN_DIR = Path(__file__).parent.parent
 TERMINAL_ESCAPES = re.compile(r"\x1b\]8;;[^\x1b]*\x1b\\|\x1b\[[0-9;]*m")
 
 GLAB_MOCK = r'''
+printf '%s\n' "$*" >> "${GLAB_CALLS:-/dev/null}"
 case "$*" in
     "mr list"*) ;;
     *"pipelines?ref=main&"*) echo '[{"id": 1, "status": "success", "updated_at": "t1", "web_url": "https://gitlab.example.com/p/1"}]' ;;
@@ -56,11 +57,18 @@ def workspace(tmp_path, git):
 
 
 @pytest.fixture
-def gck(run_bash, tmp_path, git_env):
-    def _gck(workspace):
-        result = run_bash("gck", [str(workspace)], mock_bins={"glab": GLAB_MOCK},
-                          env_extra={**git_env, "CUSTOM_BIN_DIR": str(BIN_DIR), "WDIR": str(workspace),
-                                     "HOME": str(tmp_path / "home")})
+def run_gck(run_bash, tmp_path, git_env):
+    def _run_gck(*args):
+        return run_bash("gck", list(args), mock_bins={"glab": GLAB_MOCK},
+                        env_extra={**git_env, "CUSTOM_BIN_DIR": str(BIN_DIR), "HOME": str(tmp_path / "home"),
+                                   "GLAB_CALLS": str(tmp_path / "glab-calls")})
+    return _run_gck
+
+
+@pytest.fixture
+def gck(run_gck):
+    def _gck(workspace, *options):
+        result = run_gck(*options, str(workspace))
         assert result.returncode == 0, result.stderr
         return TERMINAL_ESCAPES.sub("", result.stdout)
     return _gck
@@ -96,3 +104,25 @@ def should_still_show_how_far_behind_main_a_branch_is_without_a_ci_host(gck, wor
     assert re.search(r"^\s+feature\s+↓2$", output, re.MULTILINE)
     assert "✓" not in output
     assert "💤" not in output
+
+
+def should_skip_the_ci_lookups_but_still_show_the_branches_in_fast_mode(gck, workspace, tmp_path):
+    output = gck(workspace, "--fast")
+
+    assert re.search(r"^\s+feature\s+↓2$", output, re.MULTILINE)
+    assert not re.search(r"^ +[✓✗●💤]|main [✓✗●💤]", output, re.MULTILINE)
+    assert "api" not in (tmp_path / "glab-calls").read_text()
+
+
+def should_describe_the_fast_mode_in_the_help(run_gck):
+    result = run_gck("--help")
+
+    assert result.returncode == 0
+    assert "-f, --fast" in result.stdout
+
+
+def should_reject_an_unknown_option(run_gck):
+    result = run_gck("--slow")
+
+    assert result.returncode == 2
+    assert "unknown option: --slow" in result.stderr

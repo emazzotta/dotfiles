@@ -4,10 +4,32 @@ set -euo pipefail
 
 source "${CUSTOM_BIN_DIR}/prettyprint"
 
-scan_dir="${WDIR}"
-if [ -n "${1:-}" ]; then
-    scan_dir="${1}"
-fi
+show_usage() {
+    cat <<EOF
+Usage: $(basename "${0}") [-f|--fast] [dir]
+
+List the git repos under dir (default: \$WDIR) with uncommitted, unpushed or
+stashed changes, and every other branch with its CI state and how far it is
+behind the default branch.
+
+Options:
+  -f, --fast    skip the CI lookups
+  -h, --help    show this help
+EOF
+}
+
+fast=false
+scan_dir=""
+while [ $# -gt 0 ]; do
+    case "${1}" in
+        -h|--help) show_usage; exit 0 ;;
+        -f|--fast) fast=true ;;
+        -*) printf 'unknown option: %s\n' "${1}" >&2; show_usage >&2; exit 2 ;;
+        *) scan_dir="${1}" ;;
+    esac
+    shift
+done
+scan_dir="${scan_dir:-${WDIR}}"
 
 ignore_dirs=("dev")
 bot_branch_pattern='^(renovate|dependabot|greenkeeper|snyk|whitesource-remediate|pyup)[/-]'
@@ -335,7 +357,9 @@ scan_repos() {
             : > "${ci_states_file}"
             if [ -n "${other_branches}${origin_branches}" ]; then
                 printf '%s\n' "${origin_branches}" | build_branch_links "${dir}"
-                build_ci_states "${dir}" "$(printf '%s\n' "${default_ref#origin/}" "${other_branches}" "${remote_only}")"
+                if [ "${fast}" = false ]; then
+                    build_ci_states "${dir}" "$(printf '%s\n' "${default_ref#origin/}" "${other_branches}" "${remote_only}")"
+                fi
             fi
             if [ -n "${other_branches}" ]; then
                 render_repo "${dir}" refs/heads/ "${default_ref}" "${other_branches}" >> "${branches_file}"
