@@ -13,6 +13,7 @@ ignore_dirs=("dev")
 bot_branch_pattern='^(renovate|dependabot|greenkeeper|snyk|whitesource-remediate|pyup)[/-]'
 pull_request_cache_dir="${HOME}/.cache/gck"
 pull_request_cache_minutes=10
+behind_column_width=5
 mkdir -p "${pull_request_cache_dir}"
 
 output_file=$(mktemp)
@@ -21,9 +22,12 @@ remote_branches_file=$(mktemp)
 status_file=$(mktemp)
 links_file=$(mktemp)
 pull_requests_file=$(mktemp)
-warnings_file=$(mktemp)
+pull_request_warnings_file=$(mktemp)
 fetch_error_file=$(mktemp)
-trap 'rm -f "${output_file}" "${branches_file}" "${remote_branches_file}" "${status_file}" "${links_file}" "${pull_requests_file}" "${warnings_file}" "${fetch_error_file}"' EXIT
+ci_states_file=$(mktemp)
+ci_errors_file=$(mktemp)
+ci_warnings_file=$(mktemp)
+trap 'rm -f "${output_file}" "${branches_file}" "${remote_branches_file}" "${status_file}" "${links_file}" "${pull_requests_file}" "${pull_request_warnings_file}" "${fetch_error_file}" "${ci_states_file}" "${ci_errors_file}" "${ci_warnings_file}"' EXIT
 
 separator() {
     printf "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
@@ -54,12 +58,27 @@ tree_url_prefix() {
     esac
 }
 
-warn_pull_requests() {
-    local message="${1}"
-    if grep -qxF "${message}" "${warnings_file}"; then
+add_warning() {
+    local file="${1}"
+    local message="${2}"
+    if grep -qxF "${message}" "${file}"; then
         return 0
     fi
-    printf '%s\n' "${message}" >> "${warnings_file}"
+    printf '%s\n' "${message}" >> "${file}"
+}
+
+print_warnings() {
+    local heading="${1}"
+    local file="${2}"
+    if [ ! -s "${file}" ]; then
+        return 0
+    fi
+    echo
+    error "${heading}"
+    local warning
+    while IFS= read -r warning; do
+        substep_error "${warning}"
+    done < "${file}"
 }
 
 fetch_pull_requests() {
@@ -85,7 +104,7 @@ fetch_pull_requests() {
             ;;
     esac
     if ! command -v "${client}" > /dev/null; then
-        warn_pull_requests "${slug}: ${client} is not installed"
+        add_warning "${pull_request_warnings_file}" "${slug}: ${client} is not installed"
         return 0
     fi
     local pairs=""
@@ -97,7 +116,7 @@ fetch_pull_requests() {
         if [ -z "${reason}" ]; then
             reason="${client} exited with status ${status}"
         fi
-        warn_pull_requests "${slug}: ${reason}"
+        add_warning "${pull_request_warnings_file}" "${slug}: ${reason}"
         return 0
     fi
     printf '%s\n' "${pairs}" | tee "${cache_file}"
@@ -137,6 +156,146 @@ format_branch() {
     fi
 }
 
+default_branch_ref() {
+    local dir="${1}"
+    local ref
+    if ref=$(git -C "${dir}" symbolic-ref -q --short refs/remotes/origin/HEAD); then
+        printf '%s' "${ref}"
+        return 0
+    fi
+    for ref in origin/main origin/master; do
+        if git -C "${dir}" show-ref --verify --quiet "refs/remotes/${ref}"; then
+            printf '%s' "${ref}"
+            return 0
+        fi
+    done
+}
+
+remote_only_branches() {
+    local dir="${1}"
+    local origin_branches="${2}"
+    local branch
+    while IFS= read -r branch; do
+        if [ -n "${branch}" ] && ! git -C "${dir}" show-ref --verify --quiet "refs/heads/${branch}"; then
+            printf '%s\n' "${branch}"
+        fi
+    done <<< "${origin_branches}"
+}
+
+build_ci_states() {
+    local dir="${1}"
+    local branches="${2}"
+    local slug
+    slug=$(remote_slug "${dir}")
+    [ -n "${slug}" ] || return 0
+    printf '%s\n' "${branches}" | python3 "${CUSTOM_BIN_DIR}/branch_ci.py" "${slug}" \
+        > "${ci_states_file}" 2> "${ci_errors_file}" || true
+    local warning
+    while IFS= read -r warning; do
+        add_warning "${ci_warnings_file}" "${slug}: ${warning}"
+    done < "${ci_errors_file}"
+}
+
+load_ci_state() {
+    local branch="${1}"
+    local category url color
+    ci_state=""
+    ci_mark=" "
+    ci_label=""
+    IFS=$'\037' read -r ci_state category url < <(awk -F'\t' -v b="${branch}" \
+        'BEGIN { OFS = "\037" } $1 == b { print $2, $3, $4; exit }' "${ci_states_file}") || return 0
+    case "${ci_state}" in
+        success) color="${GREEN}"; ci_mark="✓" ;;
+        failed) color="${RED}"; ci_mark="✗"; ci_label="${category}" ;;
+        *) color="${YELLOW}"; ci_mark="●"; ci_label="${ci_state}" ;;
+    esac
+    ci_mark=$(hyperlink "${url}" "${color}${ci_mark}${RESET}")
+    if [ -n "${ci_label}" ]; then
+        ci_label=$(hyperlink "${url}" "${color}${ci_label}${RESET}")
+    fi
+}
+
+count_behind() {
+    local dir="${1}"
+    local ref="${2}"
+    local default_ref="${3}"
+    if [ -z "${default_ref}" ]; then
+        printf '0'
+        return 0
+    fi
+    git -C "${dir}" rev-list --count "${ref}..${default_ref}" 2>/dev/null || printf '0'
+}
+
+pad() {
+    local width="${1}"
+    if [ "${width}" -gt 0 ]; then
+        printf '%*s' "${width}" ''
+    fi
+}
+
+format_behind() {
+    local behind="${1}"
+    if [ "${behind}" -eq 0 ]; then
+        pad "${behind_column_width}"
+        return 0
+    fi
+    printf '%s↓%s%s' "${YELLOW}" "${behind}" "${RESET}"
+    pad $((behind_column_width - 1 - ${#behind}))
+}
+
+branch_emphasis() {
+    if [ "${1}" = "${current_branch}" ]; then
+        printf '%s' "${BOLD}"
+    fi
+}
+
+render_branch_row() {
+    local dir="${1}"
+    local branch="${2}"
+    local ref="${3}"
+    local default_ref="${4}"
+    local width="${5}"
+    local behind
+    behind=$(count_behind "${dir}" "${ref}" "${default_ref}")
+    load_ci_state "${branch}"
+    local row
+    row="  ${ci_mark} $(format_branch "${branch}" "$(branch_emphasis "${branch}")")$(pad $((width - ${#branch} + 2)))"
+    row="${row}$(format_behind "${behind}") ${ci_label}"
+    printf '%s\n' "${row%"${row##*[![:space:]]}"}"
+}
+
+render_repo_header() {
+    local dir="${1}"
+    local default_branch="${2}"
+    local header="${YELLOW}${dir}${RESET}"
+    load_ci_state "${default_branch}"
+    if [ -n "${ci_state}" ]; then
+        header="${header}  ${default_branch} ${ci_mark}"
+    fi
+    if [ -n "${ci_label}" ]; then
+        header="${header} ${ci_label}"
+    fi
+    printf '%s\n' "${header}"
+}
+
+render_repo() {
+    local dir="${1}"
+    local ref_prefix="${2}"
+    local default_ref="${3}"
+    local branches="${4}"
+    local width=0
+    local branch
+    while IFS= read -r branch; do
+        if [ "${#branch}" -gt "${width}" ]; then
+            width=${#branch}
+        fi
+    done <<< "${branches}"
+    render_repo_header "${dir}" "${default_ref#origin/}"
+    while IFS= read -r branch; do
+        render_branch_row "${dir}" "${branch}" "${ref_prefix}${branch}" "${default_ref}" "${width}"
+    done <<< "${branches}"
+}
+
 scan_repos() {
     find "${scan_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
         skip=false
@@ -167,29 +326,19 @@ scan_repos() {
             origin_branches=$(git -C "${dir}" for-each-ref --format='%(refname:short)' refs/remotes/origin/ \
                 | grep -Ev '^origin$|origin/(HEAD|main|master)$' \
                 | sed 's#^origin/##' || true)
+            remote_only=$(remote_only_branches "${dir}" "${origin_branches}")
+            default_ref=$(default_branch_ref "${dir}")
             : > "${links_file}"
+            : > "${ci_states_file}"
             if [ -n "${other_branches}${origin_branches}" ]; then
                 printf '%s\n' "${origin_branches}" | build_branch_links "${dir}"
+                build_ci_states "${dir}" "$(printf '%s\n' "${default_ref#origin/}" "${other_branches}" "${remote_only}")"
             fi
             if [ -n "${other_branches}" ]; then
-                formatted=""
-                while IFS= read -r branch; do
-                    if [ "${branch}" = "${current_branch}" ]; then
-                        formatted="${formatted}$(format_branch "${branch}" "${BOLD}"), "
-                    else
-                        formatted="${formatted}$(format_branch "${branch}"), "
-                    fi
-                done <<< "${other_branches}"
-                printf "${YELLOW}%s${RESET} [%s]\n" "${dir}" "${formatted%, }" >> "${branches_file}"
+                render_repo "${dir}" refs/heads/ "${default_ref}" "${other_branches}" >> "${branches_file}"
             fi
-            remote_only=""
-            while IFS= read -r branch; do
-                if [ -n "${branch}" ] && ! git -C "${dir}" show-ref --verify --quiet "refs/heads/${branch}"; then
-                    remote_only="${remote_only}$(format_branch "${branch}"), "
-                fi
-            done <<< "${origin_branches}"
             if [ -n "${remote_only}" ]; then
-                printf "${YELLOW}%s${RESET} [%s]\n" "${dir}" "${remote_only%, }" >> "${remote_branches_file}"
+                render_repo "${dir}" refs/remotes/origin/ "${default_ref}" "${remote_only}" >> "${remote_branches_file}"
             fi
         fi
     done
@@ -234,13 +383,8 @@ if [ -s "${remote_branches_file}" ]; then
     dim_separator
 fi
 
-if [ -s "${warnings_file}" ]; then
-    echo
-    error "No pull request links, falling back to branch links:"
-    while IFS= read -r warning; do
-        substep_error "${warning}"
-    done < "${warnings_file}"
-fi
+print_warnings "No pull request links, falling back to branch links:" "${pull_request_warnings_file}"
+print_warnings "No CI status:" "${ci_warnings_file}"
 
 echo
 success "Done."
