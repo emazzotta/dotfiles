@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import unicodedata
 from pathlib import Path
 
@@ -10,9 +11,14 @@ import pytest
 BIN_DIR = Path(__file__).parent.parent
 TERMINAL_ESCAPES = re.compile(r"\x1b\]8;;[^\x1b]*\x1b\\|\x1b\[[0-9;]*m")
 DIM = "\x1b[2m"
+GREEN = "\x1b[32m"
 RESET = "\x1b[0m"
 LOCAL = "💻"
 REMOTE_ONLY = "⛅"
+HOUR = 3600
+DAY = 24 * HOUR
+WEEK = 7 * DAY
+YEAR = 365 * DAY
 
 GLAB_MOCK = r'''
 printf '%s\n' "$*" >> "${GLAB_CALLS:-/dev/null}"
@@ -40,9 +46,9 @@ def git_env(tmp_path):
 
 @pytest.fixture
 def git(git_env):
-    def _git(cwd, *args):
+    def _git(cwd, *args, env=None):
         result = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True,
-                                env={**os.environ, **git_env})
+                                env={**os.environ, **git_env, **(env or {})})
         assert result.returncode == 0, result.stderr
     return _git
 
@@ -107,9 +113,25 @@ def ignore(tmp_path):
 
 
 @pytest.fixture
-def run_gck(run_bash, tmp_path, git_env):
+def now():
+    return int(time.time())
+
+
+@pytest.fixture
+def aged_branch(git, now):
+    def _aged_branch(project, branch, age):
+        git(project, "checkout", "-q", "-b", branch, "main")
+        git(project, "commit", "--allow-empty", "-m", f"Work on {branch}",
+            env={"GIT_COMMITTER_DATE": f"{now - age} +0000"})
+        git(project, "checkout", "-q", "main")
+        git(project, "update-ref", f"refs/remotes/origin/{branch}", branch)
+    return _aged_branch
+
+
+@pytest.fixture
+def run_gck(run_bash, tmp_path, git_env, now):
     def _run_gck(*args):
-        return run_bash("gck", list(args), mock_bins={"glab": GLAB_MOCK},
+        return run_bash("gck", list(args), mock_bins={"glab": GLAB_MOCK, "date": f"echo {now}"},
                         env_extra={**git_env, "CUSTOM_BIN_DIR": str(BIN_DIR), "HOME": str(tmp_path / "home"),
                                    "GLAB_CALLS": str(tmp_path / "glab-calls")})
     return _run_gck
@@ -127,8 +149,8 @@ def gck(run_gck):
 def should_list_each_branch_with_its_ci_state_commits_behind_main_and_failure_category(gck, workspace):
     output = gck(workspace)
 
-    assert re.search(r"✗\s+feature\s+↓2\s+tests$", output, re.MULTILINE)
-    assert re.search(r"●\s+remote-only\s+running$", output, re.MULTILINE)
+    assert re.search(r"✗\s+feature\s+now\s+↓2\s+tests$", output, re.MULTILINE)
+    assert re.search(r"●\s+remote-only\s+now\s+running$", output, re.MULTILINE)
 
 
 def should_show_a_repository_as_one_block_with_local_and_remote_only_branches_aligned(gck, workspace):
@@ -153,7 +175,7 @@ def should_mark_a_branch_that_never_had_a_pipeline_and_keep_it_aligned(gck, work
 
     output = gck(workspace)
 
-    assert re.search(rf"^  {LOCAL} 💤 spike$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} 💤 spike\s+now$", output, re.MULTILINE)
     assert re.search(rf"^  {LOCAL} ✗  feature\s", output, re.MULTILINE)
 
 
@@ -174,7 +196,7 @@ def should_still_show_how_far_behind_main_a_branch_is_without_a_ci_host(gck, wor
 
     output = gck(workspace)
 
-    assert re.search(rf"^  {LOCAL}\s+feature\s+↓2$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL}\s+feature\s+now\s+↓2$", output, re.MULTILINE)
     assert "✓" not in output
     assert "💤" not in output
 
@@ -182,29 +204,51 @@ def should_still_show_how_far_behind_main_a_branch_is_without_a_ci_host(gck, wor
 def should_skip_the_ci_lookups_but_still_show_the_branches_in_fast_mode(gck, workspace, tmp_path):
     output = gck(workspace, "--fast")
 
-    assert re.search(rf"^  {LOCAL}\s+feature\s+↓2$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL}\s+feature\s+now\s+↓2$", output, re.MULTILINE)
     assert not re.search(rf"^  (?:{LOCAL}|{REMOTE_ONLY}) [✓✗●💤]|main [✓✗●💤]", output, re.MULTILINE)
     assert "api" not in (tmp_path / "glab-calls").read_text()
+
+
+def should_show_how_long_ago_each_branch_was_last_committed_to(gck, workspace, aged_branch):
+    ages = {"minutes": (HOUR - 1, "now"), "hours": (5 * HOUR, "5h"), "days": (WEEK - 1, "6d"),
+            "weeks": (WEEK, "1w"), "months": (YEAR - 1, "11mo"), "years": (YEAR, "1y")}
+    for branch, (age, _) in ages.items():
+        aged_branch(workspace / "project", branch, age)
+
+    output = gck(workspace, "--fast")
+
+    for branch, (_, shown) in ages.items():
+        assert re.search(rf"^  {LOCAL}\s+{branch}\s+{shown}$", output, re.MULTILINE), output
+
+
+def should_color_the_age_green_until_the_branch_is_a_week_old(run_gck, workspace, aged_branch):
+    aged_branch(workspace / "project", "recent", WEEK - 1)
+    aged_branch(workspace / "project", "cooling", WEEK)
+
+    lines = run_gck("--fast", str(workspace)).stdout.splitlines()
+
+    assert f"{GREEN}6d" in next(line for line in lines if "recent" in line)
+    assert GREEN not in next(line for line in lines if "cooling" in line)
 
 
 def should_mark_how_each_branch_differs_from_origin_without_listing_its_commits(gck, unpushed_workspace):
     output = gck(unpushed_workspace)
 
-    assert re.search(rf"^  {LOCAL} ✗  feature\s+↓2\s+↑1  tests$", output, re.MULTILINE)
-    assert re.search(rf"^  {LOCAL} 💤 rewritten\s+↑1 diverged$", output, re.MULTILINE)
-    assert re.search(rf"^  {LOCAL} 💤 merged\s+↑1 gone from origin$", output, re.MULTILINE)
-    assert re.search(rf"^  {LOCAL} 💤 spike\s+↑1 not on origin$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} ✗  feature\s+now\s+↓2\s+↑1  tests$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} 💤 rewritten\s+now\s+↑1 diverged$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} 💤 merged\s+now\s+↑1 gone from origin$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} 💤 spike\s+now\s+↑1 not on origin$", output, re.MULTILINE)
     assert " - Test, " not in output
 
 
 def should_list_the_unpushed_commits_under_their_branch_in_verbose_mode(gck, unpushed_workspace):
     output = gck(unpushed_workspace, "--verbose")
 
-    assert re.search(r"feature\s+↓2\s+↑1  tests\n {8}[0-9a-f]+ - Test, .+: Not pushed yet$", output, re.MULTILINE)
-    assert re.search(r"rewritten\s+↑1 diverged\n {8}[0-9a-f]+ - Test, .+: Pushed once, then amended$",
+    assert re.search(r"feature\s+now\s+↓2\s+↑1  tests\n {8}[0-9a-f]+ - Test, .+: Not pushed yet$", output, re.MULTILINE)
+    assert re.search(r"rewritten\s+now\s+↑1 diverged\n {8}[0-9a-f]+ - Test, .+: Pushed once, then amended$",
                      output, re.MULTILINE)
-    assert re.search(r"merged\s+↑1 gone from origin\n {8}.+: Squash merged upstream$", output, re.MULTILINE)
-    assert re.search(r"spike\s+↑1 not on origin\n {8}.+: Local experiment$", output, re.MULTILINE)
+    assert re.search(r"merged\s+now\s+↑1 gone from origin\n {8}.+: Squash merged upstream$", output, re.MULTILINE)
+    assert re.search(r"spike\s+now\s+↑1 not on origin\n {8}.+: Local experiment$", output, re.MULTILINE)
 
 
 def should_flag_a_worktree_whose_directory_is_missing_on_this_machine(gck, unpushed_workspace):
@@ -212,7 +256,7 @@ def should_flag_a_worktree_whose_directory_is_missing_on_this_machine(gck, unpus
 
     output = gck(unpushed_workspace)
 
-    assert re.search(r"spike\s+↑1 not on origin  worktree missing here$", output, re.MULTILINE)
+    assert re.search(r"spike\s+now\s+↑1 not on origin  worktree missing here$", output, re.MULTILINE)
 
 
 def should_count_the_uncommitted_files_of_a_worktree_on_its_branch(gck, unpushed_workspace):
@@ -220,7 +264,7 @@ def should_count_the_uncommitted_files_of_a_worktree_on_its_branch(gck, unpushed
 
     output = gck(unpushed_workspace)
 
-    assert re.search(r"spike\s+↑1 not on origin  ✎1$", output, re.MULTILINE)
+    assert re.search(r"spike\s+now\s+↑1 not on origin  ✎1$", output, re.MULTILINE)
 
 
 def should_find_a_worktree_registered_from_the_other_side_of_a_container_mount(gck, unpushed_workspace):
@@ -231,7 +275,7 @@ def should_find_a_worktree_registered_from_the_other_side_of_a_container_mount(g
 
     output = gck(unpushed_workspace)
 
-    assert re.search(r"spike\s+↑1 not on origin  ✎1$", output, re.MULTILINE)
+    assert re.search(r"spike\s+now\s+↑1 not on origin  ✎1$", output, re.MULTILINE)
 
 
 def should_count_the_uncommitted_files_and_stashes_instead_of_listing_them(gck, dirty_workspace):
@@ -248,7 +292,7 @@ def should_count_the_uncommitted_files_on_the_branch_the_main_checkout_is_on(gck
     output = gck(dirty_workspace)
 
     assert re.search(r"^project  main ✓  ✭1$", output, re.MULTILINE)
-    assert re.search(rf"^  {LOCAL} ✗  feature\s+↓2\s+✎3  tests$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} ✗  feature\s+now\s+↓2\s+✎3  tests$", output, re.MULTILINE)
 
 
 def should_list_the_uncommitted_files_and_stashes_under_the_repository_in_verbose_mode(gck, dirty_workspace):
@@ -301,8 +345,8 @@ def should_show_only_the_work_to_save_of_an_ignored_repository(gck, unpushed_wor
 
     output = gck(unpushed_workspace)
 
-    assert re.search(rf"^  {LOCAL}\s+spike\s+↑1 not on origin$", output, re.MULTILINE)
-    assert re.search(rf"^  {LOCAL}\s+feature\s+↓2\s+↑1$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL}\s+spike\s+now\s+↑1 not on origin$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL}\s+feature\s+now\s+↓2\s+↑1$", output, re.MULTILINE)
     assert "remote-only" not in output
 
 
