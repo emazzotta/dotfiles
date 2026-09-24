@@ -6,24 +6,27 @@ source "${CUSTOM_BIN_DIR}/prettyprint"
 
 show_usage() {
     cat <<EOF
-Usage: $(basename "${0}") [-f|--fast] [dir]
+Usage: $(basename "${0}") [-f|--fast] [-v|--verbose] [dir]
 
 List the git repos under dir (default: \$WDIR) with uncommitted, unpushed or
 stashed changes, and every other branch with its CI state and how far it is
 behind the default branch.
 
 Options:
-  -f, --fast    skip the CI lookups
-  -h, --help    show this help
+  -f, --fast       skip the CI lookups
+  -v, --verbose    list each uncommitted file, unpushed commit and stash
+  -h, --help       show this help
 EOF
 }
 
 fast=false
+verbose=false
 scan_dir=""
 while [ $# -gt 0 ]; do
     case "${1}" in
         -h|--help) show_usage; exit 0 ;;
         -f|--fast) fast=true ;;
+        -v|--verbose) verbose=true ;;
         -*) printf 'unknown option: %s\n' "${1}" >&2; show_usage >&2; exit 2 ;;
         *) scan_dir="${1}" ;;
     esac
@@ -366,9 +369,41 @@ render_unpushed() {
             printf '  %s' "${CYAN}${worktree}${RESET}"
         fi
         printf '\n'
-        git -C "${dir}" log --pretty=format:"  %h - %an, %ar: %s" "refs/heads/${branch}" --not --remotes
-        printf '\n'
+        if [ "${verbose}" = true ]; then
+            git -C "${dir}" log --pretty=format:"  %h - %an, %ar: %s" "refs/heads/${branch}" --not --remotes
+            printf '\n'
+        fi
     done <<< "${branches}"
+}
+
+render_count() {
+    local singular="${1}"
+    local plural="${2}"
+    local count
+    count=$(awk 'END { print NR }')
+    if [ "${count}" -eq 1 ]; then
+        printf '%s %s\n' "${count}" "${singular}"
+    else
+        printf '%s %s\n' "${count}" "${plural}"
+    fi
+}
+
+render_uncommitted() {
+    local dir="${1}"
+    if [ "${verbose}" = true ]; then
+        git -c color.ui=always -C "${dir}" status -s
+    else
+        git -C "${dir}" status --porcelain --untracked-files=all | render_count "changed file" "changed files"
+    fi
+}
+
+render_stashes() {
+    local dir="${1}"
+    if [ "${verbose}" = true ]; then
+        git -c color.ui=always -C "${dir}" stash list
+    else
+        git -C "${dir}" stash list | render_count stash stashes
+    fi
 }
 
 render_repo() {
@@ -404,7 +439,7 @@ scan_repos() {
             current_branch=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
             shown=false
             if [[ "$(git -C "${dir}" status -s)" != "" ]]; then
-                { separator; printf "${BOLD}${WHITE}%s${RESET} [git uncommitted changes]\n" "${dir}"; git -c color.ui=always -C "${dir}" status -s; } >> "${output_file}"
+                { separator; printf "${BOLD}${WHITE}%s${RESET} [git uncommitted changes]\n" "${dir}"; render_uncommitted "${dir}"; } >> "${output_file}"
                 shown=true
             fi
             unpushed=$(unpushed_branches "${dir}")
@@ -413,7 +448,7 @@ scan_repos() {
                 shown=true
             fi
             if [ "$(git -C "${dir}" stash list)" != "" ]; then
-                { separator; printf "${BOLD}${WHITE}%s${RESET} [git stashed changes]\n" "${dir}"; git -c color.ui=always -C "${dir}" stash list; } >> "${output_file}"
+                { separator; printf "${BOLD}${WHITE}%s${RESET} [git stashed changes]\n" "${dir}"; render_stashes "${dir}"; } >> "${output_file}"
                 shown=true
             fi
             other_branches=$(git -C "${dir}" for-each-ref --format='%(refname:short)' refs/heads/ | grep -Ev '^(main|master)$' || true)

@@ -81,6 +81,18 @@ def unpushed_workspace(workspace, git, tmp_path):
 
 
 @pytest.fixture
+def dirty_workspace(workspace, git):
+    project = workspace / "project"
+    (project / "idea.txt").write_text("maybe\n")
+    git(project, "stash", "push", "--include-untracked", "-m", "Half-baked idea")
+    (project / "notes.txt").write_text("todo\n")
+    (project / "drafts").mkdir()
+    (project / "drafts" / "one.txt").write_text("1\n")
+    (project / "drafts" / "two.txt").write_text("2\n")
+    return workspace
+
+
+@pytest.fixture
 def run_gck(run_bash, tmp_path, git_env):
     def _run_gck(*args):
         return run_bash("gck", list(args), mock_bins={"glab": GLAB_MOCK},
@@ -138,8 +150,16 @@ def should_skip_the_ci_lookups_but_still_show_the_branches_in_fast_mode(gck, wor
     assert "api" not in (tmp_path / "glab-calls").read_text()
 
 
-def should_group_unpushed_commits_by_branch_and_say_how_each_branch_differs_from_origin(gck, unpushed_workspace):
+def should_say_how_each_unpushed_branch_differs_from_origin_without_listing_its_commits(gck, unpushed_workspace):
     output = gck(unpushed_workspace)
+
+    assert re.search(r"^feature  1 ahead of origin$", output, re.MULTILINE)
+    assert re.search(r"^rewritten  diverged from origin: 1 ahead, 1 behind$", output, re.MULTILINE)
+    assert not re.search(r"^  [0-9a-f]+ - Test, ", output, re.MULTILINE)
+
+
+def should_group_the_unpushed_commits_by_branch_in_verbose_mode(gck, unpushed_workspace):
+    output = gck(unpushed_workspace, "--verbose")
 
     assert re.search(r"^feature  1 ahead of origin\n  [0-9a-f]+ - Test, .+: Not pushed yet$", output, re.MULTILINE)
     assert re.search(r"^rewritten  diverged from origin: 1 ahead, 1 behind\n  .+: Pushed once, then amended$",
@@ -157,11 +177,28 @@ def should_flag_a_worktree_whose_directory_is_missing_on_this_machine(gck, unpus
     assert re.search(r"^spike  not on origin  worktree \.claude/worktrees/spike \(missing here\)$", output, re.MULTILINE)
 
 
-def should_describe_the_fast_mode_in_the_help(run_gck):
+def should_count_the_uncommitted_files_and_stashes_instead_of_listing_them(gck, dirty_workspace):
+    output = gck(dirty_workspace)
+
+    assert re.search(r"\[git uncommitted changes\]\n3 changed files$", output, re.MULTILINE)
+    assert re.search(r"\[git stashed changes\]\n1 stash$", output, re.MULTILINE)
+    assert "notes.txt" not in output
+    assert "Half-baked idea" not in output
+
+
+def should_list_the_uncommitted_files_and_stashes_in_verbose_mode(gck, dirty_workspace):
+    output = gck(dirty_workspace, "--verbose")
+
+    assert re.search(r"^\?\? notes\.txt$", output, re.MULTILINE)
+    assert re.search(r"^stash@\{0\}: On main: Half-baked idea$", output, re.MULTILINE)
+
+
+def should_describe_the_fast_and_verbose_modes_in_the_help(run_gck):
     result = run_gck("--help")
 
     assert result.returncode == 0
     assert "-f, --fast" in result.stdout
+    assert "-v, --verbose" in result.stdout
 
 
 def should_reject_an_unknown_option(run_gck):
