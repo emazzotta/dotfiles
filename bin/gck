@@ -13,6 +13,9 @@ stashed work or branches besides the default branch: the default branch with its
 CI state, then one row per branch. Repos with work to push, commit or unstash
 come first; everything that needs no action is dimmed.
 
+Each line of ~/.config/gck/ignore is a glob for the end of a repo's path, such as
+private/tad; a matching repo shows only work to push, commit or unstash.
+
   💻        local branch
   ⛅        branch only on origin
   ✓ ✗ ● 💤  CI passed, failed, running, no pipeline
@@ -47,6 +50,7 @@ ignore_dirs=("dev")
 bot_branch_pattern='^(renovate|dependabot|greenkeeper|snyk|whitesource-remediate|pyup)[/-]'
 pull_request_cache_dir="${HOME}/.cache/gck"
 pull_request_cache_minutes=10
+ignore_file="${HOME}/.config/gck/ignore"
 behind_column_width=5
 detail_indent="        "
 no_pipeline_mark="💤"
@@ -507,6 +511,8 @@ render_local_branch() {
     actions=$(join_notes "$(push_note "${dir}" "${branch}")" "$(count_note "${RED}" "${uncommitted_mark}" "${uncommitted}")")
     if [ -n "${actions}" ]; then
         needs_action=true
+    elif [ "${quiet}" = true ]; then
+        return 0
     fi
     render_branch_row "${dir}" "${branch}" "refs/heads/${branch}" "${default_ref}" "${width}" "${local_branch_mark}" \
         "${actions}" "${missing}"
@@ -571,6 +577,9 @@ fetch_branch_states() {
     local branches="${3}"
     : > "${links_file}"
     : > "${ci_states_file}"
+    if [ "${quiet}" = true ]; then
+        return 0
+    fi
     if [ -n "${origin_branches}" ]; then
         printf '%s\n' "${origin_branches}" | build_branch_links "${dir}"
     fi
@@ -605,16 +614,46 @@ render_repo() {
     cat "${rows_file}"
 }
 
+in_ignore_list() {
+    local path="${1}"
+    local entry
+    [ -f "${ignore_file}" ] || return 1
+    while read -r entry || [ -n "${entry}" ]; do
+        case "${entry}" in
+            ""|"#"*) continue ;;
+        esac
+        # shellcheck disable=SC2254
+        case "${path}" in
+            ${entry}|*/${entry}) return 0 ;;
+        esac
+    done < "${ignore_file}"
+    return 1
+}
+
+file_block() {
+    if [ "${needs_action}" = true ]; then
+        cat "${block_file}" >> "${action_file}"
+    elif [ "${quiet}" = false ]; then
+        cat "${block_file}" >> "${info_file}"
+    fi
+}
+
 scan_repo() {
     local dir="${1}"
     printf '%s' "${dir}" > "${status_file}"
     current_branch=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
     unpushed=$(unpushed_branches "${dir}")
     worktree_branches=$(linked_worktree_branches "${dir}")
-    local local_branches origin_branches remote_only uncommitted stashes
+    quiet=false
+    if in_ignore_list "$(git -C "${dir}" rev-parse --show-toplevel)"; then
+        quiet=true
+    fi
+    local local_branches origin_branches remote_only="" uncommitted stashes
     local_branches=$(local_branch_names "${dir}")
     origin_branches=$(origin_branch_names "${dir}")
-    remote_only=$(remote_only_branches "${dir}" "${origin_branches}")
+    if [ "${quiet}" = false ]; then
+        remote_only=$(remote_only_branches "${dir}" "${origin_branches}")
+    fi
     uncommitted=$(count_uncommitted "${dir}")
     stashes=$(git -C "${dir}" stash list | count_lines)
     if [ -z "${local_branches}${remote_only}${unpushed}" ] && [ "${uncommitted}" -eq 0 ] && [ "${stashes}" -eq 0 ]; then
@@ -624,14 +663,10 @@ scan_repo() {
         uncommitted=0
     fi
     render_repo "${dir}" "${origin_branches}" "${local_branches}" "${remote_only}" "${uncommitted}" "${stashes}" > "${block_file}"
-    local target="${info_file}"
-    if [ "${needs_action}" = true ]; then
-        target="${action_file}"
-    fi
-    cat "${block_file}" >> "${target}"
+    file_block
 }
 
-is_ignored() {
+is_skipped_dir() {
     local dir="${1}"
     local pattern
     for pattern in "${ignore_dirs[@]}"; do
@@ -644,7 +679,7 @@ is_ignored() {
 
 scan_repos() {
     find "${scan_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
-        if [ -d "${dir}/.git" ] && ! is_ignored "${dir}"; then
+        if [ -d "${dir}/.git" ] && ! is_skipped_dir "${dir}"; then
             scan_repo "${dir}"
         fi
     done

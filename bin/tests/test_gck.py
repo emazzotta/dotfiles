@@ -98,6 +98,15 @@ def dirty_workspace(workspace, git):
 
 
 @pytest.fixture
+def ignore(tmp_path):
+    def _ignore(*entries):
+        ignore_file = tmp_path / "home" / ".config" / "gck" / "ignore"
+        ignore_file.parent.mkdir(parents=True)
+        ignore_file.write_text("\n".join(entries) + "\n")
+    return _ignore
+
+
+@pytest.fixture
 def run_gck(run_bash, tmp_path, git_env):
     def _run_gck(*args):
         return run_bash("gck", list(args), mock_bins={"glab": GLAB_MOCK},
@@ -276,6 +285,41 @@ def should_dim_a_repository_that_needs_no_action(run_gck, workspace):
     lines = run_gck(str(workspace)).stdout.splitlines()
 
     assert all(is_dimmed_throughout(line) for line in lines[:3])
+
+
+def should_leave_out_an_ignored_repository_without_work_to_save_or_looking_up_its_ci(gck, workspace, ignore, tmp_path):
+    ignore("project")
+
+    output = gck(workspace)
+
+    assert "project" not in output
+    assert not (tmp_path / "glab-calls").exists()
+
+
+def should_show_only_the_work_to_save_of_an_ignored_repository(gck, unpushed_workspace, ignore):
+    ignore("project")
+
+    output = gck(unpushed_workspace)
+
+    assert re.search(rf"^  {LOCAL}\s+spike\s+↑1 not on origin$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL}\s+feature\s+↓2\s+↑1$", output, re.MULTILINE)
+    assert "remote-only" not in output
+
+
+def should_read_each_ignore_line_as_a_glob_for_the_end_of_the_repository_path(gck, workspace, ignore):
+    ignore("# bots only", "", "  workspace/proj*  ")
+
+    output = gck(workspace)
+
+    assert "project" not in output
+
+
+def should_keep_a_repository_whose_path_only_starts_like_an_ignore_entry(gck, workspace, ignore):
+    ignore("proj")
+
+    output = gck(workspace)
+
+    assert output.startswith("project  main ✓\n")
 
 
 def should_describe_the_fast_and_verbose_modes_in_the_help(run_gck):
