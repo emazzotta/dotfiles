@@ -115,7 +115,7 @@ superocd() {
     rmraycastclipboard && \
     rmmac && \
     rm_old_gitlab_builds && \
-    upallin "$HOME" && \
+    gupallin "$HOME" && \
     zgen update <<< "n" &> /dev/null && \
     gck "$WDIR" && \
     source envify MAC_SUDO_PW GOOGLE_DOCUMENTS_API_KEY NOTION_API_KEY PASSWORD_ZIPS && \
