@@ -1,6 +1,7 @@
 {
   "cleanupPeriodDays": 365,
   "autoMemoryEnabled": false,
+  "skillListingBudgetFraction": 0.025,
   "permissions": {
     "defaultMode": "auto"
   },
@@ -114,6 +115,7 @@
   },
   "enabledPlugins": {
     "superpowers@claude-plugins-official": false,
+    "finance@synced": false,
     "code-review@claude-plugins-official": true,
     "leonardo@leonardo-skills": true,
     "aiup-core@ai-unified-process-marketplace": true,
