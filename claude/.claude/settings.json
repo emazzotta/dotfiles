@@ -113,7 +113,7 @@
     "command": "/opt/ccline/ccline"
   },
   "enabledPlugins": {
-    "superpowers@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": false,
     "code-review@claude-plugins-official": true,
     "leonardo@leonardo-skills": true,
     "aiup-core@ai-unified-process-marketplace": true,
