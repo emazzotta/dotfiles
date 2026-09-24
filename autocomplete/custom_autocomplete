@@ -795,7 +795,7 @@ complete -F _fileserver fileserver fs fget fls frm fup
 complete -F _timemachine timemachine
 complete -o filenames -F _complete_help_files agedist asciicast2gif audio_silence_generator \
   audioboost audiospec audiotags_manager audiotox cert_viewer_file compress convert-to-utf8 exifrm \
-  extract fix-html-charset gck git_gallcontrib gpe gpgverify gsheet_backup hashify imgcompress imgmirror \
+  extract fix-html-charset gck git_gallcontrib gpe gpgverify gsheet_backup hashify hosts-sync imgcompress imgmirror \
   imgtopdf imgtox isotoimg leonardo_utils_installer notion_backup ocr pdfcompress pdfify pdfsplit \
   pdftoimg putty2pem pwcompress pwuncompress robust-rsync snl-sync sync_file trackduplication_info \
   transcript-title videoloweraudio videormaudio videotoaudio videotox
