@@ -22,6 +22,7 @@ GITHUB_RUNS_PER_BRANCH: Final = 20
 SUCCESS: Final = "success"
 FAILED: Final = "failed"
 RUNNING: Final = "running"
+NO_PIPELINE: Final = "none"
 SCRIPT_FAILURE: Final = "script_failure"
 GITHUB_FAILED_CONCLUSIONS: Final = frozenset({"failure", "timed_out", "startup_failure"})
 GITHUB_PASSING_CONCLUSIONS: Final = frozenset({SUCCESS, "skipped", "neutral"})
@@ -160,10 +161,10 @@ def cached(key: str, compute: Callable[[], str]) -> str:
     return value
 
 
-def lookup(provider: Provider, branch: str) -> Optional[BranchState]:
+def lookup(provider: Provider, branch: str) -> BranchState:
     pipeline = provider.latest_pipeline(branch)
     if pipeline is None:
-        return None
+        return BranchState(branch, NO_PIPELINE, "", "")
     category = ""
     if pipeline.state == FAILED:
         category = cached(pipeline.cache_key,

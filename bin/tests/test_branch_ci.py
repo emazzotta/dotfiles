@@ -182,12 +182,12 @@ def should_recategorize_a_failed_pipeline_once_it_was_updated(branch_ci, gitlab)
     assert branch_ci.lookup(provider, "feature").category == "compile"
 
 
-def should_print_a_tab_separated_line_per_built_branch_and_warn_about_failed_lookups(run_cli, tmp_path):
+def should_print_a_tab_separated_line_per_looked_up_branch_and_warn_about_failed_lookups(run_cli, tmp_path):
     result = run_cli("branch_ci.py", [GITLAB_SLUG], stdin="main\nbroken\nnever-built\n",
                      mock_bins={"glab": GLAB_MOCK}, env_extra={"HOME": str(tmp_path)})
 
     assert result.returncode == 0
-    assert result.stdout == "main\tsuccess\t\thttps://gitlab.example.com/p/1\n"
+    assert result.stdout == "main\tsuccess\t\thttps://gitlab.example.com/p/1\nnever-built\tnone\t\t\n"
     assert result.stderr == "401 Unauthorized\n"
 
 

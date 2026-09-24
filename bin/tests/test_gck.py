@@ -69,8 +69,17 @@ def gck(run_bash, tmp_path, git_env):
 def should_list_each_branch_with_its_ci_state_commits_behind_main_and_failure_category(gck, workspace):
     output = gck(workspace)
 
-    assert re.search(r"✗ feature\s+↓2\s+tests$", output, re.MULTILINE)
-    assert re.search(r"● remote-only\s+running$", output, re.MULTILINE)
+    assert re.search(r"✗\s+feature\s+↓2\s+tests$", output, re.MULTILINE)
+    assert re.search(r"●\s+remote-only\s+running$", output, re.MULTILINE)
+
+
+def should_mark_a_branch_that_never_had_a_pipeline_and_keep_it_aligned(gck, workspace, git):
+    git(workspace / "project", "branch", "spike", "main")
+
+    output = gck(workspace)
+
+    assert re.search(r"^  💤 spike$", output, re.MULTILINE)
+    assert re.search(r"^  ✗  feature\s", output, re.MULTILINE)
 
 
 def should_show_the_ci_state_of_main_next_to_each_repository(gck, workspace):
@@ -86,3 +95,4 @@ def should_still_show_how_far_behind_main_a_branch_is_without_a_ci_host(gck, wor
 
     assert re.search(r"^\s+feature\s+↓2$", output, re.MULTILINE)
     assert "✓" not in output
+    assert "💤" not in output

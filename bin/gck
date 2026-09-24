@@ -14,6 +14,7 @@ bot_branch_pattern='^(renovate|dependabot|greenkeeper|snyk|whitesource-remediate
 pull_request_cache_dir="${HOME}/.cache/gck"
 pull_request_cache_minutes=10
 behind_column_width=5
+no_pipeline_mark="💤"
 mkdir -p "${pull_request_cache_dir}"
 
 output_file=$(mktemp)
@@ -201,10 +202,12 @@ load_ci_state() {
     local category url color
     ci_state=""
     ci_mark=" "
+    ci_mark_padding=" "
     ci_label=""
     IFS=$'\037' read -r ci_state category url < <(awk -F'\t' -v b="${branch}" \
         'BEGIN { OFS = "\037" } $1 == b { print $2, $3, $4; exit }' "${ci_states_file}") || return 0
     case "${ci_state}" in
+        none) ci_mark="${no_pipeline_mark}"; ci_mark_padding=""; return 0 ;;
         success) color="${GREEN}"; ci_mark="✓" ;;
         failed) color="${RED}"; ci_mark="✗"; ci_label="${category}" ;;
         *) color="${YELLOW}"; ci_mark="●"; ci_label="${ci_state}" ;;
@@ -259,7 +262,7 @@ render_branch_row() {
     behind=$(count_behind "${dir}" "${ref}" "${default_ref}")
     load_ci_state "${branch}"
     local row
-    row="  ${ci_mark} $(format_branch "${branch}" "$(branch_emphasis "${branch}")")$(pad $((width - ${#branch} + 2)))"
+    row="  ${ci_mark}${ci_mark_padding} $(format_branch "${branch}" "$(branch_emphasis "${branch}")")$(pad $((width - ${#branch} + 2)))"
     row="${row}$(format_behind "${behind}") ${ci_label}"
     printf '%s\n' "${row%"${row##*[![:space:]]}"}"
 }
