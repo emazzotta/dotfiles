@@ -9,17 +9,17 @@ root_dir="$(pwd)"
 
 CUSTOM_RELEASE_PATTERN="^[0-9]+.([0-9]+|x)(.[0-9]+|.x)?$"
 
-output_file=$(mktemp)
+failed_pulls_file=$(mktemp)
+unreachable_file=$(mktemp)
+repo_failures_file=$(mktemp)
 status_file=$(mktemp)
-trap 'rm -f "${output_file}" "${status_file}"' EXIT
+trap 'rm -f "${failed_pulls_file}" "${unreachable_file}" "${repo_failures_file}" "${status_file}"' EXIT
 
-separator() {
-    printf "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
-}
-
-record_failure() {
-    local dir="$1" reason="$2"
-    { separator; printf "${BOLD}${WHITE}%s${RESET} [%s]\n" "${dir}" "${reason}"; } >> "${output_file}"
+record_failed_pull() {
+    local branch="$1"
+    if ! grep -qxF -- "${branch}" "${repo_failures_file}"; then
+        printf '%s\n' "${branch}" >> "${repo_failures_file}"
+    fi
 }
 
 convert_git_url_to_http() {
@@ -43,7 +43,7 @@ pull_branch() {
     [ -n "${dir}" ] || return 0
     if git -C "${dir}" rev-parse --verify "origin/${branch}" &>/dev/null; then
         git -C "${dir}" checkout "${branch}" &>/dev/null || return 0
-        git -C "${dir}" pull --quiet --rebase &>/dev/null || record_failure "${dir}" "pull failed: ${branch}"
+        git -C "${dir}" pull --quiet --rebase &>/dev/null || record_failed_pull "${branch}"
         git -C "${dir}" checkout --quiet - &>/dev/null || true
     fi
 }
@@ -60,23 +60,78 @@ pull_branches_by_regex() {
           done || true
 }
 
+repo_link() {
+    local dir="$1"
+    local path label
+    path=$(git -C "${dir}" rev-parse --show-toplevel)
+    label="${dir#"${root_dir%/}"/}"
+    if [ "${dir}" = "${root_dir}" ]; then
+        label="${path##*/}"
+    fi
+    hyperlink "file://${path}" "${YELLOW}${label}${RESET}"
+}
+
+longest_name() {
+    local width=0
+    local name
+    while IFS= read -r name; do
+        if [ "${#name}" -gt "${width}" ]; then
+            width=${#name}
+        fi
+    done
+    printf '%s' "${width}"
+}
+
+render_failed_pulls() {
+    local dir="$1"
+    local width branch
+    width=$(longest_name < "${repo_failures_file}")
+    printf '%s\n' "$(repo_link "${dir}")"
+    while IFS= read -r branch; do
+        printf '  %s%*s  %s\n' "${branch}" "$((width - ${#branch}))" '' "${BOLD}${RED}pull failed${RESET}"
+    done < "${repo_failures_file}"
+}
+
+update_repo() {
+    local dir="$1"
+    local branch_name
+    : > "${repo_failures_file}"
+    pull_branch "main" "${dir}"
+    pull_branch "master" "${dir}"
+    pull_branches_by_regex "${CUSTOM_RELEASE_PATTERN}" "${dir}"
+    branch_name=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
+    if [ "${branch_name}" != "master" ] && [ "${branch_name}" != "main" ]; then
+        git -C "${dir}" pull --quiet --rebase &>/dev/null || record_failed_pull "${branch_name}"
+    fi
+    if [ -s "${repo_failures_file}" ]; then
+        render_failed_pulls "${dir}" >> "${failed_pulls_file}"
+    fi
+}
+
 update_repos() {
     find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
         [ -d "${dir}/.git" ] || continue
         printf '%s' "${dir}" > "${status_file}"
         if has_git_access "${dir}"; then
-            pull_branch "main" "${dir}"
-            pull_branch "master" "${dir}"
-            pull_branches_by_regex "${CUSTOM_RELEASE_PATTERN}" "${dir}"
-            local branch_name
-            branch_name=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
-            if [ "${branch_name}" != "master" ] && [ "${branch_name}" != "main" ]; then
-                git -C "${dir}" pull --quiet --rebase &>/dev/null || record_failure "${dir}" "pull failed: ${branch_name}"
-            fi
+            update_repo "${dir}"
         else
-            record_failure "${dir}" "no remote access"
+            printf '%s\n' "$(repo_link "${dir}")" >> "${unreachable_file}"
         fi
     done
+}
+
+print_warnings() {
+    local heading="$1"
+    local file="$2"
+    if [ ! -s "${file}" ]; then
+        return 0
+    fi
+    echo
+    error "${heading}"
+    local warning
+    while IFS= read -r warning; do
+        substep_error "${warning}"
+    done < "${file}"
 }
 
 spin() {
@@ -97,8 +152,8 @@ UPDATE_PID=$!
 spin
 wait "${UPDATE_PID}" || true
 
-cat "${output_file}"
-[ -s "${output_file}" ] && separator
+cat "${failed_pulls_file}"
+print_warnings "No remote access:" "${unreachable_file}"
 
 echo
 success "Done."
