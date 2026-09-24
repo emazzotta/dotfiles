@@ -58,7 +58,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "file=\"${CLAUDE_TOOL_INPUT_FILE_PATH:-}${CLAUDE_TOOL_INPUT_file_path:-}\"; case \"$file\" in */knowledge/memory/*) exit 0;; */memory/*|*/.claude/projects/*/memory*) echo 'BLOCKED: auto-memory path. For curated session memory use /workspace/.claude/scripts/memory log \"<text>\" (or park/recall). See Session Memory in CLAUDE.md.'; exit 2;; esac; exit 0"
+            "command": "file=$(jq -r '.tool_input.file_path // empty'); case \"$file\" in */.claude/projects/*/memory/*) echo 'BLOCKED: auto-memory path. For curated session memory use /workspace/.claude/scripts/memory log \"<text>\" (or park/recall). See Session Memory in CLAUDE.md.' >&2; exit 2;; esac; exit 0"
           }
         ]
       },
@@ -78,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "file=\"${CLAUDE_TOOL_INPUT_FILE_PATH:-}${CLAUDE_TOOL_INPUT_file_path:-}\"; case \"$file\" in */CLAUDE.md|*/AGENTS.md|*/OPENCODE.md) echo 'SYNC REQUIRED: You just edited a synced file. CLAUDE.md, AGENTS.md, and OPENCODE.md must be identical. Update the other two files now.';; esac; exit 0"
+            "command": "/workspace/.claude/hooks/post-edit-sync-guidelines-check.sh"
           },
           {
             "type": "command",
