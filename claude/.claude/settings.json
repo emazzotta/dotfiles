@@ -2,6 +2,7 @@
   "cleanupPeriodDays": 365,
   "autoMemoryEnabled": false,
   "skillListingBudgetFraction": 0.025,
+  "remoteControlAtStartup": false,
   "permissions": {
     "defaultMode": "auto"
   },
