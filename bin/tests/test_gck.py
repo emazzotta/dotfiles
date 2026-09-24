@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -54,6 +55,28 @@ def workspace(tmp_path, git):
     git(project, "remote", "set-head", "origin", "main")
     git(project, "remote", "set-url", "origin", "git@gitlab.example.com:group/project.git")
     return tmp_path / "workspace"
+
+
+@pytest.fixture
+def unpushed_workspace(workspace, git, tmp_path):
+    project = workspace / "project"
+    spike_worktree = project / ".claude" / "worktrees" / "spike"
+    git(project, "remote", "set-url", "origin", str(tmp_path / "origin.git"))
+    git(project, "checkout", "-q", "feature")
+    git(project, "commit", "--allow-empty", "-m", "Not pushed yet")
+    git(project, "checkout", "-q", "-b", "rewritten", "main")
+    git(project, "commit", "--allow-empty", "-m", "Pushed once")
+    git(project, "push", "-q", "origin", "rewritten")
+    git(project, "commit", "--amend", "--allow-empty", "-m", "Pushed once, then amended")
+    git(project, "checkout", "-q", "-b", "merged", "main")
+    git(project, "commit", "--allow-empty", "-m", "Squash merged upstream")
+    git(project, "push", "-q", "-u", "origin", "merged")
+    git(project, "push", "-q", "origin", "--delete", "merged")
+    git(project, "checkout", "-q", "main")
+    git(project, "worktree", "add", "-q", "-b", "spike", str(spike_worktree), "main")
+    git(spike_worktree, "commit", "--allow-empty", "-m", "Local experiment")
+    git(project, "remote", "set-url", "origin", "git@gitlab.example.com:group/project.git")
+    return workspace
 
 
 @pytest.fixture
@@ -112,6 +135,25 @@ def should_skip_the_ci_lookups_but_still_show_the_branches_in_fast_mode(gck, wor
     assert re.search(r"^\s+feature\s+↓2$", output, re.MULTILINE)
     assert not re.search(r"^ +[✓✗●💤]|main [✓✗●💤]", output, re.MULTILINE)
     assert "api" not in (tmp_path / "glab-calls").read_text()
+
+
+def should_group_unpushed_commits_by_branch_and_say_how_each_branch_differs_from_origin(gck, unpushed_workspace):
+    output = gck(unpushed_workspace)
+
+    assert re.search(r"^feature  1 ahead of origin\n  [0-9a-f]+ - Test, .+: Not pushed yet$", output, re.MULTILINE)
+    assert re.search(r"^rewritten  diverged from origin: 1 ahead, 1 behind\n  .+: Pushed once, then amended$",
+                     output, re.MULTILINE)
+    assert re.search(r"^merged  gone from origin\n  .+: Squash merged upstream$", output, re.MULTILINE)
+    assert re.search(r"^spike  not on origin  worktree \.claude/worktrees/spike\n  .+: Local experiment$",
+                     output, re.MULTILINE)
+
+
+def should_flag_a_worktree_whose_directory_is_missing_on_this_machine(gck, unpushed_workspace):
+    shutil.rmtree(unpushed_workspace / "project" / ".claude" / "worktrees" / "spike")
+
+    output = gck(unpushed_workspace)
+
+    assert re.search(r"^spike  not on origin  worktree \.claude/worktrees/spike \(missing here\)$", output, re.MULTILINE)
 
 
 def should_describe_the_fast_mode_in_the_help(run_gck):

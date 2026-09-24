@@ -303,6 +303,74 @@ render_repo_header() {
     printf '%s\n' "${header}"
 }
 
+unpushed_branches() {
+    local dir="${1}"
+    local branch
+    git -C "${dir}" for-each-ref --format='%(refname:short)' refs/heads/ | while IFS= read -r branch; do
+        if [ -n "$(git -C "${dir}" rev-list --max-count=1 "refs/heads/${branch}" --not --remotes)" ]; then
+            printf '%s\n' "${branch}"
+        fi
+    done
+}
+
+describe_divergence() {
+    local dir="${1}"
+    local ref="${2}"
+    local target="${3}"
+    local ahead behind
+    read -r ahead behind < <(git -C "${dir}" rev-list --left-right --count "${ref}...${target}")
+    if [ "${behind}" -eq 0 ]; then
+        printf '%s ahead of origin' "${ahead}"
+    else
+        printf 'diverged from origin: %s ahead, %s behind' "${ahead}" "${behind}"
+    fi
+}
+
+describe_push_state() {
+    local dir="${1}"
+    local branch="${2}"
+    local upstream
+    upstream=$(git -C "${dir}" for-each-ref --format='%(upstream)' "refs/heads/${branch}")
+    local target="${upstream:-refs/remotes/origin/${branch}}"
+    if git -C "${dir}" show-ref --verify --quiet "${target}"; then
+        describe_divergence "${dir}" "refs/heads/${branch}" "${target}"
+    elif [ -n "${upstream}" ]; then
+        printf 'gone from origin'
+    else
+        printf 'not on origin'
+    fi
+}
+
+describe_worktree() {
+    local dir="${1}"
+    local branch="${2}"
+    local path
+    path=$(git -C "${dir}" worktree list --porcelain | awk -v b="branch refs/heads/${branch}" '
+        /^worktree / { path = substr($0, 10); linked = count++ > 0 }
+        linked && $0 == b { print path; exit }')
+    [ -n "${path}" ] || return 0
+    printf 'worktree %s' "${path#"$(git -C "${dir}" rev-parse --show-toplevel)"/}"
+    if [ ! -d "${path}" ]; then
+        printf ' (missing here)'
+    fi
+}
+
+render_unpushed() {
+    local dir="${1}"
+    local branches="${2}"
+    local branch worktree
+    while IFS= read -r branch; do
+        printf '%s  %s' "${BOLD}${branch}${RESET}" "${YELLOW}$(describe_push_state "${dir}" "${branch}")${RESET}"
+        worktree=$(describe_worktree "${dir}" "${branch}")
+        if [ -n "${worktree}" ]; then
+            printf '  %s' "${CYAN}${worktree}${RESET}"
+        fi
+        printf '\n'
+        git -C "${dir}" log --pretty=format:"  %h - %an, %ar: %s" "refs/heads/${branch}" --not --remotes
+        printf '\n'
+    done <<< "${branches}"
+}
+
 render_repo() {
     local dir="${1}"
     local ref_prefix="${2}"
@@ -339,8 +407,9 @@ scan_repos() {
                 { separator; printf "${BOLD}${WHITE}%s${RESET} [git uncommitted changes]\n" "${dir}"; git -c color.ui=always -C "${dir}" status -s; } >> "${output_file}"
                 shown=true
             fi
-            if [[ "$(git -C "${dir}" log --branches --not --remotes)" != "" ]]; then
-                { separator; printf "${BOLD}${WHITE}%s${RESET} [git unpushed changes]\n" "${dir}"; git -c color.ui=always -C "${dir}" log --pretty=format:"%h - %an, %ar: %s" --branches --not --remotes; printf '\n'; } >> "${output_file}"
+            unpushed=$(unpushed_branches "${dir}")
+            if [ -n "${unpushed}" ]; then
+                { separator; printf "${BOLD}${WHITE}%s${RESET} [git unpushed changes]\n" "${dir}"; render_unpushed "${dir}" "${unpushed}"; } >> "${output_file}"
                 shown=true
             fi
             if [ "$(git -C "${dir}" stash list)" != "" ]; then
