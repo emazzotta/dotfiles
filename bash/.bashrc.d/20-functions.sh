@@ -86,11 +86,41 @@ EOF
 
 gco() {
     local checkout
-    if [ $# -eq 1 ] && checkout=$(git wt path "$1" 2>/dev/null) &&
-        [ "$checkout" != "$(git rev-parse --show-toplevel 2>/dev/null)" ]; then
-        cd "$checkout" || return
+    if [ $# -eq 1 ] && checkout=$(_gco_hop_target "$1"); then
+        _gco_hop "$checkout"
     else
-        git checkout "$@"
+        _gco_checkout "$@"
+    fi
+}
+
+_gco_hop_target() {
+    local ref="$1" toplevel checkout
+    toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+    if [ "$ref" = - ]; then
+        if [ "$toplevel" = "${_gco_hop_to:-}" ] && [ -d "$_gco_hop_from" ]; then
+            printf '%s\n' "$_gco_hop_from"
+            return
+        fi
+        ref=$(git rev-parse --abbrev-ref '@{-1}' 2>/dev/null) || return 1
+        [ -n "$ref" ] || return 1
+    fi
+    checkout=$(git wt path "$ref" 2>/dev/null) && [ "$checkout" != "$toplevel" ] &&
+        printf '%s\n' "$checkout"
+}
+
+_gco_hop() {
+    local from="$PWD"
+    cd "$1" || return
+    _gco_hop_from=$from
+    _gco_hop_to=$(git rev-parse --show-toplevel)
+}
+
+_gco_checkout() {
+    local head
+    head=$(git rev-parse --symbolic-full-name HEAD 2>/dev/null)
+    git checkout "$@" || return
+    if [ "$(git rev-parse --symbolic-full-name HEAD 2>/dev/null)" != "$head" ]; then
+        unset _gco_hop_from _gco_hop_to
     fi
 }
 
