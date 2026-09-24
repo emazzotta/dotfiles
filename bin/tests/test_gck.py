@@ -231,6 +231,20 @@ def should_color_the_age_green_until_the_branch_is_a_week_old(run_gck, workspace
     assert GREEN not in next(line for line in lines if "cooling" in line)
 
 
+def should_list_local_branches_before_remote_only_ones_most_recently_committed_first(gck, workspace, git,
+                                                                                      aged_branch):
+    project = workspace / "project"
+    for branch, age in (("dormant", 90 * DAY), ("active", DAY), ("abandoned", 60 * DAY), ("fresh", 2 * HOUR)):
+        aged_branch(project, branch, age)
+    for branch in ("abandoned", "fresh"):
+        git(project, "branch", "-q", "-D", branch)
+
+    output = gck(workspace, "--fast")
+
+    branches = re.findall(rf"^  (?:{LOCAL}|{REMOTE_ONLY})\s+(\S+)", output, re.MULTILINE)
+    assert branches == ["feature", "active", "dormant", "remote-only", "fresh", "abandoned"]
+
+
 def should_mark_how_each_branch_differs_from_origin_without_listing_its_commits(gck, unpushed_workspace):
     output = gck(unpushed_workspace)
 

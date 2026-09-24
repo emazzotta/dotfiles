@@ -10,8 +10,9 @@ Usage: $(basename "${0}") [-f|--fast] [-v|--verbose] [dir]
 
 Show each git repo under dir (default: \$WDIR) that has uncommitted, unpushed or
 stashed work or branches besides the default branch: the default branch with its
-CI state, then one row per branch. Repos with work to push, commit or unstash
-come first; everything that needs no action is dimmed.
+CI state, then one row per branch, local ones before those only on origin, most
+recently committed first. Repos with work to push, commit or unstash come first;
+everything that needs no action is dimmed.
 
 Each line of ~/.config/gck/ignore is a glob for the end of a repo's path, such as
 private/tad; a matching repo shows only work to push, commit or unstash.
@@ -589,11 +590,12 @@ longest_name() {
 }
 
 local_branch_names() {
-    git -C "${1}" for-each-ref --format='%(refname:short)' refs/heads/ | grep -Ev '^(main|master)$' || true
+    git -C "${1}" for-each-ref --sort=-committerdate --format='%(refname:short)' refs/heads/ \
+        | grep -Ev '^(main|master)$' || true
 }
 
 origin_branch_names() {
-    git -C "${1}" for-each-ref --format='%(refname:short)' refs/remotes/origin/ \
+    git -C "${1}" for-each-ref --sort=-committerdate --format='%(refname:short)' refs/remotes/origin/ \
         | grep -Ev '^origin$|origin/(HEAD|main|master)$' \
         | sed 's#^origin/##' || true
 }
