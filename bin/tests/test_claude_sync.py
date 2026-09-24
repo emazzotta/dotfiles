@@ -274,7 +274,9 @@ class TestVisibility:
         assert script.main(["--push"]) == 0
         assert "Mac host" in capsys.readouterr().err
 
-    def should_name_the_invoker_in_a_failure(self, sync, claude_home):
+    def should_name_the_invoker_in_a_failure(self, sync, claude_home, monkeypatch):
+        monkeypatch.delenv("SSH_AUTH_SOCK", raising=False)
+
         sync(["--push"], rsync_exit=255)
 
         assert "no-agent" in (claude_home / "claude-sync.log").read_text()
