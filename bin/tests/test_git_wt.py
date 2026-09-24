@@ -1,63 +1,8 @@
-import os
 import shutil
-import subprocess
-from pathlib import Path
 
 import pytest
 
-WORKTREES = Path(".claude") / "worktrees"
-
-
-@pytest.fixture
-def gitconfig(tmp_path):
-    config = tmp_path / "gitconfig"
-    config.write_text("[user]\n\tname = Test\n\temail = test@example.com\n"
-                      "[init]\n\tdefaultBranch = main\n"
-                      "[safe]\n\tdirectory = *\n")
-    return config
-
-
-@pytest.fixture
-def git_env(gitconfig):
-    return {"GIT_CONFIG_GLOBAL": str(gitconfig), "GIT_CONFIG_NOSYSTEM": "1"}
-
-
-@pytest.fixture
-def git(git_env):
-    def _git(cwd, *args):
-        result = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True,
-                                env={**os.environ, **git_env})
-        assert result.returncode == 0, result.stderr
-        return result.stdout.strip()
-    return _git
-
-
-@pytest.fixture
-def project(tmp_path, git):
-    origin = tmp_path / "origin.git"
-    git(tmp_path, "init", "--bare", str(origin))
-    project = tmp_path / "project"
-    git(tmp_path, "clone", str(origin), str(project))
-    git(project, "commit", "--allow-empty", "-m", "Initial commit")
-    git(project, "push", "origin", "main")
-    git(project, "remote", "set-head", "origin", "main")
-    return project
-
-
-@pytest.fixture
-def wt(run_cli, git_env, project):
-    def _wt(*args, cwd=None):
-        return run_cli("git-wt", list(args), env_extra=git_env, cwd=cwd or project)
-    return _wt
-
-
-@pytest.fixture
-def added(wt):
-    def _added(branch, *start):
-        result = wt("add", branch, *start)
-        assert result.returncode == 0, result.stderr
-        return Path(result.stdout.strip())
-    return _added
+from bin.tests.conftest import WORKTREES, move_to_other_mount
 
 
 def branches(git, repo):
@@ -80,12 +25,6 @@ def finish_upstream(git, project, worktree, branch):
     git(worktree, "push", "-u", "origin", branch)
     git(project, "push", "origin", "--delete", branch)
     git(project, "fetch", "--prune", "origin")
-
-
-def move_to_other_mount(project, tmp_path):
-    other_side = tmp_path / "other-mount"
-    shutil.move(str(project), str(other_side))
-    return other_side
 
 
 class TestAdd:
@@ -164,6 +103,32 @@ class TestAdd:
 
         assert result.returncode == 2
         assert "Usage" in result.stderr
+
+
+class TestPath:
+    def should_print_the_checkout_of_the_worktree_holding_the_branch(self, wt, added):
+        path = added("feature")
+
+        result = wt("path", "feature")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == str(path)
+
+    def should_print_the_local_checkout_of_a_worktree_registered_under_another_mount_path(
+            self, wt, added, tmp_path, project):
+        added("feature")
+        other_side = move_to_other_mount(project, tmp_path)
+
+        result = wt("path", "feature", cwd=other_side)
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == str(other_side / WORKTREES / "feature")
+
+    def should_fail_when_no_worktree_holds_the_branch(self, wt):
+        result = wt("path", "main")
+
+        assert result.returncode == 1
+        assert "no worktree holds main" in result.stderr
 
 
 class TestRm:
@@ -333,7 +298,15 @@ class TestComplete:
     def should_offer_the_commands_when_none_is_typed_yet(self, wt):
         result = wt("--complete")
 
-        assert result.stdout.split() == ["add", "rm", "sweep"]
+        assert result.stdout.split() == ["add", "path", "rm", "sweep"]
+
+    def should_offer_only_branches_that_a_worktree_holds_to_path(self, wt, added, git, project):
+        added("feature")
+        git(project, "branch", "plain")
+
+        result = wt("--complete", "path")
+
+        assert result.stdout.split() == ["feature"]
 
     def should_offer_every_local_branch_to_each_rm_argument(self, wt, git, project):
         git(project, "branch", "plain")

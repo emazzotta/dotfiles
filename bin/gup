@@ -1,0 +1,50 @@
+#!/bin/bash
+set -uo pipefail
+
+show_usage() {
+    cat <<EOF
+Usage: gup [<git pull args>]
+
+git pull --rebase --autostash. Run inside a worktree's .git/worktrees/<id> directory,
+it updates that worktree's checkout instead.
+EOF
+}
+
+complete_next_word() {
+    case $# in
+        0) git remote ;;
+        1) git for-each-ref --format='%(refname:lstrip=3)' "refs/remotes/$1" | grep -vx HEAD ;;
+    esac
+}
+
+inside_worktree_git_dir() {
+    [ "$(git rev-parse --is-inside-git-dir 2>/dev/null)" = true ] &&
+        [ "$(git rev-parse --absolute-git-dir)" != "$(git rev-parse --path-format=absolute --git-common-dir)" ]
+}
+
+pull_worktree_checkout() {
+    local head checkout
+    if ! head=$(git symbolic-ref -q HEAD); then
+        echo "gup: HEAD is detached, no branch to update" >&2
+        return 1
+    fi
+    checkout=$(git wt path "${head#refs/heads/}") || return 1
+    echo "gup: updating $checkout" >&2
+    exec git -C "$checkout" pull --rebase --autostash "$@"
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help) show_usage; return 0 ;;
+        --complete) shift; complete_next_word "$@" 2>/dev/null; return 0 ;;
+    esac
+    if inside_worktree_git_dir; then
+        pull_worktree_checkout "$@"
+    else
+        exec git pull --rebase --autostash "$@"
+    fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

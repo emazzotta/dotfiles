@@ -14,7 +14,6 @@ alias gcontrib='git shortlog -sn --all --no-merges'
 alias gce='git commit --allow-empty && git push'
 alias ginit='git init && git commit -m "Initial commit" --allow-empty'
 alias gitgimmeprevious='git checkout HEAD~1'
-alias gup='git pull --rebase --autostash'
 
 ### BRANCHES ###
 alias gbrrmlocal='git wt rm'

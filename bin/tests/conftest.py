@@ -124,3 +124,64 @@ def requires_tool(tool_name):
 
 skip_on_darwin = pytest.mark.skipif(IS_DARWIN, reason="Linux-only test")
 skip_on_linux = pytest.mark.skipif(not IS_DARWIN, reason="macOS-only test")
+
+
+WORKTREES = Path(".claude") / "worktrees"
+
+
+@pytest.fixture
+def gitconfig(tmp_path):
+    config = tmp_path / "gitconfig"
+    config.write_text("[user]\n\tname = Test\n\temail = test@example.com\n"
+                      "[init]\n\tdefaultBranch = main\n"
+                      "[safe]\n\tdirectory = *\n")
+    return config
+
+
+@pytest.fixture
+def git_env(gitconfig):
+    return {"GIT_CONFIG_GLOBAL": str(gitconfig), "GIT_CONFIG_NOSYSTEM": "1"}
+
+
+@pytest.fixture
+def git(git_env):
+    def _git(cwd, *args):
+        result = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True,
+                                env={**os.environ, **git_env})
+        assert result.returncode == 0, result.stderr
+        return result.stdout.strip()
+    return _git
+
+
+@pytest.fixture
+def project(tmp_path, git):
+    origin = tmp_path / "origin.git"
+    git(tmp_path, "init", "--bare", str(origin))
+    project = tmp_path / "project"
+    git(tmp_path, "clone", str(origin), str(project))
+    git(project, "commit", "--allow-empty", "-m", "Initial commit")
+    git(project, "push", "origin", "main")
+    git(project, "remote", "set-head", "origin", "main")
+    return project
+
+
+@pytest.fixture
+def wt(run_cli, git_env, project):
+    def _wt(*args, cwd=None):
+        return run_cli("git-wt", list(args), env_extra=git_env, cwd=cwd or project)
+    return _wt
+
+
+@pytest.fixture
+def added(wt):
+    def _added(branch, *start):
+        result = wt("add", branch, *start)
+        assert result.returncode == 0, result.stderr
+        return Path(result.stdout.strip())
+    return _added
+
+
+def move_to_other_mount(project, tmp_path):
+    other_side = tmp_path / "other-mount"
+    shutil.move(str(project), str(other_side))
+    return other_side

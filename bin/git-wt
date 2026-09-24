@@ -9,6 +9,7 @@ Usage: git wt <command>
 
   add <branch> [<start>]  create the worktree $WORKTREE_DIR/<branch> in the main checkout;
                           a new branch starts from <start> (default origin/HEAD)
+  path <branch>           print where the worktree holding <branch> is checked out on this machine
   rm <branch>...          delete each branch and the worktree holding it, also when that
                           worktree was registered from the other side of a container mount
   sweep [-n]              remove clean worktrees whose branch is merged or upstream gone, and registrations
@@ -63,6 +64,19 @@ locate_worktree() {
     esac
     [ -e "$twin" ] || return 1
     printf '%s\n' "$twin"
+}
+
+checkout_of_branch() {
+    local registered
+    registered=$(worktree_of_branch "$1")
+    if [ -z "$registered" ]; then
+        echo "no worktree holds $1" >&2
+        return 1
+    fi
+    if ! locate_worktree "$registered"; then
+        echo "$registered is not on this machine" >&2
+        return 1
+    fi
 }
 
 is_clean() {
@@ -205,10 +219,15 @@ origin_branches() {
     git for-each-ref --format='%(refname:lstrip=3)' refs/remotes/origin | grep -vx HEAD
 }
 
+worktree_branches() {
+    linked_worktrees | awk -F '\t' '$2 != "" { print $2 }'
+}
+
 complete_next_word() {
     case "${1:-}" in
-        "") printf '%s\n' add rm sweep ;;
+        "") printf '%s\n' add path rm sweep ;;
         add) [ $# -eq 1 ] && { local_branches; origin_branches; } | sort -u ;;
+        path) [ $# -eq 1 ] && worktree_branches ;;
         rm) local_branches ;;
         sweep) [ $# -eq 1 ] && printf '%s\n' -n ;;
     esac
@@ -220,6 +239,7 @@ main() {
         -h|--help) show_usage; return 0 ;;
         --complete) shift; complete_next_word "$@"; return 0 ;;
         add) [ $# -ge 2 ] && [ $# -le 3 ] || usage_error ;;
+        path) [ $# -eq 2 ] || usage_error ;;
         rm) [ $# -ge 2 ] || usage_error ;;
         sweep) [ $# -eq 1 ] || { [ $# -eq 2 ] && [ "$2" = "-n" ]; } || usage_error ;;
         *) usage_error ;;
@@ -229,6 +249,7 @@ main() {
     [ -n "$main_checkout" ] && cd "$main_checkout" || return 1
     case "$command" in
         add) add_worktree "$@" ;;
+        path) checkout_of_branch "$@" ;;
         rm) remove_branches "$@" ;;
         sweep) sweep "$([ "${1:-}" = "-n" ] && echo true || echo false)" ;;
     esac

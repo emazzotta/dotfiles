@@ -812,7 +812,7 @@ complete -F _complete_nothing backup_mini_rsync bookmarks_backup cert_viewer_url
   update_github_actions urldecode urlencode urr uuid vimpluginupdate vm vmup wpsh zipsplit
 complete -o filenames -F _audiomerge audiomerge
 complete -o filenames -F _complete_help_subcommands backup_restore_util
-complete -F _complete_script_words claude-plugin-update ref-pin tmux-overview
+complete -F _complete_script_words claude-plugin-update gup ref-pin tmux-overview
 complete -F _docker_script docker-debug docker-exec docker-inspect
 complete -F _external_disks flash_disk_with_zeros
 complete -F _external_partitions mount_ext
