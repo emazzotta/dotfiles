@@ -1,4 +1,5 @@
 import json
+import sys
 
 import pytest
 
@@ -295,8 +296,10 @@ def should_warn_once_and_ask_only_once_when_the_repository_lookup_fails(run_cli,
     assert len(glab_calls()) == 1
 
 
-def should_warn_once_when_the_ci_client_is_not_installed(run_cli, tmp_path):
-    result = run_cli("branch_ci.py", [GITLAB_SLUG], stdin="main\nfeature\n", isolate_path=True,
-                     env_extra={"HOME": str(tmp_path)})
+def should_warn_once_when_the_ci_client_is_not_installed(run_cli, create_mock_bin, tmp_path):
+    python = create_mock_bin("python3", f'exec "{sys.executable}" "$@"')
+
+    result = run_cli("branch_ci.py", [GITLAB_SLUG], stdin="main\nfeature\n",
+                     env_extra={"HOME": str(tmp_path), "PATH": str(python.parent)})
 
     assert (result.returncode, result.stdout, result.stderr) == (0, "", "glab is not installed\n")
