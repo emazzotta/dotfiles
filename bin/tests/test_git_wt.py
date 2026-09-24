@@ -2,11 +2,8 @@ import shutil
 
 import pytest
 
-from bin.tests.conftest import WORKTREES, move_to_other_mount
-
-
-def branches(git, repo):
-    return git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").split("\n")
+from bin.tests.conftest import (WORKTREES, branches, commit_file, move_to_other_mount,
+                                 ship_by_squash_merge)
 
 
 def registered_paths(git, repo):
@@ -14,17 +11,15 @@ def registered_paths(git, repo):
     return [line[len("worktree "):] for line in porcelain.split("\n") if line.startswith("worktree ")]
 
 
-def commit_file(git, checkout, name, content, message="Add file"):
-    (checkout / name).write_text(content)
-    git(checkout, "add", name)
-    git(checkout, "commit", "-m", message)
+def fetch(git, repo):
+    git(repo, "fetch", "--prune", "origin")
 
 
 def finish_upstream(git, project, worktree, branch):
     git(worktree, "commit", "--allow-empty", "-m", "Work")
     git(worktree, "push", "-u", "origin", branch)
     git(project, "push", "origin", "--delete", branch)
-    git(project, "fetch", "--prune", "origin")
+    fetch(git, project)
 
 
 class TestAdd:
@@ -208,6 +203,166 @@ class TestRm:
         assert "plain" not in branches(git, project)
 
 
+class TestRmMerged:
+    def should_remove_a_squash_merged_branch_and_its_clean_worktree(
+            self, wt, added, git, tmp_path, project):
+        path = added("feature")
+        ship_by_squash_merge(git, tmp_path, path, "feature")
+        fetch(git, project)
+
+        result = wt("rm", "--merged")
+
+        assert result.returncode == 0, result.stderr
+        assert "Deleted branch feature" in result.stdout
+        assert not path.exists()
+        assert "feature" not in branches(git, project)
+
+    def should_delete_a_squash_merged_branch_that_no_worktree_holds(
+            self, wt, added, git, tmp_path, project):
+        path = added("feature")
+        ship_by_squash_merge(git, tmp_path, path, "feature")
+        git(project, "worktree", "remove", str(path))
+        fetch(git, project)
+
+        result = wt("rm", "--merged")
+
+        assert result.returncode == 0, result.stderr
+        assert "feature" not in branches(git, project)
+
+    def should_remove_a_branch_merged_by_a_merge_commit_once_its_upstream_is_gone(
+            self, wt, added, git, project):
+        path = added("feature")
+        commit_file(git, path, "feature.txt", "done")
+        git(path, "push", "-u", "origin", "feature")
+        git(project, "merge", "--no-ff", "-m", "Merge feature", "feature")
+        git(project, "push", "origin", "main", ":feature")
+        fetch(git, project)
+
+        result = wt("rm", "--merged")
+
+        assert result.returncode == 0, result.stderr
+        assert not path.exists()
+        assert "feature" not in branches(git, project)
+
+    def should_keep_a_new_branch_that_has_no_commits_yet(self, wt, added, git, project):
+        path = added("feature")
+
+        result = wt("rm", "--merged")
+
+        assert result.returncode == 0, result.stderr
+        assert path.exists()
+        assert "feature" in branches(git, project)
+
+    def should_keep_a_pushed_branch_without_commits_of_its_own(self, wt, added, git, project):
+        path = added("feature")
+        git(path, "push", "-u", "origin", "feature")
+
+        result = wt("rm", "--merged")
+
+        assert result.returncode == 0, result.stderr
+        assert path.exists()
+        assert "feature" in branches(git, project)
+
+    def should_keep_a_squash_merged_branch_with_new_local_commits(
+            self, wt, added, git, tmp_path, project):
+        path = added("feature")
+        ship_by_squash_merge(git, tmp_path, path, "feature")
+        commit_file(git, path, "follow-up.txt", "more", "Follow up")
+        fetch(git, project)
+
+        result = wt("rm", "--merged")
+
+        assert result.returncode == 0, result.stderr
+        assert path.exists()
+        assert "feature" in branches(git, project)
+
+    def should_keep_a_branch_deleted_on_origin_without_a_merge(self, wt, added, git, project):
+        path = added("feature")
+        commit_file(git, path, "feature.txt", "abandoned")
+        git(path, "push", "-u", "origin", "feature")
+        git(project, "push", "origin", "--delete", "feature")
+        fetch(git, project)
+
+        result = wt("rm", "--merged")
+
+        assert result.returncode == 0, result.stderr
+        assert path.exists()
+        assert "feature" in branches(git, project)
+
+    def should_keep_a_merged_branch_whose_worktree_has_uncommitted_changes(
+            self, wt, added, git, tmp_path, project):
+        path = added("feature")
+        ship_by_squash_merge(git, tmp_path, path, "feature")
+        (path / "draft.txt").write_text("work in progress")
+        fetch(git, project)
+
+        result = wt("rm", "--merged")
+
+        assert result.returncode == 0, result.stderr
+        assert (path / "draft.txt").exists()
+        assert "feature" in branches(git, project)
+
+    def should_keep_the_merged_branch_of_the_checkout_it_runs_in(
+            self, wt, added, git, tmp_path, project):
+        path = added("feature")
+        ship_by_squash_merge(git, tmp_path, path, "feature")
+        fetch(git, project)
+
+        result = wt("rm", "--merged", cwd=path)
+
+        assert result.returncode == 0, result.stderr
+        assert path.exists()
+        assert "feature" in branches(git, project)
+
+    def should_keep_a_merged_branch_that_the_main_checkout_holds(
+            self, wt, added, git, tmp_path, project):
+        path = added("feature")
+        ship_by_squash_merge(git, tmp_path, path, "feature")
+        git(project, "worktree", "remove", str(path))
+        git(project, "switch", "feature")
+        elsewhere = added("elsewhere")
+        fetch(git, project)
+
+        result = wt("rm", "--merged", cwd=elsewhere)
+
+        assert result.returncode == 0, result.stderr
+        assert "feature" in branches(git, project)
+
+    def should_keep_a_merged_branch_whose_worktree_this_machine_cannot_see(
+            self, wt, git, tmp_path, project):
+        scratchpad = tmp_path / "scratchpad" / "feature"
+        git(project, "worktree", "add", "-b", "feature", str(scratchpad))
+        ship_by_squash_merge(git, tmp_path, scratchpad, "feature")
+        shutil.move(str(scratchpad), str(tmp_path / "other-machine"))
+        fetch(git, project)
+
+        result = wt("rm", "--merged")
+
+        assert result.returncode == 0, result.stderr
+        assert str(scratchpad) in registered_paths(git, project)
+        assert "feature" in branches(git, project)
+
+    def should_remove_a_merged_worktree_registered_under_another_mount_path(
+            self, wt, added, git, tmp_path, project):
+        path = added("feature")
+        ship_by_squash_merge(git, tmp_path, path, "feature")
+        fetch(git, project)
+        other_side = move_to_other_mount(project, tmp_path)
+
+        result = wt("rm", "--merged", cwd=other_side)
+
+        assert result.returncode == 0, result.stderr
+        assert not (other_side / WORKTREES / "feature").exists()
+        assert registered_paths(git, other_side) == [str(other_side)]
+        assert "feature" not in branches(git, other_side)
+
+    def should_exit_with_usage_when_branches_follow_the_merged_flag(self, wt):
+        result = wt("rm", "--merged", "feature")
+
+        assert result.returncode == 2
+        assert "Usage" in result.stderr
+
+
 class TestSweep:
     def should_remove_a_clean_worktree_whose_upstream_is_gone_and_keep_its_branch(
             self, wt, added, git, project):
@@ -326,6 +481,20 @@ class TestComplete:
         result = wt("--complete", "rm", "plain")
 
         assert result.stdout.split() == ["main", "plain"]
+
+    def should_offer_the_merged_flag_before_the_branches_to_the_first_rm_argument(
+            self, wt, git, project):
+        git(project, "branch", "plain")
+
+        result = wt("--complete", "rm")
+
+        assert result.stdout.split() == ["--merged", "main", "plain"]
+
+    def should_offer_nothing_after_the_merged_flag(self, wt):
+        result = wt("--complete", "rm", "--merged")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == ""
 
     def should_offer_local_and_origin_branches_once_each_to_add(self, wt, git, project):
         git(project, "branch", "local-only")

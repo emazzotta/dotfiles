@@ -1,6 +1,6 @@
 import pytest
 
-from bin.tests.conftest import WORKTREES, move_to_other_mount
+from bin.tests.conftest import WORKTREES, branches, move_to_other_mount, ship_by_squash_merge
 
 
 @pytest.fixture
@@ -71,6 +71,44 @@ class TestPull:
         assert result.returncode == 128
         assert "must be run in a work tree" in result.stderr
         assert "gup:" not in result.stderr
+
+
+class TestCleanUp:
+    def should_delete_the_branches_and_worktrees_merged_on_origin_after_pulling(
+            self, gup, git, tmp_path, project, added):
+        shipped = added("shipped")
+        ship_by_squash_merge(git, tmp_path, shipped, "shipped")
+
+        result = gup(project)
+
+        assert result.returncode == 0, result.stderr
+        assert git(project, "rev-parse", "HEAD") == git(project, "rev-parse", "origin/main")
+        assert not shipped.exists()
+        assert "shipped" not in branches(git, project)
+
+    def should_also_clean_up_when_run_inside_a_worktree_git_dir(
+            self, gup, git, tmp_path, project, checkout, added):
+        shipped = added("shipped")
+        ship_by_squash_merge(git, tmp_path, shipped, "shipped")
+
+        result = gup(project / ".git" / "worktrees" / "feature")
+
+        assert result.returncode == 0, result.stderr
+        assert checkout.exists()
+        assert not shipped.exists()
+        assert "shipped" not in branches(git, project)
+
+    def should_leave_merged_branches_alone_when_the_pull_fails(
+            self, gup, git, tmp_path, project, added):
+        shipped = added("shipped")
+        ship_by_squash_merge(git, tmp_path, shipped, "shipped")
+        unpushed = added("unpushed")
+
+        result = gup(unpushed)
+
+        assert result.returncode != 0
+        assert shipped.exists()
+        assert "shipped" in branches(git, project)
 
 
 class TestComplete:

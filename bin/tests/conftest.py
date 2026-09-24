@@ -185,3 +185,23 @@ def move_to_other_mount(project, tmp_path):
     other_side = tmp_path / "other-mount"
     shutil.move(str(project), str(other_side))
     return other_side
+
+
+def branches(git, repo):
+    return git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").split("\n")
+
+
+def commit_file(git, checkout, name, content, message="Add file"):
+    (checkout / name).write_text(content)
+    git(checkout, "add", name)
+    git(checkout, "commit", "-m", message)
+
+
+def ship_by_squash_merge(git, tmp_path, checkout, branch):
+    commit_file(git, checkout, f"{branch}.txt", "done")
+    git(checkout, "push", "-u", "origin", branch)
+    server = tmp_path / f"server-{branch}"
+    git(tmp_path, "clone", str(tmp_path / "origin.git"), str(server))
+    git(server, "merge", "--squash", f"origin/{branch}")
+    git(server, "commit", "-m", f"Squash-merge {branch}")
+    git(server, "push", "origin", "main", f":{branch}")

@@ -12,6 +12,10 @@ Usage: git wt <command>
   path <branch>           print where the worktree holding <branch> is checked out on this machine
   rm <branch>...          delete each branch and the worktree holding it, also when that
                           worktree was registered from the other side of a container mount
+  rm --merged             delete each branch whose work is in origin/HEAD, squash merges included,
+                          and its worktree; a branch without commits of its own qualifies only once
+                          its upstream is gone, and checked-out branches and worktrees with
+                          uncommitted changes or not on this machine are kept
   sweep [-n]              remove clean worktrees whose branch is merged or upstream gone, and registrations
                           whose $WORKTREE_DIR directory is gone; -n only lists them
 EOF
@@ -175,6 +179,10 @@ add_worktree() {
     printf '%s\n' "$path"
 }
 
+upstream_gone() {
+    [ "$(git for-each-ref --format='%(upstream:track)' "refs/heads/$1")" = "[gone]" ]
+}
+
 sweep_reason() {
     local registered="$1" branch="$2" local_path reason
     if ! local_path=$(locate_worktree "$registered"); then
@@ -185,7 +193,7 @@ sweep_reason() {
         return 0
     fi
     [ -n "$branch" ] || return 1
-    if [ "$(git for-each-ref --format='%(upstream:track)' "refs/heads/$branch")" = "[gone]" ]; then
+    if upstream_gone "$branch"; then
         reason="upstream gone"
     elif merged_into_origin_head "$branch"; then
         reason="merged"
@@ -201,6 +209,38 @@ merged_into_origin_head() {
     git merge-base --is-ancestor "refs/heads/$1" origin/HEAD 2>/dev/null && return 1
     merged=$(git merge-tree --write-tree origin/HEAD "refs/heads/$1" 2>/dev/null) || return 1
     [ "$merged" = "$(git rev-parse 'origin/HEAD^{tree}')" ]
+}
+
+landed_in_origin_head() {
+    if git merge-base --is-ancestor "refs/heads/$1" origin/HEAD 2>/dev/null; then
+        upstream_gone "$1"
+    else
+        merged_into_origin_head "$1"
+    fi
+}
+
+landed_and_clean() {
+    local branch="$1" registered local_path
+    landed_in_origin_head "$branch" || return 1
+    registered=$(worktree_of_branch "$branch")
+    [ -n "$registered" ] || return 0
+    local_path=$(locate_worktree "$registered") || return 1
+    is_clean "$registered" "$local_path"
+}
+
+remove_merged_branches() {
+    local invoking_branch="$1" main_branch default_branch branch failed=0
+    main_branch=$(git symbolic-ref -q --short HEAD)
+    default_branch=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
+    while IFS= read -r branch; do
+        case "$branch" in
+            "$invoking_branch" | "$main_branch" | "${default_branch#origin/}") continue ;;
+        esac
+        if landed_and_clean "$branch"; then
+            remove_branches "$branch" || failed=1
+        fi
+    done < <(local_branches)
+    return "$failed"
 }
 
 sweep() {
@@ -232,29 +272,39 @@ complete_next_word() {
         "") printf '%s\n' add path rm sweep ;;
         add) [ $# -eq 1 ] && { local_branches; origin_branches; } | sort -u ;;
         path) [ $# -eq 1 ] && worktree_branches ;;
-        rm) local_branches ;;
+        rm) [ $# -eq 1 ] && echo --merged; [ "${2:-}" = --merged ] || local_branches ;;
         sweep) [ $# -eq 1 ] && printf '%s\n' -n ;;
     esac
 }
 
 main() {
-    local command="${1:-}" main_checkout
+    local command="${1:-}" main_checkout invoking_branch
     case "$command" in
         -h|--help) show_usage; return 0 ;;
         --complete) shift; complete_next_word "$@"; return 0 ;;
         add) [ $# -ge 2 ] && [ $# -le 3 ] || usage_error ;;
         path) [ $# -eq 2 ] || usage_error ;;
-        rm) [ $# -ge 2 ] || usage_error ;;
+        rm)
+            [ $# -ge 2 ] || usage_error
+            [ "$2" != --merged ] || [ $# -eq 2 ] || usage_error
+            ;;
         sweep) [ $# -eq 1 ] || { [ $# -eq 2 ] && [ "$2" = "-n" ]; } || usage_error ;;
         *) usage_error ;;
     esac
     shift
+    invoking_branch=$(git symbolic-ref -q --short HEAD 2>/dev/null)
     main_checkout=$(main_worktree)
     [ -n "$main_checkout" ] && cd "$main_checkout" || return 1
     case "$command" in
         add) add_worktree "$@" ;;
         path) checkout_of_branch "$@" ;;
-        rm) remove_branches "$@" ;;
+        rm)
+            if [ "$1" = --merged ]; then
+                remove_merged_branches "$invoking_branch"
+            else
+                remove_branches "$@"
+            fi
+            ;;
         sweep) sweep "$([ "${1:-}" = "-n" ] && echo true || echo false)" ;;
     esac
 }

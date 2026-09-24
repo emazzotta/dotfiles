@@ -5,7 +5,8 @@ show_usage() {
     cat <<EOF
 Usage: gup [<git pull args>]
 
-git pull --rebase --autostash. Run inside a worktree's .git/worktrees/<id> directory,
+git pull --rebase --autostash, then git wt rm --merged to delete the branches and worktrees
+whose work has landed in origin/HEAD. Run inside a worktree's .git/worktrees/<id> directory,
 it updates that worktree's checkout instead.
 EOF
 }
@@ -22,6 +23,13 @@ inside_worktree_git_dir() {
         [ "$(git rev-parse --absolute-git-dir)" != "$(git rev-parse --path-format=absolute --git-common-dir)" ]
 }
 
+update_checkout() {
+    local checkout="$1"
+    shift
+    git -C "$checkout" pull --rebase --autostash "$@" || return
+    git -C "$checkout" wt rm --merged
+}
+
 pull_worktree_checkout() {
     local head checkout
     if ! head=$(git symbolic-ref -q HEAD); then
@@ -30,7 +38,7 @@ pull_worktree_checkout() {
     fi
     checkout=$(git wt path "${head#refs/heads/}") || return 1
     echo "gup: updating $checkout" >&2
-    exec git -C "$checkout" pull --rebase --autostash "$@"
+    update_checkout "$checkout" "$@"
 }
 
 main() {
@@ -41,7 +49,7 @@ main() {
     if inside_worktree_git_dir; then
         pull_worktree_checkout "$@"
     else
-        exec git pull --rebase --autostash "$@"
+        update_checkout "$PWD" "$@"
     fi
 }
 
