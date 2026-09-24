@@ -8,9 +8,17 @@ show_usage() {
     cat <<EOF
 Usage: $(basename "${0}") [-f|--fast] [-v|--verbose] [dir]
 
-List the git repos under dir (default: \$WDIR) with uncommitted, unpushed or
-stashed changes, and every other branch with its CI state and how far it is
-behind the default branch.
+Show each git repo under dir (default: \$WDIR) that has uncommitted, unpushed or
+stashed work or branches besides the default branch: the default branch with its
+CI state, then one row per branch.
+
+  💻        local branch
+  ⛅        branch only on origin
+  ✓ ✗ ● 💤  CI passed, failed, running, no pipeline
+  ↓N        commits behind the default branch
+  ↑N        commits not pushed
+  ✎N        uncommitted files
+  ✭N        stashes
 
 Options:
   -f, --fast       skip the CI lookups
@@ -39,12 +47,16 @@ bot_branch_pattern='^(renovate|dependabot|greenkeeper|snyk|whitesource-remediate
 pull_request_cache_dir="${HOME}/.cache/gck"
 pull_request_cache_minutes=10
 behind_column_width=5
+detail_indent="        "
 no_pipeline_mark="💤"
+local_branch_mark="💻"
+remote_only_mark="⛅"
+unpushed_mark="↑"
+uncommitted_mark="✎"
+stash_mark="✭"
 mkdir -p "${pull_request_cache_dir}"
 
 output_file=$(mktemp)
-branches_file=$(mktemp)
-remote_branches_file=$(mktemp)
 status_file=$(mktemp)
 links_file=$(mktemp)
 pull_requests_file=$(mktemp)
@@ -53,15 +65,7 @@ fetch_error_file=$(mktemp)
 ci_states_file=$(mktemp)
 ci_errors_file=$(mktemp)
 ci_warnings_file=$(mktemp)
-trap 'rm -f "${output_file}" "${branches_file}" "${remote_branches_file}" "${status_file}" "${links_file}" "${pull_requests_file}" "${pull_request_warnings_file}" "${fetch_error_file}" "${ci_states_file}" "${ci_errors_file}" "${ci_warnings_file}"' EXIT
-
-separator() {
-    printf "${BOLD}${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
-}
-
-dim_separator() {
-    printf "${YELLOW}╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌${RESET}\n"
-}
+trap 'rm -f "${output_file}" "${status_file}" "${links_file}" "${pull_requests_file}" "${pull_request_warnings_file}" "${fetch_error_file}" "${ci_states_file}" "${ci_errors_file}" "${ci_warnings_file}"' EXIT
 
 remote_slug() {
     local dir="${1}"
@@ -277,33 +281,49 @@ branch_emphasis() {
     fi
 }
 
+is_listed() {
+    printf '%s\n' "${2}" | grep -qxF -- "${1}"
+}
+
+count_lines() {
+    awk 'END { print NR }'
+}
+
+join_notes() {
+    local joined=""
+    local note
+    for note in "$@"; do
+        if [ -n "${note}" ]; then
+            joined="${joined:+${joined}  }${note}"
+        fi
+    done
+    printf '%s' "${joined}"
+}
+
+count_note() {
+    local color="${1}"
+    local mark="${2}"
+    local count="${3}"
+    if [ "${count}" -gt 0 ]; then
+        printf '%s%s%s%s' "${color}" "${mark}" "${count}" "${RESET}"
+    fi
+}
+
 render_branch_row() {
     local dir="${1}"
     local branch="${2}"
     local ref="${3}"
     local default_ref="${4}"
     local width="${5}"
+    local location_mark="${6}"
+    local notes="${7}"
     local behind
     behind=$(count_behind "${dir}" "${ref}" "${default_ref}")
     load_ci_state "${branch}"
     local row
-    row="  ${ci_mark}${ci_mark_padding} $(format_branch "${branch}" "$(branch_emphasis "${branch}")")$(pad $((width - ${#branch} + 2)))"
-    row="${row}$(format_behind "${behind}") ${ci_label}"
+    row="  ${location_mark} ${ci_mark}${ci_mark_padding} $(format_branch "${branch}" "$(branch_emphasis "${branch}")")$(pad $((width - ${#branch} + 2)))"
+    row="${row}$(format_behind "${behind}") $(join_notes "${ci_label}" "${notes}")"
     printf '%s\n' "${row%"${row##*[![:space:]]}"}"
-}
-
-render_repo_header() {
-    local dir="${1}"
-    local default_branch="${2}"
-    local header="${YELLOW}${dir}${RESET}"
-    load_ci_state "${default_branch}"
-    if [ -n "${ci_state}" ]; then
-        header="${header}  ${default_branch} ${ci_mark}"
-    fi
-    if [ -n "${ci_label}" ]; then
-        header="${header} ${ci_label}"
-    fi
-    printf '%s\n' "${header}"
 }
 
 unpushed_branches() {
@@ -322,10 +342,9 @@ describe_divergence() {
     local target="${3}"
     local ahead behind
     read -r ahead behind < <(git -C "${dir}" rev-list --left-right --count "${ref}...${target}")
-    if [ "${behind}" -eq 0 ]; then
-        printf '%s ahead of origin' "${ahead}"
-    else
-        printf 'diverged from origin: %s ahead, %s behind' "${ahead}" "${behind}"
+    printf '%s%s' "${unpushed_mark}" "${ahead}"
+    if [ "${behind}" -gt 0 ]; then
+        printf ' diverged'
     fi
 }
 
@@ -337,140 +356,256 @@ describe_push_state() {
     local target="${upstream:-refs/remotes/origin/${branch}}"
     if git -C "${dir}" show-ref --verify --quiet "${target}"; then
         describe_divergence "${dir}" "refs/heads/${branch}" "${target}"
-    elif [ -n "${upstream}" ]; then
-        printf 'gone from origin'
+        return 0
+    fi
+    printf '%s%s' "${unpushed_mark}" "$(git -C "${dir}" rev-list --count "refs/heads/${branch}" --not --remotes)"
+    if [ -n "${upstream}" ]; then
+        printf ' gone from origin'
     else
-        printf 'not on origin'
+        printf ' not on origin'
     fi
 }
 
-describe_worktree() {
+push_note() {
     local dir="${1}"
     local branch="${2}"
-    local path
-    path=$(git -C "${dir}" worktree list --porcelain | awk -v b="branch refs/heads/${branch}" '
-        /^worktree / { path = substr($0, 10); linked = count++ > 0 }
-        linked && $0 == b { print path; exit }')
-    [ -n "${path}" ] || return 0
-    printf 'worktree %s' "${path#"$(git -C "${dir}" rev-parse --show-toplevel)"/}"
-    if [ ! -d "${path}" ]; then
-        printf ' (missing here)'
+    if [ -n "${branch}" ] && is_listed "${branch}" "${unpushed}"; then
+        printf '%s%s%s' "${YELLOW}" "$(describe_push_state "${dir}" "${branch}")" "${RESET}"
     fi
 }
 
-render_unpushed() {
+linked_worktree_branches() {
+    git -C "${1}" worktree list --porcelain | awk '
+        /^worktree / { linked = count++ > 0 }
+        linked && /^branch refs\/heads\// { print substr($0, 19) }'
+}
+
+checkout_of() {
     local dir="${1}"
-    local branches="${2}"
-    local branch worktree
-    while IFS= read -r branch; do
-        printf '%s  %s' "${BOLD}${branch}${RESET}" "${YELLOW}$(describe_push_state "${dir}" "${branch}")${RESET}"
-        worktree=$(describe_worktree "${dir}" "${branch}")
-        if [ -n "${worktree}" ]; then
-            printf '  %s' "${CYAN}${worktree}${RESET}"
+    local branch="${2}"
+    if [ "${branch}" = "${current_branch}" ]; then
+        printf '%s' "${dir}"
+    elif is_listed "${branch}" "${worktree_branches}"; then
+        git -C "${dir}" wt path "${branch}" 2>/dev/null
+    fi
+}
+
+count_uncommitted() {
+    local changes
+    changes=$(git -C "${1}" status --porcelain --untracked-files=all 2>/dev/null) || changes=""
+    printf '%s' "${changes}" | count_lines
+}
+
+indent_details() {
+    sed "s/^/${detail_indent}/"
+}
+
+render_unpushed_commits() {
+    local dir="${1}"
+    local branch="${2}"
+    if [ -n "${branch}" ] && is_listed "${branch}" "${unpushed}"; then
+        git -C "${dir}" log --pretty=tformat:'%h - %an, %ar: %s' "refs/heads/${branch}" --not --remotes | indent_details
+    fi
+}
+
+render_changed_files() {
+    git -c color.ui=always -C "${1}" status --short --untracked-files=all | indent_details
+}
+
+render_details() {
+    local dir="${1}"
+    local branch="${2}"
+    local checkout="${3}"
+    local uncommitted="${4}"
+    render_unpushed_commits "${dir}" "${branch}"
+    if [ "${uncommitted}" -gt 0 ]; then
+        render_changed_files "${checkout}"
+    fi
+}
+
+render_repo_details() {
+    local dir="${1}"
+    local branch="${2}"
+    local uncommitted="${3}"
+    local stashes="${4}"
+    render_details "${dir}" "${branch}" "${dir}" "${uncommitted}"
+    if [ "${stashes}" -gt 0 ]; then
+        git -c color.ui=always -C "${dir}" stash list | indent_details
+    fi
+}
+
+repo_link() {
+    local dir="${1}"
+    local path label
+    path=$(git -C "${dir}" rev-parse --show-toplevel)
+    label="${dir#"${scan_dir%/}"/}"
+    if [ "${dir}" = "${scan_dir}" ]; then
+        label="${path##*/}"
+    fi
+    hyperlink "file://${path}" "${YELLOW}${label}${RESET}"
+}
+
+render_repo_header() {
+    local dir="${1}"
+    local branch="${2}"
+    local uncommitted="${3}"
+    local stashes="${4}"
+    local header
+    header=$(repo_link "${dir}")
+    load_ci_state "${branch}"
+    if [ -n "${branch}" ]; then
+        header="${header}  ${branch}"
+    fi
+    if [ -n "${ci_state}" ]; then
+        header="${header} ${ci_mark}"
+    fi
+    local notes
+    notes=$(join_notes "${ci_label}" "$(push_note "${dir}" "${branch}")" \
+        "$(count_note "${RED}" "${uncommitted_mark}" "${uncommitted}")" \
+        "$(count_note "${CYAN}" "${stash_mark}" "${stashes}")")
+    printf '%s\n' "${header}${notes:+  ${notes}}"
+}
+
+render_local_branch() {
+    local branch="${1}"
+    local dir="${2}"
+    local default_ref="${3}"
+    local width="${4}"
+    local checkout="" uncommitted=0 missing=""
+    if checkout=$(checkout_of "${dir}" "${branch}"); then
+        if [ -n "${checkout}" ]; then
+            uncommitted=$(count_uncommitted "${checkout}")
         fi
-        printf '\n'
-        if [ "${verbose}" = true ]; then
-            git -C "${dir}" log --pretty=format:"  %h - %an, %ar: %s" "refs/heads/${branch}" --not --remotes
-            printf '\n'
+    else
+        missing="${CYAN}worktree missing here${RESET}"
+    fi
+    render_branch_row "${dir}" "${branch}" "refs/heads/${branch}" "${default_ref}" "${width}" "${local_branch_mark}" \
+        "$(join_notes "$(push_note "${dir}" "${branch}")" "$(count_note "${RED}" "${uncommitted_mark}" "${uncommitted}")" "${missing}")"
+    if [ "${verbose}" = true ]; then
+        render_details "${dir}" "${branch}" "${checkout}" "${uncommitted}"
+    fi
+}
+
+render_remote_branch() {
+    local branch="${1}"
+    local dir="${2}"
+    local default_ref="${3}"
+    local width="${4}"
+    render_branch_row "${dir}" "${branch}" "refs/remotes/origin/${branch}" "${default_ref}" "${width}" "${remote_only_mark}" ""
+}
+
+render_rows() {
+    local renderer="${1}"
+    local branches="${2}"
+    shift 2
+    local branch
+    while IFS= read -r branch; do
+        if [ -n "${branch}" ]; then
+            "${renderer}" "${branch}" "$@"
         fi
     done <<< "${branches}"
 }
 
-render_count() {
-    local singular="${1}"
-    local plural="${2}"
-    local count
-    count=$(awk 'END { print NR }')
-    if [ "${count}" -eq 1 ]; then
-        printf '%s %s\n' "${count}" "${singular}"
-    else
-        printf '%s %s\n' "${count}" "${plural}"
+longest_name() {
+    local width=0
+    local name
+    while IFS= read -r name; do
+        if [ "${#name}" -gt "${width}" ]; then
+            width=${#name}
+        fi
+    done
+    printf '%s' "${width}"
+}
+
+local_branch_names() {
+    git -C "${1}" for-each-ref --format='%(refname:short)' refs/heads/ | grep -Ev '^(main|master)$' || true
+}
+
+origin_branch_names() {
+    git -C "${1}" for-each-ref --format='%(refname:short)' refs/remotes/origin/ \
+        | grep -Ev '^origin$|origin/(HEAD|main|master)$' \
+        | sed 's#^origin/##' || true
+}
+
+header_branch_of() {
+    local default_ref="${1}"
+    if [ -n "${default_ref}" ]; then
+        printf '%s' "${default_ref#origin/}"
+    elif [ "${current_branch}" != HEAD ]; then
+        printf '%s' "${current_branch}"
     fi
 }
 
-render_uncommitted() {
+fetch_branch_states() {
     local dir="${1}"
-    if [ "${verbose}" = true ]; then
-        git -c color.ui=always -C "${dir}" status -s
-    else
-        git -C "${dir}" status --porcelain --untracked-files=all | render_count "changed file" "changed files"
+    local origin_branches="${2}"
+    local branches="${3}"
+    : > "${links_file}"
+    : > "${ci_states_file}"
+    if [ -n "${origin_branches}" ]; then
+        printf '%s\n' "${origin_branches}" | build_branch_links "${dir}"
     fi
-}
-
-render_stashes() {
-    local dir="${1}"
-    if [ "${verbose}" = true ]; then
-        git -c color.ui=always -C "${dir}" stash list
-    else
-        git -C "${dir}" stash list | render_count stash stashes
+    if [ "${fast}" = false ]; then
+        build_ci_states "${dir}" "${branches}"
     fi
 }
 
 render_repo() {
     local dir="${1}"
-    local ref_prefix="${2}"
-    local default_ref="${3}"
-    local branches="${4}"
-    local width=0
-    local branch
-    while IFS= read -r branch; do
-        if [ "${#branch}" -gt "${width}" ]; then
-            width=${#branch}
+    local origin_branches="${2}"
+    local local_branches="${3}"
+    local remote_branches="${4}"
+    local uncommitted="${5}"
+    local stashes="${6}"
+    local default_ref header_branch width
+    default_ref=$(default_branch_ref "${dir}")
+    header_branch=$(header_branch_of "${default_ref}")
+    fetch_branch_states "${dir}" "${origin_branches}" "$(printf '%s\n' "${header_branch}" "${local_branches}" "${remote_branches}")"
+    render_repo_header "${dir}" "${header_branch}" "${uncommitted}" "${stashes}"
+    if [ "${verbose}" = true ]; then
+        render_repo_details "${dir}" "${header_branch}" "${uncommitted}" "${stashes}"
+    fi
+    width=$(printf '%s\n' "${local_branches}" "${remote_branches}" | longest_name)
+    render_rows render_local_branch "${local_branches}" "${dir}" "${default_ref}" "${width}"
+    render_rows render_remote_branch "${remote_branches}" "${dir}" "${default_ref}" "${width}"
+}
+
+scan_repo() {
+    local dir="${1}"
+    printf '%s' "${dir}" > "${status_file}"
+    current_branch=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
+    unpushed=$(unpushed_branches "${dir}")
+    worktree_branches=$(linked_worktree_branches "${dir}")
+    local local_branches origin_branches remote_only uncommitted stashes
+    local_branches=$(local_branch_names "${dir}")
+    origin_branches=$(origin_branch_names "${dir}")
+    remote_only=$(remote_only_branches "${dir}" "${origin_branches}")
+    uncommitted=$(count_uncommitted "${dir}")
+    stashes=$(git -C "${dir}" stash list | count_lines)
+    if [ -z "${local_branches}${remote_only}${unpushed}" ] && [ "${uncommitted}" -eq 0 ] && [ "${stashes}" -eq 0 ]; then
+        return 0
+    fi
+    if is_listed "${current_branch}" "${local_branches}"; then
+        uncommitted=0
+    fi
+    render_repo "${dir}" "${origin_branches}" "${local_branches}" "${remote_only}" "${uncommitted}" "${stashes}"
+}
+
+is_ignored() {
+    local dir="${1}"
+    local pattern
+    for pattern in "${ignore_dirs[@]}"; do
+        if [[ "${dir}" =~ (^|/)${pattern}$ ]]; then
+            return 0
         fi
-    done <<< "${branches}"
-    render_repo_header "${dir}" "${default_ref#origin/}"
-    while IFS= read -r branch; do
-        render_branch_row "${dir}" "${branch}" "${ref_prefix}${branch}" "${default_ref}" "${width}"
-    done <<< "${branches}"
+    done
+    return 1
 }
 
 scan_repos() {
     find "${scan_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
-        skip=false
-        for pattern in "${ignore_dirs[@]}"; do
-            if [[ "${dir}" =~ (^|/)${pattern}$ ]]; then
-                skip=true
-                break
-            fi
-        done
-        [ "${skip}" = true ] && continue
-        if [ -d "${dir}/.git" ]; then
-            printf '%s' "${dir}" > "${status_file}"
-            current_branch=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
-            shown=false
-            if [[ "$(git -C "${dir}" status -s)" != "" ]]; then
-                { separator; printf "${BOLD}${WHITE}%s${RESET} [git uncommitted changes]\n" "${dir}"; render_uncommitted "${dir}"; } >> "${output_file}"
-                shown=true
-            fi
-            unpushed=$(unpushed_branches "${dir}")
-            if [ -n "${unpushed}" ]; then
-                { separator; printf "${BOLD}${WHITE}%s${RESET} [git unpushed changes]\n" "${dir}"; render_unpushed "${dir}" "${unpushed}"; } >> "${output_file}"
-                shown=true
-            fi
-            if [ "$(git -C "${dir}" stash list)" != "" ]; then
-                { separator; printf "${BOLD}${WHITE}%s${RESET} [git stashed changes]\n" "${dir}"; render_stashes "${dir}"; } >> "${output_file}"
-                shown=true
-            fi
-            other_branches=$(git -C "${dir}" for-each-ref --format='%(refname:short)' refs/heads/ | grep -Ev '^(main|master)$' || true)
-            origin_branches=$(git -C "${dir}" for-each-ref --format='%(refname:short)' refs/remotes/origin/ \
-                | grep -Ev '^origin$|origin/(HEAD|main|master)$' \
-                | sed 's#^origin/##' || true)
-            remote_only=$(remote_only_branches "${dir}" "${origin_branches}")
-            default_ref=$(default_branch_ref "${dir}")
-            : > "${links_file}"
-            : > "${ci_states_file}"
-            if [ -n "${other_branches}${origin_branches}" ]; then
-                printf '%s\n' "${origin_branches}" | build_branch_links "${dir}"
-                if [ "${fast}" = false ]; then
-                    build_ci_states "${dir}" "$(printf '%s\n' "${default_ref#origin/}" "${other_branches}" "${remote_only}")"
-                fi
-            fi
-            if [ -n "${other_branches}" ]; then
-                render_repo "${dir}" refs/heads/ "${default_ref}" "${other_branches}" >> "${branches_file}"
-            fi
-            if [ -n "${remote_only}" ]; then
-                render_repo "${dir}" refs/remotes/origin/ "${default_ref}" "${remote_only}" >> "${remote_branches_file}"
-            fi
+        if [ -d "${dir}/.git" ] && ! is_ignored "${dir}"; then
+            scan_repo "${dir}" >> "${output_file}"
         fi
     done
 }
@@ -494,25 +629,6 @@ spin
 wait "${SCAN_PID}"
 
 cat "${output_file}"
-[ -s "${output_file}" ] && separator
-
-if [ -s "${branches_file}" ]; then
-    echo
-    dim_separator
-    printf "${YELLOW}  other branches${RESET}\n"
-    dim_separator
-    cat "${branches_file}"
-    dim_separator
-fi
-
-if [ -s "${remote_branches_file}" ]; then
-    echo
-    dim_separator
-    printf "${YELLOW}  other remote branches${RESET}\n"
-    dim_separator
-    cat "${remote_branches_file}"
-    dim_separator
-fi
 
 print_warnings "No pull request links, falling back to branch links:" "${pull_request_warnings_file}"
 print_warnings "No CI status:" "${ci_warnings_file}"

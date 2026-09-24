@@ -2,12 +2,15 @@ import os
 import re
 import shutil
 import subprocess
+import unicodedata
 from pathlib import Path
 
 import pytest
 
 BIN_DIR = Path(__file__).parent.parent
 TERMINAL_ESCAPES = re.compile(r"\x1b\]8;;[^\x1b]*\x1b\\|\x1b\[[0-9;]*m")
+LOCAL = "💻"
+REMOTE_ONLY = "⛅"
 
 GLAB_MOCK = r'''
 printf '%s\n' "$*" >> "${GLAB_CALLS:-/dev/null}"
@@ -117,19 +120,42 @@ def should_list_each_branch_with_its_ci_state_commits_behind_main_and_failure_ca
     assert re.search(r"●\s+remote-only\s+running$", output, re.MULTILINE)
 
 
+def should_show_a_repository_as_one_block_with_local_and_remote_only_branches_aligned(gck, workspace):
+    output = gck(workspace)
+
+    rows = re.match(rf"project  main ✓\n  {LOCAL} (✗  feature.*)\n  {REMOTE_ONLY} (●  remote-only.*)\n", output)
+    assert rows, output
+    local_row, remote_only_row = rows.groups()
+    assert local_row.index("tests") == remote_only_row.index("running")
+
+
+def should_mark_where_a_branch_lives_with_emoji_every_terminal_draws_two_columns_wide(gck, workspace):
+    output = gck(workspace)
+
+    marks = set(re.findall(r"^  (\S+) ", output, re.MULTILINE))
+    assert marks == {LOCAL, REMOTE_ONLY}
+    assert all(len(mark) == 1 and unicodedata.east_asian_width(mark) == "W" for mark in marks)
+
+
 def should_mark_a_branch_that_never_had_a_pipeline_and_keep_it_aligned(gck, workspace, git):
     git(workspace / "project", "branch", "spike", "main")
 
     output = gck(workspace)
 
-    assert re.search(r"^  💤 spike$", output, re.MULTILINE)
-    assert re.search(r"^  ✗  feature\s", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} 💤 spike$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} ✗  feature\s", output, re.MULTILINE)
 
 
 def should_show_the_ci_state_of_main_next_to_each_repository(gck, workspace):
     output = gck(workspace)
 
-    assert re.search(r"/project\s+main ✓$", output, re.MULTILINE)
+    assert re.search(r"^project  main ✓$", output, re.MULTILINE)
+
+
+def should_name_a_repository_after_its_directory_when_it_is_the_scanned_directory(gck, workspace):
+    output = gck(workspace / "project")
+
+    assert output.startswith("project  main ✓\n")
 
 
 def should_still_show_how_far_behind_main_a_branch_is_without_a_ci_host(gck, workspace, git):
@@ -137,7 +163,7 @@ def should_still_show_how_far_behind_main_a_branch_is_without_a_ci_host(gck, wor
 
     output = gck(workspace)
 
-    assert re.search(r"^\s+feature\s+↓2$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL}\s+feature\s+↓2$", output, re.MULTILINE)
     assert "✓" not in output
     assert "💤" not in output
 
@@ -145,28 +171,29 @@ def should_still_show_how_far_behind_main_a_branch_is_without_a_ci_host(gck, wor
 def should_skip_the_ci_lookups_but_still_show_the_branches_in_fast_mode(gck, workspace, tmp_path):
     output = gck(workspace, "--fast")
 
-    assert re.search(r"^\s+feature\s+↓2$", output, re.MULTILINE)
-    assert not re.search(r"^ +[✓✗●💤]|main [✓✗●💤]", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL}\s+feature\s+↓2$", output, re.MULTILINE)
+    assert not re.search(rf"^  (?:{LOCAL}|{REMOTE_ONLY}) [✓✗●💤]|main [✓✗●💤]", output, re.MULTILINE)
     assert "api" not in (tmp_path / "glab-calls").read_text()
 
 
-def should_say_how_each_unpushed_branch_differs_from_origin_without_listing_its_commits(gck, unpushed_workspace):
+def should_mark_how_each_branch_differs_from_origin_without_listing_its_commits(gck, unpushed_workspace):
     output = gck(unpushed_workspace)
 
-    assert re.search(r"^feature  1 ahead of origin$", output, re.MULTILINE)
-    assert re.search(r"^rewritten  diverged from origin: 1 ahead, 1 behind$", output, re.MULTILINE)
-    assert not re.search(r"^  [0-9a-f]+ - Test, ", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} ✗  feature\s+↓2\s+tests  ↑1$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} 💤 rewritten\s+↑1 diverged$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} 💤 merged\s+↑1 gone from origin$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} 💤 spike\s+↑1 not on origin$", output, re.MULTILINE)
+    assert " - Test, " not in output
 
 
-def should_group_the_unpushed_commits_by_branch_in_verbose_mode(gck, unpushed_workspace):
+def should_list_the_unpushed_commits_under_their_branch_in_verbose_mode(gck, unpushed_workspace):
     output = gck(unpushed_workspace, "--verbose")
 
-    assert re.search(r"^feature  1 ahead of origin\n  [0-9a-f]+ - Test, .+: Not pushed yet$", output, re.MULTILINE)
-    assert re.search(r"^rewritten  diverged from origin: 1 ahead, 1 behind\n  .+: Pushed once, then amended$",
+    assert re.search(r"feature\s+↓2\s+tests  ↑1\n {8}[0-9a-f]+ - Test, .+: Not pushed yet$", output, re.MULTILINE)
+    assert re.search(r"rewritten\s+↑1 diverged\n {8}[0-9a-f]+ - Test, .+: Pushed once, then amended$",
                      output, re.MULTILINE)
-    assert re.search(r"^merged  gone from origin\n  .+: Squash merged upstream$", output, re.MULTILINE)
-    assert re.search(r"^spike  not on origin  worktree \.claude/worktrees/spike\n  .+: Local experiment$",
-                     output, re.MULTILINE)
+    assert re.search(r"merged\s+↑1 gone from origin\n {8}.+: Squash merged upstream$", output, re.MULTILINE)
+    assert re.search(r"spike\s+↑1 not on origin\n {8}.+: Local experiment$", output, re.MULTILINE)
 
 
 def should_flag_a_worktree_whose_directory_is_missing_on_this_machine(gck, unpushed_workspace):
@@ -174,23 +201,51 @@ def should_flag_a_worktree_whose_directory_is_missing_on_this_machine(gck, unpus
 
     output = gck(unpushed_workspace)
 
-    assert re.search(r"^spike  not on origin  worktree \.claude/worktrees/spike \(missing here\)$", output, re.MULTILINE)
+    assert re.search(r"spike\s+↑1 not on origin  worktree missing here$", output, re.MULTILINE)
+
+
+def should_count_the_uncommitted_files_of_a_worktree_on_its_branch(gck, unpushed_workspace):
+    (unpushed_workspace / "project" / ".claude" / "worktrees" / "spike" / "draft.txt").write_text("wip\n")
+
+    output = gck(unpushed_workspace)
+
+    assert re.search(r"spike\s+↑1 not on origin  ✎1$", output, re.MULTILINE)
+
+
+def should_find_a_worktree_registered_from_the_other_side_of_a_container_mount(gck, unpushed_workspace):
+    project = unpushed_workspace / "project"
+    (project / ".claude" / "worktrees" / "spike" / "draft.txt").write_text("wip\n")
+    registration = next((project / ".git" / "worktrees").glob("*/gitdir"))
+    registration.write_text("/elsewhere/project/.claude/worktrees/spike/.git\n")
+
+    output = gck(unpushed_workspace)
+
+    assert re.search(r"spike\s+↑1 not on origin  ✎1$", output, re.MULTILINE)
 
 
 def should_count_the_uncommitted_files_and_stashes_instead_of_listing_them(gck, dirty_workspace):
     output = gck(dirty_workspace)
 
-    assert re.search(r"\[git uncommitted changes\]\n3 changed files$", output, re.MULTILINE)
-    assert re.search(r"\[git stashed changes\]\n1 stash$", output, re.MULTILINE)
+    assert re.search(r"^project  main ✓  ✎3  ✭1$", output, re.MULTILINE)
     assert "notes.txt" not in output
     assert "Half-baked idea" not in output
 
 
-def should_list_the_uncommitted_files_and_stashes_in_verbose_mode(gck, dirty_workspace):
+def should_count_the_uncommitted_files_on_the_branch_the_main_checkout_is_on(gck, dirty_workspace, git):
+    git(dirty_workspace / "project", "checkout", "-q", "feature")
+
+    output = gck(dirty_workspace)
+
+    assert re.search(r"^project  main ✓  ✭1$", output, re.MULTILINE)
+    assert re.search(rf"^  {LOCAL} ✗  feature\s+↓2\s+tests  ✎3$", output, re.MULTILINE)
+
+
+def should_list_the_uncommitted_files_and_stashes_under_the_repository_in_verbose_mode(gck, dirty_workspace):
     output = gck(dirty_workspace, "--verbose")
 
-    assert re.search(r"^\?\? notes\.txt$", output, re.MULTILINE)
-    assert re.search(r"^stash@\{0\}: On main: Half-baked idea$", output, re.MULTILINE)
+    assert re.search(r"^project  main ✓  ✎3  ✭1\n {8}\?\? drafts/one\.txt$", output, re.MULTILINE)
+    assert re.search(r"^ {8}\?\? notes\.txt$", output, re.MULTILINE)
+    assert re.search(r"^ {8}stash@\{0\}: On main: Half-baked idea$", output, re.MULTILINE)
 
 
 def should_describe_the_fast_and_verbose_modes_in_the_help(run_gck):
