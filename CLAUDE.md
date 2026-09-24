@@ -22,7 +22,7 @@ Shell scripts carry the same hazard from the other direction: macOS ships BSD co
 
 ## Tests
 
-`pytest bin/tests` must pass on **macOS and Linux**. GitHub Actions runs Linux only, so a green pipeline says nothing about the Mac - interpreter and coreutils both differ. Run it locally on macOS before trusting a change.
+`pytest bin/tests` must pass on **macOS and Linux**. GitHub Actions runs Linux only, so a green pipeline says nothing about the Mac - interpreter and coreutils both differ. Run it locally on macOS before trusting a change, with the venv's interpreter (`av`, or `"$VENV_PYTHON_3/bin/python" -m pytest`): Homebrew's `python3` has no pytest.
 
 - Test names start with `should_`, read as a sentence describing what is proven, and follow AAA.
 - **Never assert against a clock captured at import.** Relative-time output (`just now`, `1m ago`) drifts with suite duration: a 16 s local run and a 114 s CI run disagree, and the failure reads like a logic bug. Freeze the clock in the fixture.
