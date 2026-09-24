@@ -11,7 +11,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Final, Optional, Union
+from typing import Callable, Final, Iterable, Optional, Union
 from urllib.parse import quote
 
 CACHE_DIR: Final = Path.home() / ".cache" / "gck" / "ci"
@@ -24,6 +24,8 @@ FAILED: Final = "failed"
 RUNNING: Final = "running"
 NO_PIPELINE: Final = "none"
 SCRIPT_FAILURE: Final = "script_failure"
+ERROR_BANNER: Final = "ERROR"
+TRANSPORT_ERROR: Final = re.compile(r'^\w+ "[^"]*": (?P<cause>.+)$')
 GITHUB_FAILED_CONCLUSIONS: Final = frozenset({"failure", "timed_out", "startup_failure"})
 GITHUB_PASSING_CONCLUSIONS: Final = frozenset({SUCCESS, "skipped", "neutral"})
 LOG_CATEGORIES: Final = (
@@ -188,9 +190,23 @@ def run_command(args: list[str]) -> str:
     except subprocess.TimeoutExpired:
         raise CommandFailed(f"{args[0]} timed out after {COMMAND_TIMEOUT_SECONDS}s") from None
     if completed.returncode != 0:
-        lines = completed.stderr.strip().splitlines()
-        raise CommandFailed(lines[0] if lines else f"{args[0]} exited with status {completed.returncode}")
+        raise CommandFailed(failure_reason(completed.stderr, f"{args[0]} exited with status {completed.returncode}"))
     return completed.stdout
+
+
+def failure_reason(stderr: str, fallback: str) -> str:
+    message = unwrap(line.strip() for line in stderr.splitlines() if line.strip() not in ("", ERROR_BANNER))
+    if not message:
+        return fallback
+    transport_error = TRANSPORT_ERROR.match(message)
+    return transport_error.group("cause") if transport_error else message
+
+
+def unwrap(lines: Iterable[str]) -> str:
+    message = ""
+    for line in lines:
+        message += line if not message or message.endswith("-") else f" {line}"
+    return message
 
 
 def provider_for(slug: str, run: Run) -> Provider:

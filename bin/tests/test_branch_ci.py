@@ -83,6 +83,21 @@ def should_classify_a_failed_job_by_its_log(branch_ci, log, category):
     assert branch_ci.classify_log(log, "Build") == category
 
 
+@pytest.mark.parametrize("stderr, reason", [
+    ("glab: 404 Project Not Found (HTTP 404)\n", "glab: 404 Project Not Found (HTTP 404)"),
+    ("          \n   ERROR  \n          \n"
+     '  Get "https://gitlab.example.com/api/v4/projects/x": dial tcp: lookup gitlab.example.com: i/o timeout.   \n\n',
+     "dial tcp: lookup gitlab.example.com: i/o timeout."),
+    ("          \n   ERROR  \n          \n"
+     '  Get "https://gitlab.example.com/api/v4/projects/group%2Fproject/pipelines?ref=LEO-1234-a-long-branch- \n'
+     '  name&per_page=1": dial tcp: lookup gitlab.example.com: no such host.                                  \n\n',
+     "dial tcp: lookup gitlab.example.com: no such host."),
+    ("", "glab exited with status 1"),
+])
+def should_report_the_cause_of_a_failed_command_without_glab_banner_url_or_line_wrapping(branch_ci, stderr, reason):
+    assert branch_ci.failure_reason(stderr, "glab exited with status 1") == reason
+
+
 def should_fall_back_to_the_job_name_when_the_log_matches_no_category(branch_ci):
     assert branch_ci.classify_log("ERROR: Job failed: exit status 1\n", "Build & Deploy") == "Build & Deploy"
 
