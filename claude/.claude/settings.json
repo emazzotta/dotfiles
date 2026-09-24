@@ -1,5 +1,6 @@
 {
   "cleanupPeriodDays": 365,
+  "autoMemoryEnabled": false,
   "permissions": {
     "defaultMode": "auto"
   },
