@@ -84,6 +84,16 @@ EOF
     esac
 }
 
+gco() {
+    local checkout
+    if [ $# -eq 1 ] && checkout=$(git wt path "$1" 2>/dev/null) &&
+        [ "$checkout" != "$(git rev-parse --show-toplevel 2>/dev/null)" ]; then
+        cd "$checkout" || return
+    else
+        git checkout "$@"
+    fi
+}
+
 load "$CUSTOM_BIN_DIR/javalib.sh"
 
 j() {

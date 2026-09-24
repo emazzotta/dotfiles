@@ -68,6 +68,10 @@ locate_worktree() {
 
 checkout_of_branch() {
     local registered
+    if [ "$(git symbolic-ref -q HEAD)" = "refs/heads/$1" ]; then
+        printf '%s\n' "$PWD"
+        return 0
+    fi
     registered=$(worktree_of_branch "$1")
     if [ -z "$registered" ]; then
         echo "no worktree holds $1" >&2
@@ -220,7 +224,7 @@ origin_branches() {
 }
 
 worktree_branches() {
-    linked_worktrees | awk -F '\t' '$2 != "" { print $2 }'
+    git worktree list --porcelain | sed -n 's|^branch refs/heads/||p'
 }
 
 complete_next_word() {

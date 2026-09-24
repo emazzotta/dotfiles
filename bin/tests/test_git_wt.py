@@ -124,11 +124,21 @@ class TestPath:
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip() == str(other_side / WORKTREES / "feature")
 
-    def should_fail_when_no_worktree_holds_the_branch(self, wt):
-        result = wt("path", "main")
+    def should_print_the_main_checkout_for_the_branch_it_holds(self, wt, added, project):
+        added("feature")
+
+        result = wt("path", "main", cwd=project / WORKTREES / "feature")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == str(project)
+
+    def should_fail_when_no_worktree_holds_the_branch(self, wt, git, project):
+        git(project, "branch", "plain")
+
+        result = wt("path", "plain")
 
         assert result.returncode == 1
-        assert "no worktree holds main" in result.stderr
+        assert "no worktree holds plain" in result.stderr
 
 
 class TestRm:
@@ -306,7 +316,7 @@ class TestComplete:
 
         result = wt("--complete", "path")
 
-        assert result.stdout.split() == ["feature"]
+        assert result.stdout.split() == ["main", "feature"]
 
     def should_offer_every_local_branch_to_each_rm_argument(self, wt, git, project):
         git(project, "branch", "plain")

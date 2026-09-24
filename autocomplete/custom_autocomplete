@@ -3,6 +3,7 @@ if test "${ZSH_VERSION}"; then
     autoload bashcompinit
     bashcompinit
     autoload -U add-zsh-hook
+    compdef _git gco=git-checkout
     compdef sshrc=ssh
     compdef o=open 2>/dev/null
     compdef y=yarn 2>/dev/null
