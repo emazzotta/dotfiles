@@ -149,6 +149,16 @@ class TestAdd:
 
         assert git(project, "config", "--global", "--get-all", "safe.directory") == "*"
 
+    @pytest.mark.parametrize("branch", ["feature", "renovate/junit"])
+    def should_keep_the_worktree_usable_from_another_mount_path(
+            self, added, git, tmp_path, project, branch):
+        added(branch)
+        other_side = move_to_other_mount(project, tmp_path)
+
+        head = git(other_side / WORKTREES / branch, "rev-parse", "--abbrev-ref", "HEAD")
+
+        assert head == branch
+
     def should_exit_with_usage_when_the_branch_is_missing(self, wt):
         result = wt("add")
 
@@ -211,7 +221,7 @@ class TestRm:
         twin = other_side / WORKTREES / "feature"
         assert result.returncode == 1
         assert (twin / "draft.txt").exists()
-        assert str(project) in (twin / ".git").read_text()
+        assert str(project / WORKTREES / "feature") in registered_paths(git, other_side)
         assert "feature" in branches(git, other_side)
 
     def should_delete_a_branch_that_no_worktree_holds(self, wt, git, project):

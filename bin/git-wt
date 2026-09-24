@@ -125,6 +125,22 @@ trust_like_main_checkout() {
     fi
 }
 
+relative_path() {
+    local from="$1" to="$2" up=""
+    until [ "${to#"$from"/}" != "$to" ]; do
+        from="${from%/*}"
+        up="../$up"
+    done
+    printf '%s%s\n' "$up" "${to#"$from"/}"
+}
+
+link_across_mounts() {
+    local worktree admin
+    worktree=$(cd "$1" && pwd -P) || return 1
+    admin=$(git -C "$worktree" rev-parse --absolute-git-dir) || return 1
+    printf 'gitdir: %s\n' "$(relative_path "$worktree" "$admin")" >"$worktree/.git"
+}
+
 add_worktree() {
     local branch="$1" start="${2:-}" path
     path="$PWD/$WORKTREE_DIR/$branch"
@@ -136,6 +152,7 @@ add_worktree() {
     else
         git worktree add --no-track -b "$branch" "$path" "${start:-origin/HEAD}" >&2 || return 1
     fi
+    link_across_mounts "$path"
     trust_like_main_checkout "$path"
     printf '%s\n' "$path"
 }
