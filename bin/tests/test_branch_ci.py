@@ -20,13 +20,6 @@ esac
 '''
 GLAB_ANSWERING = LOG_GLAB_CALL + ANSWER_BRANCH_PIPELINES
 GLAB_TIMING_OUT = LOG_GLAB_CALL + f"printf '%s' '{LOOKUP_TIMEOUT_BANNER}' >&2\nexit 1\n"
-GLAB_TIMING_OUT_ONCE = LOG_GLAB_CALL + f'''
-if [ ! -e "$HOME/timed-out" ]; then
-    touch "$HOME/timed-out"
-    printf '%s' '{LOOKUP_TIMEOUT_BANNER}' >&2
-    exit 1
-fi
-''' + ANSWER_BRANCH_PIPELINES
 GLAB_UNAUTHORIZED = LOG_GLAB_CALL + 'echo "glab: 401 Unauthorized (HTTP 401)" >&2\nexit 1\n'
 
 
@@ -114,19 +107,17 @@ def should_fall_back_to_the_job_name_when_the_log_matches_no_category(branch_ci)
     assert branch_ci.classify_log("ERROR: Job failed: exit status 1\n", "Build & Deploy") == "Build & Deploy"
 
 
-@pytest.mark.parametrize("stderr, reason, transient", [
-    ("glab: 404 Project Not Found (HTTP 404)\n", "glab: 404 Project Not Found (HTTP 404)", False),
-    (LOOKUP_TIMEOUT_BANNER, "dial tcp: lookup gitlab.example.com: i/o timeout.", True),
+@pytest.mark.parametrize("stderr, reason", [
+    ("glab: 404 Project Not Found (HTTP 404)\n", "glab: 404 Project Not Found (HTTP 404)"),
+    (LOOKUP_TIMEOUT_BANNER, "dial tcp: lookup gitlab.example.com: i/o timeout."),
     ("          \n   ERROR  \n          \n"
      '  Get "https://gitlab.example.com/api/v4/projects/group%2Fproject/pipelines?ref=LEO-1234-a-long-branch- \n'
      '  name&per_page=1": dial tcp: lookup gitlab.example.com: no such host.                                  \n\n',
-     "dial tcp: lookup gitlab.example.com: no such host.", True),
-    ("", "glab exited with status 1", False),
+     "dial tcp: lookup gitlab.example.com: no such host."),
+    ("", "glab exited with status 1"),
 ])
-def should_report_the_cause_of_a_failed_command_and_whether_a_retry_can_help(branch_ci, stderr, reason, transient):
-    failure = branch_ci.failure_from(stderr, "glab exited with status 1")
-
-    assert (str(failure), failure.transient) == (reason, transient)
+def should_report_the_cause_of_a_failed_command_without_glab_banner_url_or_line_wrapping(branch_ci, stderr, reason):
+    assert branch_ci.failure_reason(stderr, "glab exited with status 1") == reason
 
 
 def should_read_every_branch_from_one_gitlab_request_when_the_page_is_not_full(branch_ci, gitlab):
@@ -157,7 +148,7 @@ def should_look_up_branches_missing_from_a_full_page_one_by_one(branch_ci, gitla
 
 def should_keep_a_failed_pipeline_failed_and_retry_its_category_next_run_when_the_jobs_cannot_be_fetched(
         branch_ci, gitlab):
-    timeout = branch_ci.CommandFailed("dial tcp: lookup gitlab.example.com: i/o timeout.", transient=True)
+    timeout = branch_ci.CommandFailed("dial tcp: lookup gitlab.example.com: i/o timeout.")
     provider, cli = gitlab({
         "pipelines?scope=branches": gitlab_pipelines(gitlab_pipeline(2, "failed")),
         "pipelines/2/jobs": timeout,
@@ -291,24 +282,17 @@ def should_print_a_tab_separated_line_per_branch_from_a_single_request(run_cli, 
     assert len(glab_calls()) == 1
 
 
-def should_retry_a_lookup_that_timed_out(run_cli, tmp_path, glab_calls):
-    result = run_cli("branch_ci.py", [GITLAB_SLUG], stdin="main\n",
-                     mock_bins={"glab": GLAB_TIMING_OUT_ONCE}, env_extra={"HOME": str(tmp_path)})
-
-    assert (result.stdout, result.stderr) == ("main\tsuccess\t\thttps://gitlab.example.com/p/1\n", "")
-    assert len(glab_calls()) == 2
-
-
-@pytest.mark.parametrize("glab, warning, attempts", [
-    (GLAB_TIMING_OUT, "dial tcp: lookup gitlab.example.com: i/o timeout.\n", 2),
-    (GLAB_UNAUTHORIZED, "glab: 401 Unauthorized (HTTP 401)\n", 1),
+@pytest.mark.parametrize("glab, warning", [
+    (GLAB_TIMING_OUT, "dial tcp: lookup gitlab.example.com: i/o timeout.\n"),
+    (GLAB_UNAUTHORIZED, "glab: 401 Unauthorized (HTTP 401)\n"),
 ])
-def should_warn_once_when_the_repository_lookup_keeps_failing(run_cli, tmp_path, glab_calls, glab, warning, attempts):
+def should_warn_once_and_ask_only_once_when_the_repository_lookup_fails(run_cli, tmp_path, glab_calls, glab,
+                                                                        warning):
     result = run_cli("branch_ci.py", [GITLAB_SLUG], stdin="main\nfeature\n",
                      mock_bins={"glab": glab}, env_extra={"HOME": str(tmp_path)})
 
     assert (result.returncode, result.stdout, result.stderr) == (0, "", warning)
-    assert len(glab_calls()) == attempts
+    assert len(glab_calls()) == 1
 
 
 def should_warn_once_when_the_ci_client_is_not_installed(run_cli, tmp_path):

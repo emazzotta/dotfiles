@@ -16,7 +16,6 @@ from urllib.parse import quote
 
 CACHE_DIR: Final = Path.home() / ".cache" / "gck" / "ci"
 COMMAND_TIMEOUT_SECONDS: Final = 30
-TRANSPORT_ATTEMPTS: Final = 2
 PARALLEL_LOOKUPS: Final = 8
 GITLAB_PAGE_SIZE: Final = 100
 GITHUB_RUNS_PAGE_SIZE: Final = 100
@@ -44,9 +43,7 @@ T = TypeVar("T")
 
 
 class CommandFailed(Exception):
-    def __init__(self, reason: str, transient: bool = False):
-        super().__init__(reason)
-        self.transient = transient
+    pass
 
 
 @dataclass(frozen=True)
@@ -224,32 +221,22 @@ def warn_on_failure(call: Callable[[], T], provider: Provider) -> tuple[Optional
 
 
 def run_command(args: list[str]) -> str:
-    for _ in range(TRANSPORT_ATTEMPTS - 1):
-        try:
-            return run_once(args)
-        except CommandFailed as failure:
-            if not failure.transient:
-                raise
-    return run_once(args)
-
-
-def run_once(args: list[str]) -> str:
     try:
         completed = subprocess.run(args, capture_output=True, text=True, errors="replace",
                                    timeout=COMMAND_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        raise CommandFailed(f"{args[0]} timed out after {COMMAND_TIMEOUT_SECONDS}s", transient=True) from None
+        raise CommandFailed(f"{args[0]} timed out after {COMMAND_TIMEOUT_SECONDS}s") from None
     if completed.returncode != 0:
-        raise failure_from(completed.stderr, f"{args[0]} exited with status {completed.returncode}")
+        raise CommandFailed(failure_reason(completed.stderr, f"{args[0]} exited with status {completed.returncode}"))
     return completed.stdout
 
 
-def failure_from(stderr: str, fallback: str) -> CommandFailed:
+def failure_reason(stderr: str, fallback: str) -> str:
     message = unwrap(line.strip() for line in stderr.splitlines() if line.strip() not in ("", ERROR_BANNER))
     transport_error = TRANSPORT_ERROR.match(message)
     if transport_error:
-        return CommandFailed(transport_error.group("cause"), transient=True)
-    return CommandFailed(message or fallback)
+        return transport_error.group("cause")
+    return message or fallback
 
 
 def unwrap(lines: Iterable[str]) -> str:
