@@ -166,14 +166,10 @@ _fileserver()
     canonical=$(_fileserver_canonical "${COMP_WORDS[1]}")
   fi
 
+  # Nothing for upload: -o default falls back to the shell's own file completion,
+  # which handles typed spaces where zsh's emulated compgen -f does not.
   case "${canonical}" in
-    upload)
-      COMPREPLY=($(compgen -f -- "${cur}"))
-      compopt -o filenames 2>/dev/null
-      ;;
-    remove|download)
-      COMPREPLY=($(compgen -W "$(_fileserver_remote_files)" -- "${cur}"))
-      ;;
+    remove|download) _reply_matching < <(_fileserver_remote_files) ;;
   esac
 }
 _make_targets()
@@ -627,7 +623,8 @@ _complete_nothing()
 }
 _reply_matching()
 {
-  local cur="${COMP_WORDS[COMP_CWORD]}" line
+  # Compare without backslash escapes, so a typed name with spaces still matches.
+  local cur="${COMP_WORDS[COMP_CWORD]//\\/}" line
   while IFS= read -r line; do
     [[ -n "${line}" && "${line}" == "${cur}"* ]] && COMPREPLY+=("${line}")
   done
@@ -791,7 +788,7 @@ complete -o filenames -F _cl cl
 complete -o filenames -F _captions captions
 complete -F _ags ags
 complete -F _make_targets make m
-complete -F _fileserver fileserver fs fget fls frm fup
+complete -o default -o filenames -F _fileserver fileserver fs fget fls frm fup
 complete -F _timemachine timemachine
 complete -o filenames -F _complete_help_files agedist asciicast2gif audio_silence_generator \
   audioboost audiospec audiotags_manager audiotox cert_viewer_file compress convert-to-utf8 exifrm \
