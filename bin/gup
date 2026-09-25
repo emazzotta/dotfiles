@@ -6,8 +6,9 @@ show_usage() {
 Usage: gup [<git pull args>]
 
 git pull --rebase --autostash, then git wt rm --merged to delete the branches and worktrees
-whose work has landed in origin/HEAD. Run inside a worktree's .git/worktrees/<id> directory,
-it updates that worktree's checkout instead.
+whose work has landed in origin/HEAD. Outside main and master the rebase keeps merge commits,
+so a merge of main that is not pushed yet survives. Run inside a worktree's .git/worktrees/<id>
+directory, it updates that worktree's checkout instead.
 EOF
 }
 
@@ -23,10 +24,18 @@ inside_worktree_git_dir() {
         [ "$(git rev-parse --absolute-git-dir)" != "$(git rev-parse --path-format=absolute --git-common-dir)" ]
 }
 
+rebase_mode() {
+    case "$1" in
+        main|master) echo true ;;
+        *) echo merges ;;
+    esac
+}
+
 update_checkout() {
-    local checkout="$1"
+    local checkout="$1" branch
     shift
-    git -C "$checkout" pull --rebase --autostash "$@" || return
+    branch=$(git -C "$checkout" symbolic-ref -q --short HEAD)
+    git -C "$checkout" pull --rebase="$(rebase_mode "$branch")" --autostash "$@" || return
     git -C "$checkout" wt rm --merged
 }
 

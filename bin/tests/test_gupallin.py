@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 
+from bin.tests.conftest import commit_file
+
 BIN_DIR = Path(__file__).parent.parent
 TERMINAL_ESCAPES = re.compile(r"\x1b\]8;;[^\x1b]*\x1b\\|\x1b\[[0-9;]*[A-Za-z]")
 CURL_MOCK = 'case "$*" in *unreachable*) exit 7 ;; esac'
@@ -68,6 +70,20 @@ def should_pull_the_default_and_release_branches_and_return_to_the_checked_out_b
 
     assert git(project, "rev-parse", "main", "25.4.x") == git(origin, "rev-parse", "main", "25.4.x")
     assert git(project, "rev-parse", "--abbrev-ref", "HEAD") == "feature"
+
+
+def should_keep_an_unpushed_merge_of_main_on_the_checked_out_branch(gupallin, clone, workspace, git, tmp_path):
+    project = clone("project")
+    git(project, "checkout", "-q", "feature")
+    commit_file(git, tmp_path / "seed", "main.txt", "main\n", "Main moves")
+    git(tmp_path / "seed", "push", "origin", "main")
+    git(project, "fetch", "-q", "origin")
+    git(project, "merge", "--no-ff", "origin/main", "-m", "Merge main into feature")
+    merge = git(project, "rev-parse", "HEAD")
+
+    gupallin(workspace)
+
+    assert git(project, "rev-parse", "HEAD") == merge
 
 
 def should_only_report_done_when_every_pull_succeeds(gupallin, clone, workspace):

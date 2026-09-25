@@ -1,6 +1,6 @@
 import pytest
 
-from bin.tests.conftest import WORKTREES, branches, move_to_other_mount, ship_by_squash_merge
+from bin.tests.conftest import WORKTREES, branches, commit_file, move_to_other_mount, ship_by_squash_merge
 
 
 @pytest.fixture
@@ -26,6 +26,13 @@ def push_from_elsewhere(git, tmp_path):
     git(elsewhere, "commit", "--allow-empty", "-m", "Pushed from elsewhere")
     git(elsewhere, "push", "origin", "feature")
     return git(elsewhere, "rev-parse", "HEAD")
+
+
+def merge_new_main(git, project, checkout):
+    commit_file(git, project, "main.txt", "main\n", "Main moves")
+    git(project, "push", "origin", "main")
+    git(checkout, "merge", "--no-ff", "origin/main", "-m", "Merge main into feature")
+    return git(checkout, "rev-parse", "HEAD")
 
 
 class TestPull:
@@ -63,6 +70,36 @@ class TestPull:
         assert result.returncode == 0, result.stderr
         assert f"gup: updating {twin}" in result.stderr
         assert git(twin, "rev-parse", "HEAD") == pushed
+
+    def should_keep_an_unpushed_merge_of_main_while_the_upstream_stands_still(
+            self, gup, git, project, checkout):
+        merge = merge_new_main(git, project, checkout)
+
+        result = gup(checkout)
+
+        assert result.returncode == 0, result.stderr
+        assert git(checkout, "rev-parse", "HEAD") == merge
+
+    def should_replay_an_unpushed_merge_of_main_as_a_merge_onto_the_moved_upstream(
+            self, gup, git, tmp_path, project, checkout):
+        merge_new_main(git, project, checkout)
+        pushed = push_from_elsewhere(git, tmp_path)
+
+        result = gup(checkout)
+
+        assert result.returncode == 0, result.stderr
+        assert git(checkout, "rev-parse", "HEAD^1") == pushed
+        assert git(checkout, "show", "HEAD^2:main.txt") == "main"
+
+    def should_flatten_a_local_merge_on_main_so_main_stays_a_straight_line(self, gup, git, project, added):
+        side = added("side")
+        commit_file(git, side, "side.txt", "side\n", "Side work")
+        git(project, "merge", "--no-ff", "side", "-m", "Merge side into main")
+
+        result = gup(project)
+
+        assert result.returncode == 0, result.stderr
+        assert git(project, "rev-list", "--merges", "origin/main..HEAD") == ""
 
     @pytest.mark.usefixtures("checkout")
     def should_leave_the_main_git_dir_to_git_pull(self, gup, project):

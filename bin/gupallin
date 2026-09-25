@@ -38,12 +38,19 @@ has_git_access() {
     has_remote_access "$(convert_git_url_to_http "$remote_url")"
 }
 
+rebase_mode() {
+    case "$1" in
+        main|master) echo true ;;
+        *) echo merges ;;
+    esac
+}
+
 pull_branch() {
     local branch="$1" dir="$2"
     [ -n "${dir}" ] || return 0
     if git -C "${dir}" rev-parse --verify "origin/${branch}" &>/dev/null; then
         git -C "${dir}" checkout "${branch}" &>/dev/null || return 0
-        git -C "${dir}" pull --quiet --rebase &>/dev/null || record_failed_pull "${branch}"
+        git -C "${dir}" pull --quiet --rebase="$(rebase_mode "${branch}")" &>/dev/null || record_failed_pull "${branch}"
         git -C "${dir}" checkout --quiet - &>/dev/null || true
     fi
 }
@@ -101,7 +108,7 @@ update_repo() {
     pull_branches_by_regex "${CUSTOM_RELEASE_PATTERN}" "${dir}"
     branch_name=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
     if [ "${branch_name}" != "master" ] && [ "${branch_name}" != "main" ]; then
-        git -C "${dir}" pull --quiet --rebase &>/dev/null || record_failed_pull "${branch_name}"
+        git -C "${dir}" pull --quiet --rebase="$(rebase_mode "${branch_name}")" &>/dev/null || record_failed_pull "${branch_name}"
     fi
     if [ -s "${repo_failures_file}" ]; then
         render_failed_pulls "${dir}" >> "${failed_pulls_file}"
