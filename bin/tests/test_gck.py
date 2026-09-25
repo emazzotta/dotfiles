@@ -317,14 +317,14 @@ def should_list_the_uncommitted_files_and_stashes_under_the_repository_in_verbos
     assert re.search(r"^ {8}stash@\{0\}: On main: Half-baked idea$", output, re.MULTILINE)
 
 
-def should_list_the_repositories_that_need_action_first_and_set_the_others_apart(gck, workspace, git, tmp_path):
+def should_list_the_repositories_that_need_action_directly_above_the_others(gck, workspace, git, tmp_path):
     busy = workspace / "busy"
     git(tmp_path, "clone", "-q", str(tmp_path / "origin.git"), str(busy))
     (busy / "notes.txt").write_text("todo\n")
 
     output = gck(workspace)
 
-    assert re.match(r"busy  main  ✎1\n(?:  .+\n)+\nproject  main ✓\n", output), output
+    assert re.match(r"busy  main  ✎1\n(?:  .+\n)+project  main ✓\n", output), output
 
 
 def is_dimmed_throughout(line):

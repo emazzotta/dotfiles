@@ -741,11 +741,7 @@ SCAN_PID=$!
 spin
 wait "${SCAN_PID}"
 
-cat "${action_file}"
-if [ -s "${action_file}" ] && [ -s "${info_file}" ]; then
-    echo
-fi
-cat "${info_file}"
+cat "${action_file}" "${info_file}"
 
 print_warnings "No pull request links, falling back to branch links:" "${pull_request_warnings_file}"
 print_warnings "No CI status:" "${ci_warnings_file}"
