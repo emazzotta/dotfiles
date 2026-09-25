@@ -58,13 +58,6 @@ _bundleid()
     COMPREPLY+=("$line")
   done < <(find /Applications -mindepth 1 -maxdepth 1 -type d -print | sed 's/\/Applications\///g' | sed 's/ /\\ /g')
 }
-_compressvideo()
-{
-  while IFS= read -r line; do
-    COMPREPLY+=("$line")
-  done < <(find . -mindepth 1 -maxdepth 1 -type f -not -name ".*" -print | sed 's|./||' | sed 's/ /\\ /g')
-  COMPREPLY+=($(compressvideo -h | grep '\-\-' | sed 's/^.*--/--/g' | sed 's/ .*//g'))
-}
 _ef()
 {
   _ef_commands=$(ls ${CUSTOM_BIN_DIR})
@@ -93,20 +86,11 @@ _cl()
     _CL_OPTS_CACHE=$(cl --help 2>/dev/null | grep -oE -- '(^|[[:space:],])-{1,2}[a-zA-Z][a-zA-Z0-9-]*' | tr -d ' ,' | sort -u | tr '\n' ' ')
   fi
   case "${prev}" in
-    -f|--file)
-      COMPREPLY=($(compgen -f -- "${cur}"))
-      return 0
-      ;;
-    -p|--path)
-      COMPREPLY=($(compgen -d -- "${cur}"))
-      return 0
-      ;;
+    -f|--file|-p|--path) return 0 ;;
   esac
   if [[ "${cur}" == -* ]]; then
     COMPREPLY=($(compgen -W "${_CL_OPTS_CACHE}" -- "${cur}"))
-    return 0
   fi
-  COMPREPLY=($(compgen -f -- "${cur}"))
 }
 _ags()
 {
@@ -118,13 +102,7 @@ _ags()
     _AGS_OPTS_CACHE=$(ags --help 2>/dev/null | grep -oE -- '(^|[[:space:],])-{1,2}[a-zA-Z][a-zA-Z0-9-]*' | tr -d ' ,' | sort -u | tr '\n' ' ')
   fi
   case "${prev}" in
-    -p|--path)
-      COMPREPLY=($(compgen -d -- "${cur}"))
-      return 0
-      ;;
-    -r|--file-regex|-x|--exclude|--exclude-content)
-      return 0
-      ;;
+    -p|--path|-r|--file-regex|-x|--exclude|--exclude-content) return 0 ;;
   esac
   if [[ "${cur}" == -* ]]; then
     COMPREPLY=($(compgen -W "${_AGS_OPTS_CACHE}" -- "${cur}"))
@@ -166,8 +144,7 @@ _fileserver()
     canonical=$(_fileserver_canonical "${COMP_WORDS[1]}")
   fi
 
-  # Nothing for upload: -o default falls back to the shell's own file completion,
-  # which handles typed spaces where zsh's emulated compgen -f does not.
+  # upload takes local files, which -o default leaves to the shell.
   case "${canonical}" in
     remove|download) _reply_matching < <(_fileserver_remote_files) ;;
   esac
@@ -294,7 +271,8 @@ _keyguard()
       [[ ${COMP_CWORD} -eq 2 || ${COMP_CWORD} -eq 3 ]] && _keyguard_complete_existing_keys
       ;;
     import)
-      [[ ${COMP_CWORD} -eq 2 ]] && COMPREPLY=($(compgen -f -- "${cur}"))
+      # Listed here, not left to -o default, which would offer files where set expects a secret.
+      [[ ${COMP_CWORD} -eq 2 ]] && _reply_lines < <(compgen -f -- "${cur}")
       ;;
   esac
   return 0
@@ -434,21 +412,16 @@ _dcp()
     if [[ ${#COMPREPLY[@]} -eq 1 && "${COMPREPLY[0]}" == */ ]]; then
       compopt -o nospace 2>/dev/null
     fi
-    return 0
   fi
-
-  COMPREPLY=($(compgen -f -- "$cur"))
+  # A host path is left to -o default.
 }
 _captions()
 {
-  local cur prev line
+  local cur prev
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
   case "${prev}" in
-    -o|--output)
-      while IFS= read -r line; do COMPREPLY+=("$line"); done < <(compgen -f -- "${cur}")
-      return 0 ;;
     --model)
       [[ -z "${_CAPTIONS_MODELS}" ]] && _CAPTIONS_MODELS=$(captions --complete models 2>/dev/null | tr '\n' ' ')
       COMPREPLY=($(compgen -W "${_CAPTIONS_MODELS}" -- "${cur}")); return 0 ;;
@@ -464,16 +437,14 @@ _captions()
     --font)
       [[ -z "${_CAPTIONS_FONTS}" ]] && _CAPTIONS_FONTS=$(captions --complete fonts 2>/dev/null | tr '\n' ' ')
       COMPREPLY=($(compgen -W "${_CAPTIONS_FONTS}" -- "${cur}")); return 0 ;;
-    --highlight|--words|--gap|--scale|--position|--pop) return 0 ;;
+    -o|--output|--highlight|--words|--gap|--scale|--position|--pop) return 0 ;;
   esac
   if [[ -z "${_CAPTIONS_OPTS_CACHE}" ]]; then
     _CAPTIONS_OPTS_CACHE=$(captions --help 2>/dev/null | grep -oE -- '(^|[[:space:],])-{1,2}[a-zA-Z][a-zA-Z0-9-]*' | tr -d ' ,' | sort -u | tr '\n' ' ')
   fi
   if [[ "${cur}" == -* ]]; then
     COMPREPLY=($(compgen -W "${_CAPTIONS_OPTS_CACHE}" -- "${cur}"))
-    return 0
   fi
-  while IFS= read -r line; do COMPREPLY+=("$line"); done < <(compgen -f -- "${cur}")
 }
 _timemachine_opts()
 {
@@ -511,9 +482,9 @@ _timemachine()
   case "${sub}" in
     prune|reset)
       if [[ -z "${_TIMEMACHINE_DESTINATIONS}" ]]; then
-        _TIMEMACHINE_DESTINATIONS=$(timemachine --complete destinations 2>/dev/null | tr '\n' ' ')
+        _TIMEMACHINE_DESTINATIONS=$(timemachine --complete destinations 2>/dev/null)
       fi
-      COMPREPLY=($(compgen -W "${_TIMEMACHINE_DESTINATIONS}" -- "${cur}")) ;;
+      _reply_matching <<< "${_TIMEMACHINE_DESTINATIONS}" ;;
   esac
 }
 # Unregistered on purpose: git's bash completion and Homebrew's zsh _git call _git_wt, zsh's own _git calls _git-wt.
@@ -607,11 +578,6 @@ _complete_help()
   [[ "${cur}" == -* ]] || return 1
   _reply_lines < <(compgen -W "$(printf '%s\n' "${rows}" | cut -f2)" -- "${cur}")
 }
-_complete_help_files()
-{
-  COMPREPLY=()
-  _complete_help || _reply_lines < <(compgen -f -- "${COMP_WORDS[COMP_CWORD]}")
-}
 _complete_help_flags()
 {
   COMPREPLY=()
@@ -666,10 +632,7 @@ _gpgpub()
 _gpgencrypt()
 {
   COMPREPLY=()
-  case "${COMP_CWORD}" in
-    1) _reply_matching < <(_gpg_key_emails --list-keys) ;;
-    2) _reply_lines < <(compgen -f -- "${COMP_WORDS[COMP_CWORD]}") ;;
-  esac
+  [[ ${COMP_CWORD} -eq 1 ]] && _reply_matching < <(_gpg_key_emails --list-keys)
 }
 _gpgsign()
 {
@@ -745,7 +708,7 @@ _complete_help_subcommands()
   if [[ ${COMP_CWORD} -eq 1 ]]; then
     _complete_help || _reply_lines < <(compgen -W "${subcommands}" -- "${COMP_WORDS[1]}")
   elif [[ " ${subcommands} " == *" ${COMP_WORDS[1]} "* ]]; then
-    _complete_help "${cmd}" "${COMP_WORDS[1]}" || _reply_lines < <(compgen -f -- "${COMP_WORDS[COMP_CWORD]}")
+    _complete_help "${cmd}" "${COMP_WORDS[1]}"
   fi
 }
 _complete_script_words()
@@ -762,7 +725,7 @@ _audiomerge()
   COMPREPLY=()
   case "${COMP_WORDS[COMP_CWORD-1]}" in
     -f|--format) _complete_help audiotox ;;
-    *) _complete_help_files ;;
+    *) _complete_help ;;
   esac
 }
 _host_resolver()
@@ -775,23 +738,25 @@ _host_resolver()
   [[ -z "${_HOST_RESOLVER_HOSTS}" ]] && _HOST_RESOLVER_HOSTS=$(host-resolver --complete hosts 2>/dev/null)
   _reply_matching <<< "${_HOST_RESOLVER_HOSTS}"
 }
-complete -F _dcp dcp docker-cp
+# -o default: a position left empty gets the shell's own file completion, the
+# only route to zsh's _files (bashcompinit's compgen -f splits typed spaces).
+# -o filenames: COMPREPLY holds names with spaces, which bash must quote.
+complete -o default -F _dcp dcp docker-cp
 complete -F _envify envify
-complete -F _keyguard keyguard
+complete -o filenames -F _keyguard keyguard
 complete -o nospace -F _agrep agrep
 complete -o nospace -F _kubeconf kubeconf
 complete -o nospace -F _bundleid bundleid
-complete -o nospace -F _compressvideo compressvideo
 complete -o nospace -F _ef ef
 complete -o nospace -F _repo repo c
-complete -o filenames -F _cl cl
-complete -o filenames -F _captions captions
-complete -F _ags ags
+complete -o default -F _cl cl
+complete -o default -F _captions captions
+complete -o default -F _ags ags
 complete -F _make_targets make m
 complete -o default -o filenames -F _fileserver fileserver fs fget fls frm fup
-complete -F _timemachine timemachine
-complete -o filenames -F _complete_help_files agedist asciicast2gif audio_silence_generator \
-  audioboost audiospec audiotags_manager audiotox cert_viewer_file compress convert-to-utf8 exifrm \
+complete -o filenames -F _timemachine timemachine
+complete -o default -F _complete_help_flags agedist asciicast2gif audio_silence_generator audioboost \
+  audiospec audiotags_manager audiotox cert_viewer_file compress compressvideo convert-to-utf8 exifrm \
   extract fix-html-charset gck git_gallcontrib gpe gpgverify gsheet_backup hashify imgcompress imgmirror \
   imgtopdf imgtox isotoimg leonardo_utils_installer notion_backup ocr pdfcompress pdfify pdfsplit \
   pdftoimg putty2pem pwcompress pwuncompress robust-rsync snl-sync sync_file trackduplication_info \
@@ -808,20 +773,20 @@ complete -F _complete_nothing backup_mini_rsync bookmarks_backup cert_viewer_url
   rm_build_files rm_eclipse_project_files rm_launch_items rmmac session-convert sizefmt slugify \
   ssl_verify tailscale-toggle-exit-node tgb tgm tgup tldify tmbackup tpage tracks_stats \
   update_github_actions urldecode urlencode urr uuid vimpluginupdate vm vmup wpsh zipsplit
-complete -o filenames -F _audiomerge audiomerge
-complete -o filenames -F _complete_help_subcommands backup_restore_util
+complete -o default -F _audiomerge audiomerge
+complete -o default -F _complete_help_subcommands backup_restore_util
 complete -F _complete_script_words claude-plugin-update gup ref-pin tmux-overview
 complete -F _docker_script docker-debug docker-exec docker-inspect
 complete -F _external_disks flash_disk_with_zeros
 complete -F _external_partitions mount_ext
 complete -F _git_squash_commits_x_y git_squash_commits_x_y
-complete -o filenames -F _gpgencrypt gpgencrypt
+complete -o default -F _gpgencrypt gpgencrypt
 complete -F _gpgpub gpgpub
 complete -F _gpgsign gpgsign
 complete -F _gretag gretag
 complete -o filenames -F _gunstage gunstage
 complete -F _host_resolver host-resolver
-complete -F _process_names killgrep killprocess
+complete -o filenames -F _process_names killgrep killprocess
 complete -c tldr
-complete -F _tma tma
+complete -o filenames -F _tma tma
 complete -F _wleorun wleorun

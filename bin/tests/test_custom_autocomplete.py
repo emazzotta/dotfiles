@@ -8,8 +8,7 @@ import pytest
 from bin.tests.conftest import BIN_DIR
 
 AUTOCOMPLETE = BIN_DIR.parent / "autocomplete" / "custom_autocomplete"
-HELP_COMPLETERS = ("_complete_help_files", "_complete_help_flags", "_complete_help_subcommands",
-                   "_complete_script_words")
+HELP_COMPLETERS = ("_complete_help_flags", "_complete_help_subcommands", "_complete_script_words")
 
 ARGPARSE_HELP = """usage: fake [-h] [-o OUTPUT] [--mode {fast,slow}] [--dry-run] input
 
@@ -93,7 +92,7 @@ def complete(commands, home, tmp_path):
                   + f"{function}\n" * times
                   + 'printf "%s\\n" "${COMPREPLY[@]}"')
         output = run_bash(script, cwd or tmp_path, commands, {"HOME": str(home), **(env or {})})
-        return output.split()
+        return [line for line in output.splitlines() if line]
     return _complete
 
 
@@ -119,39 +118,31 @@ def repo(tmp_path):
 
 class TestCompleteHelp:
     def should_offer_every_flag_the_help_lists(self, complete, fake_command):
-        candidates = complete("_complete_help_files", "fake", "-")
+        candidates = complete("_complete_help_flags", "fake", "-")
 
         assert sorted(candidates) == ["--dry-run", "--help", "--mode", "--output", "-h", "-o"]
 
     def should_offer_the_choices_the_help_lists_after_a_flag(self, complete, fake_command):
-        candidates = complete("_complete_help_files", "fake", "--mode", "")
+        candidates = complete("_complete_help_flags", "fake", "--mode", "")
 
         assert candidates == ["fast", "slow"]
 
-    def should_offer_files_for_a_word_that_is_no_flag(self, complete, fake_command, tmp_path):
+    def should_leave_a_word_that_is_no_flag_to_the_shell(self, complete, fake_command, tmp_path):
         (tmp_path / "notes.txt").touch()
 
-        candidates = complete("_complete_help_files", "fake", "no")
-
-        assert candidates == ["notes.txt"]
-
-    def should_offer_no_files_to_a_command_without_arguments(self, complete, fake_command,
-                                                             tmp_path):
-        (tmp_path / "notes.txt").touch()
-
-        candidates = complete("_complete_help_flags", "fake", "")
+        candidates = complete("_complete_help_flags", "fake", "no")
 
         assert candidates == []
 
     def should_run_the_help_once_per_shell(self, complete, fake_command):
-        complete("_complete_help_files", "fake", "-", times=2)
+        complete("_complete_help_flags", "fake", "-", times=2)
 
         assert fake_command["calls"].read_text().split() == ["call"]
 
     def should_find_flags_in_colored_help(self, complete, fake_command):
         fake_command["help"].write_text("\033[1m--color-flag\033[0m  paints the output\n")
 
-        candidates = complete("_complete_help_files", "fake", "--c")
+        candidates = complete("_complete_help_flags", "fake", "--c")
 
         assert candidates == ["--color-flag"]
 
@@ -159,7 +150,7 @@ class TestCompleteHelp:
         fake_command["help"].write_text("Usage: fake [-c CONTAINER]\n\nExamples:\n"
                                         "  fake nginx ls -la\n")
 
-        candidates = complete("_complete_help_files", "fake", "-")
+        candidates = complete("_complete_help_flags", "fake", "-")
 
         assert candidates == ["-c"]
 
@@ -273,13 +264,14 @@ class TestExternalLists:
 
         assert candidates == ["me@example.com"]
 
-    def should_offer_files_after_the_recipient_of_gpgencrypt(self, complete, mock, tmp_path):
+    def should_leave_the_file_after_the_recipient_of_gpgencrypt_to_the_shell(self, complete, mock,
+                                                                             tmp_path):
         mock("gpg", f"cat <<'EOF'\n{GPG_PUBLIC}EOF")
         (tmp_path / "secret.txt").touch()
 
         candidates = complete("_gpgencrypt", "gpgencrypt", "me@example.com", "sec")
 
-        assert candidates == ["secret.txt"]
+        assert candidates == []
 
     def should_offer_running_process_names_to_killgrep(self, complete, mock):
         mock("ps", "printf '%s\\n' /usr/sbin/cron bash /Applications/Zoom.app/Contents/MacOS/zoom")
@@ -294,6 +286,20 @@ class TestExternalLists:
         candidates = complete("_tma", "tma", "")
 
         assert candidates == ["main", "work"]
+
+    def should_match_a_name_typed_with_an_escaped_space(self, complete, mock):
+        mock("tmux", "printf '%s\\n' main 'dj set'")
+
+        candidates = complete("_tma", "tma", "dj\\ s")
+
+        assert candidates == ["dj set"]
+
+    def should_keep_the_spaces_in_time_machine_destinations(self, complete, mock):
+        mock("timemachine", "[ \"$*\" = '--complete destinations' ] && printf '%s\\n' 'Backup Disk' 'Travel SSD'")
+
+        candidates = complete("_timemachine", "timemachine", "prune", "")
+
+        assert candidates == ["Backup Disk", "Travel SSD"]
 
     def should_offer_only_external_whole_disks_to_flash_disk_with_zeros(self, complete, mock):
         mock("diskutil", f"cat <<'EOF'\n{DISKUTIL_EXTERNAL}EOF")
@@ -352,6 +358,50 @@ class TestDockerScripts:
         assert sorted(candidates) == ["-c", "-s"]
 
 
+class TestFileserver:
+    @pytest.fixture(autouse=True)
+    def server(self, mock):
+        mock("fileserver", f'exec "{BIN_DIR / "fileserver"}" "$@"')
+        mock("kubectl", "printf '%s\\n' 'rick ross - hustlin1.wav' 'mix set.mp3'")
+
+    def should_offer_remote_names_whole(self, complete):
+        candidates = complete("_fileserver", "fileserver", "rm", "")
+
+        assert candidates == ["rick ross - hustlin1.wav", "mix set.mp3"]
+
+    def should_match_a_remote_name_typed_with_escaped_spaces(self, complete):
+        candidates = complete("_fileserver", "fget", "rick\\ ross")
+
+        assert candidates == ["rick ross - hustlin1.wav"]
+
+    def should_leave_local_files_to_the_shell_on_upload(self, complete, tmp_path):
+        (tmp_path / "notes.txt").touch()
+
+        candidates = complete("_fileserver", "fileserver", "upload", "no")
+
+        assert candidates == []
+
+
+class TestKeyguard:
+    @pytest.fixture(autouse=True)
+    def subcommands(self, mock):
+        mock("keyguard", "[ \"$*\" = '--complete commands' ] && printf '%s\\n' get set import")
+
+    def should_offer_a_file_name_with_spaces_whole_to_import(self, complete, tmp_path):
+        (tmp_path / "rick ross.env").touch()
+
+        candidates = complete("_keyguard", "keyguard", "import", "ri")
+
+        assert candidates == ["rick ross.env"]
+
+    def should_offer_nothing_where_set_expects_a_secret(self, complete, tmp_path):
+        (tmp_path / "notes.txt").touch()
+
+        candidates = complete("_keyguard", "keyguard", "set", "API_KEY", "")
+
+        assert candidates == []
+
+
 class TestRegistrations:
     def should_register_the_help_completers_only_for_bin_scripts(self, tmp_path, commands):
         specs = run_bash("complete -p", tmp_path, commands).splitlines()
@@ -366,3 +416,24 @@ class TestRegistrations:
         specs = run_bash("complete -p", tmp_path, commands).splitlines()
 
         assert [spec for spec in specs if spec.endswith(" sudo")] == []
+
+    @pytest.mark.parametrize("command", ["ags", "audiomerge", "audiotox", "backup_restore_util",
+                                         "captions", "cl", "compressvideo", "dcp", "fileserver",
+                                         "gpgencrypt"])
+    def should_leave_file_arguments_to_the_shell(self, tmp_path, commands, command):
+        spec = run_bash(f"complete -p {command}", tmp_path, commands)
+
+        assert "-o default" in spec
+
+    @pytest.mark.parametrize("command", ["json_format", "keyguard"])
+    def should_not_fall_back_to_files(self, tmp_path, commands, command):
+        spec = run_bash(f"complete -p {command}", tmp_path, commands)
+
+        assert "-o default" not in spec
+
+    @pytest.mark.parametrize("command", ["fileserver", "gunstage", "keyguard", "killgrep",
+                                         "timemachine", "tma"])
+    def should_let_bash_quote_names_with_spaces(self, tmp_path, commands, command):
+        spec = run_bash(f"complete -p {command}", tmp_path, commands)
+
+        assert "-o filenames" in spec
