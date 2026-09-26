@@ -36,6 +36,7 @@ Shell scripts carry the same hazard from the other direction: macOS ships BSD co
 - SOLID, DRY, YAGNI, KISS. Named constants over magic numbers. Functions ~20 lines, 2-3 nesting levels.
 - Delete dead code in the same change that orphans it, its tests included.
 - New bin script: lowercase-hyphenated name, no extension, `chmod +x`, `shellcheck` clean.
+- `cl` is reserved for the Claude launcher (`bin/cl`): no alias, function or script reuses it, `sshrc/.sshrc` included, since `30-loaders.sh` loads that file into local bash too.
 - Compose the shared `bin/` primitives, never re-implement them: `shelllog.sh` (`log`/`error`/`warn`/`info`/`success`), `dockerlib.sh` (`dh_*`), `picker` (stdin list -> selection), and `pickfile [--class image|video|audio] [EXT...]` (resolve one file in cwd: none -> error, one -> auto-pick, several -> `picker`). `pickfile` is how a script gets an argument-free default in one line: `input="${1:-$(pickfile --class video)}"`. Its media classes are asserted equal to `medialib.py`, so extend both together.
 - `set -uo pipefail` in standalone shell scripts - never in one designed to be `source`d, since strict mode leaks into the caller's interactive shell.
 - Secrets come from `envify` / `keyguard` only. Never hardcoded, never written to disk, never echoed.
