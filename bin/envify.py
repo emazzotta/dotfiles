@@ -2,14 +2,16 @@
 """envify.py - resolve keyguard secrets or invoke Mac bridge endpoints.
 
 Called by the envify bash wrapper. Outputs export statements for eval,
-or plain output for flags like --list, --bridge-list, --bridge.
+or plain output for flags like --list, --set, --bridge-list, --bridge.
 """
 from __future__ import annotations
 
 import argparse
 import base64
+import getpass
 import json
 import os
+import re
 import shlex
 import shutil
 import socket
@@ -18,7 +20,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, TextIO
 
 _SERVER_PORT: int = int(os.environ.get("PARAM_SERVER_PORT", "7777"))
 _CACHE_TIMEOUT: int = int(os.environ.get("ENVIFY_CACHE_TIMEOUT", "120"))
@@ -26,6 +28,7 @@ _STORE_TIMEOUT: int = 120
 _GLOBAL_ENV_FILE: Path = Path.home() / "dotfiles" / ".env"
 _BRIDGE_TOKEN_KEY: str = "MAC_BRIDGE_TOKEN"
 _CANDIDATE_HOSTS: tuple[str, ...] = ("localhost", "host.docker.internal")
+_VARIABLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +177,21 @@ def store_param(key: str, value: str) -> None:
         _die(f"server unreachable: {e.reason}")
 
 
+def read_value(key: str, stream: TextIO) -> str:
+    raw = getpass.getpass(f"Value for {key}: ") if stream.isatty() else stream.read()
+    return raw[:-1] if raw.endswith("\n") else raw
+
+
+def set_param(key: str, stream: TextIO = sys.stdin) -> None:
+    if not _VARIABLE_NAME.fullmatch(key):
+        _die(f"not a valid variable name: {key!r}")
+    value = read_value(key, stream)
+    if not value:
+        _die(f"no value to store for {key}")
+    store_param(key, value)
+    print(f"Stored {key}", file=sys.stderr)
+
+
 # ---------------------------------------------------------------------------
 # Listing
 # ---------------------------------------------------------------------------
@@ -268,6 +286,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="list all available secret names",
     )
     group.add_argument(
+        "--set", metavar="VAR", dest="set_key",
+        help="store a secret; the value is read from stdin, or prompted for without echo",
+    )
+    group.add_argument(
         "--bridge-list", action="store_true", dest="bridge_list",
         help="list public Mac bridge endpoints (JSON; no auth)",
     )
@@ -292,6 +314,8 @@ def main() -> None:
 
     if args.list_keys:
         list_params()
+    elif args.set_key:
+        set_param(args.set_key)
     elif args.bridge_list:
         list_bridge_endpoints(include_private=args.all_endpoints)
     elif args.bridge:
