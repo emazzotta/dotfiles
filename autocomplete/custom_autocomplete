@@ -3,7 +3,7 @@ if test "${ZSH_VERSION}"; then
     autoload bashcompinit
     bashcompinit
     autoload -U add-zsh-hook
-    compdef _git gco=git-checkout
+    compdef _gco gco
     compdef sshrc=ssh
     compdef o=open 2>/dev/null
     compdef y=yarn 2>/dev/null
@@ -501,6 +501,20 @@ _git-wt()
     candidates+=("${candidate}")
   done < <(git wt --complete "${words[@]:1:$((CURRENT - 2))}" 2>/dev/null)
   compadd -- "${candidates[@]}"
+}
+# shellcheck disable=SC2034
+_gco()
+{
+  local -a expl worktrees
+  local branch current service=git-checkout
+  if (( CURRENT == 2 )); then
+    current=$(git symbolic-ref -q --short HEAD 2>/dev/null)
+    while IFS= read -r branch; do
+      [[ "${branch}" != "${current}" ]] && worktrees+=("${branch}")
+    done < <(git wt --complete path 2>/dev/null)
+    _wanted worktrees expl 'worktree' compadd -- "${worktrees[@]}"
+  fi
+  _git
 }
 _reply_lines()
 {
