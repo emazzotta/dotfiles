@@ -1,7 +1,7 @@
 #!/bin/bash
 load "$DOTFILESPATH/autocomplete/custom_autocomplete"
 load "$DOTFILESPATH/bin/colors"
-test "$BASH_VERSION" && load "$HOME/.sshrc"
+test "$BASH_VERSION" && test -z "${SSHHOME:-}" && load "$HOME/.sshrc"
 
 ### NVM ###
 export NVM_DIR="$HOME/.nvm"
