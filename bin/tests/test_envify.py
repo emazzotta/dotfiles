@@ -101,3 +101,49 @@ class TestSetFlag:
         with pytest.raises(SystemExit):
             envify._build_parser().parse_args(["--set", "NEW_TOKEN", "--list"])
 
+
+class TestRmFlag:
+    @pytest.fixture
+    def runs(self, envify, monkeypatch):
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            return envify.subprocess.CompletedProcess(args, getattr(self, "status", 0))
+
+        monkeypatch.setattr(envify.subprocess, "run", fake_run)
+        return calls
+
+    def should_remove_through_keyguard_where_it_is_installed(self, envify, runs, monkeypatch):
+        monkeypatch.setattr(envify, "_keyguard_available", lambda: True)
+
+        envify.rm_param("OLD_TOKEN")
+
+        assert runs == [["keyguard", "rm", "OLD_TOKEN"]]
+
+    def should_refuse_without_keyguard_since_the_bridge_cannot_delete(self, envify, runs, monkeypatch):
+        monkeypatch.setattr(envify, "_keyguard_available", lambda: False)
+        with pytest.raises(SystemExit):
+            envify.rm_param("OLD_TOKEN")
+        assert runs == []
+
+    def should_refuse_a_name_that_is_not_a_variable(self, envify, runs, monkeypatch):
+        monkeypatch.setattr(envify, "_keyguard_available", lambda: True)
+        with pytest.raises(SystemExit):
+            envify.rm_param("../_bridge/x")
+        assert runs == []
+
+    def should_exit_with_keyguards_status_when_the_removal_fails(self, envify, runs, monkeypatch):
+        monkeypatch.setattr(envify, "_keyguard_available", lambda: True)
+        self.status = 1
+        with pytest.raises(SystemExit) as exited:
+            envify.rm_param("OLD_TOKEN")
+        assert exited.value.code == 1
+
+    def should_parse_rm_as_its_own_mode(self, envify):
+        assert envify._build_parser().parse_args(["--rm", "OLD_TOKEN"]).rm_key == "OLD_TOKEN"
+
+    def should_not_combine_rm_with_set(self, envify):
+        with pytest.raises(SystemExit):
+            envify._build_parser().parse_args(["--rm", "OLD_TOKEN", "--set", "NEW_TOKEN"])
+

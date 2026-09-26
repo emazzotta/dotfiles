@@ -2,7 +2,7 @@
 """envify.py - resolve keyguard secrets or invoke Mac bridge endpoints.
 
 Called by the envify bash wrapper. Outputs export statements for eval,
-or plain output for flags like --list, --set, --bridge-list, --bridge.
+or plain output for flags like --list, --set, --rm, --bridge-list, --bridge.
 """
 from __future__ import annotations
 
@@ -192,6 +192,16 @@ def set_param(key: str, stream: TextIO = sys.stdin) -> None:
     print(f"Stored {key}", file=sys.stderr)
 
 
+def rm_param(key: str) -> None:
+    if not _VARIABLE_NAME.fullmatch(key):
+        _die(f"not a valid variable name: {key!r}")
+    if not _keyguard_available():
+        _die("envify --rm needs keyguard, so run it on the Mac; the bridge cannot delete")
+    result = subprocess.run(["keyguard", "rm", key])
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+
 # ---------------------------------------------------------------------------
 # Listing
 # ---------------------------------------------------------------------------
@@ -290,6 +300,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="store a secret; the value is read from stdin, or prompted for without echo",
     )
     group.add_argument(
+        "--rm", metavar="VAR", dest="rm_key",
+        help="remove a secret (runs keyguard rm, so on the Mac)",
+    )
+    group.add_argument(
         "--bridge-list", action="store_true", dest="bridge_list",
         help="list public Mac bridge endpoints (JSON; no auth)",
     )
@@ -316,6 +330,8 @@ def main() -> None:
         list_params()
     elif args.set_key:
         set_param(args.set_key)
+    elif args.rm_key:
+        rm_param(args.rm_key)
     elif args.bridge_list:
         list_bridge_endpoints(include_private=args.all_endpoints)
     elif args.bridge:
