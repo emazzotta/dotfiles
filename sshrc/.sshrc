@@ -65,7 +65,7 @@ _ensure_host_resolver() {
 _ensure_host_resolver
 CUSTOM_IP=()
 for _h in "updates.leonardo.local" "updates.leonardo.ag"; do
-  _ip="$(host-resolver "$_h")"
+  _ip="$(host-resolver "$_h" 2>/dev/null)"
   [ -n "$_ip" ] && [ "$_ip" != "127.0.0.1" ] && CUSTOM_IP+=("$_ip")
 done
 unset _h _ip
