@@ -78,6 +78,8 @@ alias wsh='wpsh'
 
 ### CRON ###
 alias ce='crontab_editor'
+alias cre='crontab_editor'
+alias crl='crontab -l'
 alias cronlist='crontab -l'
 
 ### YARN / NODE ###
