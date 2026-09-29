@@ -8,7 +8,7 @@ ENVIFY_MOCK = "export DEVBOX_SAMBA_PASSWORD=secret"
 def devbox_drive(run_bash, tmp_path):
     def _run(args, mounted_at=None, expect_log=None):
         mount_mock = (
-            f'echo "//emanuele@devbox-1.example/Devbox on {mounted_at} (smbfs, nodev, nosuid)"'
+            f'echo "//emanuele@devbox.example/Devbox on {mounted_at} (smbfs, nodev, nosuid)"'
             if mounted_at else "true"
         )
         expect_mock = f'echo "$@" >> "{expect_log}"' if expect_log else "true"
