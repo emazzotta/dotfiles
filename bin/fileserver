@@ -6,9 +6,10 @@ readonly app="personal-homepage-file-server"
 readonly deployment="deployment/${app}"
 readonly webroot="/usr/share/caddy"
 readonly sidecar="rsync"
+readonly site_url="https://emanuelemazzotta.com"
 # /share and /downloads both reach the same file-server (nginx rewrites /share/
 # onto /downloads/), so old /downloads links stay valid; /share is the one to hand out.
-readonly public_base="${FILESERVER_PUBLIC_BASE:-https://emanuelemazzotta.com/share}"
+readonly public_base="${FILESERVER_PUBLIC_BASE:-${site_url}/share}"
 
 # When rsync runs us as its remote shell (--rsh "<self> __tunnel__"), tunnel into
 # the sidecar container over kubectl exec instead of ssh. rsync appends the host
@@ -67,9 +68,27 @@ public_url() {
     printf '%s/%s' "$public_base" "$(url_encode "$1")"
 }
 
+player_url() {
+    local page
+    case "$(printf '%s' "${1##*.}" | tr '[:upper:]' '[:lower:]')" in
+        flac | mp3 | m4a | aac | wav | ogg | opus) page="listen" ;;
+        mp4 | m4v | mov | webm) page="watch" ;;
+        *) return 1 ;;
+    esac
+    printf '%s/%s/%s' "$site_url" "$page" "$(url_encode "$1")"
+}
+
+print_url() {
+    printf '  %s%s%s\n' "$c_url" "$1" "$c_off"
+}
+
 report_upload() {
+    local url
     ok "uploaded ${1}"
-    printf '  %s%s%s\n' "$c_url" "$(public_url "$1")" "$c_off"
+    if url=$(player_url "$1"); then
+        print_url "$url"
+    fi
+    print_url "$(public_url "$1")"
 }
 
 # Canonical name first, aliases after. Single source for dispatch (CLI, bridge
@@ -202,6 +221,8 @@ Target:
   deployment ${deployment}
   directory  ${webroot}
   public URL ${public_base}/<file>
+  listen URL ${site_url}/listen/<file> (audio)
+  watch URL  ${site_url}/watch/<file> (video)
 
 Examples:
   ${self} list
