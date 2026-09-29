@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""Move files to the Mac's Trash, from the container through the keyguard bridge.
+
+In the container each path is mapped to its Mac path and sent to the Touch-ID-gated
+bridge endpoint `mac-trash`, which runs this same script on the Mac. There the paths
+arrive on stdin, anything outside ~/Desktop, ~/Downloads and ~/Projects is refused, and
+the rest goes to the Trash through Finder, so Put Back works.
+"""
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Final, Sequence, TextIO
+
+BRIDGE_ENDPOINT: Final = "mac-trash"
+MOUNTINFO: Final = Path("/proc/self/mountinfo")
+MAC_USERS_DIR: Final = Path("/Users")
+# Docker Desktop names each shared directory's virtiofs device by its place in the
+# file-sharing list, and /Users comes first; /tmp and /Volumes arrive as other tags.
+USERS_SHARE_TAG: Final = "virtiofs0"
+ALLOWED_ROOT_NAMES: Final = ("Desktop", "Downloads", "Projects")
+MAX_PATHS: Final = 100
+LOG_FILE: Final = Path.home() / "Library" / "Logs" / "mac-trash.log"
+FINDER_DELETE: Final = (
+    "on run argv",
+    'tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)',
+    "end run",
+)
+OCTAL_ESCAPE: Final = re.compile(r"\\([0-7]{3})")
+IS_MAC: Final = sys.platform == "darwin"
+USAGE: Final = """Usage: mac-trash PATH...
+
+Move files to the Mac's Trash. In the container each PATH must sit on a mount shared
+from the Mac; the request goes through the keyguard bridge endpoint 'mac-trash' and
+costs one Touch ID. On the Mac, where the endpoint runs this script, paths come from
+the arguments or one per line on stdin. Only paths inside ~/Desktop, ~/Downloads and
+~/Projects are trashed.
+
+Options:
+  -h, --help  show this help and exit
+"""
+
+
+def unescape(field: str) -> str:
+    return OCTAL_ESCAPE.sub(lambda match: chr(int(match.group(1), 8)), field)
+
+
+def parse_users_mounts(mountinfo: str) -> list[tuple[Path, Path]]:
+    mounts = []
+    for line in mountinfo.splitlines():
+        fields, _, tail = line.partition(" - ")
+        parts, source = fields.split(), tail.split()
+        if len(parts) < 5 or source[:2] != ["virtiofs", USERS_SHARE_TAG]:
+            continue
+        mac_path = MAC_USERS_DIR / unescape(parts[3]).lstrip("/")
+        mounts.append((Path(unescape(parts[4])), mac_path))
+    return mounts
+
+
+def to_mac_path(path: Path, mounts: Sequence[tuple[Path, Path]]) -> Path | None:
+    candidates = [pair for pair in mounts if path == pair[0] or pair[0] in path.parents]
+    if not candidates:
+        return None
+    mount_point, mac_root = max(candidates, key=lambda pair: len(pair[0].parts))
+    return mac_root / path.relative_to(mount_point)
+
+
+def trash_via_bridge(args: Sequence[str]) -> int:
+    mounts = parse_users_mounts(MOUNTINFO.read_text())
+    mac_paths = []
+    for arg in args:
+        mac_path = to_mac_path(Path(os.path.abspath(arg)), mounts)
+        if mac_path is None or "\n" in arg:
+            print(f"mac-trash: not a path on a Mac mount: {arg!r}", file=sys.stderr)
+            return 2
+        mac_paths.append(f"{mac_path}\n")
+    command = ["envify", "--bridge", BRIDGE_ENDPOINT, "--stdin"]
+    return subprocess.run(command, input="".join(mac_paths), text=True).returncode
+
+
+def canonical(raw: str) -> Path:
+    path = Path(raw)
+    return path.parent.resolve() / path.name
+
+
+def refusal_reason(raw: str, roots: Sequence[Path]) -> str | None:
+    path = Path(raw)
+    if not path.is_absolute():
+        return "not an absolute path"
+    if path.name in ("", ".", ".."):
+        return "not a file or folder name"
+    target = canonical(raw)
+    if not any(root in target.parents for root in roots):
+        return "outside ~/Desktop, ~/Downloads and ~/Projects"
+    if not os.path.lexists(target):
+        return "does not exist"
+    return None
+
+
+def trash_with_finder(path: Path) -> str | None:
+    script = [arg for line in FINDER_DELETE for arg in ("-e", line)]
+    result = subprocess.run(["osascript", *script, str(path)], capture_output=True, text=True)
+    if result.returncode == 0:
+        return None
+    return result.stderr.strip() or "osascript failed"
+
+
+def log_trashed(path: Path) -> None:
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with LOG_FILE.open("a") as log:
+        log.write(f"{datetime.now().isoformat(timespec='seconds')} {path}\n")
+
+
+def trash_one(raw: str, roots: Sequence[Path]) -> bool:
+    reason = refusal_reason(raw, roots)
+    if reason:
+        print(f"refused {raw}: {reason}")
+        return False
+    target = canonical(raw)
+    error = trash_with_finder(target)
+    if error:
+        print(f"failed {target}: {error}")
+        return False
+    log_trashed(target)
+    print(f"trashed {target}")
+    return True
+
+
+def trash_paths(raw_paths: Sequence[str], home: Path) -> int:
+    if len(raw_paths) > MAX_PATHS:
+        print(f"refused: more than {MAX_PATHS} paths in one request")
+        return 1
+    roots = [(home / name).resolve() for name in ALLOWED_ROOT_NAMES]
+    results = [trash_one(raw, roots) for raw in raw_paths]
+    return 0 if all(results) else 1
+
+
+def read_paths(stream: TextIO) -> list[str]:
+    return [line for line in stream.read().splitlines() if line]
+
+
+def main(argv: Sequence[str]) -> int:
+    if argv[:1] in (["-h"], ["--help"]):
+        print(USAGE, end="")
+        return 0
+    if IS_MAC:
+        if not argv and sys.stdin.isatty():
+            print(USAGE, end="", file=sys.stderr)
+            return 2
+        raw_paths = [os.path.abspath(arg) for arg in argv] or read_paths(sys.stdin)
+        return trash_paths(raw_paths, Path.home())
+    if not argv:
+        print(USAGE, end="", file=sys.stderr)
+        return 2
+    return trash_via_bridge(argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
