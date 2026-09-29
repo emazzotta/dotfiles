@@ -74,6 +74,10 @@ def mirror_runs(rsync_log):
     return [line for line in invocations(rsync_log) if line.rstrip().endswith(":/workspace/")]
 
 
+def plugin_runs(rsync_log):
+    return [line for line in invocations(rsync_log) if "/./plugins/" in line]
+
+
 WORKSPACE_FILES = {
     "CLAUDE.md": "instructions\n",
     ".claude/skills/demo/SKILL.md": "demo skill\n",
@@ -101,6 +105,22 @@ NEVER_SENT = {".claude/knowledge/private/identity.md", ".claude/knowledge/work/c
               ".claude/knowledge/sources/vendor.pdf", ".claude/knowledge/secreviews/infra.md",
               ".claude/knowledge/vault/key.md", ".claude/hooks/stop.sh", ".claude/plugins/marketplace.json",
               ".claude/settings.json", ".claude/skills/demo/draft.md", ".claude/vendored/README"}
+MAC_PLUGINS = {
+    "installed_plugins.json": '{"plugins": {"leonardo@leonardo-skills": []}}\n',
+    "known_marketplaces.json": json.dumps({
+        "leonardo-skills": {"source": {"source": "git", "url": "git@gitlab.example:ai.git"}, "autoUpdate": True},
+        "claude-plugins-official": {"source": {"source": "github", "repo": "anthropics/claude-plugins-official"}},
+    }) + "\n",
+    "marketplaces/leonardo-skills/README.md": "marketplace\n",
+    "cache/leonardo-skills/leonardo/1.16.2/SKILL.md": "installed skill\n",
+    "synced/finance/SKILL.md": "account synced\n",
+    "data/leonardo/state": "mac runtime state\n",
+    "ssh-mirrors/ai.git/HEAD": "ref: refs/heads/main\n",
+}
+DEVBOX_PLUGINS_OWN = {
+    "synced/own.json": "devbox synced\n",
+    "data/leonardo/state": "devbox runtime state\n",
+}
 DEVBOX_OWN = {
     "checkout-gitlab.sh": "devbox\n",
     "projects/app/README": "devbox\n",
@@ -114,6 +134,15 @@ def write_tree(root, files):
     for relative, content in files.items():
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
         (root / relative).write_text(content)
+
+
+@pytest.fixture
+def fake_ssh(tmp_path):
+    """Drops the host and runs rsync's server side locally, so a real rsync reaches a directory."""
+    script = tmp_path / "fake-ssh"
+    script.write_text('#!/bin/sh\nshift\nexec "$@"\n')
+    script.chmod(0o755)
+    return script
 
 
 @pytest.fixture
@@ -394,10 +423,7 @@ class TestWorkspaceMirror:
         return root
 
     @pytest.fixture
-    def mirrored(self, load_script, monkeypatch, tmp_path, git_env, workspace_repo, devbox):
-        fake_ssh = tmp_path / "fake-ssh"
-        fake_ssh.write_text('#!/bin/sh\nshift\nexec "$@"\n')
-        fake_ssh.chmod(0o755)
+    def mirrored(self, load_script, monkeypatch, tmp_path, git_env, workspace_repo, devbox, fake_ssh):
         for name, value in {**git_env, "CLAUDE_SYNC_REMOTE": "devbox", "CLAUDE_SYNC_REMOTE_WORKSPACE": str(devbox),
                             "CLAUDE_SYNC_WORKSPACE_REPO": str(workspace_repo)}.items():
             monkeypatch.setenv(name, value)
@@ -464,3 +490,77 @@ class TestMirrorWiring:
         sync(["--push"])
 
         assert mirror_runs(rsync_log) == []
+
+
+@requires_tool("rsync")
+class TestPluginMirror:
+    @pytest.fixture
+    def mirrored(self, load_script, monkeypatch, tmp_path, fake_ssh):
+        mac = tmp_path / "mac-claude"
+        write_tree(mac / "plugins", MAC_PLUGINS)
+        devbox = tmp_path / "devbox-claude" / "plugins"
+        write_tree(devbox, {**DEVBOX_PLUGINS_OWN, "cache/old/1.0/SKILL.md": "uninstalled on the Mac\n"})
+        monkeypatch.setenv("CLAUDE_SYNC_REMOTE", "devbox")
+        monkeypatch.setenv("CLAUDE_SYNC_REMOTE_HOME", str(devbox.parent))
+        script = load_script("claude-sync")
+        monkeypatch.setattr(script, "SSH_COMMAND", str(fake_ssh))
+
+        failures = script.mirror_plugins(mac, stream=False)
+
+        files = {path.relative_to(devbox).as_posix() for path in devbox.rglob("*") if not path.is_dir()}
+        return SimpleNamespace(failures=failures, files=files, root=devbox)
+
+    def should_send_what_makes_a_plugin_installed(self, mirrored):
+        assert mirrored.failures == 0
+        assert {"installed_plugins.json", "known_marketplaces.json", "marketplaces/leonardo-skills/README.md",
+                "cache/leonardo-skills/leonardo/1.16.2/SKILL.md"} <= mirrored.files
+
+    def should_keep_per_machine_plugin_state_apart(self, mirrored):
+        assert {"synced/finance/SKILL.md", "ssh-mirrors/ai.git/HEAD"} & mirrored.files == set()
+        assert {relative: (mirrored.root / relative).read_text() for relative in DEVBOX_PLUGINS_OWN} == DEVBOX_PLUGINS_OWN
+
+    def should_drop_a_plugin_the_mac_no_longer_has(self, mirrored):
+        assert "cache/old/1.0/SKILL.md" not in mirrored.files
+
+    def should_switch_off_marketplace_updates_on_the_dev_box(self, mirrored):
+        registry = json.loads((mirrored.root / "known_marketplaces.json").read_text())
+
+        assert {name: entry["autoUpdate"] for name, entry in registry.items()} == {
+            "leonardo-skills": False, "claude-plugins-official": False}
+        assert registry["leonardo-skills"]["source"]["url"] == "git@gitlab.example:ai.git"
+
+
+class TestPluginWiring:
+    @pytest.fixture
+    def plugins(self, claude_home):
+        write_tree(claude_home / "plugins", {"installed_plugins.json": "{}\n", "cache/p/1.0/SKILL.md": "skill\n"})
+
+    @pytest.mark.usefixtures("plugins")
+    def should_mirror_plugins_on_a_full_push(self, sync, rsync_log):
+        sync(["--push"])
+
+        assert len(plugin_runs(rsync_log)) == 1
+
+    @pytest.mark.usefixtures("plugins")
+    def should_mirror_plugins_after_a_session_push(self, sync, rsync_log):
+        sync(["--push-stdin"], stdin=f"{UUID_A}\n")
+
+        assert len(plugin_runs(rsync_log)) == 1
+
+    @pytest.mark.usefixtures("plugins")
+    def should_never_mirror_plugins_on_a_pull(self, sync, rsync_log):
+        sync(["--pull"])
+
+        assert plugin_runs(rsync_log) == []
+
+    def should_skip_the_plugin_mirror_without_plugins(self, sync, rsync_log):
+        sync(["--push"])
+
+        assert plugin_runs(rsync_log) == []
+
+    def should_log_and_skip_a_broken_marketplace_registry(self, load_script, tmp_path):
+        home = tmp_path / "isolated"
+        write_tree(home / "plugins", {"known_marketplaces.json": "{not json\n"})
+
+        assert load_script("claude-sync").mirror_plugins(home, stream=False) == 1
+        assert "plugin mirror skipped" in (home / "claude-sync.log").read_text()

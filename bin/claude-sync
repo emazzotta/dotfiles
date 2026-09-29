@@ -2,8 +2,8 @@
 """Sync Claude Code transcripts between this Mac and the dev box, and mirror the workspace config to it.
 
 Every push also mirrors the tracked files of the opencode workspace tree to the dev box's /workspace,
-minus LEFT_OUT and anything a git filter rewrites. The Mac is the source of truth; the dev box keeps
-its own copy of DEVBOX_STATE.
+minus LEFT_OUT and anything a git filter rewrites, and the installed plugins (PLUGIN_INSTALL) to its
+~/.claude/plugins. The Mac is the source of truth; the dev box keeps its own copy of DEVBOX_STATE.
 """
 from __future__ import annotations
 
@@ -41,6 +41,9 @@ LEFT_OUT = (".claude/knowledge/private/", ".claude/knowledge/work/", ".claude/kn
 # What the opencode .gitignore keeps local; the dev box's own copy must survive --delete.
 DEVBOX_STATE = (".claude/*-reference/", ".claude/knowledge/memory/????-??-??.md",
                 ".claude/knowledge/content/", ".claude/.obsidian/", ".claude/scheduled_tasks.lock")
+# What makes a plugin installed; synced/, data/ and the ssh mirrors stay per machine.
+PLUGIN_INSTALL = ("installed_plugins.json", "known_marketplaces.json", "marketplaces", "cache")
+MARKETPLACE_REGISTRY = "known_marketplaces.json"
 
 
 def local_home() -> Path:
@@ -185,15 +188,19 @@ def stage(tree: Path, relatives: list[str], staging: Path) -> None:
             shutil.copy2(source, target)
 
 
+def mirror_rsync() -> list[str]:
+    """The Mac wins: no --update, and --delete inside every directory sent."""
+    return ["rsync", "-a", "--delete", f"--timeout={RSYNC_TIMEOUT_SECONDS}", "-e", SSH_COMMAND]
+
+
 def mirror_transfers(staging: Path) -> list[list[str]]:
     """Staged directories mirror with --delete; the remote /workspace keeps its own top-level entries."""
     sources = [f"{staging}/./{entry.name}{'/' if entry.is_dir() else ''}" for entry in sorted(staging.iterdir())]
     if not sources:
         return []
-    command = ["rsync", "-a", "--delete", f"--timeout={RSYNC_TIMEOUT_SECONDS}", "-e", SSH_COMMAND]
     # An excluded path is never deleted on the receiving side either.
-    command += [f"--exclude=/{pattern}" for pattern in LEFT_OUT + DEVBOX_STATE]
-    return [relative(command + sources + [f"{remote_workspace()}/"])]
+    excludes = [f"--exclude=/{pattern}" for pattern in LEFT_OUT + DEVBOX_STATE]
+    return [relative(mirror_rsync() + excludes + sources + [f"{remote_workspace()}/"])]
 
 
 def mirror_workspace(home: Path, stream: bool) -> int:
@@ -208,6 +215,42 @@ def mirror_workspace(home: Path, stream: bool) -> int:
             log(home, f"workspace mirror skipped: {error}")
             return 1
         return transfer(home, mirror_transfers(Path(staging)), stream)
+
+
+def stage_marketplaces(source: Path, staging: Path) -> str:
+    """The dev box never fetches a marketplace itself: its SSH remotes need a key it does not hold."""
+    registry = json.loads(source.read_text())
+    for marketplace in registry.values():
+        marketplace["autoUpdate"] = False
+    target = staging / "plugins" / source.name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(registry, indent=2) + "\n")
+    shutil.copystat(source, target)
+    return f"{staging}/./plugins/{source.name}"
+
+
+def plugin_source(home: Path, staging: Path, name: str) -> str:
+    source = home / "plugins" / name
+    if name == MARKETPLACE_REGISTRY:
+        return stage_marketplaces(source, staging)
+    return f"{home}/./plugins/{name}{'/' if source.is_dir() else ''}"
+
+
+def mirror_plugins(home: Path, stream: bool) -> int:
+    present = [name for name in PLUGIN_INSTALL if (home / "plugins" / name).exists()]
+    if not present:
+        return 0
+    with tempfile.TemporaryDirectory() as staging:
+        try:
+            sources = [plugin_source(home, Path(staging), name) for name in present]
+        except (OSError, ValueError) as error:
+            log(home, f"plugin mirror skipped: {error}")
+            return 1
+        return transfer(home, [relative(mirror_rsync() + sources + [f"{remote_base()}/"])], stream)
+
+
+def mirror_to_devbox(home: Path, stream: bool) -> int:
+    return mirror_workspace(home, stream) + mirror_plugins(home, stream)
 
 
 def invoker() -> str:
@@ -245,7 +288,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="claude-sync",
         description="Sync Claude Code transcripts between this Mac and the dev box,"
-                    " and mirror the workspace config to it on every push.",
+                    " and mirror the workspace config and plugins to it on every push.",
     )
     direction = parser.add_mutually_exclusive_group()
     direction.add_argument("--push", action="store_true", help="local to remote only")
@@ -312,13 +355,13 @@ def main(argv: list[str]) -> int:
 
     if session:
         failures = transfer(home, session_transfers(home, session), args.verbose)
-        return report(failures + mirror_workspace(home, args.verbose), "pushed session")
+        return report(failures + mirror_to_devbox(home, args.verbose), "pushed session")
 
     excludes = find_live_sessions(home)
     failures = 0
     if not args.pull:
         failures += transfer(home, full_transfers(home, pull=False, excludes=excludes), args.verbose)
-        failures += mirror_workspace(home, args.verbose)
+        failures += mirror_to_devbox(home, args.verbose)
     if not args.push:
         failures += transfer(home, full_transfers(home, pull=True, excludes=excludes), args.verbose)
     return report(failures, "up to date")
