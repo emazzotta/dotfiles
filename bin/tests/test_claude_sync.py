@@ -1,7 +1,10 @@
 import fcntl
 import json
+from types import SimpleNamespace
 
 import pytest
+
+from bin.tests.conftest import requires_tool
 
 UUID_A = "11111111-2222-3333-4444-555555555555"
 UUID_B = "66666666-7777-8888-9999-000000000000"
@@ -21,6 +24,7 @@ class FailedRsync:
 def _never_touch_the_real_home(tmp_path, monkeypatch):
     """Without this a test that forgets CLAUDE_HOME writes into the user's live ~/.claude."""
     monkeypatch.setenv("CLAUDE_HOME", str(tmp_path / "isolated"))
+    monkeypatch.setenv("CLAUDE_SYNC_WORKSPACE_REPO", str(tmp_path / "no-workspace-repo"))
     (tmp_path / "isolated").mkdir()
 
 
@@ -64,6 +68,75 @@ def invocations(rsync_log):
     if not rsync_log.exists():
         return []
     return [line for line in rsync_log.read_text().splitlines() if line]
+
+
+def mirror_runs(rsync_log):
+    return [line for line in invocations(rsync_log) if line.rstrip().endswith(":/workspace/")]
+
+
+WORKSPACE_FILES = {
+    "CLAUDE.md": "instructions\n",
+    ".claude/skills/demo/SKILL.md": "demo skill\n",
+    ".claude/knowledge/code/notes.md": "code notes\n",
+    ".claude/knowledge/memory/MEMORY.md": "curated\n",
+    ".claude/knowledge/private/identity.md": "passport\n",
+    ".claude/knowledge/work/customers.md": "customers\n",
+    ".claude/knowledge/sources/vendor.pdf": "vendor\n",
+    ".claude/knowledge/secreviews/infra.md": "weaknesses\n",
+    ".claude/knowledge/vault/key.md": "encrypted at rest\n",
+    ".claude/hooks/stop.sh": "exit 0\n",
+    ".claude/plugins/marketplace.json": "{}\n",
+    ".claude/settings.json": "{}\n",
+    ".claude/ref-reference/skills/ref/SKILL.md": "pinned upstream\n",
+}
+WORKSPACE_LINKS = {
+    ".claude/skills/ref": "../ref-reference/skills/ref",
+    ".claude/skills/leak": "../knowledge/private",
+    ".claude/skills/leak.md": "../knowledge/private/identity.md",
+    ".claude/skills/dangling": "../nowhere",
+}
+MIRRORED = {"CLAUDE.md", ".claude/skills/demo/SKILL.md", ".claude/knowledge/code/notes.md",
+            ".claude/knowledge/memory/MEMORY.md", ".claude/skills/ref/SKILL.md"}
+NEVER_SENT = {".claude/knowledge/private/identity.md", ".claude/knowledge/work/customers.md",
+              ".claude/knowledge/sources/vendor.pdf", ".claude/knowledge/secreviews/infra.md",
+              ".claude/knowledge/vault/key.md", ".claude/hooks/stop.sh", ".claude/plugins/marketplace.json",
+              ".claude/settings.json", ".claude/skills/demo/draft.md", ".claude/vendored/README"}
+DEVBOX_OWN = {
+    "checkout-gitlab.sh": "devbox\n",
+    "projects/app/README": "devbox\n",
+    ".claude/settings.local.json": "devbox\n",
+    ".claude/knowledge/memory/2026-09-29.md": "devbox log\n",
+    ".claude/ecc-reference/README": "devbox clone\n",
+}
+
+
+def write_tree(root, files):
+    for relative, content in files.items():
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text(content)
+
+
+@pytest.fixture
+def workspace_repo(tmp_path, git):
+    repo = tmp_path / "opencode"
+    tree = repo / "opencode/workspace"
+    write_tree(tree, WORKSPACE_FILES)
+    for relative, target in {**WORKSPACE_LINKS, ".claude/skills/outside": str(tmp_path / "outside")}.items():
+        (tree / relative).symlink_to(target)
+    write_tree(tmp_path / "outside", {"secret.txt": "outside the tree\n"})
+    write_tree(tree / ".claude/vendored", {"README": "a submodule\n"})
+    git(tree / ".claude/vendored", "init", "-q")
+    git(tree / ".claude/vendored", "add", "README")
+    git(tree / ".claude/vendored", "commit", "-q", "-m", "Vendored")
+    write_tree(repo, {
+        ".gitignore": "opencode/workspace/.claude/*-reference/\n",
+        ".gitattributes": "opencode/workspace/.claude/knowledge/vault/** filter=git-crypt diff=git-crypt\n",
+    })
+    git(repo, "init", "-q")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "Workspace")
+    write_tree(tree, {".claude/skills/demo/draft.md": "untracked\n"})
+    return repo
 
 
 class TestScope:
@@ -215,12 +288,15 @@ class TestHelp:
 class TestRemoteDefaults:
     @pytest.fixture
     def script(self, load_script, monkeypatch):
-        for name in ("CLAUDE_SYNC_REMOTE", "CLAUDE_SYNC_REMOTE_HOME"):
+        for name in ("CLAUDE_SYNC_REMOTE", "CLAUDE_SYNC_REMOTE_HOME", "CLAUDE_SYNC_REMOTE_WORKSPACE"):
             monkeypatch.delenv(name, raising=False)
         return load_script("claude-sync")
 
     def should_reach_the_dev_box_through_its_ssh_alias(self, script):
         assert script.remote_base().startswith("devbox:")
+
+    def should_mirror_into_the_dev_box_workspace(self, script):
+        assert script.remote_workspace() == "devbox:/workspace"
 
     def should_not_request_a_tty_for_a_binary_transfer(self, script):
         assert "RequestTTY=no" in script.SSH_COMMAND
@@ -280,3 +356,111 @@ class TestVisibility:
         sync(["--push"], rsync_exit=255)
 
         assert "no-agent" in (claude_home / "claude-sync.log").read_text()
+
+
+class TestLeftOut:
+    @pytest.mark.parametrize("relative, expected", [
+        (".claude/knowledge/private/identity.md", True),
+        (".claude/knowledge/private", True),
+        (".claude/knowledge", True),
+        (".", True),
+        (".claude/settings.json", True),
+        (".claude/settings.jsonc", False),
+        (".claude/knowledge/code/notes.md", False),
+    ])
+    def should_cover_left_out_parts_and_every_directory_holding_one(self, load_script, relative, expected):
+        assert load_script("claude-sync").left_out(relative) is expected
+
+
+class TestMirrorSelection:
+    def should_pick_tracked_paths_minus_left_out_filtered_and_submodules(
+            self, load_script, monkeypatch, git_env, workspace_repo):
+        for name, value in git_env.items():
+            monkeypatch.setenv(name, value)
+
+        selected = load_script("claude-sync").mirrorable(workspace_repo)
+
+        assert set(selected) == {"CLAUDE.md", ".claude/skills/demo/SKILL.md", ".claude/knowledge/code/notes.md",
+                                 ".claude/knowledge/memory/MEMORY.md", ".claude/skills/outside",
+                                 *WORKSPACE_LINKS}
+
+
+@requires_tool("rsync")
+class TestWorkspaceMirror:
+    @pytest.fixture
+    def devbox(self, tmp_path):
+        root = tmp_path / "devbox-workspace"
+        write_tree(root, {**DEVBOX_OWN, ".claude/skills/removed/SKILL.md": "deleted on the Mac\n"})
+        return root
+
+    @pytest.fixture
+    def mirrored(self, load_script, monkeypatch, tmp_path, git_env, workspace_repo, devbox):
+        fake_ssh = tmp_path / "fake-ssh"
+        fake_ssh.write_text('#!/bin/sh\nshift\nexec "$@"\n')
+        fake_ssh.chmod(0o755)
+        for name, value in {**git_env, "CLAUDE_SYNC_REMOTE": "devbox", "CLAUDE_SYNC_REMOTE_WORKSPACE": str(devbox),
+                            "CLAUDE_SYNC_WORKSPACE_REPO": str(workspace_repo)}.items():
+            monkeypatch.setenv(name, value)
+        script = load_script("claude-sync")
+        monkeypatch.setattr(script, "SSH_COMMAND", str(fake_ssh))
+
+        failures = script.mirror_workspace(tmp_path / "isolated", stream=False)
+
+        files = {path.relative_to(devbox).as_posix() for path in devbox.rglob("*") if not path.is_dir()}
+        return SimpleNamespace(failures=failures, files=files)
+
+    def should_send_every_tracked_workspace_file(self, mirrored):
+        assert mirrored.failures == 0
+        assert MIRRORED <= mirrored.files
+
+    def should_never_send_a_left_out_filtered_untracked_or_submodule_file(self, mirrored):
+        assert NEVER_SENT & mirrored.files == set()
+
+    def should_carry_a_linked_pinned_reference_as_content(self, mirrored, devbox):
+        assert (devbox / ".claude/skills/ref/SKILL.md").read_text() == "pinned upstream\n"
+
+    def should_not_follow_a_link_into_a_left_out_part_or_out_of_the_tree(self, mirrored):
+        linked = (".claude/skills/leak", ".claude/skills/outside", ".claude/skills/dangling")
+        assert {path for path in mirrored.files if path.startswith(linked)} == set()
+
+    def should_delete_what_the_mac_no_longer_has(self, mirrored):
+        assert ".claude/skills/removed/SKILL.md" not in mirrored.files
+
+    def should_leave_the_dev_box_own_files_alone(self, mirrored, devbox):
+        assert {relative: (devbox / relative).read_text() for relative in DEVBOX_OWN} == DEVBOX_OWN
+
+
+class TestMirrorWiring:
+    @pytest.fixture
+    def workspace(self, monkeypatch, git_env, workspace_repo):
+        for name, value in {**git_env, "CLAUDE_SYNC_WORKSPACE_REPO": str(workspace_repo)}.items():
+            monkeypatch.setenv(name, value)
+
+    @pytest.mark.usefixtures("workspace")
+    def should_mirror_on_a_full_push(self, sync, rsync_log):
+        sync(["--push"])
+
+        assert len(mirror_runs(rsync_log)) == 1
+
+    @pytest.mark.usefixtures("workspace")
+    def should_mirror_after_a_session_push(self, sync, rsync_log):
+        sync(["--push-stdin"], stdin=f"{UUID_A}\n")
+
+        assert len(mirror_runs(rsync_log)) == 1
+
+    @pytest.mark.usefixtures("workspace")
+    def should_never_mirror_on_a_pull(self, sync, rsync_log):
+        sync(["--pull"])
+
+        assert mirror_runs(rsync_log) == []
+
+    @pytest.mark.usefixtures("workspace")
+    def should_let_the_mac_win_over_a_newer_dev_box_file(self, sync, rsync_log):
+        sync(["--push"])
+
+        assert "--update" not in mirror_runs(rsync_log)[0].split()
+
+    def should_skip_the_mirror_when_the_workspace_repo_is_missing(self, sync, rsync_log):
+        sync(["--push"])
+
+        assert mirror_runs(rsync_log) == []

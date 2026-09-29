@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Sync Claude Code transcripts between this Mac and the dev box."""
+"""Sync Claude Code transcripts between this Mac and the dev box, and mirror the workspace config to it.
+
+Every push also mirrors the tracked files of the opencode workspace tree to the dev box's /workspace,
+minus LEFT_OUT and anything a git filter rewrites. The Mac is the source of truth; the dev box keeps
+its own copy of DEVBOX_STATE.
+"""
 from __future__ import annotations
 
 import argparse
@@ -7,8 +12,10 @@ import fcntl
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -22,6 +29,18 @@ UUID_PATTERN = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$
 DEFAULT_HOME = "~/.claude"
 DEFAULT_REMOTE = "devbox"
 DEFAULT_REMOTE_HOME = "/home/opencode/.claude"
+DEFAULT_WORKSPACE_REPO = "~/Projects/private/opencode"
+DEFAULT_REMOTE_WORKSPACE = "/workspace"
+WORKSPACE_TREE = "opencode/workspace"
+GITLINK_MODE = "160000 "
+UNFILTERED = ("unspecified", "unset")
+# Relative to the workspace tree: never sent, and a dev box copy is left alone.
+LEFT_OUT = (".claude/knowledge/private/", ".claude/knowledge/work/", ".claude/knowledge/sources/",
+            ".claude/knowledge/secreviews/", ".claude/hooks/", ".claude/plugins/",
+            ".claude/settings.json", ".claude/settings.local.json")
+# What the opencode .gitignore keeps local; the dev box's own copy must survive --delete.
+DEVBOX_STATE = (".claude/*-reference/", ".claude/knowledge/memory/????-??-??.md",
+                ".claude/knowledge/content/", ".claude/.obsidian/", ".claude/scheduled_tasks.lock")
 
 
 def local_home() -> Path:
@@ -32,6 +51,16 @@ def remote_base() -> str:
     remote = os.environ.get("CLAUDE_SYNC_REMOTE", DEFAULT_REMOTE)
     home = os.environ.get("CLAUDE_SYNC_REMOTE_HOME", DEFAULT_REMOTE_HOME)
     return f"{remote}:{home.rstrip('/')}"
+
+
+def workspace_repo() -> Path:
+    return Path(os.environ.get("CLAUDE_SYNC_WORKSPACE_REPO", DEFAULT_WORKSPACE_REPO)).expanduser()
+
+
+def remote_workspace() -> str:
+    remote = os.environ.get("CLAUDE_SYNC_REMOTE", DEFAULT_REMOTE)
+    path = os.environ.get("CLAUDE_SYNC_REMOTE_WORKSPACE", DEFAULT_REMOTE_WORKSPACE)
+    return f"{remote}:{path.rstrip('/')}"
 
 
 def log(home: Path, message: str) -> None:
@@ -99,6 +128,88 @@ def session_transfers(home: Path, session: str) -> list[list[str]]:
     return [relative(rsync_command(rooted, f"{remote_base()}/", []))]
 
 
+def git(repo: Path, *args: str, stdin: str = "") -> str:
+    return subprocess.run(["git", "-C", str(repo), *args], input=stdin, capture_output=True,
+                          encoding="utf-8", check=True).stdout
+
+
+def tracked_paths(repo: Path) -> list[str]:
+    entries = git(repo, "ls-files", "-z", "-s", "--", WORKSPACE_TREE).split("\0")
+    paths = [entry.split("\t", 1)[1] for entry in entries if entry and not entry.startswith(GITLINK_MODE)]
+    return list(dict.fromkeys(paths))
+
+
+def filtered_paths(repo: Path, paths: list[str]) -> set[str]:
+    """A filter such as git-crypt means the file on disk is not what git stores."""
+    fields = git(repo, "check-attr", "-z", "filter", "--stdin", stdin="\0".join(paths)).split("\0")
+    return {fields[i] for i in range(0, len(fields) - 2, 3) if fields[i + 2] not in UNFILTERED}
+
+
+def left_out(relative: str) -> bool:
+    """Also true for a directory holding a left-out part: a symlink to it would carry that part along."""
+    path = relative.rstrip("/")
+    if path in ("", "."):
+        return True
+    bases = (rule.rstrip("/") for rule in LEFT_OUT)
+    return any(path == base or path.startswith(f"{base}/") or base.startswith(f"{path}/") for base in bases)
+
+
+def mirrorable(repo: Path) -> list[str]:
+    tracked = tracked_paths(repo)
+    rewritten = filtered_paths(repo, tracked)
+    prefix = len(WORKSPACE_TREE) + 1
+    relatives = [path[prefix:] for path in tracked if path not in rewritten]
+    return [relative for relative in relatives if not left_out(relative)]
+
+
+def safe_source(root: Path, source: Path) -> bool:
+    """A symlink may only pull content from inside the workspace tree, never from a left-out part."""
+    try:
+        return not left_out(source.relative_to(root).as_posix())
+    except ValueError:
+        return False
+
+
+def stage(tree: Path, relatives: list[str], staging: Path) -> None:
+    root = tree.resolve()
+    for relative in relatives:
+        source = (tree / relative).resolve()
+        if not source.exists() or not safe_source(root, source):
+            continue
+        target = staging / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_dir():
+            # A link nested in a linked directory is copied as a link, never followed.
+            shutil.copytree(source, target, symlinks=True)
+        else:
+            shutil.copy2(source, target)
+
+
+def mirror_transfers(staging: Path) -> list[list[str]]:
+    """Staged directories mirror with --delete; the remote /workspace keeps its own top-level entries."""
+    sources = [f"{staging}/./{entry.name}{'/' if entry.is_dir() else ''}" for entry in sorted(staging.iterdir())]
+    if not sources:
+        return []
+    command = ["rsync", "-a", "--delete", f"--timeout={RSYNC_TIMEOUT_SECONDS}", "-e", SSH_COMMAND]
+    # An excluded path is never deleted on the receiving side either.
+    command += [f"--exclude=/{pattern}" for pattern in LEFT_OUT + DEVBOX_STATE]
+    return [relative(command + sources + [f"{remote_workspace()}/"])]
+
+
+def mirror_workspace(home: Path, stream: bool) -> int:
+    repo = workspace_repo()
+    tree = repo / WORKSPACE_TREE
+    if not tree.is_dir():
+        return 0
+    with tempfile.TemporaryDirectory() as staging:
+        try:
+            stage(tree, mirrorable(repo), Path(staging))
+        except (OSError, subprocess.CalledProcessError) as error:
+            log(home, f"workspace mirror skipped: {error}")
+            return 1
+        return transfer(home, mirror_transfers(Path(staging)), stream)
+
+
 def invoker() -> str:
     """A failure that names who started it beats guessing which caller has the broken environment."""
     try:
@@ -133,7 +244,8 @@ def transfer(home: Path, commands: list[list[str]], stream: bool = False) -> int
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="claude-sync",
-        description="Sync Claude Code transcripts between this Mac and the dev box.",
+        description="Sync Claude Code transcripts between this Mac and the dev box,"
+                    " and mirror the workspace config to it on every push.",
     )
     direction = parser.add_mutually_exclusive_group()
     direction.add_argument("--push", action="store_true", help="local to remote only")
@@ -199,12 +311,14 @@ def main(argv: list[str]) -> int:
         return 0
 
     if session:
-        return report(transfer(home, session_transfers(home, session), args.verbose), "pushed session")
+        failures = transfer(home, session_transfers(home, session), args.verbose)
+        return report(failures + mirror_workspace(home, args.verbose), "pushed session")
 
     excludes = find_live_sessions(home)
     failures = 0
     if not args.pull:
         failures += transfer(home, full_transfers(home, pull=False, excludes=excludes), args.verbose)
+        failures += mirror_workspace(home, args.verbose)
     if not args.push:
         failures += transfer(home, full_transfers(home, pull=True, excludes=excludes), args.verbose)
     return report(failures, "up to date")
