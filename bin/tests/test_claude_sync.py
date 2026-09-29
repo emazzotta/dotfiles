@@ -25,6 +25,7 @@ def _never_touch_the_real_home(tmp_path, monkeypatch):
     """Without this a test that forgets CLAUDE_HOME writes into the user's live ~/.claude."""
     monkeypatch.setenv("CLAUDE_HOME", str(tmp_path / "isolated"))
     monkeypatch.setenv("CLAUDE_SYNC_WORKSPACE_REPO", str(tmp_path / "no-workspace-repo"))
+    monkeypatch.setenv("CLAUDE_SYNC_RSYNC", "rsync")
     (tmp_path / "isolated").mkdir()
 
 
@@ -120,10 +121,12 @@ MAC_PLUGINS = {
     "synced/finance/SKILL.md": "account synced\n",
     "data/leonardo/state": "mac runtime state\n",
     "ssh-mirrors/ai.git/HEAD": "ref: refs/heads/main\n",
+    "cache/leonardo-skills/leonardo/1.16.2/.in_use/1": "mac session\n",
 }
 DEVBOX_PLUGINS_OWN = {
     "synced/own.json": "devbox synced\n",
     "data/leonardo/state": "devbox runtime state\n",
+    "cache/leonardo-skills/leonardo/1.16.2/.in_use/2": "devbox session\n",
 }
 MAC_SETTINGS = {
     "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "stop-bell"}]}]},
@@ -436,6 +439,7 @@ class TestWorkspaceMirror:
 
     @pytest.fixture
     def mirrored(self, load_script, monkeypatch, tmp_path, git_env, workspace_repo, devbox, fake_ssh):
+        monkeypatch.delenv("CLAUDE_SYNC_RSYNC")
         for name, value in {**git_env, "CLAUDE_SYNC_REMOTE": "devbox", "CLAUDE_SYNC_REMOTE_WORKSPACE": str(devbox),
                             "CLAUDE_SYNC_WORKSPACE_REPO": str(workspace_repo)}.items():
             monkeypatch.setenv(name, value)
@@ -508,6 +512,7 @@ class TestMirrorWiring:
 class TestPluginMirror:
     @pytest.fixture
     def mirrored(self, load_script, monkeypatch, tmp_path, fake_ssh):
+        monkeypatch.delenv("CLAUDE_SYNC_RSYNC")
         mac = tmp_path / "mac-claude"
         write_tree(mac / "plugins", MAC_PLUGINS)
         devbox = tmp_path / "devbox-claude" / "plugins"
@@ -528,7 +533,8 @@ class TestPluginMirror:
                 "cache/leonardo-skills/leonardo/1.16.2/SKILL.md"} <= mirrored.files
 
     def should_keep_per_machine_plugin_state_apart(self, mirrored):
-        assert {"synced/finance/SKILL.md", "ssh-mirrors/ai.git/HEAD"} & mirrored.files == set()
+        assert {"synced/finance/SKILL.md", "ssh-mirrors/ai.git/HEAD",
+                "cache/leonardo-skills/leonardo/1.16.2/.in_use/1"} & mirrored.files == set()
         assert {relative: (mirrored.root / relative).read_text() for relative in DEVBOX_PLUGINS_OWN} == DEVBOX_PLUGINS_OWN
 
     def should_drop_a_plugin_the_mac_no_longer_has(self, mirrored):
@@ -613,6 +619,7 @@ class TestSettingsMerge:
 class TestSettingsSync:
     @pytest.fixture
     def run(self, load_script, monkeypatch, tmp_path, fake_ssh):
+        monkeypatch.delenv("CLAUDE_SYNC_RSYNC")
         mac = tmp_path / "mac-claude"
         write_tree(mac, {"settings.json": json.dumps(MAC_SETTINGS)})
         box = tmp_path / "devbox-claude"
@@ -668,3 +675,34 @@ class TestSettingsWiring:
         sync(["--push"])
 
         assert settings_runs(rsync_log) == []
+
+
+class TestRsyncBinary:
+    @pytest.fixture
+    def script(self, load_script, monkeypatch):
+        monkeypatch.delenv("CLAUDE_SYNC_RSYNC")
+        return load_script("claude-sync")
+
+    def should_prefer_homebrew_gnu_rsync_over_the_path(self, script, monkeypatch, tmp_path):
+        gnu = tmp_path / "rsync"
+        gnu.write_text("#!/bin/sh\n")
+        gnu.chmod(0o755)
+        monkeypatch.setattr(script, "RSYNC_CANDIDATES", (str(tmp_path / "missing"), str(gnu)))
+
+        assert script.rsync_binary() == str(gnu)
+
+    def should_fall_back_to_rsync_on_the_path(self, script, monkeypatch, tmp_path):
+        monkeypatch.setattr(script, "RSYNC_CANDIDATES", (str(tmp_path / "missing"),))
+
+        assert script.rsync_binary() == "rsync"
+
+    def should_honour_an_explicit_override(self, script, monkeypatch):
+        monkeypatch.setenv("CLAUDE_SYNC_RSYNC", "/custom/rsync")
+
+        assert script.rsync_binary() == "/custom/rsync"
+
+    def should_build_every_command_with_the_chosen_rsync(self, script, monkeypatch):
+        monkeypatch.setenv("CLAUDE_SYNC_RSYNC", "/custom/rsync")
+
+        assert script.rsync_command(["a"], "b", [])[0] == "/custom/rsync"
+        assert script.mirror_rsync()[0] == "/custom/rsync"

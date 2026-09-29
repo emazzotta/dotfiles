@@ -24,6 +24,7 @@ SYNC_PATHS = ("projects", "file-history", "tasks", "paste-cache")
 SSH_COMMAND = ("ssh -o BatchMode=yes -o ConnectTimeout=5 -o RequestTTY=no"
                " -o ControlMaster=auto -o ControlPath=~/.ssh/claude-sync-%C -o ControlPersist=60")
 RSYNC_TIMEOUT_SECONDS = 20
+RSYNC_CANDIDATES = ("/opt/homebrew/bin/rsync", "/usr/local/bin/rsync")
 MAX_LOG_BYTES = 1_000_000
 UUID_PATTERN = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
 
@@ -45,6 +46,8 @@ DEVBOX_STATE = (".claude/*-reference/", ".claude/knowledge/memory/????-??-??.md"
 # What makes a plugin installed; synced/, data/ and the ssh mirrors stay per machine.
 PLUGIN_INSTALL = ("installed_plugins.json", "known_marketplaces.json", "marketplaces", "cache")
 MARKETPLACE_REGISTRY = "known_marketplaces.json"
+# Each machine marks the plugin versions its own sessions use; the other side's markers mean nothing.
+PLUGIN_MARKERS = ".in_use/"
 # Owned by claude-sync in the dev box's settings.json, next to enabledPlugins copied from the Mac.
 DEVBOX_SETTINGS = {"syncClaudeAiPlugins": False, "syncClaudeAiSkills": False, "disableClaudeAiConnectors": True}
 RSYNC_MISSING_SOURCE = 23
@@ -94,9 +97,17 @@ def find_live_sessions(home: Path) -> list[str]:
     return sorted(live)
 
 
+def rsync_binary() -> str:
+    """GNU rsync: the bridge runs under launchd's PATH, and Apple's rsync ignores the /./ marker --relative needs."""
+    override = os.environ.get("CLAUDE_SYNC_RSYNC")
+    if override:
+        return override
+    return next((path for path in RSYNC_CANDIDATES if os.access(path, os.X_OK)), "rsync")
+
+
 def rsync_command(sources: list[str], destination: str, excludes: list[str]) -> list[str]:
     command = [
-        "rsync", "-a", "--update",
+        rsync_binary(), "-a", "--update",
         f"--timeout={RSYNC_TIMEOUT_SECONDS}",
         "-e", SSH_COMMAND,
     ]
@@ -194,7 +205,7 @@ def stage(tree: Path, relatives: list[str], staging: Path) -> None:
 
 def mirror_rsync() -> list[str]:
     """The Mac wins: no --update, and --delete inside every directory sent."""
-    return ["rsync", "-a", "--delete", f"--timeout={RSYNC_TIMEOUT_SECONDS}", "-e", SSH_COMMAND]
+    return [rsync_binary(), "-a", "--delete", f"--timeout={RSYNC_TIMEOUT_SECONDS}", "-e", SSH_COMMAND]
 
 
 def mirror_transfers(staging: Path) -> list[list[str]]:
@@ -250,7 +261,8 @@ def mirror_plugins(home: Path, stream: bool) -> int:
         except (OSError, ValueError) as error:
             log(home, f"plugin mirror skipped: {error}")
             return 1
-        return transfer(home, [relative(mirror_rsync() + sources + [f"{remote_base()}/"])], stream)
+        command = mirror_rsync() + [f"--exclude={PLUGIN_MARKERS}"] + sources + [f"{remote_base()}/"]
+        return transfer(home, [relative(command)], stream)
 
 
 def merged_settings(mac: dict, box: dict) -> dict:
