@@ -3,7 +3,8 @@
 
 Every push also mirrors the tracked files of the opencode workspace tree to the dev box's /workspace,
 minus LEFT_OUT and anything a git filter rewrites, and the installed plugins (PLUGIN_INSTALL) to its
-~/.claude/plugins. The Mac is the source of truth; the dev box keeps its own copy of DEVBOX_STATE.
+~/.claude/plugins, and keeps enabledPlugins plus DEVBOX_SETTINGS in step in its ~/.claude/settings.json.
+The Mac is the source of truth; the dev box keeps its own copy of DEVBOX_STATE and its other settings.
 """
 from __future__ import annotations
 
@@ -44,6 +45,9 @@ DEVBOX_STATE = (".claude/*-reference/", ".claude/knowledge/memory/????-??-??.md"
 # What makes a plugin installed; synced/, data/ and the ssh mirrors stay per machine.
 PLUGIN_INSTALL = ("installed_plugins.json", "known_marketplaces.json", "marketplaces", "cache")
 MARKETPLACE_REGISTRY = "known_marketplaces.json"
+# Owned by claude-sync in the dev box's settings.json, next to enabledPlugins copied from the Mac.
+DEVBOX_SETTINGS = {"syncClaudeAiPlugins": False, "syncClaudeAiSkills": False, "disableClaudeAiConnectors": True}
+RSYNC_MISSING_SOURCE = 23
 
 
 def local_home() -> Path:
@@ -249,8 +253,48 @@ def mirror_plugins(home: Path, stream: bool) -> int:
         return transfer(home, [relative(mirror_rsync() + sources + [f"{remote_base()}/"])], stream)
 
 
+def merged_settings(mac: dict, box: dict) -> dict:
+    """The box keeps its own keys; plugins switch on and off as on the Mac, and claude.ai stays out."""
+    merged = {**box, **DEVBOX_SETTINGS}
+    if "enabledPlugins" in mac:
+        merged["enabledPlugins"] = mac["enabledPlugins"]
+    return merged
+
+
+def pull_devbox_settings(home: Path, target: Path) -> bool:
+    """False unless the box's file arrived or provably does not exist: a push after any other failure would wipe it."""
+    command = mirror_rsync() + [f"{remote_base()}/settings.json", str(target)]
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    missing = result.returncode == RSYNC_MISSING_SOURCE and "No such file or directory" in result.stderr
+    if result.returncode != 0 and not missing:
+        log(home, f"settings sync skipped: rsync exit {result.returncode}: {result.stderr.strip()}")
+        return False
+    return True
+
+
+def sync_devbox_settings(home: Path, stream: bool) -> int:
+    """Read the box's file, change only the owned keys, and write it back only when they differ."""
+    mac_file = home / "settings.json"
+    if not mac_file.is_file():
+        return 0
+    with tempfile.TemporaryDirectory() as staging:
+        box_file = Path(staging) / "settings.json"
+        if not pull_devbox_settings(home, box_file):
+            return 1
+        try:
+            box = json.loads(box_file.read_text()) if box_file.is_file() else {}
+            merged = merged_settings(json.loads(mac_file.read_text()), box)
+        except (OSError, ValueError) as error:
+            log(home, f"settings sync skipped: {error}")
+            return 1
+        if merged == box:
+            return 0
+        box_file.write_text(json.dumps(merged, indent=2) + "\n")
+        return transfer(home, [mirror_rsync() + [str(box_file), f"{remote_base()}/settings.json"]], stream)
+
+
 def mirror_to_devbox(home: Path, stream: bool) -> int:
-    return mirror_workspace(home, stream) + mirror_plugins(home, stream)
+    return mirror_workspace(home, stream) + mirror_plugins(home, stream) + sync_devbox_settings(home, stream)
 
 
 def invoker() -> str:

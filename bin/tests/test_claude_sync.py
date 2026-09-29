@@ -78,6 +78,10 @@ def plugin_runs(rsync_log):
     return [line for line in invocations(rsync_log) if "/./plugins/" in line]
 
 
+def settings_runs(rsync_log):
+    return [line for line in invocations(rsync_log) if "settings.json" in line]
+
+
 WORKSPACE_FILES = {
     "CLAUDE.md": "instructions\n",
     ".claude/skills/demo/SKILL.md": "demo skill\n",
@@ -121,6 +125,14 @@ DEVBOX_PLUGINS_OWN = {
     "synced/own.json": "devbox synced\n",
     "data/leonardo/state": "devbox runtime state\n",
 }
+MAC_SETTINGS = {
+    "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "stop-bell"}]}]},
+    "theme": "light",
+    "enabledPlugins": {"leonardo@leonardo-skills": True, "superpowers@claude-plugins-official": False},
+}
+BOX_SETTINGS = {"theme": "dark", "tui": "fullscreen", "enabledPlugins": {"old@marketplace": True}}
+SYNC_OFF = {"syncClaudeAiPlugins": False, "syncClaudeAiSkills": False, "disableClaudeAiConnectors": True}
+EXPECTED_BOX = {"theme": "dark", "tui": "fullscreen", "enabledPlugins": MAC_SETTINGS["enabledPlugins"], **SYNC_OFF}
 DEVBOX_OWN = {
     "checkout-gitlab.sh": "devbox\n",
     "projects/app/README": "devbox\n",
@@ -564,3 +576,95 @@ class TestPluginWiring:
 
         assert load_script("claude-sync").mirror_plugins(home, stream=False) == 1
         assert "plugin mirror skipped" in (home / "claude-sync.log").read_text()
+
+
+class TestSettingsMerge:
+    @pytest.fixture
+    def merged_settings(self, load_script):
+        return load_script("claude-sync").merged_settings
+
+    def should_take_enabled_plugins_from_the_mac_and_keep_the_box_own_keys(self, merged_settings):
+        assert merged_settings(MAC_SETTINGS, BOX_SETTINGS) == EXPECTED_BOX
+
+    def should_keep_the_box_list_when_the_mac_has_none(self, merged_settings):
+        assert merged_settings({"theme": "light"}, BOX_SETTINGS)["enabledPlugins"] == BOX_SETTINGS["enabledPlugins"]
+
+    def should_change_nothing_once_applied(self, merged_settings):
+        assert merged_settings(MAC_SETTINGS, EXPECTED_BOX) == EXPECTED_BOX
+
+    def should_not_push_when_the_box_already_matches(self, load_script, monkeypatch, tmp_path):
+        script = load_script("claude-sync")
+        home = tmp_path / "isolated"
+        (home / "settings.json").write_text(json.dumps(MAC_SETTINGS))
+
+        def pull_matching(_home, target):
+            target.write_text(json.dumps(EXPECTED_BOX))
+            return True
+
+        pushes = []
+        monkeypatch.setattr(script, "pull_devbox_settings", pull_matching)
+        monkeypatch.setattr(script, "transfer", lambda _home, commands, _stream=False: pushes.append(commands) or 0)
+
+        assert script.sync_devbox_settings(home, stream=False) == 0
+        assert pushes == []
+
+
+@requires_tool("rsync")
+class TestSettingsSync:
+    @pytest.fixture
+    def run(self, load_script, monkeypatch, tmp_path, fake_ssh):
+        mac = tmp_path / "mac-claude"
+        write_tree(mac, {"settings.json": json.dumps(MAC_SETTINGS)})
+        box = tmp_path / "devbox-claude"
+        box.mkdir()
+        monkeypatch.setenv("CLAUDE_SYNC_REMOTE", "devbox")
+        monkeypatch.setenv("CLAUDE_SYNC_REMOTE_HOME", str(box))
+        script = load_script("claude-sync")
+        monkeypatch.setattr(script, "SSH_COMMAND", str(fake_ssh))
+        return SimpleNamespace(sync=lambda: script.sync_devbox_settings(mac, stream=False), file=box / "settings.json")
+
+    def should_write_the_owned_keys_into_the_box_settings(self, run):
+        run.file.write_text(json.dumps(BOX_SETTINGS))
+
+        assert run.sync() == 0
+        assert json.loads(run.file.read_text()) == EXPECTED_BOX
+
+    def should_create_the_box_settings_when_missing(self, run):
+        assert run.sync() == 0
+        assert json.loads(run.file.read_text()) == {"enabledPlugins": MAC_SETTINGS["enabledPlugins"], **SYNC_OFF}
+
+    def should_skip_a_box_file_it_cannot_parse(self, run):
+        run.file.write_text("{broken")
+
+        assert run.sync() == 1
+        assert run.file.read_text() == "{broken"
+
+
+class TestSettingsWiring:
+    @pytest.fixture
+    def mac_settings(self, claude_home):
+        (claude_home / "settings.json").write_text(json.dumps(MAC_SETTINGS))
+
+    @pytest.mark.usefixtures("mac_settings")
+    def should_pull_and_push_the_box_settings_on_a_push(self, sync, rsync_log):
+        sync(["--push"])
+
+        assert len(settings_runs(rsync_log)) == 2
+
+    @pytest.mark.usefixtures("mac_settings")
+    def should_never_touch_the_box_settings_on_a_pull(self, sync, rsync_log):
+        sync(["--pull"])
+
+        assert settings_runs(rsync_log) == []
+
+    @pytest.mark.usefixtures("mac_settings")
+    @pytest.mark.parametrize("rsync_exit", [255, 23])
+    def should_not_push_when_the_pull_did_not_prove_the_file_missing(self, sync, rsync_log, rsync_exit):
+        sync(["--push"], rsync_exit=rsync_exit)
+
+        assert len(settings_runs(rsync_log)) == 1
+
+    def should_skip_the_settings_without_mac_settings(self, sync, rsync_log):
+        sync(["--push"])
+
+        assert settings_runs(rsync_log) == []
