@@ -233,12 +233,16 @@ def _resolve_bridge_token() -> str:
     return _server_get(host, _BRIDGE_TOKEN_KEY).strip()
 
 
-def _bridge_call(host: str, path: str, *, method: str = "GET", token: str | None = None) -> str:
+def _bridge_call(
+    host: str, path: str, *, method: str = "GET", token: str | None = None,
+    data: bytes | None = None,
+) -> str:
     headers: dict[str, str] = {}
     if token is not None:
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(
         f"http://{host}:{_SERVER_PORT}/_bridge/{path}",
+        data=data,
         method=method,
         headers=headers,
     )
@@ -269,13 +273,13 @@ def list_bridge_endpoints(*, include_private: bool = False) -> None:
     print(_bridge_call(host, "list", token=token), end="")
 
 
-def call_bridge_endpoint(name: str) -> None:
+def call_bridge_endpoint(name: str, body: bytes | None = None) -> None:
     host = _require_host()
     if name in _public_bridge_names(host):
-        print(_bridge_call(host, name, method="POST"), end="")
+        print(_bridge_call(host, name, method="POST", data=body), end="")
         return
     token = _resolve_bridge_token()
-    print(_bridge_call(host, name, method="POST", token=token), end="")
+    print(_bridge_call(host, name, method="POST", token=token, data=body), end="")
 
 
 # ---------------------------------------------------------------------------
@@ -316,15 +320,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="with --bridge-list: include private endpoints (requires auth token)",
     )
     parser.add_argument(
+        "--stdin", action="store_true", dest="bridge_stdin",
+        help="with --bridge: send stdin as the request body (endpoints with stdin: true)",
+    )
+    parser.add_argument(
         "vars", nargs="*", metavar="VAR",
         help="secret names to resolve (outputs export statements)",
     )
     return parser
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     _load_global_env()
-    args = _build_parser().parse_args()
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if args.bridge_stdin and not args.bridge:
+        parser.error("--stdin requires --bridge")
 
     if args.list_keys:
         list_params()
@@ -335,7 +346,7 @@ def main() -> None:
     elif args.bridge_list:
         list_bridge_endpoints(include_private=args.all_endpoints)
     elif args.bridge:
-        call_bridge_endpoint(args.bridge)
+        call_bridge_endpoint(args.bridge, sys.stdin.buffer.read() if args.bridge_stdin else None)
     elif args.vars:
         resolve_params(args.vars)
 

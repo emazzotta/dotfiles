@@ -147,3 +147,38 @@ class TestRmFlag:
         with pytest.raises(SystemExit):
             envify._build_parser().parse_args(["--rm", "OLD_TOKEN", "--set", "NEW_TOKEN"])
 
+
+
+class TestBridgeBody:
+    def should_send_the_body_with_the_bridge_request(self, envify, monkeypatch):
+        captured = {}
+
+        def fake_urlopen(request, timeout):
+            captured["request"] = request
+            return FakeResponse()
+
+        monkeypatch.setattr(envify.urllib.request, "urlopen", fake_urlopen)
+
+        envify._bridge_call("localhost", "mac-trash", method="POST", token="t", data=b"/a\n")
+
+        request = captured["request"]
+        assert (request.get_method(), request.data) == ("POST", b"/a\n")
+
+    def should_pass_the_body_to_a_private_endpoint_with_the_token(self, envify, monkeypatch):
+        calls = []
+        monkeypatch.setattr(envify, "_require_host", lambda: "localhost")
+        monkeypatch.setattr(envify, "_public_bridge_names", lambda host: set())
+        monkeypatch.setattr(envify, "_resolve_bridge_token", lambda: "t")
+        monkeypatch.setattr(envify, "_bridge_call", lambda host, name, **kw: calls.append(kw) or "")
+
+        envify.call_bridge_endpoint("mac-trash", b"/a\n")
+
+        assert calls == [{"method": "POST", "token": "t", "data": b"/a\n"}]
+
+    def should_refuse_stdin_without_a_bridge_endpoint(self, envify, monkeypatch):
+        monkeypatch.setattr(envify, "_load_global_env", lambda: None)
+
+        with pytest.raises(SystemExit) as exit_info:
+            envify.main(["--stdin"])
+
+        assert exit_info.value.code == 2
