@@ -3,8 +3,9 @@
 # (optionally passphrase-protected) private key into a persistent ssh-agent WITHOUT writing it to
 # disk, and trust the given host(s) so git/ssh work non-interactively.
 #
-# Usage:   eval "$(keyguard-ssh-agent KEY_B64_VAR [PASSPHRASE_VAR] [HOST ...])"
-# Example: eval "$(keyguard-ssh-agent GITLAB_SSH_KEY_BASE64 GITLAB_SSH_KEY_PASSPHRASE gitlab.example.local)"
+# Usage:   out=$(keyguard-ssh-agent KEY_B64_VAR [PASSPHRASE_VAR] [HOST ...]) && eval "$out"
+# Example: out=$(keyguard-ssh-agent GITLAB_SSH_KEY_BASE64 GITLAB_SSH_KEY_PASSPHRASE gitlab.example.local) && eval "$out"
+#          A bare eval "$(...)" hides a failed load; scripts use "|| exit 1" instead of "&&".
 #          (passphraseless key: pass "" for PASSPHRASE_VAR)
 # Prints an `export SSH_AUTH_SOCK=...` line for the caller to eval.
 # The key lives in the agent for ENVIFY_CACHE_TIMEOUT seconds (120 by default, envify's own
@@ -16,7 +17,7 @@ key_var="${1:-}"
 pass_var="${2:-}"
 hosts=("${@:3}")
 if [ -z "$key_var" ]; then
-  echo "usage: eval \"\$(keyguard-ssh-agent KEY_B64_VAR [PASSPHRASE_VAR] [HOST ...])\"" >&2
+  echo "usage: out=\$(keyguard-ssh-agent KEY_B64_VAR [PASSPHRASE_VAR] [HOST ...]) && eval \"\$out\"" >&2
   exit 2
 fi
 lifetime="${ENVIFY_CACHE_TIMEOUT:-120}"
