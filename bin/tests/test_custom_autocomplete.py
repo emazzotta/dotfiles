@@ -385,7 +385,14 @@ class TestFileserver:
 class TestKeyguard:
     @pytest.fixture(autouse=True)
     def subcommands(self, mock):
-        mock("keyguard", "[ \"$*\" = '--complete commands' ] && printf '%s\\n' get set import")
+        mock("keyguard", "case \"$*\" in\n"
+                         "  '--complete commands') printf '%s\\n' get set import ;;\n"
+                         "  '--complete flags') printf '%s\\n' --help -h ;;\n"
+                         "esac")
+
+    @pytest.mark.parametrize("typed, flags", [("-", ["--help", "-h"]), ("--", ["--help"])])
+    def should_offer_the_flags_keyguard_takes_before_a_command(self, complete, typed, flags):
+        assert complete("_keyguard", "keyguard", typed) == flags
 
     def should_offer_a_file_name_with_spaces_whole_to_import(self, complete, tmp_path):
         (tmp_path / "rick ross.env").touch()

@@ -228,10 +228,18 @@ _keyguard()
   prev="${COMP_WORDS[COMP_CWORD-1]}"
   cmd="${COMP_WORDS[1]}"
 
-  # keyguard owns both lists; --complete reads neither the store nor the
+  # keyguard owns every list; --complete reads neither the store nor the
   # Keychain, so TAB never prompts for a fingerprint.
   if [[ -z "${_KEYGUARD_COMMANDS}" ]]; then
     _KEYGUARD_COMMANDS=$(keyguard --complete commands 2>/dev/null | tr '\n' ' ')
+  fi
+
+  if [[ ${COMP_CWORD} -eq 1 && "${cur}" == -* ]]; then
+    if [[ -z "${_KEYGUARD_TOP_FLAGS}" ]]; then
+      _KEYGUARD_TOP_FLAGS=$(keyguard --complete flags 2>/dev/null | tr '\n' ' ')
+    fi
+    COMPREPLY=($(compgen -W "${_KEYGUARD_TOP_FLAGS}" -- "${cur}"))
+    return 0
   fi
 
   if [[ ${COMP_CWORD} -eq 1 ]]; then
