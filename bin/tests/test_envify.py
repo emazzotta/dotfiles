@@ -1,5 +1,6 @@
 import io
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,6 +19,16 @@ class FakeResponse:
 
     def read(self):
         return b"stored"
+
+
+def http_error(envify, code):
+    return envify.urllib.error.HTTPError("http://localhost", code, "error", {}, io.BytesIO(b"denied"))
+
+
+def raise_or_return(answer):
+    if isinstance(answer, Exception):
+        raise answer
+    return answer
 
 
 class TestLoadEnv:
@@ -149,31 +160,64 @@ class TestRmFlag:
 
 
 
-class TestBridgeBody:
-    def should_send_the_body_with_the_bridge_request(self, envify, monkeypatch):
-        captured = {}
+class TestBridge:
+    @pytest.fixture
+    def opened(self, envify, monkeypatch):
+        requests = []
 
         def fake_urlopen(request, timeout):
-            captured["request"] = request
+            requests.append(request)
             return FakeResponse()
 
         monkeypatch.setattr(envify.urllib.request, "urlopen", fake_urlopen)
-
-        envify._bridge_call("localhost", "mac-trash", method="POST", token="t", data=b"/a\n")
-
-        request = captured["request"]
-        assert (request.get_method(), request.data) == ("POST", b"/a\n")
-
-    def should_pass_the_body_to_a_private_endpoint_with_the_token(self, envify, monkeypatch):
-        calls = []
         monkeypatch.setattr(envify, "_require_host", lambda: "localhost")
-        monkeypatch.setattr(envify, "_public_bridge_names", lambda host: set())
-        monkeypatch.setattr(envify, "_resolve_bridge_token", lambda: "t")
-        monkeypatch.setattr(envify, "_bridge_call", lambda host, name, **kw: calls.append(kw) or "")
+        return requests
 
+    def should_send_the_body_with_the_bridge_request(self, envify, opened):
+        envify._bridge_call("localhost", "mac-trash", method="POST", data=b"/a\n")
+
+        assert (opened[0].get_method(), opened[0].data) == ("POST", b"/a\n")
+
+    def should_call_an_endpoint_in_one_request_without_a_token(self, envify, opened):
         envify.call_bridge_endpoint("mac-trash", b"/a\n")
 
-        assert calls == [{"method": "POST", "token": "t", "data": b"/a\n"}]
+        assert [request.full_url for request in opened] == ["http://localhost:7777/_bridge/mac-trash"]
+        assert not opened[0].has_header("Authorization")
+
+    @pytest.mark.parametrize("include_private, path", [(False, "list"), (True, "list?all=1")])
+    def should_ask_for_private_endpoints_only_with_all(self, envify, opened, include_private, path):
+        envify.list_bridge_endpoints(include_private=include_private)
+
+        assert opened[0].full_url == f"http://localhost:7777/_bridge/{path}"
+
+    def should_wait_while_another_bridge_prompt_is_open(self, envify, monkeypatch):
+        answers = [http_error(envify, 429), FakeResponse()]
+        monkeypatch.setattr(envify.urllib.request, "urlopen", lambda request, timeout: raise_or_return(answers.pop(0)))
+        monkeypatch.setattr(envify, "time", SimpleNamespace(monotonic=lambda: 0.0, sleep=lambda seconds: None))
+
+        assert envify._bridge_call("localhost", "echo", method="POST") == "stored"
+        assert answers == []
+
+    def should_give_up_once_the_prompt_wait_is_over(self, envify, monkeypatch, capsys):
+        clock = iter([0.0, envify._TOUCH_ID_WAIT + 1.0])
+        monkeypatch.setattr(envify.urllib.request, "urlopen", lambda request, timeout: raise_or_return(http_error(envify, 429)))
+        monkeypatch.setattr(envify, "time", SimpleNamespace(monotonic=lambda: next(clock), sleep=lambda seconds: None))
+
+        with pytest.raises(SystemExit):
+            envify._bridge_call("localhost", "echo", method="POST")
+
+        assert "bridge returned 429" in capsys.readouterr().err
+
+    def should_not_retry_a_denied_prompt(self, envify, monkeypatch, capsys):
+        calls = []
+        monkeypatch.setattr(envify.urllib.request, "urlopen",
+                            lambda request, timeout: calls.append(request) or raise_or_return(http_error(envify, 403)))
+
+        with pytest.raises(SystemExit):
+            envify._bridge_call("localhost", "echo", method="POST")
+
+        assert len(calls) == 1
+        assert "bridge returned 403: denied" in capsys.readouterr().err
 
     def should_refuse_stdin_without_a_bridge_endpoint(self, envify, monkeypatch):
         monkeypatch.setattr(envify, "_load_global_env", lambda: None)

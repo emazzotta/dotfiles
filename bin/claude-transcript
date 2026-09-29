@@ -63,17 +63,6 @@ find_latest_jsonl() {
         | sort -rn | head -1 | cut -d' ' -f2-
 }
 
-# One Touch ID for the whole run: `fileserver` reads MAC_BRIDGE_TOKEN from the
-# environment when set, so resolving it once here spares the name lookup and the
-# upload a prompt each. Deferred until after arg validation on purpose.
-export_bridge_token() {
-    [ -f /.dockerenv ] || return 0
-    [ -z "${MAC_BRIDGE_TOKEN:-}" ] || return 0
-    # shellcheck disable=SC1091
-    source envify MAC_BRIDGE_TOKEN 2>/dev/null || true
-    export MAC_BRIDGE_TOKEN="${MAC_BRIDGE_TOKEN:-}"
-}
-
 # The published name of an earlier run for this session, if any. Reusing it keeps
 # a shared URL alive; a miss (or an unreachable server) just mints a fresh name.
 find_published_name() {
@@ -158,8 +147,6 @@ main() {
         jsonl=$(find_session_jsonl "$id")
         [ -n "$jsonl" ] || { error "no transcript for session ${id} under ${projects}"; exit 1; }
     fi
-
-    export_bridge_token
 
     local name
     name=$(resolve_name "$id")

@@ -119,30 +119,8 @@ print_alias_help() {
 readonly bridge_staging="${FILESERVER_BRIDGE_STAGING:-/workspace/code/Desktop/.fileserver-staging}"
 readonly bridge_url="http://host.docker.internal:7777/_bridge/fileserver"
 
-bridge_token() {
-    if [ -n "${MAC_BRIDGE_TOKEN:-}" ]; then
-        printf '%s' "$MAC_BRIDGE_TOKEN"
-        return 0
-    fi
-    # `envify VAR` evals internally and prints nothing; `source envify VAR`
-    # exports it into this shell (one Touch ID on the Mac).
-    # shellcheck disable=SC1091
-    source envify MAC_BRIDGE_TOKEN 2>/dev/null || true
-    printf '%s' "${MAC_BRIDGE_TOKEN:-}"
-}
-
 bridge_call() {
-    # Args to forward are the positional params; token goes via curl --config
-    # (process substitution) so it never lands in the process list.
-    local token
-    token=$(bridge_token)
-    if [ -z "$token" ]; then
-        fail "no MAC_BRIDGE_TOKEN - run 'source envify MAC_BRIDGE_TOKEN' or finish bridge setup"
-        return 1
-    fi
-    printf '%s\n' "$@" | curl -sS --fail-with-body -X POST --data-binary @- \
-        --config <(printf 'header = "Authorization: Bearer %s"' "$token") \
-        "$bridge_url"
+    printf '%s\n' "$@" | curl -sS --fail-with-body -X POST --data-binary @- "$bridge_url"
 }
 
 bridge_upload() {

@@ -45,7 +45,6 @@ def publish(run_bash, tmp_path, projects):
                 f'[ "$1" = "list" ] && printf "%s\\n" {listing!r}\n'
                 "exit 0"
             ),
-            "envify": "true",
         }
         result = run_bash(
             "claude-transcript",
@@ -55,7 +54,6 @@ def publish(run_bash, tmp_path, projects):
                 "HOME": str(projects),
                 "FILESERVER_BRIDGE_STAGING": str(staging),
                 "FILESERVER_PUBLIC_BASE": "https://example.test/downloads",
-                "MAC_BRIDGE_TOKEN": "test-token",
             },
         )
         result.calls = log.read_text() if log.is_file() else ""

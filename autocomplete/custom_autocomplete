@@ -243,11 +243,6 @@ _keyguard()
     --cache-duration)
       return 0
       ;;
-    --bridge-endpoint)
-      local _bcache="${HOME}/.cache/envify-bridge-endpoints"
-      [[ -f "$_bcache" ]] && COMPREPLY=($(compgen -W "$(cat "$_bcache")" -- "${cur}"))
-      return 0
-      ;;
   esac
 
   if [[ "${cur}" == -* ]]; then

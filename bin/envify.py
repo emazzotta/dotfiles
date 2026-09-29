@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import base64
 import getpass
-import json
 import os
 import re
 import shlex
@@ -17,8 +16,10 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
+from http import HTTPStatus
 from pathlib import Path
 from typing import NoReturn, TextIO
 
@@ -26,7 +27,10 @@ _SERVER_PORT: int = int(os.environ.get("PARAM_SERVER_PORT", "7777"))
 _CACHE_TIMEOUT: int = int(os.environ.get("ENVIFY_CACHE_TIMEOUT", "120"))
 _STORE_TIMEOUT: int = 120
 _GLOBAL_ENV_FILE: Path = Path.home() / "dotfiles" / ".env"
-_BRIDGE_TOKEN_KEY: str = "MAC_BRIDGE_TOKEN"
+_TOUCH_ID_WAIT: int = 60
+_LONGEST_BRIDGE_RUN: int = 600
+_BRIDGE_TIMEOUT: int = _TOUCH_ID_WAIT + _LONGEST_BRIDGE_RUN
+_PROMPT_BUSY_POLL: float = 1.0
 _CANDIDATE_HOSTS: tuple[str, ...] = ("localhost", "host.docker.internal")
 _VARIABLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -220,66 +224,35 @@ def list_params() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_bridge_token() -> str:
-    if _keyguard_available():
-        result = subprocess.run(
-            ["keyguard", "get", _BRIDGE_TOKEN_KEY],
-            capture_output=True, text=True,
-        )
-        if result.returncode != 0:
-            _die(f"keyguard failed resolving bridge token: {result.stderr.strip()}")
-        return result.stdout.strip()
-    host = _require_host()
-    return _server_get(host, _BRIDGE_TOKEN_KEY).strip()
-
-
-def _bridge_call(
-    host: str, path: str, *, method: str = "GET", token: str | None = None,
-    data: bytes | None = None,
-) -> str:
-    headers: dict[str, str] = {}
-    if token is not None:
-        headers["Authorization"] = f"Bearer {token}"
-    req = urllib.request.Request(
-        f"http://{host}:{_SERVER_PORT}/_bridge/{path}",
-        data=data,
-        method=method,
-        headers=headers,
+def _bridge_call(host: str, path: str, *, method: str = "GET", data: bytes | None = None) -> str:
+    request = urllib.request.Request(
+        f"http://{host}:{_SERVER_PORT}/_bridge/{path}", data=data, method=method,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return resp.read().decode()
-    except urllib.error.HTTPError as e:
-        _die(f"bridge returned {e.code}: {e.read().decode().strip()}")
-    except urllib.error.URLError as e:
-        _die(f"bridge unreachable: {e.reason}")
+    deadline = time.monotonic() + _TOUCH_ID_WAIT
+    while True:
+        try:
+            with urllib.request.urlopen(request, timeout=_BRIDGE_TIMEOUT) as resp:
+                return resp.read().decode()
+        except urllib.error.HTTPError as e:
+            _die_unless_prompt_busy(e, deadline)
+        except urllib.error.URLError as e:
+            _die(f"bridge unreachable: {e.reason}")
+        time.sleep(_PROMPT_BUSY_POLL)
 
 
-def _public_bridge_names(host: str) -> set[str]:
-    raw = _bridge_call(host, "list")
-    try:
-        items = json.loads(raw)
-    except json.JSONDecodeError:
-        return set()
-    return {
-        item["name"] for item in items
-        if isinstance(item, dict) and "name" in item
-    }
+def _die_unless_prompt_busy(error: urllib.error.HTTPError, deadline: float) -> None:
+    if error.code != HTTPStatus.TOO_MANY_REQUESTS or time.monotonic() >= deadline:
+        _die(f"bridge returned {error.code}: {error.read().decode().strip()}")
 
 
 def list_bridge_endpoints(*, include_private: bool = False) -> None:
     host = _require_host()
-    token = _resolve_bridge_token() if include_private else None
-    print(_bridge_call(host, "list", token=token), end="")
+    print(_bridge_call(host, "list?all=1" if include_private else "list"), end="")
 
 
 def call_bridge_endpoint(name: str, body: bytes | None = None) -> None:
     host = _require_host()
-    if name in _public_bridge_names(host):
-        print(_bridge_call(host, name, method="POST", data=body), end="")
-        return
-    token = _resolve_bridge_token()
-    print(_bridge_call(host, name, method="POST", token=token, data=body), end="")
+    print(_bridge_call(host, name, method="POST", data=body), end="")
 
 
 # ---------------------------------------------------------------------------
@@ -309,15 +282,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     group.add_argument(
         "--bridge-list", action="store_true", dest="bridge_list",
-        help="list public Mac bridge endpoints (JSON; no auth)",
+        help="list public Mac bridge endpoints (JSON; no Touch ID)",
     )
     group.add_argument(
         "--bridge", metavar="ENDPOINT",
-        help="call a Mac bridge endpoint via POST (auth resolved only if private)",
+        help="call a Mac bridge endpoint via POST (a private one asks Touch ID, naming its command)",
     )
     parser.add_argument(
         "--all", action="store_true", dest="all_endpoints",
-        help="with --bridge-list: include private endpoints (requires auth token)",
+        help="with --bridge-list: include private endpoints (asks Touch ID)",
     )
     parser.add_argument(
         "--stdin", action="store_true", dest="bridge_stdin",
