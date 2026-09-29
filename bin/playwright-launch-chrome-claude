@@ -12,9 +12,8 @@ if ! [[ -x "${CHROME}" ]]; then
     exit 1
 fi
 
-if lsof -iTCP:${PORT} -sTCP:LISTEN >/dev/null 2>&1; then
-    echo "Port ${PORT} already in use - Chrome likely already running with CDP." >&2
-    echo "Verify: curl -s http://localhost:${PORT}/json/version" >&2
+if curl -s -m 2 -o /dev/null "http://localhost:${PORT}/json/version"; then
+    echo "CDP already answering on port ${PORT} - Chrome is running." >&2
     exit 0
 fi
 
