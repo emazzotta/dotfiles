@@ -445,6 +445,30 @@ class TestCli:
         assert code == 0
         assert [p.name for p in cli.dest.iterdir()] == ["t0.mp3"]
 
+    def should_fetch_only_the_last_n_tracks_of_the_playlist(self, cli):
+        FakeTelegramClient.scripts.extend([[audio_reply("t1.mp3")]])
+
+        code = cli.run("--last", "1", "--delay", "0")
+
+        assert code == 0
+        assert set(json.loads(cli.state.read_text())) == {"t1"}
+
+    def should_not_reach_back_past_the_last_n_when_those_are_fetched_already(self, cli, capsys):
+        state = cli.snl.SyncState.load(cli.state)
+        state.mark_done(make_track(cli.snl, "t1", "Song 1"), Path("/x/t1.mp3"))
+        state.save()
+
+        code = cli.run("--last", "1", "--dry-run")
+
+        assert code == 0
+        assert "2 tracks, 0 to fetch" in capsys.readouterr().out
+
+    def should_reject_a_last_count_below_one(self, run_cli):
+        result = run_cli(SCRIPT, ["--last", "0"])
+
+        assert result.returncode == 2
+        assert "--last: 0 is not a positive number" in result.stderr
+
     def should_talk_to_the_bot_named_in_keyguard(self, cli, monkeypatch):
         clients = []
         monkeypatch.setattr(cli.snl, "TelegramClient",

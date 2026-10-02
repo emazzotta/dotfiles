@@ -270,6 +270,13 @@ async def _sync_one(track: Track, open_conversation: Callable[[], Any], dest: Pa
     report.downloaded.append((track, saved))
 
 
+def positive_int(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"{number} is not a positive number")
+    return number
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="snl-sync",
@@ -292,6 +299,8 @@ def build_parser() -> argparse.ArgumentParser:
                         default=QueryMode.LINK.value,
                         help="send the Spotify link or 'Artist - Title' (default: %(default)s)")
     parser.add_argument("--limit", type=int, help="fetch at most N tracks this run")
+    parser.add_argument("--last", type=positive_int,
+                        help="only consider the last N tracks of the playlist")
     parser.add_argument("--delay", type=float, default=DEFAULT_DELAY_SECONDS,
                         help="seconds between tracks (default: %(default)s)")
     parser.add_argument("--reply-timeout", type=float, default=DEFAULT_REPLY_TIMEOUT_SECONDS,
@@ -344,7 +353,8 @@ def sync(args: argparse.Namespace) -> int:
     playlist = spotify.find_playlist(args.playlist)
     state = SyncState.load(args.state)
     tracks = spotify.fetch_tracks(playlist)
-    pending = select_new_tracks(tracks, state)[: args.limit]
+    candidates = tracks[-args.last:] if args.last else tracks
+    pending = select_new_tracks(candidates, state)[: args.limit]
     logger.info(f"{playlist.name}: {len(tracks)} tracks, {len(pending)} to fetch")
     if not pending:
         return 0
