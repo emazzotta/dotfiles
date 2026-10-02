@@ -33,7 +33,6 @@ VIM_PLUGINS=(
     jceb/vim-orgmode
     junegunn/fzf.vim
     mattn/emmet-vim
-    neoclide/coc.nvim
     scrooloose/nerdcommenter
     tmux-plugins/vim-tmux-focus-events
     tomlion/vim-solidity
@@ -74,6 +73,8 @@ clone_vim_plugins() {
     for plugin in "${VIM_PLUGINS[@]}"; do
         clone_if_missing "$VIM_PLUGINS_TARGET/${plugin##*/}" "https://github.com/$plugin.git"
     done
+    # master ships no build/index.js; only the release branch is prebuilt.
+    clone_if_missing "$VIM_PLUGINS_TARGET/coc.nvim" https://github.com/neoclide/coc.nvim.git --branch release --depth=1
 }
 
 stow_packages() {
