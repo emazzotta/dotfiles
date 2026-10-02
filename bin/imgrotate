@@ -1,0 +1,65 @@
+#!/bin/bash
+
+set -uo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/shelllog.sh"
+
+readonly ANGLE_PATTERN='^-?[0-9]+([.][0-9]+)?$'
+
+show_usage() {
+    cat << EOF
+Usage: $(basename "$0") <file_name> <rotation>
+
+Rotation values:
+  90         - Rotate 90° clockwise
+  -90, 270   - Rotate 90° counter-clockwise
+  180        - Rotate 180°
+  <angle>    - Arbitrary angle in degrees clockwise; the canvas grows to fit
+               and the corners turn transparent (black in JPEG)
+
+Examples:
+  $(basename "$0") photo.jpg 90
+  $(basename "$0") photo.jpg -90
+  $(basename "$0") photo.jpg 180
+EOF
+}
+
+validate_arguments() {
+    if [ $# -lt 2 ]; then
+        error "Missing arguments"
+        show_usage
+        exit 1
+    fi
+
+    if [ ! -f "$1" ]; then
+        error "File not found: $1"
+        exit 1
+    fi
+
+    if [[ ! "$2" =~ $ANGLE_PATTERN ]]; then
+        error "Rotation is not a number of degrees: $2"
+        exit 1
+    fi
+}
+
+rotate_image() {
+    local input="$1"
+    local rotation="$2"
+    local output="${input%.*}_rotated.${input##*.}"
+
+    magick "$input" -auto-orient -background none -rotate "$rotation" "$output" || exit 1
+    success "Rotated image saved to: $output"
+}
+
+main() {
+    if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+        show_usage
+        return 0
+    fi
+    validate_arguments "$@"
+    rotate_image "$1" "$2"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

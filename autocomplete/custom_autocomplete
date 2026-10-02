@@ -774,7 +774,7 @@ complete -o default -o filenames -F _fileserver fileserver fs fget fls frm fup
 complete -o filenames -F _timemachine timemachine
 complete -o default -F _complete_help_flags agedist asciicast2gif audio_silence_generator audioboost \
   audiospec audiotags_manager audiotox cert_viewer_file compress compressvideo convert-to-utf8 exifrm \
-  extract fix-html-charset gck git_gallcontrib gpe gpgverify gsheet_backup hashify imgcompress imgmirror \
+  extract fix-html-charset gck git_gallcontrib gpe gpgverify gsheet_backup hashify imgcompress imgmirror imgrotate \
   imgtopdf imgtox isotoimg leonardo_utils_installer mac-trash notion_backup ocr pdfcompress pdfify pdfsplit \
   pdftoimg putty2pem pwcompress pwuncompress robust-rsync snl-sync sync_file trackduplication_info \
   transcript-title videoloweraudio videormaudio videotoaudio videotox
