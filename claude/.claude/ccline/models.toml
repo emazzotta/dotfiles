@@ -7,7 +7,6 @@
 # third-party models.
 
 models = []
-context_modifiers = []
 
 # Model configurations (simple substring matching)
 # Each [[models]] section defines a model pattern and its properties
@@ -28,3 +27,20 @@ context_modifiers = []
 # pattern = "[1m]"
 # display_suffix = " 1M"
 # context_limit = 1000000
+
+# The built-in families assume 200k. These generations are natively 1M, so their
+# model ID carries no [1m] for the built-in modifier to catch.
+[[context_modifiers]]
+pattern = "opus-5"
+display_suffix = ""
+context_limit = 1000000
+
+[[context_modifiers]]
+pattern = "sonnet-5"
+display_suffix = ""
+context_limit = 1000000
+
+[[context_modifiers]]
+pattern = "fable-5"
+display_suffix = ""
+context_limit = 1000000
