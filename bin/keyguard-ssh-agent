@@ -53,10 +53,10 @@ if [ "$rc" -eq 0 ]; then
 fi
 
 # shellcheck disable=SC1090,SC1091
-source envify "$key_var" ${pass_var:+"$pass_var"} >/dev/null 2>&1
+source envify "$key_var" ${pass_var:+"$pass_var"} >/dev/null
 key_b64="${!key_var:-}"
 if [ -z "$key_b64" ]; then
-  echo "keyguard-ssh-agent: var '$key_var' came back empty (Touch ID dismissed?)" >&2
+  echo "keyguard-ssh-agent: var '$key_var' came back empty (approval dismissed or timed out?)" >&2
   exit 1
 fi
 

@@ -10,7 +10,7 @@ def agent_run(run_bash, tmp_path):
     calls = tmp_path / "ssh-add.calls"
     sourced = tmp_path / "envify.sourced"
 
-    def _run(agent_has_key=False, cache_timeout=None):
+    def _run(agent_has_key=False, cache_timeout=None, envify=None):
         mocks = {
             "ssh-add": (
                 f'echo "$*" >> "{calls}"\n'
@@ -18,7 +18,7 @@ def agent_run(run_bash, tmp_path):
                 "cat >/dev/null"
             ),
             "ssh-agent": "true",
-            "envify": f'echo yes >> "{sourced}"\nexport TEST_KEY_B64={KEY_B64}',
+            "envify": envify or f'echo yes >> "{sourced}"\nexport TEST_KEY_B64={KEY_B64}',
         }
         env = {"HOME": str(tmp_path)}
         if cache_timeout is not None:
@@ -53,3 +53,11 @@ class TestKeyguardSshAgent:
         result, logged, asked = agent_run(cache_timeout=value)
 
         assert (result.returncode, logged, asked) == (2, [], False)
+
+    def test_should_pass_on_what_envify_said_when_the_key_comes_back_empty(self, agent_run):
+        approve = "Approve on your phone: https://unlock.example/approve?id=Ab12"
+
+        result, _, _ = agent_run(envify=f'echo "{approve}" >&2')
+
+        assert result.returncode == 1
+        assert approve in result.stderr

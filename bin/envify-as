@@ -13,12 +13,12 @@ srcs=()
 for pair in "$@"; do srcs+=("${pair#*=}"); done
 
 # shellcheck disable=SC1090,SC1091
-source envify "${srcs[@]}" >/dev/null 2>&1
+source envify "${srcs[@]}" >/dev/null
 
 for pair in "$@"; do
   dst="${pair%%=*}"
   src="${pair#*=}"
   val="${!src:-}"
-  [ -z "$val" ] && { echo "envify-as: source var '$src' is empty (Touch ID dismissed?)" >&2; exit 1; }
+  [ -z "$val" ] && { echo "envify-as: source var '$src' is empty (approval dismissed or timed out?)" >&2; exit 1; }
   printf 'export %s=%q\n' "$dst" "$val"
 done
