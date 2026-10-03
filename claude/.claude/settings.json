@@ -1,8 +1,6 @@
 {
   "cleanupPeriodDays": 365,
-  "autoMemoryEnabled": false,
   "skillListingBudgetFraction": 0.025,
-  "remoteControlAtStartup": false,
   "permissions": {
     "defaultMode": "auto"
   },
@@ -148,6 +146,9 @@
   },
   "effortLevel": "xhigh",
   "tui": "fullscreen",
+  "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
-  "theme": "dark"
+  "theme": "dark",
+  "remoteControlAtStartup": false,
+  "skipWorkflowUsageWarning": true
 }
