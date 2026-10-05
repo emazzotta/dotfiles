@@ -13,7 +13,10 @@ case "${1:-}" in
         python3 "$_ENVIFY_PY" "$@"
         ;;
     *)
-        # Var names: eval the export statements into the current shell
-        eval "$(python3 "$_ENVIFY_PY" "$@")"
+        # Var names: eval the export statements into the current shell. Captured first, since
+        # eval "$(...)" would report success after a failed fetch that printed nothing.
+        _envify_exports="$(python3 "$_ENVIFY_PY" "$@")" || return 1 2>/dev/null || exit 1
+        eval "$_envify_exports"
+        unset _envify_exports
         ;;
 esac

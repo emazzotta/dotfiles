@@ -1,13 +1,29 @@
 import io
 import os
+import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+WRAPPER = Path(__file__).parent.parent / "envify"
 
 
 @pytest.fixture
 def envify(load_script):
     return load_script("envify.py")
+
+
+@pytest.fixture
+def source_envify(tmp_path):
+    def _source(envify_py_body):
+        stub = tmp_path / "bin" / "envify.py"
+        stub.parent.mkdir()
+        stub.write_text(envify_py_body)
+        chain = 'source "$1" ENVIFY_TEST_TOKEN && echo "loaded:$ENVIFY_TEST_TOKEN"'
+        return subprocess.run(["bash", "-c", chain, "bash", str(WRAPPER)], capture_output=True, text=True,
+                              env={**os.environ, "DOTFILESPATH": str(tmp_path)})
+    return _source
 
 
 class FakeResponse:
@@ -53,6 +69,19 @@ class TestLoadEnv:
         envify.load_env(("ENVIFY_TEST_A",))
 
         assert resolved == []
+
+
+class TestSourcing:
+    def should_export_the_fetched_secret_into_the_sourcing_shell(self, source_envify):
+        result = source_envify('print("export ENVIFY_TEST_TOKEN=t0ken")\n')
+
+        assert (result.returncode, result.stdout) == (0, "loaded:t0ken\n")
+
+    def should_stop_the_chain_when_the_secret_cannot_be_fetched(self, source_envify):
+        result = source_envify('import sys\nprint("Error: server returned 403", file=sys.stderr)\nsys.exit(1)\n')
+
+        assert (result.returncode, result.stdout) == (1, "")
+        assert "server returned 403" in result.stderr
 
 
 class TestStoreParam:

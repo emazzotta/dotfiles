@@ -19,6 +19,7 @@ for pair in "$@"; do
   dst="${pair%%=*}"
   src="${pair#*=}"
   val="${!src:-}"
-  [ -z "$val" ] && { echo "envify-as: source var '$src' is empty (approval dismissed or timed out?)" >&2; exit 1; }
+  # The caller evals stdout: a final failing command keeps that eval from reporting success.
+  [ -z "$val" ] && { echo "envify-as: source var '$src' is empty (approval dismissed or timed out?)" >&2; echo false; exit 1; }
   printf 'export %s=%q\n' "$dst" "$val"
 done
