@@ -399,6 +399,19 @@ class TestCli:
         assert result.returncode == 0
         assert "Sort'n'Load" in result.stdout
 
+    @pytest.mark.parametrize("env,expected", [
+        ({"HOME": "/home/me"}, Path("/home/me/Desktop")),
+        ({"HOME": "/home/me", "DESKDIR": "/desk"}, Path("/desk")),
+    ])
+    def should_download_to_the_desktop_by_default(self, load_script, monkeypatch, env, expected):
+        monkeypatch.delenv("DESKDIR", raising=False)
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+
+        snl = load_script(SCRIPT)
+
+        assert snl.build_parser().parse_args([]).dest == expected
+
     def should_list_pending_tracks_without_telegram_in_dry_run(self, cli, capsys):
         cli.snl.TelegramClient = None
 

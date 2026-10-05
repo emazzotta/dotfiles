@@ -26,8 +26,7 @@ except ImportError:
 logger = Logger()
 
 DEFAULT_PLAYLIST: Final = "01 Sort'n'Load"
-DJ_DIR: Final = Path(os.environ.get("DJ_DIR", str(Path.home() / "Music" / "01_DJ")))
-DEFAULT_DEST: Final = DJ_DIR / "01_Inbox"
+DEFAULT_DEST: Final = Path(os.environ.get("DESKDIR", str(Path.home() / "Desktop")))
 DEFAULT_STATE: Final = Path.home() / ".local" / "state" / "snl-sync" / "done.json"
 DEFAULT_QUALITY: Final = "flac"
 DEFAULT_REPLY_TIMEOUT_SECONDS: Final = 60.0
