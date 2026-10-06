@@ -80,35 +80,38 @@
             }
         }
 
-        $macPropsPath = "\\Mac\Home\.leonardo\25\LEONARDO_25.props"
-        $winPropsDir = Join-Path $env:USERPROFILE ".leonardo\25"
-        $winPropsPath = Join-Path $winPropsDir "LEONARDO_25.props"
+        foreach ($version in 25, 26) {
+            $propsName = "LEONARDO_$version.props"
+            $macPropsPath = "\\Mac\Home\.leonardo\$version\$propsName"
+            $winPropsDir = Join-Path $env:USERPROFILE ".leonardo\$version"
+            $winPropsPath = Join-Path $winPropsDir $propsName
 
-        if (Test-Path -LiteralPath $macPropsPath) {
-            if (-not (Test-Path $winPropsDir)) {
-                New-Item -ItemType Directory -Path $winPropsDir -Force | Out-Null
-            }
-            $macContent = Get-Content -LiteralPath $macPropsPath -Raw
-            $winContent = [regex]::Replace($macContent, '/Users/emanuelemazzotta([^\s"''=]*)', {
-                param($m)
-                '\\\\Mac\\Home' + ($m.Groups[1].Value -replace '/', '\\')
-            })
-
-            $needsWrite = $true
-            if (Test-Path -LiteralPath $winPropsPath) {
-                $currentContent = Get-Content -LiteralPath $winPropsPath -Raw
-                if ($currentContent -ceq $winContent) {
-                    $needsWrite = $false
+            if (Test-Path -LiteralPath $macPropsPath) {
+                if (-not (Test-Path $winPropsDir)) {
+                    New-Item -ItemType Directory -Path $winPropsDir -Force | Out-Null
                 }
-            }
+                $macContent = Get-Content -LiteralPath $macPropsPath -Raw
+                $winContent = [regex]::Replace($macContent, '/Users/emanuelemazzotta([^\s"''=]*)', {
+                    param($m)
+                    '\\\\Mac\\Home' + ($m.Groups[1].Value -replace '/', '\\')
+                })
 
-            if ($needsWrite) {
-                Set-Content -LiteralPath $winPropsPath -Value $winContent -NoNewline -Encoding UTF8
-                $copiedCount++
-                Write-Host "✅ Props copied: LEONARDO_25.props (paths rewritten to \\Mac\Home)" -ForegroundColor Green
+                $needsWrite = $true
+                if (Test-Path -LiteralPath $winPropsPath) {
+                    $currentContent = Get-Content -LiteralPath $winPropsPath -Raw
+                    if ($currentContent -ceq $winContent) {
+                        $needsWrite = $false
+                    }
+                }
+
+                if ($needsWrite) {
+                    Set-Content -LiteralPath $winPropsPath -Value $winContent -NoNewline -Encoding UTF8
+                    $copiedCount++
+                    Write-Host "✅ Props copied: $propsName (paths rewritten to \\Mac\Home)" -ForegroundColor Green
+                }
+            } else {
+                Write-Host "⚠️  Mac props not reachable at $macPropsPath" -ForegroundColor Yellow
             }
-        } else {
-            Write-Host "⚠️  Mac props not reachable at $macPropsPath" -ForegroundColor Yellow
         }
 
         if ($copiedCount -eq 0 -and $deletedCount -eq 0) {
