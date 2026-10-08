@@ -779,7 +779,7 @@ complete -o default -F _complete_help_flags agedist asciicast2gif audio_silence_
   pdftoimg putty2pem pwcompress pwuncompress robust-rsync snl-sync sync_file trackduplication_info \
   transcript-title videoloweraudio videormaudio videotoaudio videotox
 complete -F _complete_help_flags bcrypt_hash claude-resume claude-rm claude-sync devbox-drive gunco \
-  json_format leonardo_drive leonardo_start leonardo_vpn_toggle leorun opencode-resume opencode-rm \
+  json_format leonardo_drive leonardo_start leonardo_vpn_toggle opencode-resume opencode-rm \
   resolve-mcp-setup resolve-mcp-verify rm_old_gitlab_builds showip tmtoken
 complete -F _complete_nothing backup_mini_rsync bookmarks_backup cert_viewer_url codecost \
   coding_server cpu crontab_editor ctof datefmt dnscheckemail ftoc gac gacp git_average \
@@ -792,7 +792,7 @@ complete -F _complete_nothing backup_mini_rsync bookmarks_backup cert_viewer_url
   update_github_actions urldecode urlencode urr uuid vimpluginupdate vm vmup wpsh zipsplit
 complete -o default -F _audiomerge audiomerge
 complete -o default -F _complete_help_subcommands backup_restore_util
-complete -F _complete_script_words claude-plugin-update gup ref-pin tmux-overview
+complete -F _complete_script_words claude-plugin-update gup leorun ref-pin tmux-overview
 complete -F _docker_script docker-debug docker-exec docker-inspect
 complete -F _external_disks flash_disk_with_zeros
 complete -F _external_partitions mount_ext

@@ -6,12 +6,17 @@ source "${BASH_SOURCE[0]%/*}/javalib.sh"
 
 # tej-32.0.0 references javax.swing.JApplet, removed in JDK 26 by JEP 504
 readonly JAVA_VERSION="25"
+readonly RUN_MODULE="leonardo-leonardo"
+readonly WORKTREE_DIR=".claude/worktrees"
 
 show_help() {
     cat <<EOF
-Usage: leorun [OPTIONS]
+Usage: leorun [OPTIONS] [BRANCH|WORKTREE]
 
-Run Leonardo with Maven
+Run Leonardo with Maven, from the worktree holding BRANCH or the one named
+WORKTREE in $WORKTREE_DIR. A branch without a worktree gets one from
+git wt add, fetched from origin first when it is not known here yet.
+Without either, runs the Leonardo checkout you are in, else the main checkout.
 
 OPTIONS:
     -f, --fast              Fast mode (exec only, skip clean and compile)
@@ -24,6 +29,8 @@ OPTIONS:
 EXAMPLES:
     leorun                                       Run in normal mode (clean + compile + exec)
     leorun -f                                    Run in fast mode
+    leorun feature-branch                        Run the worktree holding feature-branch
+    leorun -q feature-branch                     Same, in quick mode
     leorun -i updater,license-manager            Install dependencies then run
     leorun -i "updater[feature-branch]" -f       Install with specific branch (quoted!)
     leorun --install "updater[main],license"     Multiple projects, one with branch
@@ -122,13 +129,86 @@ install_project() {
     echo "   Build completed"
 }
 
+leonardo_git() {
+    git -C "$LEONARDO_DIR" "$@"
+}
+
+is_leonardo_checkout() {
+    [ -f "$1/$RUN_MODULE/pom.xml" ]
+}
+
+enclosing_checkout() {
+    local toplevel
+    toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+    is_leonardo_checkout "$toplevel" || return 1
+    printf '%s\n' "$toplevel"
+}
+
+worktree_named() {
+    local path="$LEONARDO_DIR/$WORKTREE_DIR/$1"
+    is_leonardo_checkout "$path" || return 1
+    printf '%s\n' "$path"
+}
+
+has_branch() {
+    leonardo_git show-ref --verify --quiet "refs/heads/$1" ||
+        leonardo_git show-ref --verify --quiet "refs/remotes/origin/$1"
+}
+
+fetch_branch() {
+    leonardo_git fetch origin "$1" >&2 && has_branch "$1"
+}
+
+resolve_checkout() {
+    local target="$1"
+    if [ -z "$target" ]; then
+        enclosing_checkout || printf '%s\n' "$LEONARDO_DIR"
+        return 0
+    fi
+    leonardo_git wt path "$target" 2>/dev/null && return 0
+    worktree_named "$target" && return 0
+    if ! has_branch "$target" && ! fetch_branch "$target"; then
+        echo "Error: no branch or worktree named $target, here or on origin" >&2
+        return 1
+    fi
+    leonardo_git wt add "$target"
+}
+
+worktree_names() {
+    local path
+    for path in "$LEONARDO_DIR/$WORKTREE_DIR"/*/; do
+        path="${path%/}"
+        if is_leonardo_checkout "$path"; then
+            printf '%s\n' "${path##*/}"
+        fi
+    done
+}
+
+complete_next_word() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -i|--install) [ $# -gt 1 ] || return 0; shift ;;
+            -*) ;;
+            *) return 0 ;;
+        esac
+        shift
+    done
+    { leonardo_git wt --complete add; worktree_names; } 2>/dev/null | sort -u
+}
+
 INSTALL_PROJECTS=""
 MODE="normal"
+TARGET=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help)
             show_help
+            exit 0
+            ;;
+        --complete)
+            shift
+            complete_next_word "$@" || true
             exit 0
             ;;
         -f|--fast)
@@ -143,10 +223,19 @@ while [ $# -gt 0 ]; do
             INSTALL_PROJECTS="$2"
             shift 2
             ;;
-        *)
+        -*)
             echo "Unknown option: $1" >&2
             show_help
             exit 1
+            ;;
+        *)
+            if [ -n "$TARGET" ]; then
+                echo "Unexpected argument: $1 (already running $TARGET)" >&2
+                show_help
+                exit 1
+            fi
+            TARGET="$1"
+            shift
             ;;
     esac
 done
@@ -156,8 +245,9 @@ if [ ! -f "$LEONARDO_DIR/pom.xml" ]; then
     exit 1
 fi
 
-cd "$LEONARDO_DIR"
-echo "Running from: $LEONARDO_DIR"
+RUN_DIR=$(resolve_checkout "$TARGET") || exit 1
+cd "$RUN_DIR"
+echo "Running from: $RUN_DIR ($(git rev-parse --abbrev-ref HEAD))"
 
 if ! jh_use "$JAVA_VERSION"; then
     echo "Error: Leonardo needs Java $JAVA_VERSION - install it with 'sdk install java'" >&2
@@ -182,15 +272,15 @@ if [ -n "$INSTALL_PROJECTS" ]; then
         install_project "$project_spec" "$PROJECTS_DIR" "$BASE_GIT_URL"
     done
 
-    cd "$LEONARDO_DIR"
+    cd "$RUN_DIR"
     echo ""
     echo "All install dependencies processed"
 fi
 
-resolve_settings_args "$LEONARDO_DIR"
+resolve_settings_args "$RUN_DIR"
 
 run_leonardo() {
-    run_mvn exec:exec -Prun-leonardo -DskipTests -pl leonardo-leonardo
+    run_mvn exec:exec -Prun-leonardo -DskipTests -pl "$RUN_MODULE"
 }
 
 case "$MODE" in
