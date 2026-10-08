@@ -215,6 +215,69 @@ class TestCheckout:
         assert mvn_calls() == []
 
 
+class TestPrintBranch:
+    def should_print_the_branch_of_the_worktree_it_is_called_from_without_running(
+            self, leorun, mvn_calls, worktree):
+        checkout = worktree("feature")
+
+        result = leorun("--print-branch", cwd=checkout)
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "feature\n"
+        assert mvn_calls() == []
+
+    def should_print_the_main_checkout_branch_outside_a_leonardo_checkout(self, leorun, leonardo):
+        result = leorun("--print-branch")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "main\n"
+
+    def should_print_the_branch_of_the_worktree_given_by_its_directory_name(
+            self, leorun, git, leonardo):
+        git(leonardo, "worktree", "add", "-b", "focus-branch", str(leonardo / WORKTREES / "focus"))
+
+        result = leorun("--print-branch", "focus")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "focus-branch\n"
+
+    def should_print_a_branch_no_worktree_holds_without_adding_one(self, leorun, git, leonardo):
+        git(leonardo, "branch", "feature")
+
+        result = leorun("--print-branch", "feature")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "feature\n"
+        assert not (leonardo / WORKTREES).exists()
+
+    def should_fetch_a_branch_known_only_to_origin_before_printing_it(
+            self, leorun, git, leonardo, push_from_elsewhere):
+        push_from_elsewhere("colleague")
+
+        result = leorun("--print-branch", "colleague")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "colleague\n"
+        assert git(leonardo, "branch", "--remotes", "--list", "origin/colleague") == "origin/colleague"
+        assert not (leonardo / WORKTREES).exists()
+
+    def should_refuse_a_name_that_is_no_branch_or_worktree(self, leorun, leonardo):
+        result = leorun("--print-branch", "typo")
+
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert "typo" in result.stderr
+
+    def should_refuse_a_checkout_without_a_branch(self, leorun, git, leonardo):
+        checkout = leonardo / WORKTREES / "detached"
+        git(leonardo, "worktree", "add", "--detach", str(checkout))
+
+        result = leorun("--print-branch", cwd=checkout)
+
+        assert result.returncode == 1
+        assert result.stdout == ""
+
+
 class TestCompletion:
     def should_offer_local_and_origin_branches_and_worktree_directories(
             self, leorun, git, leonardo, worktree, push_from_elsewhere):

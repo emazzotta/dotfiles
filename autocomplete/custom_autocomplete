@@ -615,7 +615,8 @@ _reply_matching()
 _wleorun()
 {
   COMPREPLY=()
-  _complete_help leorun
+  _complete_help leorun && return 0
+  _reply_matching < <(leorun --complete "${COMP_WORDS[@]:1:$((COMP_CWORD - 1))}" 2>/dev/null)
 }
 _gretag()
 {

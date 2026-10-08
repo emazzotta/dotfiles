@@ -161,6 +161,13 @@ class TestCompleteHelp:
 
         assert sorted(candidates) == ["--fast", "--quick", "-f", "-q"]
 
+    def should_offer_the_branches_of_the_wrapped_leorun_to_wleorun(self, complete, mock):
+        mock("leorun", '[ "$1" = --complete ] && shift && echo "after-$*"')
+
+        candidates = complete("_wleorun", "wleorun", "-f", "")
+
+        assert candidates == ["after--f"]
+
 
 class TestScriptLists:
     def should_relay_the_words_typed_so_far_to_the_script(self, complete, mock):

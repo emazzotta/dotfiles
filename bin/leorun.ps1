@@ -4,6 +4,7 @@ $Fast = $false
 $Quick = $false
 $Help = $false
 $Install = ""
+$Branch = ""
 
 $i = 0
 while ($i -lt $args.Count) {
@@ -18,15 +19,17 @@ while ($i -lt $args.Count) {
                 $i++
             }
         }
+        '^[^-]' { $Branch = $arg }
     }
     $i++
 }
 
 function Show-Help {
     Write-Host @"
-Usage: leorun [OPTIONS]
+Usage: leorun [OPTIONS] [BRANCH]
 
-Run Leonardo with Maven (PowerShell version)
+Run Leonardo with Maven (PowerShell version) on BRANCH, else on the branch
+the Mac leonardo checkout has checked out
 
 OPTIONS:
     -Fast, -f, --fast               Fast mode (exec only, skip clean and compile)
@@ -40,6 +43,7 @@ EXAMPLES:
     leorun                                        Run in normal mode (clean + compile + exec)
     leorun -Fast                                  Run in fast mode
     leorun --fast                                 Run in fast mode
+    leorun -Fast feature-branch                   Run feature-branch in fast mode
     leorun -Install updater,license-manager       Install dependencies
     leorun -i "updater[feature-branch]" -Fast     Install with branch, then fast mode
 
@@ -183,6 +187,7 @@ if ($isSSH) {
     if ($Fast) { $arguments += "-Fast" }
     elseif ($Quick) { $arguments += "-Quick" }
     if ($Install) { $arguments += "-Install"; $arguments += "`"$Install`"" }
+    if ($Branch) { $arguments += "`"$Branch`"" }
 
     $argumentString = $arguments -join " "
     $pwshArgs = "-ExecutionPolicy Bypass -File `"$scriptPath`" $argumentString"
@@ -247,30 +252,38 @@ Set-Location $LEONARDO_DIR
 Write-Host "Running from: $LEONARDO_DIR" -ForegroundColor Cyan
 
 Write-Host ""
-Write-Host "Syncing with Mac leonardo branch..." -ForegroundColor Cyan
-$macLeonardoPath = "\\Mac\Home\Projects\leo-productions\leonardo"
-
-try {
-    Push-Location $macLeonardoPath
-    $macBranch = git rev-parse --abbrev-ref HEAD 2>$null
-    Pop-Location
-
-    if ($macBranch) {
-        Set-Location $LEONARDO_DIR
-        $currentBranch = git rev-parse --abbrev-ref HEAD 2>$null
-
-        if ($currentBranch -ne $macBranch) {
-            Write-Host "   Switching from $currentBranch to $macBranch" -ForegroundColor Cyan
-            git fetch origin
-            git checkout $macBranch
-        } else {
-            Write-Host "   Already on branch: $macBranch" -ForegroundColor Green
-        }
-
-        git pull
+$targetBranch = $Branch
+if ($targetBranch) {
+    Write-Host "Using requested branch: $targetBranch" -ForegroundColor Cyan
+} else {
+    Write-Host "Syncing with Mac leonardo branch..." -ForegroundColor Cyan
+    $macLeonardoPath = "\\Mac\Home\Projects\leo-productions\leonardo"
+    try {
+        Push-Location $macLeonardoPath
+        $targetBranch = git rev-parse --abbrev-ref HEAD 2>$null
+        Pop-Location
+    } catch {
+        Write-Host "   Could not access Mac leonardo path: $($_.Exception.Message)" -ForegroundColor Yellow
     }
-} catch {
-    Write-Host "   Could not access Mac leonardo path: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+if ($targetBranch) {
+    Set-Location $LEONARDO_DIR
+    $currentBranch = git rev-parse --abbrev-ref HEAD 2>$null
+
+    if ($currentBranch -ne $targetBranch) {
+        Write-Host "   Switching from $currentBranch to $targetBranch" -ForegroundColor Cyan
+        git fetch origin
+        git checkout $targetBranch
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "   Failed to checkout branch $targetBranch" -ForegroundColor Red
+            exit 1
+        }
+    } else {
+        Write-Host "   Already on branch: $targetBranch" -ForegroundColor Green
+    }
+
+    git pull
 }
 
 if ($Install) {

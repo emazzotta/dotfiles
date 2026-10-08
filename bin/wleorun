@@ -2,18 +2,36 @@
 
 set -e
 
+target=""
 ps_args=""
-for arg in "$@"; do
-    case "$arg" in
-        -*) ps_args="$ps_args $arg" ;;
-        *) ps_args="$ps_args '$arg'" ;;
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -i|--install)
+            ps_args="$ps_args $1 '${2:?$1 needs the projects to install}'"
+            shift 2
+            ;;
+        -*)
+            ps_args="$ps_args $1"
+            shift
+            ;;
+        *)
+            if [ -n "$target" ]; then
+                echo "Unexpected argument: $1 (already running $target)" >&2
+                exit 1
+            fi
+            target="$1"
+            shift
+            ;;
     esac
 done
+
+branch=$(leorun --print-branch ${target:+"$target"})
+ps_args="$ps_args '$branch'"
 
 echo "🔄 Ensuring VM is running..."
 vmup 2>/dev/null || echo "   ✓ VM already up"
 
 echo ""
-echo "🚀 Launching Leonardo on Windows VM..."
+echo "🚀 Launching Leonardo ($branch) on Windows VM..."
 ssh wlocal "pwsh -Command \"\\\\Mac\\Home\\Projects\\private\\dotfiles\\bin\\leorun.ps1$ps_args\""
 echo "✅ Leonardo launch complete"
