@@ -96,7 +96,7 @@ function Sync-GitBranch {
     }
 
     Write-Host "   Pulling latest changes..." -ForegroundColor Cyan
-    git pull
+    git pull --ff-only
     if ($LASTEXITCODE -ne 0) {
         Write-Host "   Failed to pull latest changes" -ForegroundColor Red
         exit 1
@@ -144,7 +144,7 @@ function Install-Project {
     $buildCmd = "mvn clean install -DskipTests $settingsFlag"
     Write-Host "   Command: $buildCmd" -ForegroundColor DarkGray
 
-    Invoke-Expression $buildCmd
+    Invoke-Maven $buildCmd
     if ($LASTEXITCODE -ne 0) {
         Write-Host "   Maven build failed for $projectName" -ForegroundColor Red
         exit 1
@@ -155,10 +155,33 @@ function Install-Project {
 $logFile = "$env:TEMP\leorun.log"
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
+function Open-LogWriter {
+    $stream = [System.IO.FileStream]::new($logFile, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+    $writer = [System.IO.StreamWriter]::new($stream, [System.Text.UTF8Encoding]::new($false))
+    $writer.AutoFlush = $true
+    $writer
+}
+
 function Write-Log {
     param([string]$Message)
-    "$timestamp - $Message" | Out-File -FilePath $logFile -Append -Encoding UTF8
+    $writer = Open-LogWriter
+    try { $writer.WriteLine("$timestamp - $Message") } finally { $writer.Dispose() }
     Write-Host $Message
+}
+
+function Invoke-Maven {
+    param([string]$Command)
+    $ErrorActionPreference = "Continue"
+    $writer = Open-LogWriter
+    try {
+        Invoke-Expression "$Command 2>&1" | ForEach-Object {
+            $line = "$_"
+            $writer.WriteLine($line)
+            Write-Host $line
+        }
+    } finally {
+        $writer.Dispose()
+    }
 }
 
 $ErrorActionPreference = "Stop"
@@ -283,7 +306,7 @@ if ($targetBranch) {
         Write-Host "   Already on branch: $targetBranch" -ForegroundColor Green
     }
 
-    git pull
+    git pull --ff-only
 }
 
 if ($Install) {
@@ -319,17 +342,17 @@ Write-Host "Mode: $Mode" -ForegroundColor Yellow
 switch ($Mode) {
     "fast" {
         Write-Log "[$Mode] $MvnRun"
-        Invoke-Expression $MvnRun
+        Invoke-Maven $MvnRun
     }
     "quick" {
         Write-Log "[$Mode] mvn compile + exec"
-        Invoke-Expression "mvn $MvnSettingsFlag -DskipTests compile"
-        if ($LASTEXITCODE -eq 0) { Invoke-Expression $MvnRun }
+        Invoke-Maven "mvn $MvnSettingsFlag -DskipTests compile"
+        if ($LASTEXITCODE -eq 0) { Invoke-Maven $MvnRun }
     }
     default {
         Write-Log "[normal] mvn clean install + exec"
-        Invoke-Expression "mvn $MvnSettingsFlag -DskipTests clean install"
-        if ($LASTEXITCODE -eq 0) { Invoke-Expression $MvnRun }
+        Invoke-Maven "mvn $MvnSettingsFlag -DskipTests clean install"
+        if ($LASTEXITCODE -eq 0) { Invoke-Maven $MvnRun }
     }
 }
 
