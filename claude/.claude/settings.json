@@ -148,7 +148,8 @@
   "tui": "fullscreen",
   "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
+  "skipWorkflowUsageWarning": true,
   "theme": "dark",
   "remoteControlAtStartup": false,
-  "skipWorkflowUsageWarning": true
+  "switchModelsOnFlag": true
 }
