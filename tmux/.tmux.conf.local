@@ -251,8 +251,9 @@ unbind C-b
 set -g prefix C-a
 bind C-a send-prefix
 
-# Allow typing in all panes simultaneously via Ctrl key
-bind -n C-x setw synchronize-panes
+# Type in all panes at once; bare C-x stays free for apps (Claude Code, nano)
+unbind -n C-x
+bind C-x setw synchronize-panes
 bind -n C-n new-window
 bind -n C-q kill-window
 bind -n C-h split-window -h
