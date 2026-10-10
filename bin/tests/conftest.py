@@ -154,6 +154,15 @@ def git(git_env):
 
 
 @pytest.fixture
+def repo_ignore(tmp_path):
+    def _repo_ignore(*lines):
+        ignore_file = tmp_path / "home" / ".config" / "repos" / "ignore"
+        ignore_file.parent.mkdir(parents=True)
+        ignore_file.write_text("\n".join(lines) + "\n")
+    return _repo_ignore
+
+
+@pytest.fixture
 def project(tmp_path, git):
     origin = tmp_path / "origin.git"
     git(tmp_path, "init", "--bare", str(origin))

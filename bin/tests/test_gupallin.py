@@ -50,10 +50,10 @@ def broken_clone(clone, tmp_path):
 
 
 @pytest.fixture
-def gupallin(run_bash, git_env):
+def gupallin(run_bash, git_env, tmp_path):
     def _gupallin(directory):
         result = run_bash("gupallin", [str(directory)], mock_bins={"curl": CURL_MOCK},
-                          env_extra={**git_env, "CUSTOM_BIN_DIR": str(BIN_DIR)})
+                          env_extra={**git_env, "CUSTOM_BIN_DIR": str(BIN_DIR), "HOME": str(tmp_path / "home")})
         assert result.returncode == 0, result.stderr
         return result
     return _gupallin
@@ -70,6 +70,21 @@ def should_pull_the_default_and_release_branches_and_return_to_the_checked_out_b
 
     assert git(project, "rev-parse", "main", "25.4.x") == git(origin, "rev-parse", "main", "25.4.x")
     assert git(project, "rev-parse", "--abbrev-ref", "HEAD") == "feature"
+
+
+def should_skip_only_the_repositories_listed_under_gupallin_in_the_ignore_list(gupallin, clone, workspace, origin,
+                                                                               git, tmp_path, repo_ignore):
+    project = clone("project")
+    archive = clone("private/archive")
+    stale = git(archive, "rev-parse", "main")
+    git(tmp_path / "seed", "commit", "--allow-empty", "-m", "Advance")
+    git(tmp_path / "seed", "push", "origin", "main")
+    repo_ignore("[gck]", "project", "[gupallin]", "private/archive")
+
+    gupallin(workspace)
+
+    assert git(project, "rev-parse", "main") == git(origin, "rev-parse", "main")
+    assert git(archive, "rev-parse", "main") == stale
 
 
 def should_keep_an_unpushed_merge_of_main_on_the_checked_out_branch(gupallin, clone, workspace, git, tmp_path):

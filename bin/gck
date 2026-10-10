@@ -3,6 +3,8 @@
 set -euo pipefail
 
 source "${CUSTOM_BIN_DIR}/prettyprint"
+# shellcheck source=repolib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/repolib.sh"
 
 show_usage() {
     cat <<EOF
@@ -14,8 +16,9 @@ CI state, then one row per branch, local ones before those only on origin, most
 recently committed first. Repos with work to push, commit or unstash come first;
 everything that needs no action is dimmed.
 
-Each line of ~/.config/gck/ignore is a glob for the end of a repo's path, such as
-private/tad; a matching repo shows only work to push, commit or unstash.
+Each line under [gck] in ~/.config/repos/ignore is a glob for the end of a repo's
+path, such as private/tad; a matching repo shows only work to push, commit or
+unstash.
 
   💻        local branch
   ⛅        branch only on origin
@@ -52,7 +55,6 @@ ignore_dirs=("dev")
 bot_branch_pattern='^(renovate|dependabot|greenkeeper|snyk|whitesource-remediate|pyup)[/-]'
 pull_request_cache_dir="${HOME}/.cache/gck"
 pull_request_cache_minutes=10
-ignore_file="${HOME}/.config/gck/ignore"
 behind_column_width=5
 age_column_width=4
 detail_indent="        "
@@ -652,22 +654,6 @@ render_repo() {
     cat "${rows_file}"
 }
 
-in_ignore_list() {
-    local path="${1}"
-    local entry
-    [ -f "${ignore_file}" ] || return 1
-    while read -r entry || [ -n "${entry}" ]; do
-        case "${entry}" in
-            ""|"#"*) continue ;;
-        esac
-        # shellcheck disable=SC2254
-        case "${path}" in
-            ${entry}|*/${entry}) return 0 ;;
-        esac
-    done < "${ignore_file}"
-    return 1
-}
-
 file_block() {
     if [ "${needs_action}" = true ]; then
         cat "${block_file}" >> "${action_file}"
@@ -683,7 +669,7 @@ scan_repo() {
     unpushed=$(unpushed_branches "${dir}")
     worktree_branches=$(linked_worktree_branches "${dir}")
     quiet=false
-    if in_ignore_list "$(git -C "${dir}" rev-parse --show-toplevel)"; then
+    if rh_ignored gck "${dir}"; then
         quiet=true
     fi
     local local_branches origin_branches remote_only="" uncommitted stashes

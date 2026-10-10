@@ -104,15 +104,6 @@ def dirty_workspace(workspace, git):
 
 
 @pytest.fixture
-def ignore(tmp_path):
-    def _ignore(*entries):
-        ignore_file = tmp_path / "home" / ".config" / "gck" / "ignore"
-        ignore_file.parent.mkdir(parents=True)
-        ignore_file.write_text("\n".join(entries) + "\n")
-    return _ignore
-
-
-@pytest.fixture
 def now():
     return int(time.time())
 
@@ -345,8 +336,9 @@ def should_dim_a_repository_that_needs_no_action(run_gck, workspace):
     assert all(is_dimmed_throughout(line) for line in lines[:3])
 
 
-def should_leave_out_an_ignored_repository_without_work_to_save_or_looking_up_its_ci(gck, workspace, ignore, tmp_path):
-    ignore("project")
+def should_leave_out_an_ignored_repository_without_work_to_save_or_looking_up_its_ci(gck, workspace, repo_ignore,
+                                                                                     tmp_path):
+    repo_ignore("[gck]", "project")
 
     output = gck(workspace)
 
@@ -354,8 +346,8 @@ def should_leave_out_an_ignored_repository_without_work_to_save_or_looking_up_it
     assert not (tmp_path / "glab-calls").exists()
 
 
-def should_show_only_the_work_to_save_of_an_ignored_repository(gck, unpushed_workspace, ignore):
-    ignore("project")
+def should_show_only_the_work_to_save_of_an_ignored_repository(gck, unpushed_workspace, repo_ignore):
+    repo_ignore("[gck]", "project")
 
     output = gck(unpushed_workspace)
 
@@ -364,16 +356,24 @@ def should_show_only_the_work_to_save_of_an_ignored_repository(gck, unpushed_wor
     assert "remote-only" not in output
 
 
-def should_read_each_ignore_line_as_a_glob_for_the_end_of_the_repository_path(gck, workspace, ignore):
-    ignore("# bots only", "", "  workspace/proj*  ")
+def should_read_each_ignore_line_as_a_glob_for_the_end_of_the_repository_path(gck, workspace, repo_ignore):
+    repo_ignore("# bots only", "[gck]", "", "  workspace/proj*  ")
 
     output = gck(workspace)
 
     assert "project" not in output
 
 
-def should_keep_a_repository_whose_path_only_starts_like_an_ignore_entry(gck, workspace, ignore):
-    ignore("proj")
+def should_keep_a_repository_whose_path_only_starts_like_an_ignore_entry(gck, workspace, repo_ignore):
+    repo_ignore("[gck]", "proj")
+
+    output = gck(workspace)
+
+    assert output.startswith("project  main ✓\n")
+
+
+def should_keep_a_repository_that_only_gupallin_ignores(gck, workspace, repo_ignore):
+    repo_ignore("[gupallin]", "project")
 
     output = gck(workspace)
 

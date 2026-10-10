@@ -6,6 +6,8 @@ root_dir="$(pwd)"
 [ -n "${1:-}" ] && root_dir="${1}"
 
 [ -f "${CUSTOM_BIN_DIR}/prettyprint" ] && source "${CUSTOM_BIN_DIR}/prettyprint"
+# shellcheck source=repolib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/repolib.sh"
 
 CUSTOM_RELEASE_PATTERN="^[0-9]+.([0-9]+|x)(.[0-9]+|.x)?$"
 
@@ -118,6 +120,7 @@ update_repo() {
 update_repos() {
     find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
         [ -d "${dir}/.git" ] || continue
+        rh_ignored gupallin "${dir}" && continue
         printf '%s' "${dir}" > "${status_file}"
         if has_git_access "${dir}"; then
             update_repo "${dir}"
