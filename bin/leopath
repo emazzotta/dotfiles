@@ -7,9 +7,8 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 
-from scriptlog import Logger
+import scriptlog as logger
 
-logger = Logger(use_timestamps=False)
 
 FILE_PROTOCOL_PREFIX = 'file://'
 HOME_DATEN = os.path.join(os.path.expanduser("~"), "Daten")

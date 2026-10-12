@@ -3,9 +3,8 @@
 import os
 import sys
 import xml.etree.ElementTree as ET
-from scriptlog import Logger
+import scriptlog as logger
 
-logger = Logger()
 
 
 def process_xml(input_path, output_path):
@@ -52,7 +51,7 @@ def main():
     if len(sys.argv) < 2:
         script_name = os.path.basename(sys.argv[0])
         logger.error("You need to pass the path to the input XML file as an argument.")
-        logger.log(f"Usage: {script_name} input.xml")
+        logger.info(f"Usage: {script_name} input.xml")
         sys.exit(1)
 
     input_path = sys.argv[1]

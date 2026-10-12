@@ -6,12 +6,11 @@ import hashlib
 from pathlib import Path
 
 try:
-    from scriptlog import Logger
+    import scriptlog as logger
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
-    from scriptlog import Logger
+    import scriptlog as logger
 
-logger = Logger(use_timestamps=False)
 
 
 def hash_data(algorithm: str, data: bytes) -> str:

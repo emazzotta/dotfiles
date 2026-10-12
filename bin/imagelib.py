@@ -8,9 +8,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from scriptlog import Logger
+import scriptlog as logger
 
-logger = Logger()
 
 
 def find_images(directory: Path, extensions: list[str]) -> list[Path]:

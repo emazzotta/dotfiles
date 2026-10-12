@@ -8,9 +8,8 @@ from pathlib import Path
 
 import imagelib
 import medialib
-from scriptlog import Logger
+import scriptlog as logger
 
-logger = Logger()
 
 IMAGE_EXTENSIONS: list[str] = ["jpg", "jpeg", "png", "webp", "tiff", "bmp", "heic"]
 JPEG_EXTENSIONS: frozenset[str] = frozenset(["jpg", "jpeg"])
@@ -123,7 +122,7 @@ def main() -> None:
             total_saved += saved
             processed += 1
 
-    logger.log(f"Done: {processed} file(s) processed, total saved {fmt_size(total_saved)}")
+    logger.info(f"Done: {processed} file(s) processed, total saved {fmt_size(total_saved)}")
 
 
 if __name__ == "__main__":

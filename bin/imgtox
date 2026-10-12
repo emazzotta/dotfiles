@@ -8,9 +8,8 @@ from pathlib import Path
 
 import imagelib
 import medialib
-from scriptlog import Logger
+import scriptlog as logger
 
-logger = Logger()
 
 IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp', 'svg', 'heic']
 
@@ -30,7 +29,7 @@ def convert_image(input_file: Path, output_format: str, output_path: Path | None
 
     if delete_original:
         input_file.unlink()
-        logger.log(f"Original file '{input_file}' deleted.")
+        logger.info(f"Original file '{input_file}' deleted.")
 
     return output_file
 

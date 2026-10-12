@@ -7,9 +7,8 @@ import sys
 import time
 from pathlib import Path
 from typing import Final
-from scriptlog import Logger
+import scriptlog as logger
 
-logger = Logger()
 
 REQUIRED_ENV_VARS: tuple[str, ...] = (
     'SPOTIPY_CLIENT_ID',
@@ -145,7 +144,7 @@ def add_tracks_to_playlist(playlist_id: str, track_file: Path) -> tuple[list[str
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        logger.log(f"Usage: {os.path.basename(__file__)} <path_to_track_file>")
+        logger.info(f"Usage: {os.path.basename(__file__)} <path_to_track_file>")
         sys.exit(1)
 
     track_file = Path(sys.argv[1])

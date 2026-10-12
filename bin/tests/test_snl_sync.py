@@ -257,11 +257,17 @@ class TestRunSync:
 
         self.run(snl, tmp_path, scripts)
 
-        plain = ANSI_CODE.sub("", capsys.readouterr().out)
-        lines = [line.split("] ", 1)[1] for line in plain.splitlines()]
-        assert [line.split(":")[0] for line in lines] == [
-            "fetching A, B - Song 0", "WARN",
-            "fetching A, B - Song 1", "\u2713 A, B - Song 1 -> t1.mp3",
+        log = snl.logger
+        bullets = {"info": log.BOLD + log.BLUE, "warn": log.BOLD + log.YELLOW, "success": log.BOLD + log.GREEN}
+        lines = capsys.readouterr().out.splitlines()
+        announced = [
+            (next((kind for kind, color in bullets.items() if line.startswith(color + "●")), None),
+             ANSI_CODE.sub("", line).removeprefix("● ").split(":")[0])
+            for line in lines
+        ]
+        assert announced == [
+            ("info", "fetching A, B - Song 0"), ("warn", "A, B - Song 0"),
+            ("info", "fetching A, B - Song 1"), ("success", "A, B - Song 1 -> t1.mp3"),
         ]
 
 

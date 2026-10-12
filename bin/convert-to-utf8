@@ -8,7 +8,7 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Final, Optional
 
-from scriptlog import Logger
+import scriptlog as logger
 
 BACKUP_SUFFIX: Final = ".backup"
 DEFAULT_TARGET_DIR: Final = "."
@@ -39,8 +39,7 @@ class ProcessingSummary:
 
 
 class EncodingConverter:
-    def __init__(self, logger: Logger, dry_run: bool = False, verbose: bool = False):
-        self.logger = logger
+    def __init__(self, dry_run: bool = False, verbose: bool = False):
         self.dry_run = dry_run
         self.verbose = verbose
 
@@ -69,7 +68,7 @@ class EncodingConverter:
         backup_path.write_bytes(file_path.read_bytes())
 
         if self.verbose:
-            self.logger.log(f"Created backup: {backup_path}")
+            logger.info(f"Created backup: {backup_path}")
 
         return backup_path
 
@@ -91,7 +90,7 @@ class EncodingConverter:
 
             temp_path.replace(file_path)
 
-            self.logger.log(f"Converted: {file_path} ({from_encoding} -> UTF-8)")
+            logger.info(f"Converted: {file_path} ({from_encoding} -> UTF-8)")
 
         finally:
             if temp_path.exists():
@@ -100,11 +99,11 @@ class EncodingConverter:
     def process_file(self, file_path: Path) -> ProcessingResult:
         try:
             if self.verbose:
-                self.logger.log(f"Processing: {file_path}")
+                logger.info(f"Processing: {file_path}")
 
             if self.is_already_utf8(file_path):
                 if self.verbose:
-                    self.logger.log(f"Already UTF-8: {file_path}")
+                    logger.info(f"Already UTF-8: {file_path}")
                 return ProcessingResult(
                     file_path=file_path,
                     status=ConversionStatus.SKIPPED_UTF8,
@@ -115,7 +114,7 @@ class EncodingConverter:
 
             if detected_encoding is None:
                 error_msg = f"Could not detect encoding for: {file_path}"
-                self.logger.error(error_msg)
+                logger.error(error_msg)
                 return ProcessingResult(
                     file_path=file_path,
                     status=ConversionStatus.FAILED,
@@ -124,17 +123,17 @@ class EncodingConverter:
 
             if detected_encoding == "utf-8":
                 if self.verbose:
-                    self.logger.log(f"Already UTF-8: {file_path}")
+                    logger.info(f"Already UTF-8: {file_path}")
                 return ProcessingResult(
                     file_path=file_path,
                     status=ConversionStatus.SKIPPED_UTF8,
                     detected_encoding=detected_encoding,
                 )
 
-            self.logger.log(f"Detected encoding: {detected_encoding} for {file_path}")
+            logger.info(f"Detected encoding: {detected_encoding} for {file_path}")
 
             if self.dry_run:
-                self.logger.log(
+                logger.info(
                     f"[DRY RUN] Would convert: {file_path} ({detected_encoding} -> UTF-8)"
                 )
                 return ProcessingResult(
@@ -150,7 +149,7 @@ class EncodingConverter:
 
                 backup_path.unlink()
                 if self.verbose:
-                    self.logger.log(f"Deleted backup: {backup_path}")
+                    logger.info(f"Deleted backup: {backup_path}")
 
                 return ProcessingResult(
                     file_path=file_path,
@@ -159,13 +158,13 @@ class EncodingConverter:
                 )
 
             except Exception as e:
-                self.logger.log(f"Restoring from backup: {backup_path}")
+                logger.info(f"Restoring from backup: {backup_path}")
                 backup_path.replace(file_path)
                 raise e
 
         except PermissionError as e:
             error_msg = f"Permission denied: {file_path} - {e}"
-            self.logger.error(error_msg)
+            logger.error(error_msg)
             return ProcessingResult(
                 file_path=file_path,
                 status=ConversionStatus.FAILED,
@@ -173,7 +172,7 @@ class EncodingConverter:
             )
         except OSError as e:
             error_msg = f"OS error processing {file_path}: {e}"
-            self.logger.error(error_msg)
+            logger.error(error_msg)
             return ProcessingResult(
                 file_path=file_path,
                 status=ConversionStatus.FAILED,
@@ -181,7 +180,7 @@ class EncodingConverter:
             )
         except Exception as e:
             error_msg = f"Failed to convert {file_path}: {e}"
-            self.logger.error(error_msg)
+            logger.error(error_msg)
             return ProcessingResult(
                 file_path=file_path,
                 status=ConversionStatus.FAILED,
@@ -195,7 +194,7 @@ class EncodingConverter:
         summary = ProcessingSummary(total=len(html_files))
 
         if not html_files:
-            self.logger.log(f"No HTML files found in: {target_dir}")
+            logger.info(f"No HTML files found in: {target_dir}")
             return summary
 
         if parallel:
@@ -227,7 +226,7 @@ class EncodingConverter:
             summary.failed += 1
 
 
-def validate_directory(target_dir: Path, logger: Logger) -> None:
+def validate_directory(target_dir: Path) -> None:
     if not target_dir.exists():
         logger.error(f"Directory not found: {target_dir}")
         sys.exit(1)
@@ -298,18 +297,17 @@ def main() -> None:
     parser = build_argument_parser()
     args = parser.parse_args()
 
-    logger = Logger(use_timestamps=True, use_colors=True)
 
     if args.dry_run:
-        logger.log("Running in DRY RUN mode")
+        logger.info("Running in DRY RUN mode")
 
     target_dir = args.dir.resolve()
-    validate_directory(target_dir, logger)
+    validate_directory(target_dir)
 
-    logger.log(f"Scanning directory: {target_dir}")
+    logger.info(f"Scanning directory: {target_dir}")
 
     converter = EncodingConverter(
-        logger=logger, dry_run=args.dry_run, verbose=args.verbose
+        dry_run=args.dry_run, verbose=args.verbose
     )
 
     summary = converter.process_directory(
@@ -319,17 +317,17 @@ def main() -> None:
     )
 
     print()
-    logger.log("Summary:")
-    logger.log(f"  Total files: {summary.total}")
+    logger.info("Summary:")
+    logger.info(f"  Total files: {summary.total}")
 
     if args.dry_run:
-        logger.log("  [DRY RUN] No changes made")
+        logger.info("  [DRY RUN] No changes made")
     else:
-        logger.log(f"  Converted: {summary.converted}")
-        logger.log(f"  Already UTF-8: {summary.skipped}")
-        logger.log(f"  Failed: {summary.failed}")
+        logger.info(f"  Converted: {summary.converted}")
+        logger.info(f"  Already UTF-8: {summary.skipped}")
+        logger.info(f"  Failed: {summary.failed}")
 
-    logger.log("Done")
+    logger.info("Done")
 
     if summary.failed > 0:
         sys.exit(1)

@@ -22,12 +22,11 @@ from typing import TYPE_CHECKING, Any, Callable, Final, Optional
 
 import medialib
 from medialib import OutputNaming
-from scriptlog import Logger
+import scriptlog as logger
 
 if TYPE_CHECKING:
     import mlx.core as mx
 
-logger = Logger()
 
 DEFAULT_MODEL: Final = "baidu/Unlimited-OCR"
 RUNTIME_PYTHON: Final = "3.12"

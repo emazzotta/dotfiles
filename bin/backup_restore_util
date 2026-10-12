@@ -7,42 +7,11 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Final, Optional
+from typing import Optional
 
-
-class Color:
-    RED: Final = '\033[0;31m'
-    GREEN: Final = '\033[0;32m'
-    YELLOW: Final = '\033[1;33m'
-    CYAN: Final = '\033[0;36m'
-    RESET: Final = '\033[0m'
-
-
-def timestamp() -> str:
-    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-
-def log(message: str) -> None:
-    print(f"{Color.GREEN}[{timestamp()}]{Color.RESET} {message}")
-
-
-def error(message: str) -> None:
-    print(f"{Color.RED}[{timestamp()}] ERROR:{Color.RESET} {message}", file=sys.stderr)
-
-
-def warn(message: str) -> None:
-    print(f"{Color.YELLOW}[{timestamp()}] WARN:{Color.RESET} {message}")
-
-
-def info(message: str) -> None:
-    print(f"{Color.GREEN}[{timestamp()}]{Color.RESET} {Color.CYAN}INFO:{Color.RESET} {message}")
-
-
-def success(message: str) -> None:
-    print(f"{Color.GREEN}[{timestamp()}] ✓{Color.RESET} {message}")
+from scriptlog import error, info, success, warn
 
 
 class DmgFormat(Enum):
@@ -190,7 +159,7 @@ def show_disk_info(disk: str) -> None:
             subprocess.run(['diskutil', 'list', disk], check=False)
     except Exception:
         warn("Could not retrieve detailed disk info")
-        log(f"Disk: {disk}")
+        info(f"Disk: {disk}")
     print()
 
 
@@ -209,7 +178,7 @@ def format_bytes(bytes_count: int) -> str:
 
 
 def backup_disk(disk_input: str, img_path: Optional[str]) -> None:
-    log("==> [Backup Mode] selected")
+    info("==> [Backup Mode] selected")
     print()
 
     disk = find_disk_for_volume(disk_input)
@@ -227,7 +196,7 @@ def backup_disk(disk_input: str, img_path: Optional[str]) -> None:
 
     info(f"Starting backup of /dev/r{disk} to {img_path}")
     info(f"Disk size: {disk_size}")
-    log("This may take several minutes depending on disk size...")
+    info("This may take several minutes depending on disk size...")
 
     start_time = time.time()
 
@@ -253,7 +222,7 @@ def backup_disk(disk_input: str, img_path: Optional[str]) -> None:
 
 
 def restore_disk(disk_input: str, img_path: str) -> None:
-    log("==> [Restore Mode] selected")
+    info("==> [Restore Mode] selected")
     print()
 
     disk = find_disk_for_volume(disk_input)
@@ -284,7 +253,7 @@ def restore_disk(disk_input: str, img_path: str) -> None:
         sys.exit(0)
 
     info(f"Starting restore from {img_path} to /dev/r{disk}")
-    log("This may take several minutes depending on image size...")
+    info("This may take several minutes depending on image size...")
 
     start_time = time.time()
 
@@ -485,7 +454,7 @@ def create_dmg_image(volume: str, volume_name: str, dmg_format: DmgFormat) -> No
         error(f"Output file already exists: {output_image}")
         sys.exit(1)
 
-    log(f"Creating DMG image: {output_image}")
+    info(f"Creating DMG image: {output_image}")
     info(f"Source volume: {volume}")
     info(f"Image format: {dmg_format.description()}")
 
@@ -494,7 +463,7 @@ def create_dmg_image(volume: str, volume_name: str, dmg_format: DmgFormat) -> No
         if not device:
             sys.exit(1)
 
-        log(f"Device detected: {device}")
+        info(f"Device detected: {device}")
         try:
             subprocess.run(
                 [
@@ -511,7 +480,7 @@ def create_dmg_image(volume: str, volume_name: str, dmg_format: DmgFormat) -> No
             error(f"Failed to create DMG: {e}")
             sys.exit(1)
     else:
-        log("Imaging folder as disk image")
+        info("Imaging folder as disk image")
         try:
             subprocess.run(
                 [
@@ -536,7 +505,7 @@ def create_dmg_image(volume: str, volume_name: str, dmg_format: DmgFormat) -> No
 
 
 def create_dmg_from_volume(volume: str, format_str: Optional[str], output_file: Optional[str]) -> None:
-    log("==> [Create DMG] selected")
+    info("==> [Create DMG] selected")
     print()
 
     if not check_hdiutil_available():
@@ -575,7 +544,7 @@ def calculate_directory_size(path: Path) -> tuple[int, int]:
 
 
 def sync_content_with_rsync(source: str, destination: str, delete_flag: bool) -> None:
-    log("==> [Sync Content with rsync] selected")
+    info("==> [Sync Content with rsync] selected")
     print()
 
     source_path = Path(source)
@@ -633,7 +602,7 @@ def sync_content_with_rsync(source: str, destination: str, delete_flag: bool) ->
         sys.exit(0)
 
     print()
-    log("Starting rsync...")
+    info("Starting rsync...")
     info(f"From: {source}")
     info(f"To: {destination}")
     print()

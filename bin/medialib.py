@@ -8,9 +8,8 @@ from dataclasses import dataclass
 from glob import glob
 from pathlib import Path
 
-from scriptlog import Logger
+import scriptlog as logger
 
-logger = Logger()
 
 AUDIO_EXTS = ["mp3", "m4a", "aac", "flac", "wav", "aif", "aiff", "alac", "ogg", "opus", "wma", "ape", "wv"]
 VIDEO_EXTS = ["mp4", "m4v", "mov", "mkv", "avi", "webm", "mpg", "mpeg", "wmv", "flv", "3gp", "mts", "m2ts"]

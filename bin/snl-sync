@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Final, Iterator, Optional
 
 from envify import load_env, store_param
-from scriptlog import Logger
+import scriptlog as logger
 
 try:
     from telethon import TelegramClient
@@ -23,7 +23,6 @@ except ImportError:
     TelegramClient = None
     StringSession = None
 
-logger = Logger()
 
 DEFAULT_PLAYLIST: Final = "01 Sort'n'Load"
 DEFAULT_DEST: Final = Path(os.environ.get("DESKDIR", str(Path.home() / "Desktop")))
@@ -255,7 +254,7 @@ async def run_sync(tracks: list[Track], open_conversation: Callable[[], Any], de
 async def _sync_one(track: Track, open_conversation: Callable[[], Any], dest: Path,
                     state: SyncState, preferences: tuple[str, ...], query: QueryMode,
                     report: SyncReport) -> None:
-    logger.log(f"fetching {track.label}")
+    logger.info(f"fetching {track.label}")
     try:
         async with open_conversation() as conv:
             saved = await fetch_track(conv, track, dest, preferences, query=query)
@@ -359,7 +358,7 @@ def sync(args: argparse.Namespace) -> int:
         return 0
     if args.dry_run:
         for track in pending:
-            logger.log(track.label)
+            logger.info(track.label)
         return 0
     return summarise(asyncio.run(download(pending, args, state)))
 

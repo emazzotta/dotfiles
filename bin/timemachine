@@ -13,14 +13,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Final, Optional
 
-
-class Color:
-    RED: Final = '\033[0;31m'
-    GREEN: Final = '\033[0;32m'
-    YELLOW: Final = '\033[1;33m'
-    CYAN: Final = '\033[0;36m'
-    DIM: Final = '\033[2m'
-    RESET: Final = '\033[0m'
+from scriptlog import DIM, GREEN, RED, RESET, YELLOW, error, substep_info, warn
 
 
 TREE_PATTERN: Final = re.compile(r'^(\d{4}-\d{2}-\d{2}-\d{6})\.([a-z]+)$')
@@ -33,18 +26,6 @@ CASE_SENSITIVE_APFS: Final = 'APFSX'
 SIZE_UNITS: Final = ('B', 'KB', 'MB', 'GB', 'TB')
 DEFAULT_KEEP: Final = 5
 LOCAL_VOLUME: Final = '/'
-
-
-def error(message: str) -> None:
-    print(f"{Color.RED}error:{Color.RESET} {message}", file=sys.stderr)
-
-
-def warn(message: str) -> None:
-    print(f"  {Color.YELLOW}!{Color.RESET} {message}")
-
-
-def note(message: str) -> None:
-    print(f"  {Color.CYAN}i{Color.RESET} {message}")
 
 
 class CommandError(RuntimeError):
@@ -310,8 +291,8 @@ def describe_backups(report: Report) -> str:
 
 def print_report(report: Report) -> None:
     destination = report.destination
-    print(f"\n{Color.GREEN}{destination.name}{Color.RESET} "
-          f"{Color.DIM}{destination.mount_point}  {report.volume.device}{Color.RESET}\n")
+    print(f"\n{GREEN}{destination.name}{RESET} "
+          f"{DIM}{destination.mount_point}  {report.volume.device}{RESET}\n")
     print(f"  Space      {format_bytes(report.usage.used)} used of "
           f"{format_bytes(report.usage.total)} ({format_bytes(report.usage.free)} free)")
     print(f"  Backups    {describe_backups(report)}")
@@ -383,13 +364,13 @@ def is_backup_running(phase: str) -> bool:
 
 def print_prune_plan(report: Report, doomed: tuple[datetime, ...],
                      orphans: tuple[BackupTree, ...], keep: int) -> None:
-    print(f"\n{Color.YELLOW}Pruning {report.destination.name}{Color.RESET}\n")
+    print(f"\n{YELLOW}Pruning {report.destination.name}{RESET}\n")
     print(f"  Keeping    {min(keep, len(report.restorable))} newest of "
           f"{len(report.restorable)} backup(s)")
     for stamp in doomed:
-        print(f"  {Color.DIM}delete{Color.RESET}     {stamp:%Y-%m-%d %H:%M} backup")
+        print(f"  {DIM}delete{RESET}     {stamp:%Y-%m-%d %H:%M} backup")
     for tree in orphans:
-        print(f"  {Color.DIM}delete{Color.RESET}     {tree.directory_name}")
+        print(f"  {DIM}delete{RESET}     {tree.directory_name}")
     print()
 
 
@@ -488,8 +469,8 @@ def verify_erasable(report: Report) -> None:
 
 def print_erase_plan(report: Report) -> None:
     volume = report.volume
-    print(f"\n{Color.RED}This erases every backup on "
-          f"{volume.name}{Color.RESET} ({volume.device})\n")
+    print(f"\n{RED}This erases every backup on "
+          f"{volume.name}{RESET} ({volume.device})\n")
     print(f"  {format_bytes(report.usage.used)} of backup data")
     print(f"  {len(report.restorable)} restorable backup(s)")
     print(f"  {len(report.trees)} backup trees")
@@ -501,7 +482,7 @@ def confirm_erase(volume_name: str) -> bool:
     if not sys.stdin.isatty():
         error("refusing to erase without an interactive terminal")
         return False
-    prompt = f"Type {Color.YELLOW}{volume_name}{Color.RESET} to confirm: "
+    prompt = f"Type {YELLOW}{volume_name}{RESET} to confirm: "
     return input(prompt).strip() == volume_name
 
 
@@ -511,7 +492,7 @@ def detach_destination(destination: Destination) -> None:
         try:
             run(*command)
         except CommandError as failure:
-            note(f"{failure} - continuing, remove the disk in System Settings if needed")
+            substep_info(f"{failure} - continuing, remove the disk in System Settings if needed")
 
 
 def command_reset(args: argparse.Namespace) -> int:
@@ -529,7 +510,7 @@ def command_reset(args: argparse.Namespace) -> int:
     detach_destination(report.destination)
     run('sudo', 'diskutil', 'eraseVolume', args.format,
         report.volume.name, f"/dev/{report.volume.device}")
-    print(f"\n{Color.GREEN}Erased.{Color.RESET} Re-add it under System Settings > "
+    print(f"\n{GREEN}Erased.{RESET} Re-add it under System Settings > "
           f"General > Time Machine, then run 'timemachine status'.\n")
     return 0
 

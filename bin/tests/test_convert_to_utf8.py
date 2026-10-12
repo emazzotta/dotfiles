@@ -8,12 +8,12 @@ def mod(load_script):
 
 @pytest.fixture
 def converter(mod):
-    return mod.EncodingConverter(mod.Logger(use_timestamps=False, use_colors=False))
+    return mod.EncodingConverter()
 
 
 @pytest.fixture
 def dry_converter(mod):
-    return mod.EncodingConverter(mod.Logger(use_timestamps=False, use_colors=False), dry_run=True)
+    return mod.EncodingConverter(dry_run=True)
 
 
 class TestDetectEncoding:

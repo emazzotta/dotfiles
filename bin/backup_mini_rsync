@@ -5,9 +5,8 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from os import listdir
 from os.path import join, basename, isdir
-from scriptlog import Logger
+import scriptlog as logger
 
-logger = Logger()
 
 VOLUMES_PATH = "/Volumes"
 SOURCE_DRIVE = "SanDisk_1TB"
@@ -71,16 +70,16 @@ def get_available_targets():
 
 
 def display_space_details(path, label):
-    logger.log("Source Drive Space Details:")
+    logger.info("Source Drive Space Details:")
     total, used, free = get_drive_space(path)
-    logger.log(f"{label} - Total: {total:.2f} GB, Used: {used:.2f} GB, Free: {free:.2f} GB")
+    logger.info(f"{label} - Total: {total:.2f} GB, Used: {used:.2f} GB, Free: {free:.2f} GB")
 
 
 def select_target(targets):
-    logger.log("\nAvailable Targets:")
+    logger.info("\nAvailable Targets:")
     for i, target in enumerate(targets, 1):
         target_path = join(VOLUMES_PATH, target)
-        logger.log(f"{i}. {target}")
+        logger.info(f"{i}. {target}")
         display_space_details(target_path, target)
 
     choice = ""
@@ -96,16 +95,16 @@ def select_target(targets):
 
 
 def confirm_and_execute_command(source, target, command, tool_name, parallel=False, subdirectories=None):
-    logger.log(f"\nSource Directory: {source}")
-    logger.log(f"Target Directory: {target}")
+    logger.info(f"\nSource Directory: {source}")
+    logger.info(f"Target Directory: {target}")
 
     if parallel and subdirectories:
-        logger.log("\nStarting parallel rsync processes...")
+        logger.info("\nStarting parallel rsync processes...")
         parallel_rsync(subdirectories, source, target, tool_name)
         logger.success("All rsync processes completed.")
         return
     else:
-        logger.log(f"{tool_name} Command: {' '.join(command)}")
+        logger.info(f"{tool_name} Command: {' '.join(command)}")
         proceed = input(f"Proceed with {tool_name}? (y/N): ").strip().lower()
         if proceed == "y":
             subprocess.run(command)
@@ -119,7 +118,7 @@ def parallel_rsync(subdirectories, source_base, target_base, tool_name):
         target_path = join(target_base, subdir.replace(
             source_base, f"{target_base}/"))
         command = ["rsync"] + RSYNC_FLAGS + [f"{source_path}/", target_path]
-        logger.log(f"\n{tool_name} Command: {' '.join(command)}\n\n")
+        logger.info(f"\n{tool_name} Command: {' '.join(command)}\n\n")
         subprocess.run(command)
 
     with ThreadPoolExecutor(max_workers=len(subdirectories)) as executor:
@@ -137,14 +136,14 @@ def process_backup_command_choice(source, target):
 
         subdirectories = find_subdirectories(source)
         if subdirectories:
-            logger.log("\nSubdirectories found for potential parallel rsync:")
+            logger.info("\nSubdirectories found for potential parallel rsync:")
             for i, subdir in enumerate(subdirectories, 1):
-                logger.log(f"{i}. {subdir}")
+                logger.info(f"{i}. {subdir}")
 
         parallel_choice = input(
             "Do you want to use parallel rsync? (y/N): ").strip().lower()
         if parallel_choice == "y" and subdirectories:
-            logger.log(f"\nProceeding with parallel rsync for each subdirectory")
+            logger.info(f"\nProceeding with parallel rsync for each subdirectory")
             confirm_and_execute_command(
                 source, target, command, "rsync", parallel=True, subdirectories=subdirectories)
         else:

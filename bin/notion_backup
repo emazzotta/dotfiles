@@ -15,9 +15,8 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from scriptlog import Logger
+import scriptlog as logger
 
-logger = Logger()
 
 API_BASE = "https://api.notion.com/v1"
 API_VERSION = "2022-06-28"
@@ -430,7 +429,7 @@ def enforce_retention(backup_dir, max_copies):
     archives = sorted(Path(backup_dir).glob("notion_everything_*.7z"))
     if len(archives) > max_copies:
         for old in archives[: len(archives) - max_copies]:
-            logger.log(f"Removing old backup: {old.name}")
+            logger.info(f"Removing old backup: {old.name}")
             old.unlink()
 
 
@@ -447,7 +446,7 @@ def purge_legacy_plaintext(backup_dir):
         legacy_index.unlink()
         removed_any = True
     if removed_any:
-        logger.log("Legacy plaintext state removed; cache will be rebuilt encrypted on this run")
+        logger.info("Legacy plaintext state removed; cache will be rebuilt encrypted on this run")
 
 
 def extract_cache_archive(archive_path, work_dir):
@@ -455,7 +454,7 @@ def extract_cache_archive(archive_path, work_dir):
     if not archive_path.exists():
         cache_dir.mkdir()
         return cache_dir
-    logger.log("Decrypting cache archive...")
+    logger.info("Decrypting cache archive...")
     result = subprocess.run(
         [
             "7z", "x",
@@ -509,7 +508,7 @@ def verify_encryption_paths(work_dir, backup_dir):
 def create_encrypted_archive(source_parent, source_name, archive_path, label):
     if archive_path.exists():
         archive_path.unlink()
-    logger.log(f"Encrypting {label}...")
+    logger.info(f"Encrypting {label}...")
     result = subprocess.run(
         [
             "7z", "a",
@@ -574,7 +573,7 @@ def run_backup(args, backup_dir, work_dir, run_timestamp):
     if prev_index and not args.full:
         prev_edit_times = {p["id"]: p.get("last_edited", "") for p in prev_index}
 
-    logger.log("Fetching page index from Notion...")
+    logger.info("Fetching page index from Notion...")
     pages = discover_pages_via_search()
     if not pages:
         logger.error("No pages found - check API key and integration access")
@@ -608,9 +607,9 @@ def run_backup(args, backup_dir, work_dir, run_timestamp):
             unchanged.append(page)
 
     if changed:
-        logger.log(f"Exporting {len(changed)} changed pages ({len(unchanged)} cached)...")
+        logger.info(f"Exporting {len(changed)} changed pages ({len(unchanged)} cached)...")
     else:
-        logger.log("No pages changed since last backup")
+        logger.info("No pages changed since last backup")
 
     failed = 0
     skipped_empty = 0
@@ -619,7 +618,7 @@ def run_backup(args, backup_dir, work_dir, run_timestamp):
         pid = page["id"]
         title = page["title"]
         safe_name = name_map[pid]
-        logger.log(f"[{idx}/{len(changed)}] {title}")
+        logger.info(f"[{idx}/{len(changed)}] {title}")
         try:
             blocks = fetch_block_children(pid)
             content = render_blocks(blocks, page_titles)

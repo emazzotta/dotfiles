@@ -13,9 +13,8 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import NoReturn
 
-from scriptlog import Logger
+import scriptlog as logger
 
-logger = Logger()
 
 VALID_PRESETS = ("ultrafast", "superfast", "veryfast", "faster", "fast",
                  "medium", "slow", "slower", "veryslow", "placebo")
@@ -312,11 +311,11 @@ def report_result(input_file: Path, output_file: Path, rm_original: bool) -> Non
     logger.success(f"done: {fmt_size(before)} -> {fmt_size(after)} ({size_delta(before, after)})")
     if rm_original:
         input_file.unlink()
-        logger.log(f"removed original '{input_file}'")
+        logger.info(f"removed original '{input_file}'")
 
 
 def run_ffmpeg(command: list[str], input_file: Path, output_file: Path, rm_original: bool) -> Outcome:
-    logger.log(f"compressing '{input_file}' -> '{output_file}'")
+    logger.info(f"compressing '{input_file}' -> '{output_file}'")
     try:
         returncode = subprocess.run(command).returncode
     except KeyboardInterrupt:
@@ -331,7 +330,7 @@ def run_ffmpeg(command: list[str], input_file: Path, output_file: Path, rm_origi
 
 
 def log_encode_plan(settings: EncodeSettings, source: SourceInfo, fps: str | None) -> None:
-    logger.log(f"codec={settings.codec} quality={settings.quality} preset={settings.preset} "
+    logger.info(f"codec={settings.codec} quality={settings.quality} preset={settings.preset} "
                f"scale={settings.scale_height or 'none'} fps={fps or 'source'} "
                f"hw={'yes' if settings.hardware_encoder else 'no'} "
                f"tonemap={'yes' if settings.tonemap else 'no'} "
@@ -477,7 +476,7 @@ def resolve_targets(args: argparse.Namespace) -> list[Path]:
         if not targets:
             logger.warn(f"no videos found below '{directory}' within depth {args.max_depth}")
         else:
-            logger.log(f"found {len(targets)} video file(s) below '{directory}'")
+            logger.info(f"found {len(targets)} video file(s) below '{directory}'")
         return targets
 
     input_file = Path(args.path)
@@ -498,7 +497,7 @@ def require_commands(*commands: str) -> None:
 
 
 def print_summary(stats: Counter[Outcome], total: int) -> None:
-    logger.log(f"compressed {stats[Outcome.COMPRESSED]}, skipped {stats[Outcome.SKIPPED]}, "
+    logger.info(f"compressed {stats[Outcome.COMPRESSED]}, skipped {stats[Outcome.SKIPPED]}, "
                f"failed {stats[Outcome.FAILED]} of {total} file(s)")
 
 
@@ -506,7 +505,7 @@ def compress_all(targets: list[Path], settings: EncodeSettings,
                  args: argparse.Namespace, stats: Counter[Outcome]) -> None:
     for index, input_file in enumerate(targets, start=1):
         if args.recursive:
-            logger.log(f"[{index}/{len(targets)}] {input_file}")
+            logger.info(f"[{index}/{len(targets)}] {input_file}")
         stats[compress_file(input_file, settings, args.dry_run, args.rm_original)] += 1
 
 
