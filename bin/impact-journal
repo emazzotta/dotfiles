@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+"""List your IMPACT Martial Arts classes per discipline, BJJ split into Gi and No-Gi."""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from collections.abc import Iterator
+from datetime import date, datetime, time, timedelta, timezone
+from http.cookiejar import CookieJar
+from itertools import groupby
+from typing import Any, Final, NamedTuple
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import HTTPCookieProcessor, Request, build_opener
+from zoneinfo import ZoneInfo
+
+BASE_URL: Final = "https://app.impact-martialarts.com"
+GYM_ZONE: Final = ZoneInfo("Europe/Zurich")
+DEFAULT_FROM: Final = date(2026, 4, 1)
+QUERY_WINDOW: Final = timedelta(days=30)
+REQUEST_TIMEOUT_SECONDS: Final = 30
+DAYS_PER_WEEK: Final = 7
+CHECKED_IN: Final = "completed"
+ENVIFY_COMMAND: Final = (
+    "source envify IMPACT_EMAIL IMPACT_PASSWORD"
+    ' && printf "%s\\0" "$IMPACT_EMAIL" "$IMPACT_PASSWORD"'
+)
+HEADERS: Final = {
+    "Accept": "application/json",
+    "User-Agent": "Mozilla/5.0 (impact-journal)",
+    "X-Requested-With": "XMLHttpRequest",
+    "Origin": BASE_URL,
+    "Referer": f"{BASE_URL}/ex4/me/journal",
+}
+NO_GI: Final = re.compile(r"no-?gi", re.IGNORECASE)
+GI: Final = re.compile(r"\bgi\b", re.IGNORECASE)
+PARENTHESES: Final = re.compile(r"\s*\(.*?\)")
+
+BOLD: Final = "\033[1m"
+DIM: Final = "\033[2m"
+RED: Final = "\033[31m"
+GREEN: Final = "\033[32m"
+YELLOW: Final = "\033[33m"
+BLUE: Final = "\033[34m"
+MAGENTA: Final = "\033[35m"
+RESET: Final = "\033[0m"
+
+
+class GymClass(NamedTuple):
+    day: date
+    title: str
+    trainer: str
+    location: str
+    status: str
+
+
+def info(message: str) -> None:
+    print(f"{BOLD}{BLUE}●{RESET} {message}")
+
+
+def success(message: str) -> None:
+    print(f"{BOLD}{GREEN}●{RESET} {message}")
+
+
+def error(message: str) -> None:
+    print(f"{BOLD}{RED}●{RESET} {message}", file=sys.stderr)
+
+
+def substep_info(message: str) -> None:
+    print(f"  {BOLD}{MAGENTA}·{RESET} {message}")
+
+
+def parse_day(text: str) -> date:
+    for pattern in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(text, pattern).date()
+        except ValueError:
+            continue
+    raise argparse.ArgumentTypeError(f"invalid date '{text}', use YYYY-MM-DD or D.M.YYYY")
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="List your IMPACT Martial Arts classes per discipline, BJJ split into Gi and No-Gi.",
+        epilog="Credentials: IMPACT_EMAIL and IMPACT_PASSWORD via envify.",
+    )
+    parser.add_argument(
+        "--from", dest="first", type=parse_day, default=DEFAULT_FROM, metavar="DATE",
+        help=f"first day, YYYY-MM-DD or D.M.YYYY (default: {DEFAULT_FROM})",
+    )
+    parser.add_argument(
+        "--to", dest="last", type=parse_day, default=datetime.now(GYM_ZONE).date(), metavar="DATE",
+        help="last day (default: today)",
+    )
+    parser.add_argument(
+        "--only", default="", metavar="TEXT", help="only classes whose name contains TEXT, e.g. bjj",
+    )
+    args = parser.parse_args(argv)
+    if args.last < args.first:
+        parser.error("--to is before --from")
+    return args
+
+
+def load_credentials() -> tuple[str, str]:
+    result = subprocess.run(["bash", "-c", ENVIFY_COMMAND], capture_output=True, text=True)
+    values = result.stdout.split("\0")
+    if result.returncode != 0 or len(values) < 2 or not all(values[:2]):
+        reason = result.stderr.strip() or "envify returned no IMPACT_EMAIL or IMPACT_PASSWORD"
+        raise RuntimeError(reason)
+    return values[0], values[1]
+
+
+def query_windows(first: date, last: date) -> Iterator[tuple[datetime, datetime]]:
+    start = datetime.combine(first, time(), GYM_ZONE)
+    stop = datetime.combine(last + timedelta(days=1), time(), GYM_ZONE)
+    while start < stop:
+        end = min(start + QUERY_WINDOW, stop)
+        yield start, end
+        start = end
+
+
+def location_name(location: Any) -> str:
+    if isinstance(location, dict):
+        return location.get("name") or ""
+    return location or ""
+
+
+def parse_class(entry: dict[str, Any]) -> GymClass:
+    data = entry.get("data") or {}
+    return GymClass(
+        day=datetime.fromtimestamp(entry["date"], timezone.utc).date(),
+        title=entry.get("text") or "",
+        trainer=data.get("trainer_name") or data.get("primary_trainer_name") or "",
+        location=location_name(data.get("location")),
+        status=data.get("status") or "",
+    )
+
+
+class ImpactClient:
+    def __init__(self) -> None:
+        self._opener = build_opener(HTTPCookieProcessor(CookieJar()))
+
+    def sign_in(self, email: str, password: str) -> None:
+        credentials = {"email": email, "password": password, "remember_me": False}
+        try:
+            reply = self._call("/api/v4/users/sign_in", body=credentials)
+        except HTTPError as e:
+            raise RuntimeError(
+                f"sign-in failed (HTTP {e.code}), check IMPACT_EMAIL and IMPACT_PASSWORD"
+            ) from e
+        if reply.get("two_factor_required"):
+            raise RuntimeError("sign-in asks for a two-factor code, which impact-journal cannot enter")
+
+    def user_id(self) -> int:
+        reply = self._call("/api/v4/users/me")
+        return int((reply.get("user") or reply)["id"])
+
+    def classes(self, user_id: int, first: date, last: date) -> list[GymClass]:
+        entries: dict[int, dict[str, Any]] = {}
+        for start, end in query_windows(first, last):
+            for entry in self._calendar(user_id, start, end):
+                entries[entry["object_id"]] = entry
+        appointments = (entry for entry in entries.values() if entry.get("object_type") == "appointment")
+        return [parse_class(entry) for entry in appointments]
+
+    def _calendar(self, user_id: int, start: datetime, end: datetime) -> list[dict[str, Any]]:
+        params = {
+            "user_id": user_id,
+            "start": int(start.timestamp()),
+            "end": int(end.timestamp()) - 1,
+            "time_zone": GYM_ZONE.key,
+            "object_type": "appointment",
+        }
+        reply = self._call("/api/v4/calendar", params=params)
+        return reply if isinstance(reply, list) else reply.get("calendar", [])
+
+    def _call(
+        self, endpoint: str, params: dict[str, Any] | None = None, body: dict[str, Any] | None = None,
+    ) -> Any:
+        url = f"{BASE_URL}{endpoint}?{urlencode(params)}" if params else f"{BASE_URL}{endpoint}"
+        data = json.dumps(body).encode() if body is not None else None
+        headers = {**HEADERS, "Content-Type": "application/json"} if data else HEADERS
+        request = Request(url, data=data, headers=headers)
+        with self._opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            return json.load(response)
+
+
+def gi_variant(title: str) -> str:
+    no_gi = bool(NO_GI.search(title))
+    gi = bool(GI.search(NO_GI.sub("", title)))
+    if gi and no_gi:
+        return "Gi & No-Gi"
+    if no_gi:
+        return "No-Gi"
+    if gi:
+        return "Gi"
+    return ""
+
+
+def discipline(title: str) -> str:
+    base = PARENTHESES.sub("", title.split(" - ")[0]).strip()
+    return " ".join(part for part in (base, gi_variant(title)) if part)
+
+
+def group_name(gym_class: GymClass) -> str:
+    return discipline(gym_class.title)
+
+
+def matches(gym_class: GymClass, only: str) -> bool:
+    return only.casefold() in gym_class.title.casefold()
+
+
+def grouped(classes: list[GymClass]) -> list[tuple[str, list[GymClass]]]:
+    ordered = sorted(classes, key=lambda gym_class: (group_name(gym_class), gym_class.day))
+    return [(name, list(members)) for name, members in groupby(ordered, key=group_name)]
+
+
+def format_row(gym_class: GymClass, width: int) -> str:
+    details = f"{gym_class.trainer or '-'} · {gym_class.location or '-'}"
+    row = f"{gym_class.day:%a %d.%m.%Y}  {gym_class.title:<{width}}  {DIM}{details}{RESET}"
+    if gym_class.status == CHECKED_IN:
+        return row
+    return f"{row}  {YELLOW}{gym_class.status or 'no status'}{RESET}"
+
+
+def print_summary(count: int, first: date, last: date) -> None:
+    days = (last - first).days + 1
+    noun = "class" if count == 1 else "classes"
+    if days < DAYS_PER_WEEK:
+        success(f"{count} {noun}")
+        return
+    weeks = days / DAYS_PER_WEEK
+    success(f"{count} {noun} in {weeks:.0f} weeks, {count / weeks:.1f} a week")
+
+
+def print_report(classes: list[GymClass], first: date, last: date, only: str) -> None:
+    scope = f" · only {only}" if only else ""
+    info(f"{BOLD}IMPACT classes{RESET} {first:%d.%m.%Y} to {last:%d.%m.%Y}{scope}")
+    if not classes:
+        info("No classes in this range")
+        return
+    width = max(len(gym_class.title) for gym_class in classes)
+    for name, members in grouped(classes):
+        info(f"{BOLD}{name}{RESET} {DIM}{len(members)}{RESET}")
+        for gym_class in members:
+            substep_info(format_row(gym_class, width))
+    print_summary(len(classes), first, last)
+
+
+def fetch_classes(first: date, last: date) -> list[GymClass]:
+    email, password = load_credentials()
+    client = ImpactClient()
+    client.sign_in(email, password)
+    return client.classes(client.user_id(), first, last)
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    try:
+        classes = fetch_classes(args.first, args.last)
+    except HTTPError as e:
+        error(f"IMPACT answered HTTP {e.code}")
+        return 1
+    except URLError as e:
+        error(f"could not reach IMPACT: {e.reason}")
+        return 1
+    except RuntimeError as e:
+        error(str(e))
+        return 1
+    print_report([c for c in classes if matches(c, args.only)], args.first, args.last, args.only)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
