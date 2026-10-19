@@ -163,6 +163,11 @@ _make_targets()
     fi
   done
 }
+_m()
+{
+  COMPREPLY=()
+  _reply_matching < <(m --complete 2>/dev/null)
+}
 _envify()
 {
   local cur prev _py
@@ -770,7 +775,8 @@ complete -o nospace -F _repo repo c
 complete -o default -F _cl cl
 complete -o default -F _captions captions
 complete -o default -F _ags ags
-complete -F _make_targets make m
+complete -F _make_targets make
+complete -F _m m
 complete -o default -o filenames -F _fileserver fileserver fs fget fls frm fup
 complete -o filenames -F _timemachine timemachine
 complete -o default -F _complete_help_flags agedist asciicast2gif audio_silence_generator audioboost \

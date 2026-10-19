@@ -2,11 +2,80 @@
 
 set -euo pipefail
 
-if [ -f "Makefile" ]; then
-    exec make "$@"
-elif [ -f "pom.xml" ]; then
-    exec mvn "$@"
-else
-    echo "Error: No build file found (Makefile or pom.xml)" >&2
-    exit 1
+find_build_file() {
+    local file
+    for file in Makefile pom.xml package.json; do
+        if [ -f "$file" ]; then
+            echo "$file"
+            return 0
+        fi
+    done
+}
+
+makefile_targets() {
+    grep -E '^[a-zA-Z0-9_.-]+:' Makefile | grep -v '^\.PHONY' | sed 's/:.*//' | sort -u
+}
+
+package_scripts() {
+    jq -r '.scripts // {} | keys[]' package.json
+}
+
+list_goals() {
+    case "$1" in
+        Makefile) makefile_targets ;;
+        package.json) package_scripts ;;
+    esac
+}
+
+package_manager() {
+    if [ -f "pnpm-lock.yaml" ]; then
+        echo pnpm
+    elif [ -f "yarn.lock" ]; then
+        echo yarn
+    elif [ -f "package-lock.json" ]; then
+        echo npm
+    else
+        echo bun
+    fi
+}
+
+run_package_goals() {
+    local manager scripts
+    manager=$(package_manager)
+    scripts=$(package_scripts)
+    if [ $# -eq 0 ]; then
+        exec "$manager" run
+    fi
+    while [ $# -gt 0 ]; do
+        if ! grep -qxF -- "$1" <<< "$scripts"; then
+            exec "$manager" "$@"
+        fi
+        if [[ "${2:-}" == -* ]]; then
+            exec "$manager" run "$@"
+        fi
+        "$manager" run "$1"
+        shift
+    done
+}
+
+main() {
+    local build_file
+    build_file=$(find_build_file)
+    if [ "${1:-}" = "--complete" ]; then
+        list_goals "$build_file" 2>/dev/null || true
+        return 0
+    fi
+    case "$build_file" in
+        Makefile) exec make "$@" ;;
+        pom.xml) exec mvn "$@" ;;
+        package.json) run_package_goals "$@" ;;
+        *)
+            echo "Error: No build file found (Makefile, pom.xml or package.json)" >&2
+            exit 1
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
 fi

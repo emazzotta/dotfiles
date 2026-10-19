@@ -220,6 +220,13 @@ class TestScriptLists:
 
         assert candidates == []
 
+    def should_offer_the_goals_m_lists(self, complete, mock):
+        mock("m", '[ "$*" = --complete ] && printf "%s\\n" build render:bumble')
+
+        candidates = complete("_m", "m", "clean", "re")
+
+        assert candidates == ["render:bumble"]
+
 
 class TestGitCompletions:
     def should_offer_the_tags_of_the_repository_to_gretag(self, complete, repo):
