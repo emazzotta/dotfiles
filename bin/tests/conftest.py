@@ -1,3 +1,4 @@
+import importlib
 import os
 import platform
 import shutil
@@ -28,6 +29,14 @@ def load_script():
         with open(script_path) as f:
             exec(f.read(), module.__dict__)
         return module
+    return _load
+
+
+@pytest.fixture
+def load_module(monkeypatch):
+    def _load(name: str) -> ModuleType:
+        monkeypatch.syspath_prepend(str(BIN_DIR))
+        return importlib.import_module(name)
     return _load
 
 

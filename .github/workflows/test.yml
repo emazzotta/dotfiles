@@ -16,5 +16,5 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install pytest
+      - run: pip install pytest beautifulsoup4 html5lib trafilatura
       - run: python -m pytest bin/tests/ -v

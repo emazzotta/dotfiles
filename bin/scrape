@@ -1,0 +1,79 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["beautifulsoup4>=4.12", "html5lib>=1.1", "trafilatura>=2.0"]
+# ///
+"""Save a web article for offline reading: text, images, audio and video in one folder.
+
+Sites with an expert are read component by component. Every other site goes through the
+generic expert, which keeps the main text, images and plain audio or video files.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+from typing import Final
+from urllib.parse import urlparse
+
+import scriptlog
+from scrapelib.article import Asset, Url
+from scrapelib.experts import expert_names
+from scrapelib.fetch import Fetcher
+from scrapelib.pipeline import Scraper
+
+WEB_SCHEMES: Final = ("http", "https")
+BYTES_PER_KB: Final = 1024
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="scrape",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("url", help="article URL (http or https)")
+    parser.add_argument(
+        "-o",
+        "--out",
+        type=Path,
+        default=Path("."),
+        metavar="DIR",
+        help="folder that receives the article folder (default: current directory)",
+    )
+    parser.add_argument(
+        "--expert",
+        choices=expert_names(),
+        help="use this expert instead of choosing one by site",
+    )
+    args = parser.parse_args(argv)
+    if urlparse(args.url).scheme not in WEB_SCHEMES:
+        parser.error(f"not a web URL: {args.url}")
+    return args
+
+
+def report_saved(asset: Asset, path: Path) -> None:
+    scriptlog.substep_success(
+        f"{asset.local_path} ({path.stat().st_size // BYTES_PER_KB} KB)"
+    )
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    scriptlog.info(f"Scraping {args.url}")
+    try:
+        result = Scraper(Fetcher(), on_saved=report_saved).scrape(
+            Url(args.url), args.out, args.expert
+        )
+    except (OSError, ValueError) as error:
+        scriptlog.error(f"Could not scrape {args.url}: {error}")
+        return 1
+    for warning in result.warnings:
+        scriptlog.warn(warning)
+    scriptlog.success(f"Saved with the {result.expert} expert: {result.page}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

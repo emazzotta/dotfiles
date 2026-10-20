@@ -1,7 +1,9 @@
 autopep8==2.3.2
 bcrypt==5.0.0
+beautifulsoup4==4.15.0
 boto3==1.42.49
 bpython==0.26
+html5lib==1.1
 music_tag==0.4.3
 ptpython==3.0.32
 pytest-sugar==1.1.1
@@ -9,3 +11,4 @@ pytest==9.0.3
 requests==2.33.0
 telethon==1.45.0
 tesla_dashcam==0.1.21
+trafilatura==2.3.1; python_version >= "3.10"
