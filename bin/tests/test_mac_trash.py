@@ -17,6 +17,9 @@ MOUNTINFO = (
     "180 132 0:45 /tmp/opencode /tmp rw - virtiofs virtiofs2 rw\n"
     "100 90 0:22 / /proc rw,nosuid - proc proc rw\n"
 )
+FAKEOWNER_MOUNTINFO = MOUNTINFO.replace(
+    " - virtiofs virtiofs0 rw", " - fakeowner /run/host_mark/Users rw,fakeowner"
+).replace(" - virtiofs virtiofs2 rw", " - fakeowner /run/host_mark/private rw,fakeowner")
 
 
 @pytest.fixture
@@ -38,9 +41,9 @@ def roots(home):
 
 
 class TestMacPathMapping:
-    @pytest.fixture
-    def mounts(self, mac_trash):
-        return mac_trash.parse_users_mounts(MOUNTINFO)
+    @pytest.fixture(params=[MOUNTINFO, FAKEOWNER_MOUNTINFO], ids=["virtiofs", "fakeowner"])
+    def mounts(self, mac_trash, request):
+        return mac_trash.parse_users_mounts(request.param)
 
     def should_map_through_the_longest_matching_mount(self, mac_trash, mounts):
         mac_path = mac_trash.to_mac_path(Path("/home/opencode/dotfiles/bin/envify"), mounts)

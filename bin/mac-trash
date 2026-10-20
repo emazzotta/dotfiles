@@ -19,9 +19,12 @@ from typing import Final, Sequence, TextIO
 BRIDGE_ENDPOINT: Final = "mac-trash"
 MOUNTINFO: Final = Path("/proc/self/mountinfo")
 MAC_USERS_DIR: Final = Path("/Users")
-# Docker Desktop names each shared directory's virtiofs device by its place in the
-# file-sharing list, and /Users comes first; /tmp and /Volumes arrive as other tags.
-USERS_SHARE_TAG: Final = "virtiofs0"
+# Docker Desktop shares /Users as virtiofs0 (the first file-sharing entry) or, with the
+# fakeowner driver, from /run/host_mark/Users; /tmp and /Volumes come from other sources.
+USERS_SHARE_SOURCES: Final = (
+    ("virtiofs", "virtiofs0"),
+    ("fakeowner", "/run/host_mark/Users"),
+)
 ALLOWED_ROOT_NAMES: Final = ("Desktop", "Downloads", "Projects")
 MAX_PATHS: Final = 100
 LOG_FILE: Final = Path.home() / "Library" / "Logs" / "mac-trash.log"
@@ -54,7 +57,7 @@ def parse_users_mounts(mountinfo: str) -> list[tuple[Path, Path]]:
     for line in mountinfo.splitlines():
         fields, _, tail = line.partition(" - ")
         parts, source = fields.split(), tail.split()
-        if len(parts) < 5 or source[:2] != ["virtiofs", USERS_SHARE_TAG]:
+        if len(parts) < 5 or tuple(source[:2]) not in USERS_SHARE_SOURCES:
             continue
         mac_path = MAC_USERS_DIR / unescape(parts[3]).lstrip("/")
         mounts.append((Path(unescape(parts[4])), mac_path))
