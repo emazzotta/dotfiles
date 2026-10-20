@@ -356,6 +356,15 @@ def should_show_only_the_work_to_save_of_an_ignored_repository(gck, unpushed_wor
     assert "remote-only" not in output
 
 
+def should_leave_out_a_hidden_repository_even_with_work_to_save(gck, unpushed_workspace, repo_ignore, tmp_path):
+    repo_ignore("[gck-hide]", "project")
+
+    output = gck(unpushed_workspace)
+
+    assert "project" not in output
+    assert not (tmp_path / "glab-calls").exists()
+
+
 def should_read_each_ignore_line_as_a_glob_for_the_end_of_the_repository_path(gck, workspace, repo_ignore):
     repo_ignore("# bots only", "[gck]", "", "  workspace/proj*  ")
 
@@ -378,6 +387,14 @@ def should_keep_a_repository_that_only_gupallin_ignores(gck, workspace, repo_ign
     output = gck(workspace)
 
     assert output.startswith("project  main ✓\n")
+
+
+def should_keep_a_repository_named_dev_like_any_other(gck, workspace):
+    (workspace / "project").rename(workspace / "dev")
+
+    output = gck(workspace)
+
+    assert output.startswith("dev  main ✓\n")
 
 
 def should_describe_the_fast_and_verbose_modes_in_the_help(run_gck):

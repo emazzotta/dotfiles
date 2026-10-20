@@ -18,7 +18,8 @@ everything that needs no action is dimmed.
 
 Each line under [gck] in ~/.config/repos/ignore is a glob for the end of a repo's
 path, such as private/tad; a matching repo shows only work to push, commit or
-unstash.
+unstash. A repo matching a line under [gck-hide] is never shown, not even its
+work to save.
 
   💻        local branch
   ⛅        branch only on origin
@@ -51,7 +52,6 @@ while [ $# -gt 0 ]; do
 done
 scan_dir="${scan_dir:-${WDIR}}"
 
-ignore_dirs=("dev")
 bot_branch_pattern='^(renovate|dependabot|greenkeeper|snyk|whitesource-remediate|pyup)[/-]'
 pull_request_cache_dir="${HOME}/.cache/gck"
 pull_request_cache_minutes=10
@@ -690,20 +690,9 @@ scan_repo() {
     file_block
 }
 
-is_skipped_dir() {
-    local dir="${1}"
-    local pattern
-    for pattern in "${ignore_dirs[@]}"; do
-        if [[ "${dir}" =~ (^|/)${pattern}$ ]]; then
-            return 0
-        fi
-    done
-    return 1
-}
-
 scan_repos() {
     find "${scan_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
-        if [ -d "${dir}/.git" ] && ! is_skipped_dir "${dir}"; then
+        if [ -d "${dir}/.git" ] && ! rh_ignored gck-hide "${dir}"; then
             scan_repo "${dir}"
         fi
     done
