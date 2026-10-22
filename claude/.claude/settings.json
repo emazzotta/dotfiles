@@ -120,7 +120,8 @@
     "aiup-core@ai-unified-process-marketplace": true,
     "aiup-vaadin-jooq@ai-unified-process-marketplace": true,
     "jdtls-lsp@claude-plugins-official": true,
-    "vaadin-skills@vaadin-marketplace": true
+    "vaadin-skills@vaadin-marketplace": true,
+    "kicad-happy@kicad-happy": true
   },
   "extraKnownMarketplaces": {
     "leonardo-skills": {
@@ -142,6 +143,12 @@
         "repo": "vaadin/agent-marketplace"
       },
       "autoUpdate": true
+    },
+    "kicad-happy": {
+      "source": {
+        "source": "github",
+        "repo": "aklofas/kicad-happy"
+      }
     }
   },
   "effortLevel": "xhigh",
@@ -150,6 +157,6 @@
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
   "theme": "dark",
-  "remoteControlAtStartup": false,
-  "switchModelsOnFlag": true
+  "switchModelsOnFlag": true,
+  "remoteControlAtStartup": false
 }
