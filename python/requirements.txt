@@ -8,7 +8,7 @@ music_tag==0.4.3
 ptpython==3.0.32
 pytest-sugar==1.1.1
 pytest==9.1.1
-requests==2.33.0
+requests==2.34.2
 telethon==1.45.0
 tesla_dashcam==0.1.21
 trafilatura==2.3.1; python_version >= "3.10"
