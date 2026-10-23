@@ -217,8 +217,10 @@ def _run_capturing_stderr(command: list[str], optional_paths: list[Path]) -> tup
     try:
         returncode = run(command, stderr=write_fd).returncode
     finally:
+        _profile("docker compose run returned")
         os.close(write_fd)
         relay.join(timeout=STDERR_RELAY_JOIN_SECONDS)
+        _profile("stderr relay joined")
         os.close(read_fd)
     return returncode, captured.decode(errors="replace")
 
@@ -267,7 +269,6 @@ DEVBOX_REACHABLE_TIMEOUT_MS = 500
 DOTFILES_CONTAINER = "/home/opencode/dotfiles"
 CONTAINER_WORKSPACE = Path("/workspace")
 CLAUDE_SESSION_STORE = Path.home() / ".claude" / "projects" / str(CONTAINER_WORKSPACE).replace("/", "-")
-CLAUDE_ENTRYPOINTS = ("claude", "claude-resume")
 SESSION_CHOOSING_FLAGS = ("--session-id", "--resume", "-r", "--continue", "-c")
 DOTFILES_CRUFT_PATTERNS = (
     "__pycache__", "*.pyc", "*.pyo",
@@ -713,7 +714,7 @@ def resolve_session_id(resume: str | None, opencode: bool) -> str:
 
 
 def build_session_id_args(claude_args: list[str]) -> list[str]:
-    """Naming the session up front is what lets cl say how to resume it once it ends."""
+    """Naming the session up front is what lets cl tell when it ended with nothing to resume."""
     if any(arg.split("=", 1)[0] in SESSION_CHOOSING_FLAGS for arg in claude_args):
         return []
     return ["--session-id", str(uuid4())]
@@ -726,21 +727,10 @@ def _named_session_id(entrypoint_args: list[str]) -> str:
     return ""
 
 
-def _latest_session_since(started: float) -> str:
-    """The picker chooses the session inside the container, so only its transcript tells which one ran."""
-    touched = [p for p in CLAUDE_SESSION_STORE.glob("*.jsonl") if p.stat().st_mtime >= started]
-    return max(touched, key=lambda p: p.stat().st_mtime).stem if touched else ""
-
-
-def print_resume_hint(entrypoint: str, entrypoint_args: list[str], started: float) -> None:
-    if entrypoint not in CLAUDE_ENTRYPOINTS:
-        return
-    session_id = _named_session_id(entrypoint_args) or _latest_session_since(started)
-    if not session_id:
-        return
-    if (CLAUDE_SESSION_STORE / f"{session_id}.jsonl").is_file():
-        _note(f"Resume this session: cl -r {session_id}")
-    else:
+def note_when_nothing_to_resume(entrypoint: str, entrypoint_args: list[str]) -> None:
+    """Claude Code prints how to resume a session on exit, but says nothing when it left no transcript."""
+    session_id = _named_session_id(entrypoint_args) if entrypoint == "claude" else ""
+    if session_id and not (CLAUDE_SESSION_STORE / f"{session_id}.jsonl").is_file():
         _note(f"Session {session_id} ended before its first prompt, nothing to resume")
 
 
@@ -960,10 +950,9 @@ def run_in_place(entrypoint: str, plugin_args: list[str], entrypoint_args: list[
     if CONTAINER_WORKSPACE.is_dir():
         os.chdir(CONTAINER_WORKSPACE)
     command = [entrypoint, *plugin_args, *entrypoint_args]
-    if entrypoint in CLAUDE_ENTRYPOINTS:
-        started = time()
+    if entrypoint == "claude":
         returncode = run(command).returncode
-        print_resume_hint(entrypoint, entrypoint_args, started)
+        note_when_nothing_to_resume(entrypoint, entrypoint_args)
         sys.exit(returncode)
     os.execvp(entrypoint, command)
 
@@ -1076,7 +1065,6 @@ def main() -> None:
     _install_orphan_guard(container_name)
     monitor = _start_docker_events_monitor(container_name, time_ns())
     optional_paths = [host_path for host_path, _, _ in auto_mounts]
-    started = time()
     try:
         returncode, stderr_text = _run_capturing_stderr(command, optional_paths)
         if returncode:
@@ -1088,7 +1076,7 @@ def main() -> None:
             events_proc.terminate()
             events_thread.join(timeout=1.0)
         _print_docker_events(monitor)
-    print_resume_hint(entrypoint, entrypoint_args, started)
+    note_when_nothing_to_resume(entrypoint, entrypoint_args)
     sys.exit(returncode)
 
 

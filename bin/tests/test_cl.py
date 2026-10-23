@@ -1,5 +1,4 @@
 import argparse
-import os
 import signal
 import subprocess
 import sys
@@ -50,18 +49,17 @@ class TestRunInPlace:
         assert execed["file"] == "opencode"
         assert execed["argv"] == ["opencode", "--session", "abc"]
 
-    def test_should_run_claude_and_then_tell_how_to_resume_it(self, cl, monkeypatch, session_store, capsys):
+    def test_should_run_claude_and_then_note_a_session_left_without_a_prompt(self, cl, monkeypatch, capsys):
         ran = []
         monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/claude")
         monkeypatch.setattr(cl, "run", lambda cmd: ran.append(cmd) or subprocess.CompletedProcess(cmd, 3))
-        (session_store / f"{CLAUDE_SESSION_ID}.jsonl").write_text("{}\n")
 
         with pytest.raises(SystemExit) as exit_info:
-            cl.run_in_place("claude", ["--plugin-dir", "/p"], ["--resume", CLAUDE_SESSION_ID])
+            cl.run_in_place("claude", ["--plugin-dir", "/p"], ["--session-id", CLAUDE_SESSION_ID])
 
-        assert ran == [["claude", "--plugin-dir", "/p", "--resume", CLAUDE_SESSION_ID]]
+        assert ran == [["claude", "--plugin-dir", "/p", "--session-id", CLAUDE_SESSION_ID]]
         assert exit_info.value.code == 3
-        assert f"cl -r {CLAUDE_SESSION_ID}" in capsys.readouterr().err
+        assert "nothing to resume" in capsys.readouterr().err
 
     def test_should_exit_when_the_entrypoint_is_not_installed(self, cl, monkeypatch):
         monkeypatch.setattr(cl.shutil, "which", lambda _: None)
@@ -94,45 +92,22 @@ class TestRunInPlace:
         assert visited == []
 
 
-class TestResumeHint:
-    def test_should_name_the_session_claude_was_started_with(self, cl, session_store, capsys):
+class TestNoteWhenNothingToResume:
+    def test_should_say_so_when_the_session_was_left_without_a_prompt(self, cl, capsys):
+        cl.note_when_nothing_to_resume("claude", ["--session-id", CLAUDE_SESSION_ID])
+
+        assert f"Session {CLAUDE_SESSION_ID} ended before its first prompt" in capsys.readouterr().err
+
+    def test_should_leave_the_resume_hint_to_claude_when_there_is_a_transcript(self, cl, session_store, capsys):
         (session_store / f"{CLAUDE_SESSION_ID}.jsonl").write_text("{}\n")
 
-        cl.print_resume_hint("claude", ["--session-id", CLAUDE_SESSION_ID], started=0)
-
-        assert f"cl -r {CLAUDE_SESSION_ID}" in capsys.readouterr().err
-
-    def test_should_name_the_session_last_written_when_the_picker_chose_it(self, cl, session_store, capsys):
-        other_id = "00000000-0000-4000-8000-000000000000"
-        for sid, mtime in ((other_id, 2000), (CLAUDE_SESSION_ID, 3000)):
-            jsonl = session_store / f"{sid}.jsonl"
-            jsonl.write_text("{}\n")
-            os.utime(jsonl, (mtime, mtime))
-
-        cl.print_resume_hint("claude-resume", ["--", "--effort", "max"], started=1000)
-
-        assert f"cl -r {CLAUDE_SESSION_ID}" in capsys.readouterr().err
-
-    def test_should_ignore_sessions_written_before_launch(self, cl, session_store, capsys):
-        jsonl = session_store / f"{CLAUDE_SESSION_ID}.jsonl"
-        jsonl.write_text("{}\n")
-        os.utime(jsonl, (500, 500))
-
-        cl.print_resume_hint("claude-resume", [], started=1000)
+        cl.note_when_nothing_to_resume("claude", ["--session-id", CLAUDE_SESSION_ID])
 
         assert capsys.readouterr().err == ""
 
-    def test_should_say_there_is_nothing_to_resume_when_the_session_was_left_without_a_prompt(self, cl, capsys):
-        cl.print_resume_hint("claude", ["--session-id", CLAUDE_SESSION_ID], started=0)
-
-        err = capsys.readouterr().err
-        assert "nothing to resume" in err
-        assert "cl -r" not in err
-
-    def test_should_stay_silent_for_other_tools(self, cl, session_store, capsys):
-        (session_store / f"{CLAUDE_SESSION_ID}.jsonl").write_text("{}\n")
-
-        cl.print_resume_hint("opencode", ["--session", CLAUDE_SESSION_ID], started=0)
+    @pytest.mark.parametrize("entrypoint", ["claude-resume", "opencode"])
+    def test_should_stay_silent_for_other_tools(self, cl, capsys, entrypoint):
+        cl.note_when_nothing_to_resume(entrypoint, ["--session-id", CLAUDE_SESSION_ID])
 
         assert capsys.readouterr().err == ""
 
