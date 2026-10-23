@@ -736,8 +736,12 @@ def print_resume_hint(entrypoint: str, entrypoint_args: list[str], started: floa
     if entrypoint not in CLAUDE_ENTRYPOINTS:
         return
     session_id = _named_session_id(entrypoint_args) or _latest_session_since(started)
-    if session_id and (CLAUDE_SESSION_STORE / f"{session_id}.jsonl").is_file():
+    if not session_id:
+        return
+    if (CLAUDE_SESSION_STORE / f"{session_id}.jsonl").is_file():
         _note(f"Resume this session: cl -r {session_id}")
+    else:
+        _note(f"Session {session_id} ended before its first prompt, nothing to resume")
 
 
 def build_effort_args(claude_args: list[str]) -> list[str]:

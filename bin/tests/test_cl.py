@@ -122,10 +122,12 @@ class TestResumeHint:
 
         assert capsys.readouterr().err == ""
 
-    def test_should_stay_silent_when_the_session_was_left_without_a_prompt(self, cl, capsys):
+    def test_should_say_there_is_nothing_to_resume_when_the_session_was_left_without_a_prompt(self, cl, capsys):
         cl.print_resume_hint("claude", ["--session-id", CLAUDE_SESSION_ID], started=0)
 
-        assert capsys.readouterr().err == ""
+        err = capsys.readouterr().err
+        assert "nothing to resume" in err
+        assert "cl -r" not in err
 
     def test_should_stay_silent_for_other_tools(self, cl, session_store, capsys):
         (session_store / f"{CLAUDE_SESSION_ID}.jsonl").write_text("{}\n")
