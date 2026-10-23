@@ -1,0 +1,70 @@
+#!/bin/bash
+
+set -uo pipefail
+
+show_usage() {
+    cat <<EOF
+Usage: $(basename "$0") FILE...
+
+Rename each file to a whitespace-free name with a UUID before the extension:
+  "Vibe Raters - AVA Club Debut.mp3" -> "Vibe_Raters-AVA_Club_Debut-<uuid>.mp3"
+
+Options:
+  -h, --help    Show this help
+EOF
+}
+
+new_uuid() {
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]'
+    else
+        cat /proc/sys/kernel/random/uuid
+    fi
+}
+
+strip_whitespace() {
+    printf '%s' "$1" | sed -E 's/[[:space:]]*-[[:space:]]*/-/g; s/[[:space:]]+/_/g'
+}
+
+rename_with_uuid() {
+    local file="$1"
+    local dir="." base="$file" stem ext="" target
+    if [[ "$file" == */* ]]; then
+        dir="${file%/*}"
+        base="${file##*/}"
+    fi
+    stem="$base"
+    if [[ "$base" == ?*.* ]]; then
+        stem="${base%.*}"
+        ext=".${base##*.}"
+    fi
+
+    target="$dir/$(strip_whitespace "$stem")-$(new_uuid)$ext"
+    if [ -e "$target" ]; then
+        echo "Error: target exists: $target" >&2
+        return 1
+    fi
+    /bin/mv -n "$file" "$target" && echo "$target"
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help) show_usage; return 0 ;;
+        "") show_usage >&2; return 2 ;;
+    esac
+
+    local file rc=0
+    for file in "$@"; do
+        if [ ! -e "$file" ]; then
+            echo "Error: not found: $file" >&2
+            rc=1
+            continue
+        fi
+        rename_with_uuid "${file%/}" || rc=1
+    done
+    return "$rc"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
