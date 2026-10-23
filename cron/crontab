@@ -1,3 +1,4 @@
+MAILTO=""
 BASH_ENV=/Users/emanuelemazzotta/.bashrc
 PATH=/opt/homebrew/bin:/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 SHELL=/bin/bash
