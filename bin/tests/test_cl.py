@@ -867,7 +867,15 @@ class TestMain:
         cmd = mock_cl_run[-1]
         assert f"{pwd}:/workspace/code/myproject" in cmd
 
-    def should_launch_claude_at_max_effort_by_default(self, cl, monkeypatch, mock_cl_run):
+    def should_launch_claude_at_the_default_effort_when_the_user_keeps_it(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(cl, "starts_with_default_effort", lambda: True)
+        monkeypatch.setattr(sys, "argv", ["cl"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        assert "--effort" not in mock_cl_run[-1]
+
+    def should_launch_claude_at_max_effort_when_the_user_declines_the_default(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(cl, "starts_with_default_effort", lambda: False)
         monkeypatch.setattr(sys, "argv", ["cl"])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
@@ -876,6 +884,7 @@ class TestMain:
         assert cmd.index("--effort") > cmd.index("claude")
 
     def should_forward_max_effort_past_the_separator_when_resuming(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(cl, "starts_with_default_effort", lambda: False)
         monkeypatch.setattr(sys, "argv", ["cl", "-r"])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
@@ -894,6 +903,7 @@ class TestMain:
         assert cmd.index("--resume") > cmd.index("claude")
 
     def should_keep_max_effort_when_opening_a_session_directly(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(cl, "starts_with_default_effort", lambda: False)
         monkeypatch.setattr(sys, "argv", ["cl", "-r", CLAUDE_SESSION_ID])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
@@ -999,6 +1009,7 @@ class TestMain:
 
     @pytest.mark.parametrize("explicit", [["--effort", "high"], ["--effort=high"]])
     def should_keep_an_explicit_effort_instead_of_injecting_the_default(self, cl, monkeypatch, mock_cl_run, explicit):
+        monkeypatch.setattr(cl, "starts_with_default_effort", lambda: pytest.fail("asked despite an explicit effort"))
         monkeypatch.setattr(sys, "argv", ["cl", *explicit])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
@@ -1007,6 +1018,7 @@ class TestMain:
         assert cmd[-len(explicit):] == explicit
 
     def should_not_pass_effort_to_opencode(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(cl, "starts_with_default_effort", lambda: pytest.fail("asked about effort for opencode"))
         monkeypatch.setattr(sys, "argv", ["cl", "-o"])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
@@ -1807,3 +1819,34 @@ class TestTranscriptSync:
 
         assert probed == []
         assert len(calls["background"]) == 1
+
+
+class TestStartsWithDefaultEffort:
+    @pytest.fixture
+    def on_a_terminal(self, cl, monkeypatch):
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+        monkeypatch.setattr(cl.shutil, "which", lambda _name: "/usr/bin/gum")
+
+    def answer(self, cl, monkeypatch, returncode):
+        monkeypatch.setattr(cl, "run", lambda *_a, **_k: subprocess.CompletedProcess([], returncode))
+
+    def should_keep_the_default_without_asking_when_not_on_a_terminal(self, cl, monkeypatch):
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+        monkeypatch.setattr(cl, "run", lambda *_a, **_k: pytest.fail("prompted without a terminal"))
+        assert cl.starts_with_default_effort() is True
+
+    def should_keep_the_default_without_asking_when_gum_is_missing(self, cl, monkeypatch, on_a_terminal):
+        monkeypatch.setattr(cl.shutil, "which", lambda _name: None)
+        monkeypatch.setattr(cl, "run", lambda *_a, **_k: pytest.fail("prompted without gum"))
+        assert cl.starts_with_default_effort() is True
+
+    @pytest.mark.parametrize("returncode,expected", [(0, True), (1, False)])
+    def should_follow_the_answer(self, cl, monkeypatch, on_a_terminal, returncode, expected):
+        self.answer(cl, monkeypatch, returncode)
+        assert cl.starts_with_default_effort() is expected
+
+    def should_exit_when_the_prompt_is_cancelled(self, cl, monkeypatch, on_a_terminal):
+        self.answer(cl, monkeypatch, 130)
+        with pytest.raises(SystemExit, match="130"):
+            cl.starts_with_default_effort()

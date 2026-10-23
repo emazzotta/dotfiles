@@ -271,7 +271,8 @@ DOTFILES_CRUFT_PATTERNS = (
     ".venv", "venv", "node_modules",
     ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
 )
-DEFAULT_EFFORT = "max"
+MAX_EFFORT = "max"
+CTRL_C_EXIT_CODE = 130
 GIT_CRYPT_FILTER_KEY_PATTERN = r"^(filter|diff)\.git-crypt.*\.(smudge|clean|textconv)$"
 CLAUDE_SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
 OPENCODE_SESSION_ID = re.compile(r"ses_[0-9A-Za-z]+")
@@ -711,7 +712,17 @@ def build_effort_args(claude_args: list[str]) -> list[str]:
     """Claude Code only persists effort up to xhigh; max has to come from the CLI."""
     if any(arg == "--effort" or arg.startswith("--effort=") for arg in claude_args):
         return []
-    return ["--effort", DEFAULT_EFFORT]
+    return [] if starts_with_default_effort() else ["--effort", MAX_EFFORT]
+
+
+def starts_with_default_effort() -> bool:
+    """Without a terminal to ask on, the effort saved in settings.json applies."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()) or shutil.which("gum") is None:
+        return True
+    answer = run(["gum", "confirm", "Start with default effort?", "--negative=No (max)"])
+    if answer.returncode == CTRL_C_EXIT_CODE:
+        sys.exit(CTRL_C_EXIT_CODE)
+    return answer.returncode == 0
 
 
 def build_permission_args(no_skip: bool, skip: bool) -> list[str]:
@@ -843,7 +854,6 @@ def sync_transcripts(resuming: bool) -> None:
 def build_entrypoint_invocation(args, claude_args: list[str]) -> tuple[str, list[str], list[str]]:
     """Resolve which tool to run and with what, independent of how it gets run."""
     permission_args = build_permission_args(args.no_skip, args.skip)
-    effort_args = build_effort_args(claude_args)
 
     session_id = resolve_session_id(args.resume, args.opencode)
     scope_args = ["-a"] if args.all_projects else []
@@ -874,7 +884,7 @@ def build_entrypoint_invocation(args, claude_args: list[str]) -> tuple[str, list
     else:
         entrypoint = "claude"
         resume_args = ["--resume", session_id] if session_id else []
-        entrypoint_args = [*permission_args, *effort_args, *resume_args, *claude_args]
+        entrypoint_args = [*permission_args, *build_effort_args(claude_args), *resume_args, *claude_args]
 
     plugin_args = []
     if entrypoint in ("claude", "claude-resume"):
@@ -886,7 +896,7 @@ def build_entrypoint_invocation(args, claude_args: list[str]) -> tuple[str, list
         ] if plugin_dir.is_dir() else []
 
     if entrypoint == "claude-resume":
-        forwarded = [*permission_args, *effort_args, *plugin_args, *claude_args]
+        forwarded = [*permission_args, *build_effort_args(claude_args), *plugin_args, *claude_args]
         if forwarded:
             entrypoint_args = [*entrypoint_args, "--", *forwarded]
         plugin_args = []
