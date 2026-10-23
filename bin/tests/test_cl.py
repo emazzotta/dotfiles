@@ -1,4 +1,5 @@
 import argparse
+import os
 import signal
 import subprocess
 import sys
@@ -30,16 +31,37 @@ def _assume_a_host_with_the_project(cl, tmp_path, monkeypatch):
     monkeypatch.setattr(cl, "OPENCODE_ROOT", root)
 
 
+@pytest.fixture(autouse=True)
+def session_store(cl, tmp_path, monkeypatch):
+    store = tmp_path / "session-store"
+    store.mkdir()
+    monkeypatch.setattr(cl, "CLAUDE_SESSION_STORE", store)
+    return store
+
+
 class TestRunInPlace:
-    def test_should_exec_the_entrypoint_with_its_arguments(self, cl, monkeypatch):
+    def test_should_exec_a_tool_that_has_no_claude_session(self, cl, monkeypatch):
         execed = {}
-        monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/claude")
+        monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/opencode")
         monkeypatch.setattr(cl.os, "execvp", lambda f, a: execed.update(file=f, argv=a))
 
-        cl.run_in_place("claude", ["--plugin-dir", "/p"], ["--resume", "abc"])
+        cl.run_in_place("opencode", [], ["--session", "abc"])
 
-        assert execed["file"] == "claude"
-        assert execed["argv"] == ["claude", "--plugin-dir", "/p", "--resume", "abc"]
+        assert execed["file"] == "opencode"
+        assert execed["argv"] == ["opencode", "--session", "abc"]
+
+    def test_should_run_claude_and_then_tell_how_to_resume_it(self, cl, monkeypatch, session_store, capsys):
+        ran = []
+        monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/claude")
+        monkeypatch.setattr(cl, "run", lambda cmd: ran.append(cmd) or subprocess.CompletedProcess(cmd, 3))
+        (session_store / f"{CLAUDE_SESSION_ID}.jsonl").write_text("{}\n")
+
+        with pytest.raises(SystemExit) as exit_info:
+            cl.run_in_place("claude", ["--plugin-dir", "/p"], ["--resume", CLAUDE_SESSION_ID])
+
+        assert ran == [["claude", "--plugin-dir", "/p", "--resume", CLAUDE_SESSION_ID]]
+        assert exit_info.value.code == 3
+        assert f"cl -r {CLAUDE_SESSION_ID}" in capsys.readouterr().err
 
     def test_should_exit_when_the_entrypoint_is_not_installed(self, cl, monkeypatch):
         monkeypatch.setattr(cl.shutil, "which", lambda _: None)
@@ -51,25 +73,80 @@ class TestRunInPlace:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
         monkeypatch.setattr(cl, "CONTAINER_WORKSPACE", workspace)
-        monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/claude-resume")
+        monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/opencode-resume")
         monkeypatch.setattr(cl.os, "execvp", lambda _file, _argv: None)
         visited = []
         monkeypatch.setattr(cl.os, "chdir", visited.append)
 
-        cl.run_in_place("claude-resume", [], [])
+        cl.run_in_place("opencode-resume", [], [])
 
         assert visited == [workspace]
 
     def test_should_stay_put_when_there_is_no_container_workspace(self, cl, monkeypatch, tmp_path):
         monkeypatch.setattr(cl, "CONTAINER_WORKSPACE", tmp_path / "absent")
-        monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/claude")
+        monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/opencode")
         monkeypatch.setattr(cl.os, "execvp", lambda _file, _argv: None)
         visited = []
         monkeypatch.setattr(cl.os, "chdir", visited.append)
 
-        cl.run_in_place("claude", [], [])
+        cl.run_in_place("opencode", [], [])
 
         assert visited == []
+
+
+class TestResumeHint:
+    def test_should_name_the_session_claude_was_started_with(self, cl, session_store, capsys):
+        (session_store / f"{CLAUDE_SESSION_ID}.jsonl").write_text("{}\n")
+
+        cl.print_resume_hint("claude", ["--session-id", CLAUDE_SESSION_ID], started=0)
+
+        assert f"cl -r {CLAUDE_SESSION_ID}" in capsys.readouterr().err
+
+    def test_should_name_the_session_last_written_when_the_picker_chose_it(self, cl, session_store, capsys):
+        other_id = "00000000-0000-4000-8000-000000000000"
+        for sid, mtime in ((other_id, 2000), (CLAUDE_SESSION_ID, 3000)):
+            jsonl = session_store / f"{sid}.jsonl"
+            jsonl.write_text("{}\n")
+            os.utime(jsonl, (mtime, mtime))
+
+        cl.print_resume_hint("claude-resume", ["--", "--effort", "max"], started=1000)
+
+        assert f"cl -r {CLAUDE_SESSION_ID}" in capsys.readouterr().err
+
+    def test_should_ignore_sessions_written_before_launch(self, cl, session_store, capsys):
+        jsonl = session_store / f"{CLAUDE_SESSION_ID}.jsonl"
+        jsonl.write_text("{}\n")
+        os.utime(jsonl, (500, 500))
+
+        cl.print_resume_hint("claude-resume", [], started=1000)
+
+        assert capsys.readouterr().err == ""
+
+    def test_should_stay_silent_when_the_session_was_left_without_a_prompt(self, cl, capsys):
+        cl.print_resume_hint("claude", ["--session-id", CLAUDE_SESSION_ID], started=0)
+
+        assert capsys.readouterr().err == ""
+
+    def test_should_stay_silent_for_other_tools(self, cl, session_store, capsys):
+        (session_store / f"{CLAUDE_SESSION_ID}.jsonl").write_text("{}\n")
+
+        cl.print_resume_hint("opencode", ["--session", CLAUDE_SESSION_ID], started=0)
+
+        assert capsys.readouterr().err == ""
+
+
+class TestBuildSessionIdArgs:
+    def test_should_give_a_new_session_its_own_id(self, cl):
+        flag, session_id = cl.build_session_id_args([])
+
+        assert flag == "--session-id"
+        assert cl.CLAUDE_SESSION_ID.fullmatch(session_id)
+
+    @pytest.mark.parametrize("claude_args", [
+        ["--session-id", CLAUDE_SESSION_ID], [f"--session-id={CLAUDE_SESSION_ID}"], ["--continue"], ["-c"],
+    ])
+    def test_should_leave_the_choice_to_flags_that_already_pick_a_session(self, cl, claude_args):
+        assert cl.build_session_id_args(claude_args) == []
 
 
 class TestBuildEntrypointInvocation:

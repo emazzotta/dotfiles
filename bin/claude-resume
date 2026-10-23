@@ -36,11 +36,12 @@ except ImportError:
 
 PROJECTS_DIR: Final = Path(os.environ.get("CLAUDE_PROJECTS", Path.home() / ".claude" / "projects"))
 CACHE_NAME: Final = ".claude-resume-index.tsv"
-CACHE_HEADER: Final = "#claude-resume-index v3"
+CACHE_HEADER: Final = "#claude-resume-index v4"
 NO_PROMPT: Final = "(no prompt)"
 USER_COLOR: Final = "\033[36m"
 ASSISTANT_COLOR: Final = "\033[32m"
 DIM: Final = "\033[2m"
+SLASH_COMMAND_MARKERS: Final = ("<command-name>", "<local-command-stdout>", "<local-command-stderr>")
 
 
 def path_to_slug(path: Path) -> str:
@@ -58,6 +59,11 @@ def extract_text(content) -> str:
     return ""
 
 
+def is_slash_command_echo(entry: dict, text: str) -> bool:
+    """A /effort or /model run before the first prompt would otherwise become the session's title."""
+    return entry.get("isMeta") is True or text.startswith(SLASH_COMMAND_MARKERS)
+
+
 def read_turns(path: Path):
     """Yield (kind, text) for every user/assistant message in a session file."""
     try:
@@ -72,7 +78,7 @@ def read_turns(path: Path):
                 if kind not in ("user", "assistant") or not isinstance(message, dict):
                     continue
                 text = session_picker.flatten(extract_text(message.get("content", "")))
-                if text:
+                if text and not is_slash_command_echo(entry, text):
                     yield kind, text
     except OSError:
         return

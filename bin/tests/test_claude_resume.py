@@ -83,6 +83,19 @@ class TestIndexing:
 
         assert titles["quiet"] == resume.NO_PROMPT
 
+    def test_should_title_a_session_by_its_first_prompt_when_a_slash_command_ran_before_it(self, resume, scope):
+        jsonl = scope / "effort-first.jsonl"
+        jsonl.write_text("".join(json.dumps(entry) + "\n" for entry in (
+            {"type": "user", "isMeta": True, "message": {"content": "<local-command-caveat>Caveat</local-command-caveat>"}},
+            {"type": "user", "message": {"content": "<command-name>/effort</command-name>"}},
+            {"type": "user", "message": {"content": "<local-command-stdout>Set effort level to medium</local-command-stdout>"}},
+            {"type": "user", "message": {"content": "adapt cl"}},
+        )))
+
+        titles = {s.sid: s.title for s in resume.build_sessions([scope])}
+
+        assert titles["effort-first"] == "adapt cl"
+
 
 class TestSearchCommand:
     def test_should_rank_adjacent_words_above_scattered_words(self, resume, indexed, capsys):
