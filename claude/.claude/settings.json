@@ -117,10 +117,10 @@
     "finance@synced": false,
     "code-review@claude-plugins-official": true,
     "leonardo@leonardo-skills": true,
-    "aiup-core@ai-unified-process-marketplace": true,
-    "aiup-vaadin-jooq@ai-unified-process-marketplace": true,
+    "aiup-core@ai-unified-process-marketplace": false,
+    "aiup-vaadin-jooq@ai-unified-process-marketplace": false,
     "jdtls-lsp@claude-plugins-official": true,
-    "vaadin-skills@vaadin-marketplace": true
+    "vaadin-skills@vaadin-marketplace": false
   },
   "extraKnownMarketplaces": {
     "leonardo-skills": {

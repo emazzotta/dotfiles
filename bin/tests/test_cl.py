@@ -1,4 +1,5 @@
 import argparse
+import json
 import signal
 import subprocess
 import sys
@@ -9,6 +10,7 @@ import pytest
 
 CLAUDE_SESSION_ID = "7f4d8b0f-8a6d-4e20-aade-ca033d3074dd"
 OPENCODE_SESSION_ID = "ses_06f4ce24cffeAOOJ6OWziGgkml"
+ELSEWHERE = Path("/Users/someone/Desktop")
 
 
 @pytest.fixture
@@ -131,9 +133,21 @@ class TestBuildEntrypointInvocation:
     def args(**overrides):
         defaults = dict(
             rm=None, convert=False, opencode=False, hermes=False, resume=None,
-            no_skip=False, skip=False, all_projects=False,
+            no_skip=False, skip=False, all_projects=False, paths=[],
         )
         return argparse.Namespace(**(defaults | overrides))
+
+    @pytest.fixture
+    def leonardo_repo(self, cl, tmp_path, monkeypatch):
+        projects = tmp_path / "leo-productions"
+        repo = projects / "leonardo-saas"
+        repo.mkdir(parents=True)
+        monkeypatch.setattr(cl, "LEONARDO_PROJECTS", projects)
+        return repo
+
+    @staticmethod
+    def enabled_plugins(args):
+        return json.loads(args[args.index("--settings") + 1])["enabledPlugins"]
 
     @staticmethod
     def picker_args(entrypoint_args):
@@ -141,36 +155,61 @@ class TestBuildEntrypointInvocation:
         return entrypoint_args[:entrypoint_args.index("--")] if "--" in entrypoint_args else entrypoint_args
 
     def test_should_default_to_claude(self, cl):
-        entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(self.args(), [])
+        entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(self.args(), [], ELSEWHERE)
         assert entrypoint == "claude"
 
     def test_should_pick_opencode_when_asked(self, cl):
-        entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(self.args(opencode=True), [])
+        entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(self.args(opencode=True), [], ELSEWHERE)
         assert entrypoint == "opencode"
 
     def test_should_open_the_picker_across_every_project_when_all_is_the_only_flag(self, cl):
-        entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(self.args(all_projects=True), [])
+        entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(self.args(all_projects=True), [], ELSEWHERE)
         assert entrypoint == "claude-resume"
         assert self.picker_args(entrypoint_args) == ["-a"]
 
     def test_should_scope_the_picker_to_the_current_project_without_all(self, cl):
-        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(self.args(resume=""), [])
+        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(self.args(resume=""), [], ELSEWHERE)
         assert self.picker_args(entrypoint_args) == []
 
     def test_should_widen_the_removal_picker_when_all_is_given(self, cl):
-        entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(self.args(rm="", all_projects=True), [])
+        entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(self.args(rm="", all_projects=True), [], ELSEWHERE)
         assert entrypoint == "claude-rm"
         assert entrypoint_args == ["-a"]
 
     def test_should_keep_all_ahead_of_the_forwarded_claude_args(self, cl):
         _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
-            self.args(resume="oauth", all_projects=True), ["--effort", "high"])
+            self.args(resume="oauth", all_projects=True), ["--effort", "high"], ELSEWHERE)
         assert entrypoint_args[:3] == ["oauth", "-a", "--"]
 
     def test_should_open_a_named_session_directly_even_when_all_is_given(self, cl):
         entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(
-            self.args(resume=CLAUDE_SESSION_ID, all_projects=True), [])
+            self.args(resume=CLAUDE_SESSION_ID, all_projects=True), [], ELSEWHERE)
         assert entrypoint == "claude"
+
+    def test_should_enable_the_leonardo_plugins_when_launched_from_a_leonardo_repo(self, cl, leonardo_repo):
+        _entrypoint, plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(self.args(), [], leonardo_repo)
+        assert self.enabled_plugins(plugin_args) == dict.fromkeys(cl.LEONARDO_ONLY_PLUGINS, True)
+
+    def test_should_forward_the_leonardo_plugins_through_the_resume_picker(self, cl, leonardo_repo):
+        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(resume=""), [], leonardo_repo)
+        forwarded = entrypoint_args[entrypoint_args.index("--") + 1:]
+        assert self.enabled_plugins(forwarded) == dict.fromkeys(cl.LEONARDO_ONLY_PLUGINS, True)
+
+    def test_should_judge_by_the_mounted_paths_when_paths_are_given(self, cl, leonardo_repo):
+        _entrypoint, plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(paths=[leonardo_repo]), [], ELSEWHERE)
+        assert self.enabled_plugins(plugin_args) == dict.fromkeys(cl.LEONARDO_ONLY_PLUGINS, True)
+
+    def test_should_leave_the_leonardo_plugins_off_outside_leonardo(self, cl, leonardo_repo, tmp_path):
+        _entrypoint, plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(), [], tmp_path / "Desktop")
+        assert "--settings" not in plugin_args
+
+    def test_should_not_hand_claude_settings_to_opencode(self, cl, leonardo_repo):
+        _entrypoint, plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(opencode=True), [], leonardo_repo)
+        assert "--settings" not in [*plugin_args, *entrypoint_args]
 
 
 class TestIsGitCryptRepo:
@@ -1873,6 +1912,6 @@ class TestRoutesByPrompt:
 
     def should_not_route_when_resuming_a_named_session(self, cl):
         args = argparse.Namespace(no_skip=False, skip=False, resume=CLAUDE_SESSION_ID, all_projects=False,
-                                  rm=None, convert=False, opencode=False, hermes=False)
-        entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(args, ["continue"])
+                                  rm=None, convert=False, opencode=False, hermes=False, paths=[])
+        entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(args, ["continue"], ELSEWHERE)
         assert entrypoint == "claude"
