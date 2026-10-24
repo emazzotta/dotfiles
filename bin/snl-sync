@@ -6,12 +6,16 @@ import asyncio
 import base64
 import json
 import os
+import shutil
+import subprocess
+import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Final, Iterator, Optional
+from typing import Any, Callable, Final, Iterator, Optional, Protocol
 
 from envify import load_env, store_param
 import scriptlog as logger
@@ -35,12 +39,15 @@ TELEGRAM_SESSION_VAR: Final = "TELEGRAM_SESSION"
 TELEGRAM_BOT_VAR: Final = "TELEGRAM_MUSIC_BOT"
 TELEGRAM_VARS: Final = TELEGRAM_APP_VARS + (TELEGRAM_SESSION_VAR, TELEGRAM_BOT_VAR)
 SPOTIFY_TRACK_URL: Final = "https://open.spotify.com/track/{id}"
+SPOTIFY_TRACK_URI: Final = "spotify:track:{id}"
 SPOTIFY_TOKEN_URL: Final = "https://accounts.spotify.com/api/token"
 SPOTIFY_PLAYLISTS_URL: Final = "https://api.spotify.com/v1/me/playlists?limit=50"
 SPOTIFY_TRACKS_URL: Final = (
     "https://api.spotify.com/v1/playlists/{id}/tracks"
     "?limit=100&fields=next,items(track(id,name,is_local,artists(name)))"
 )
+SPOTIFY_ITEMS_URL: Final = "https://api.spotify.com/v1/playlists/{id}/items"
+SPOTIFY_REMOVE_BATCH: Final = 100
 HTTP_TIMEOUT_SECONDS: Final = 30
 QUALITY_PREFERENCES: Final[dict[str, tuple[str, ...]]] = {
     "flac": ("flac", "320", "mp3"),
@@ -75,6 +82,10 @@ class Track:
     @property
     def url(self) -> str:
         return SPOTIFY_TRACK_URL.format(id=self.id)
+
+    @property
+    def uri(self) -> str:
+        return SPOTIFY_TRACK_URI.format(id=self.id)
 
     @property
     def label(self) -> str:
@@ -124,11 +135,18 @@ def select_new_tracks(tracks: list[Track], state: SyncState) -> list[Track]:
     return [track for track in tracks if not state.is_done(track.id)]
 
 
-HttpJson = Callable[[str, dict[str, str], Optional[bytes]], dict]
+def select_done_tracks(tracks: list[Track], state: SyncState) -> list[Track]:
+    return list({track.id: track for track in tracks if state.is_done(track.id)}.values())
 
 
-def http_json(url: str, headers: dict[str, str], data: Optional[bytes] = None) -> dict:
-    request = urllib.request.Request(url, headers=headers, data=data)
+class HttpJson(Protocol):
+    def __call__(self, url: str, headers: dict[str, str], data: Optional[bytes] = None,
+                 method: Optional[str] = None) -> dict: ...
+
+
+def http_json(url: str, headers: dict[str, str], data: Optional[bytes] = None,
+              method: Optional[str] = None) -> dict:
+    request = urllib.request.Request(url, headers=headers, data=data, method=method)
     with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
         return json.loads(response.read())
 
@@ -159,6 +177,18 @@ class SpotifyClient:
         items = (item for page in pages for item in page["items"])
         tracks = (Track.from_playlist_item(item) for item in items)
         return [track for track in tracks if track is not None]
+
+    def remove_tracks(self, playlist: Playlist, tracks: list[Track]) -> None:
+        url = SPOTIFY_ITEMS_URL.format(id=playlist.id)
+        headers = {**self._headers, "Content-Type": "application/json"}
+        for start in range(0, len(tracks), SPOTIFY_REMOVE_BATCH):
+            batch = tracks[start:start + SPOTIFY_REMOVE_BATCH]
+            body = json.dumps({"items": [{"uri": track.uri} for track in batch]}).encode()
+            try:
+                self._http(url, headers, body, "DELETE")
+            except urllib.error.HTTPError as error:
+                raise SyncError(f"removing tracks from '{playlist.name}' failed: "
+                                f"HTTP {error.code}") from None
 
     def _pages(self, url: Optional[str]) -> Iterator[dict]:
         while url:
@@ -278,7 +308,8 @@ def positive_int(value: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="snl-sync",
-        description="Fetch new tracks of a Spotify playlist through a Telegram music bot.",
+        description="Fetch new tracks of a Spotify playlist through a Telegram music bot, "
+                    "then offer to remove the downloaded ones from the playlist.",
         epilog=f"Keyguard: {', '.join(SPOTIFY_VARS)}, "
                f"{', '.join(TELEGRAM_APP_VARS)} (my.telegram.org), "
                f"{TELEGRAM_BOT_VAR} (the bot's username), "
@@ -354,13 +385,13 @@ def sync(args: argparse.Namespace) -> int:
     candidates = tracks[-args.last:] if args.last else tracks
     pending = select_new_tracks(candidates, state)[: args.limit]
     logger.info(f"{playlist.name}: {len(tracks)} tracks, {len(pending)} to fetch")
-    if not pending:
-        return 0
     if args.dry_run:
         for track in pending:
             logger.info(track.label)
         return 0
-    return summarise(asyncio.run(download(pending, args, state)))
+    code = summarise(asyncio.run(download(pending, args, state))) if pending else 0
+    offer_removal(spotify, playlist, select_done_tracks(tracks, state))
+    return code
 
 
 async def download(pending: list[Track], args: argparse.Namespace, state: SyncState) -> SyncReport:
@@ -389,6 +420,24 @@ async def _resolve_bot(client: Any) -> Any:
 def summarise(report: SyncReport) -> int:
     logger.info(f"{len(report.downloaded)} downloaded, {len(report.failed)} failed")
     return 1 if report.failed else 0
+
+
+def can_prompt() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty() and shutil.which("gum") is not None
+
+
+def confirm(question: str) -> bool:
+    return subprocess.run(["gum", "confirm", question], check=False).returncode == 0
+
+
+def offer_removal(spotify: SpotifyClient, playlist: Playlist, done: list[Track]) -> None:
+    if not done or not can_prompt():
+        return
+    noun = "track" if len(done) == 1 else "tracks"
+    if not confirm(f"Remove {len(done)} downloaded {noun} from {playlist.name}?"):
+        return
+    spotify.remove_tracks(playlist, done)
+    logger.success(f"removed {len(done)} {noun} from {playlist.name}")
 
 
 def main(argv: Optional[list[str]] = None) -> int:

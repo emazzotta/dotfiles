@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import re
+import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -41,6 +42,7 @@ class TestTrack:
         track = make_track(snl)
 
         assert track.url == "https://open.spotify.com/track/abc"
+        assert track.uri == "spotify:track:abc"
         assert track.label == "A, B - Song"
 
 
@@ -83,6 +85,17 @@ class TestSelectNewTracks:
         tracks = [make_track(snl, "n1", "New 1"), done, make_track(snl, "n2", "New 2")]
 
         assert snl.select_new_tracks(tracks, state) == [tracks[0], tracks[2]]
+
+
+class TestSelectDoneTracks:
+    def should_keep_each_done_track_once_in_playlist_order(self, snl, tmp_path):
+        state = snl.SyncState.load(tmp_path / "done.json")
+        first, second = make_track(snl, "d1", "Done 1"), make_track(snl, "d2", "Done 2")
+        for track in (first, second):
+            state.mark_done(track, Path(f"/x/{track.id}.mp3"))
+        tracks = [first, make_track(snl, "new", "New"), second, first]
+
+        assert snl.select_done_tracks(tracks, state) == [first, second]
 
 
 class FakeFile:
@@ -276,8 +289,8 @@ class FakeHttp:
         self.responses = responses
         self.calls = []
 
-    def __call__(self, url, headers, data=None):
-        self.calls.append((url, headers, data))
+    def __call__(self, url, headers, data=None, method=None):
+        self.calls.append((url, headers, data, method))
         return self.responses[url]
 
 
@@ -291,7 +304,7 @@ class TestSpotify:
 
         token = snl.mint_user_token("id", "secret", "refresh", http=http)
 
-        _, headers, data = http.calls[0]
+        _, headers, data, _ = http.calls[0]
         assert token == "tok"
         assert headers["Authorization"] == "Basic " + base64.b64encode(b"id:secret").decode()
         assert data == b"grant_type=refresh_token&refresh_token=refresh"
@@ -321,9 +334,33 @@ class TestSpotify:
 
         assert playlist == snl.Playlist(id="p1", name="01 Sort'n'Load")
 
+    def should_remove_tracks_by_uri_in_batches_of_one_hundred(self, snl):
+        url = snl.SPOTIFY_ITEMS_URL.format(id="p1")
+        http = FakeHttp({url: {"snapshot_id": "s"}})
+        tracks = [make_track(snl, f"t{i}") for i in range(101)]
+
+        snl.SpotifyClient("tok", http=http).remove_tracks(snl.Playlist(id="p1", name="x"), tracks)
+
+        bodies = [json.loads(data)["items"] for _, _, data, _ in http.calls]
+        assert [len(items) for items in bodies] == [100, 1]
+        assert bodies[1] == [{"uri": "spotify:track:t100"}]
+        assert {(called, method) for called, _, _, method in http.calls} == {(url, "DELETE")}
+        assert http.calls[0][1] == {"Authorization": "Bearer tok",
+                                    "Content-Type": "application/json"}
+
+    def should_fail_clearly_when_spotify_refuses_the_removal(self, snl):
+        def refuse(url, headers, data=None, method=None):
+            raise urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
+
+        client = snl.SpotifyClient("tok", http=refuse)
+
+        with pytest.raises(snl.SyncError, match="removing tracks from 'x' failed: HTTP 403"):
+            client.remove_tracks(snl.Playlist(id="p1", name="x"), [make_track(snl)])
+
 
 class FakeSpotify:
     tracks = []
+    removed = []
 
     def __init__(self, token, http=None):
         self.token = token
@@ -333,6 +370,9 @@ class FakeSpotify:
 
     def fetch_tracks(self, playlist):
         return list(self.tracks)
+
+    def remove_tracks(self, playlist, tracks):
+        self.removed.append((playlist.name, [track.id for track in tracks]))
 
 
 class FakeTelegramClient:
@@ -387,15 +427,23 @@ def cli(snl, tmp_path, monkeypatch):
     monkeypatch.setenv("TELEGRAM_MUSIC_BOT", "musicbot")
     monkeypatch.setattr(FakeSpotify, "tracks",
                         [make_track(snl, "t0", "Song 0"), make_track(snl, "t1", "Song 1")])
+    monkeypatch.setattr(FakeSpotify, "removed", [])
     monkeypatch.setattr(FakeTelegramClient, "scripts", [])
     monkeypatch.setattr(FakeTelegramClient, "started", [])
+    monkeypatch.setattr(snl, "can_prompt", lambda: False)
+    questions = []
     state = tmp_path / "state.json"
     dest = tmp_path / "inbox"
+
+    def _answer(yes):
+        monkeypatch.setattr(snl, "can_prompt", lambda: True)
+        monkeypatch.setattr(snl, "confirm", lambda question: questions.append(question) or yes)
 
     def _run(*args):
         return snl.main(["--state", str(state), "--dest", str(dest), *args])
 
-    return SimpleNamespace(run=_run, state=state, dest=dest, loaded=loaded, snl=snl)
+    return SimpleNamespace(run=_run, answer=_answer, questions=questions,
+                           state=state, dest=dest, loaded=loaded, snl=snl)
 
 
 class TestCli:
@@ -510,6 +558,68 @@ class TestCli:
         source = (Path(__file__).parent.parent / SCRIPT).read_text()
 
         assert BOT_USERNAME_LITERAL.search(source) is None
+
+    def should_remove_the_downloaded_tracks_from_the_playlist_when_confirmed(self, cli):
+        cli.answer(yes=True)
+        FakeTelegramClient.scripts.extend([[FakeMessage(text="Not found")],
+                                           [audio_reply("t1.mp3")]])
+
+        cli.run("--delay", "0")
+
+        assert cli.questions == ["Remove 1 downloaded track from 01 Sort'n'Load?"]
+        assert FakeSpotify.removed == [("01 Sort'n'Load", ["t1"])]
+
+    def should_keep_the_tracks_in_the_playlist_when_declined(self, cli):
+        cli.answer(yes=False)
+        FakeTelegramClient.scripts.extend([[audio_reply("t0.mp3")], [audio_reply("t1.mp3")]])
+
+        code = cli.run("--delay", "0")
+
+        assert code == 0
+        assert cli.questions == ["Remove 2 downloaded tracks from 01 Sort'n'Load?"]
+        assert FakeSpotify.removed == []
+
+    def should_offer_removal_of_tracks_downloaded_in_an_earlier_run(self, cli):
+        cli.answer(yes=True)
+        state = cli.snl.SyncState.load(cli.state)
+        for track in FakeSpotify.tracks:
+            state.mark_done(track, Path(f"/x/{track.id}.mp3"))
+        state.save()
+
+        code = cli.run()
+
+        assert code == 0
+        assert FakeSpotify.removed == [("01 Sort'n'Load", ["t0", "t1"])]
+
+    def should_not_ask_without_a_terminal_to_ask_on(self, cli, monkeypatch):
+        monkeypatch.setattr(cli.snl, "confirm", lambda question: pytest.fail("must not prompt"))
+        FakeTelegramClient.scripts.extend([[audio_reply("t0.mp3")], [audio_reply("t1.mp3")]])
+
+        code = cli.run("--delay", "0")
+
+        assert code == 0
+        assert FakeSpotify.removed == []
+
+    def should_not_ask_in_a_dry_run(self, cli):
+        cli.answer(yes=True)
+        state = cli.snl.SyncState.load(cli.state)
+        state.mark_done(FakeSpotify.tracks[0], Path("/x/t0.mp3"))
+        state.save()
+
+        cli.run("--dry-run")
+
+        assert cli.questions == []
+        assert FakeSpotify.removed == []
+
+    @pytest.mark.parametrize("returncode,expected", [(0, True), (1, False), (130, False)])
+    def should_read_the_answer_from_the_gum_exit_code(self, snl, monkeypatch, returncode, expected):
+        commands = []
+        monkeypatch.setattr(snl.subprocess, "run",
+                            lambda command, check: commands.append(command)
+                            or SimpleNamespace(returncode=returncode))
+
+        assert snl.confirm("Remove?") is expected
+        assert commands == [["gum", "confirm", "Remove?"]]
 
     def should_store_the_session_after_login(self, cli, monkeypatch):
         stored = []
