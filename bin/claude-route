@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""Start Claude Code with a model and effort suggested from the session's first prompt.
+
+cl runs this instead of claude when it is given a prompt and no --model or --effort.
+Haiku classifies the prompt, the user confirms or keeps the defaults, and the session
+keeps that model throughout: switching later would drop the prompt cache.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import sys
+import tempfile
+from dataclasses import dataclass
+from subprocess import SubprocessError, run
+from typing import Final
+
+CLASSIFIER_MODEL: Final = "haiku"
+CLASSIFY_TIMEOUT_SECONDS: Final = 30
+MODELS: Final = ("haiku", "sonnet", "opus")
+EFFORTS: Final = ("low", "medium", "high", "xhigh", "max")
+CTRL_C_EXIT_CODE: Final = 130
+JSON_OBJECT = re.compile(r"\{.*?\}", re.DOTALL)
+DIM: Final = "\033[2m"
+RESET: Final = "\033[0m"
+RUBRIC: Final = """\
+Pick the cheapest Claude Code setup that will still do this task well.
+Reply with JSON only: {"model": "...", "effort": "..."}
+
+model:
+- haiku: a trivial one-step lookup or a one-line edit
+- sonnet: routine work: git or API chores, small well-specified edits, docs, simple scripts
+- opus: design, debugging with an unknown cause, multi-file refactors, reviews, anything ambiguous
+
+effort:
+- low: mechanical
+- medium: normal
+- high: careful multi-step work
+- xhigh: hard reasoning
+- max: only the hardest open-ended problems
+
+When unsure, choose the higher option."""
+
+
+@dataclass(frozen=True)
+class Route:
+    model: str
+    effort: str
+
+    def as_args(self) -> list[str]:
+        return ["--model", self.model, "--effort", self.effort]
+
+
+def parse_route(classifier_output: str) -> Route | None:
+    try:
+        reply = json.loads(classifier_output)["result"]
+        match = JSON_OBJECT.search(reply)
+        choice = json.loads(match.group(0)) if match else {}
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return None
+    model, effort = choice.get("model"), choice.get("effort")
+    return Route(model, effort) if model in MODELS and effort in EFFORTS else None
+
+
+def classify(prompt: str) -> Route | None:
+    command = [
+        "claude", "-p", prompt,
+        "--model", CLASSIFIER_MODEL, "--effort", "low",
+        "--system-prompt", RUBRIC, "--tools", "",
+        "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
+        "--no-session-persistence", "--output-format", "json",
+    ]
+    # An empty working directory keeps the project's CLAUDE.md out of the classifier's context.
+    with tempfile.TemporaryDirectory() as scratch:
+        try:
+            result = run(command, cwd=scratch, capture_output=True, text=True, timeout=CLASSIFY_TIMEOUT_SECONDS, check=False)
+        except (SubprocessError, OSError):
+            return None
+    return parse_route(result.stdout) if result.returncode == 0 else None
+
+
+def can_ask() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty() and shutil.which("gum") is not None
+
+
+def confirmed(route: Route) -> bool:
+    answer = run(["gum", "confirm", f"Start with {route.model} at {route.effort} effort?", "--negative=Defaults"], check=False)
+    if answer.returncode == CTRL_C_EXIT_CODE:
+        sys.exit(CTRL_C_EXIT_CODE)
+    return answer.returncode == 0
+
+
+def route_args(prompt: str) -> list[str]:
+    """Without a terminal to ask on, nothing is applied unconfirmed: the defaults stand."""
+    if not can_ask():
+        return []
+    print(f"{DIM}Classifying the first prompt...{RESET}", file=sys.stderr)
+    route = classify(prompt)
+    if route is None:
+        print(f"{DIM}No suggestion, starting with the defaults{RESET}", file=sys.stderr)
+        return []
+    return route.as_args() if confirmed(route) else []
+
+
+def main() -> None:
+    claude_args = sys.argv[1:]
+    if not claude_args:
+        print("usage: claude-route [CLAUDE_ARGS...] PROMPT", file=sys.stderr)
+        sys.exit(2)
+    os.execvp("claude", ["claude", *route_args(claude_args[-1]), *claude_args])
+
+
+if __name__ == "__main__":
+    main()
