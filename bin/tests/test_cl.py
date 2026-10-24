@@ -965,13 +965,13 @@ class TestMain:
         assert cmd.index("--") < cmd.index("--model")
 
     def should_prefilter_the_picker_when_resume_gets_free_text(self, cl, monkeypatch, mock_cl_run):
-        monkeypatch.setattr(sys, "argv", ["cl", "-r", "deploy"])
+        monkeypatch.setattr(sys, "argv", ["cl", "-r", "deploy", "--model", "opus"])
         with pytest.raises(SystemExit, match="0"):
             cl.main()
         cmd = mock_cl_run[-1]
         assert "--resume" not in cmd
         assert cmd[cmd.index("claude-resume") + 1] == "deploy"
-        assert cmd.index("deploy") < cmd.index("--")
+        assert cmd.index("deploy") < cmd.index("--") < cmd.index("--model")
 
     def should_keep_a_multi_word_search_as_one_picker_query(self, cl, monkeypatch, mock_cl_run):
         monkeypatch.setattr(sys, "argv", ["cl", "-r", "fix the deploy"])
