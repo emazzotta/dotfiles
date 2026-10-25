@@ -82,6 +82,9 @@ npm install -g eslint vue yarn @cometix/ccline
 echo "Installing Python tools"
 # Pin the interpreter - uv otherwise picks system Python 3.9 and silently resolves yt-dlp to a year-old release
 uv tool install --python 3.14 "yt-dlp[default,curl-cffi,deno]"
+if [[ -f "$HOME/Projects/private/katas/qwen3tts/Makefile" ]]; then
+  make -C "$HOME/Projects/private/katas/qwen3tts" install
+fi
 
 echo "Setting up terminal"
 [[ "$SHELL" != "/bin/zsh" ]] && chsh -s /bin/zsh

@@ -751,6 +751,18 @@ _audiomerge()
     *) _complete_help ;;
   esac
 }
+_tts()
+{
+  COMPREPLY=()
+  case "${COMP_WORDS[COMP_CWORD-1]}" in
+    -v|--voice) _reply_matching < <(tts --complete voices 2>/dev/null); return 0 ;;
+    -l|--language)
+      [[ -z "${_TTS_LANGUAGES}" ]] && _TTS_LANGUAGES=$(tts --complete languages 2>/dev/null)
+      _reply_matching <<< "${_TTS_LANGUAGES}"; return 0 ;;
+  esac
+  _complete_help_subcommands
+  [[ ${#COMPREPLY[@]} -eq 0 ]] && _complete_help tts say
+}
 _host_resolver()
 {
   COMPREPLY=()
@@ -813,4 +825,5 @@ complete -F _host_resolver host-resolver
 complete -o filenames -F _process_names killgrep killprocess
 complete -c tldr
 complete -o filenames -F _tma tma
+complete -o default -F _tts tts
 complete -F _wleorun wleorun
