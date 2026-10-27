@@ -1,10 +1,10 @@
 {
-  "model": "opus",
   "cleanupPeriodDays": 365,
   "skillListingBudgetFraction": 0.025,
   "permissions": {
     "defaultMode": "auto"
   },
+  "model": "opus",
   "hooks": {
     "SessionStart": [
       {
@@ -148,7 +148,7 @@
   "effortLevel": "xhigh",
   "modelSettings": {
     "claude-opus-5-5": {
-      "effortLevel": "medium"
+      "effortLevel": "xhigh"
     },
     "claude-sonnet-5-5": {
       "effortLevel": "xhigh"
