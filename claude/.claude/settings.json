@@ -1,4 +1,5 @@
 {
+  "model": "opus",
   "cleanupPeriodDays": 365,
   "skillListingBudgetFraction": 0.025,
   "permissions": {
