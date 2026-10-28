@@ -1,6 +1,5 @@
 #!/bin/bash
 ### CORE ###
-alias g='source repo'
 alias gst='git status'
 alias gd='git diff'
 alias gcl='git clone'

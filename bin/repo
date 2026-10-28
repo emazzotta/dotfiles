@@ -1,20 +1,42 @@
 #!/bin/bash
 
-function repo_alias_path() {
-    awk -v name="${1}" '$1 == name { print $2; exit }' "${CUSTOM_BIN_DIR}/repo-aliases" 2>/dev/null
+show_usage() {
+    cat <<USAGE
+usage: $(basename "$0") [<query>...]
+
+Print the repo under \$WDIR that <query> names: an exact name from
+repo-aliases, else the best fzf match among \$WDIR/<group>/<repo> and the
+alias targets, else \$WDIR. g <query> changes into it.
+USAGE
 }
 
-function repo_candidates() {
-    awk '!/^#/ && NF == 2 { print $2 }' "${CUSTOM_BIN_DIR}/repo-aliases" 2>/dev/null
-    find "${1}" -mindepth 2 -maxdepth 2 -type d | sed "s|^${1}/||"
+alias_path() {
+    awk -v name="$1" '$1 == name { print $2; exit }' "${ALIASES}" 2>/dev/null
 }
 
-function fuzzy_find_path() {
-    result=$(repo_alias_path "${2}")
-    test "${result}" || result=$(repo_candidates "${1}" | fzf -f "${2}" | head -n 1)
-    test "${result}" && echo "${1}/${result}" || echo "${1}"
+candidates() {
+    awk '!/^#/ && NF == 2 { print $2 }' "${ALIASES}" 2>/dev/null
+    find "${WDIR}" -mindepth 2 -maxdepth 2 -type d | sed "s|^${WDIR}/||"
 }
 
-test "${argv}" && \
-    cd $(fuzzy_find_path "${WDIR}" "${argv}") || \
-    echo $(fuzzy_find_path "${WDIR}" "${1}")
+main() {
+    case "${1:-}" in
+        -h|--help) show_usage; return 0 ;;
+    esac
+    local query="$*" match=""
+    if [ -n "${query}" ]; then
+        match=$(alias_path "${query}")
+        [ -n "${match}" ] || match=$(candidates | fzf -f "${query}" | head -n 1)
+    fi
+    if [ -n "${match}" ]; then
+        echo "${WDIR}/${match}"
+    else
+        echo "${WDIR}"
+    fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    set -uo pipefail
+    ALIASES="${CUSTOM_BIN_DIR}/repo-aliases"
+    main "$@"
+fi

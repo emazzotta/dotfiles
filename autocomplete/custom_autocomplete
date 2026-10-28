@@ -795,7 +795,7 @@ complete -o nospace -F _agrep agrep
 complete -o nospace -F _kubeconf kubeconf
 complete -o nospace -F _bundleid bundleid
 complete -o nospace -F _ef ef
-complete -o nospace -F _repo repo c
+complete -o nospace -F _repo g repo c
 complete -o default -F _cl cl
 complete -o default -F _captions captions
 complete -o default -F _ags ags

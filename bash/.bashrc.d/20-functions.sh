@@ -84,6 +84,13 @@ EOF
     esac
 }
 
+# function keyword: g() would not parse in a shell that still holds an alias g
+function g {
+    local target
+    target=$(repo "$@") || return
+    cd "$target" || return
+}
+
 gco() {
     local checkout
     if [ $# -eq 1 ] && checkout=$(_gco_hop_target "$1"); then
