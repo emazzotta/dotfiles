@@ -4,10 +4,14 @@ function repo_alias_path() {
     awk -v name="${1}" '$1 == name { print $2; exit }' "${CUSTOM_BIN_DIR}/repo-aliases" 2>/dev/null
 }
 
+function repo_alias_targets() {
+    awk -v wdir="${1}" '!/^#/ && NF == 2 { print wdir "/" $2 }' "${CUSTOM_BIN_DIR}/repo-aliases" 2>/dev/null
+}
+
 function fuzzy_find_path() {
     result=$(repo_alias_path "${2}")
     test "${result}" && echo "${1}/${result}" && return
-    result=$(find "${1}" -mindepth 2 -maxdepth 2 -type d | fzf -f "${2}" | head -n 1)
+    result=$({ repo_alias_targets "${1}"; find "${1}" -mindepth 2 -maxdepth 2 -type d; } | fzf -f "${2}" | head -n 1)
     test "${result}" && echo "${result}" || echo "${1}"
 }
 
