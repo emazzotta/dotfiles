@@ -67,7 +67,7 @@ _ef()
   COMPREPLY=($(compgen -W "${_ef_commands}" -- ${cur}))
 }
 _repo() {
-  _repo_commands=""
+  _repo_commands="$(awk '!/^#/ { print $1 }' "${CUSTOM_BIN_DIR}/repo-aliases" 2>/dev/null) "
   for dir in $(find "${WDIR}" -mindepth 2 -maxdepth 2 -type d); do
     _repo_commands+="$(basename ${dir}) "
   done
