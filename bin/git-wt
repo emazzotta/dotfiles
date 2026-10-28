@@ -10,8 +10,9 @@ Usage: git wt <command>
   add <branch> [<start>]  create the worktree $WORKTREE_DIR/<branch> in the main checkout;
                           a new branch starts from <start> (default origin/HEAD)
   path <branch>           print where the worktree holding <branch> is checked out on this machine
-  rm <branch>...          delete each branch and the worktree holding it, also when that
-                          worktree was registered from the other side of a container mount
+  rm <branch>...          delete each branch, or every branch a glob like 'LEO-1-*' matches, and
+                          the worktree holding it, also when that worktree was registered from
+                          the other side of a container mount
   rm --merged             delete each branch whose work is in origin/HEAD, squash merges included,
                           and its worktree; a branch without commits of its own qualifies only once
                           its upstream is gone, and checked-out branches and worktrees with
@@ -120,15 +121,27 @@ remove_if_clean() {
     delete_worktree "$registered" "$local_path"
 }
 
+remove_branch() {
+    local branch="$1" registered
+    registered=$(worktree_of_branch "$branch")
+    if [ -n "$registered" ] && ! remove_if_clean "$registered"; then
+        return 1
+    fi
+    git branch -D "$branch"
+}
+
 remove_branches() {
-    local branch registered failed=0
-    for branch in "$@"; do
-        registered=$(worktree_of_branch "$branch")
-        if [ -n "$registered" ] && ! remove_if_clean "$registered"; then
+    local pattern matches branch failed=0
+    for pattern in "$@"; do
+        matches=$(git branch --list --format='%(refname:lstrip=2)' "$pattern")
+        if [ -z "$matches" ]; then
+            echo "error: no branch matches '$pattern'" >&2
             failed=1
             continue
         fi
-        git branch -D "$branch" || failed=1
+        while IFS= read -r branch; do
+            remove_branch "$branch" || failed=1
+        done <<<"$matches"
     done
     return "$failed"
 }
@@ -237,7 +250,7 @@ remove_merged_branches() {
             "$invoking_branch" | "$main_branch" | "${default_branch#origin/}") continue ;;
         esac
         if landed_and_clean "$branch"; then
-            remove_branches "$branch" || failed=1
+            remove_branch "$branch" || failed=1
         fi
     done < <(local_branches)
     return "$failed"

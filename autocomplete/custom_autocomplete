@@ -495,6 +495,15 @@ _timemachine()
       _reply_matching <<< "${_TIMEMACHINE_DESTINATIONS}" ;;
   esac
 }
+_compadd_lines()
+{
+  local -a candidates
+  local candidate
+  while IFS= read -r candidate; do
+    candidates+=("${candidate}")
+  done
+  compadd -- "${candidates[@]}"
+}
 # Unregistered on purpose: git's bash completion and Homebrew's zsh _git call _git_wt, zsh's own _git calls _git-wt.
 # shellcheck disable=SC2154
 _git_wt()
@@ -503,12 +512,15 @@ _git_wt()
 }
 _git-wt()
 {
-  local -a candidates
-  local candidate
-  while IFS= read -r candidate; do
-    candidates+=("${candidate}")
-  done < <(git wt --complete "${words[@]:1:$((CURRENT - 2))}" 2>/dev/null)
-  compadd -- "${candidates[@]}"
+  _compadd_lines < <(git wt --complete "${words[@]:1:$((CURRENT - 2))}" 2>/dev/null)
+}
+_git_push_delete()
+{
+  __gitcomp_nl "$(__git push-delete --complete)"
+}
+_git-push-delete()
+{
+  _compadd_lines < <(git push-delete --complete 2>/dev/null)
 }
 # shellcheck disable=SC2034
 _gco()

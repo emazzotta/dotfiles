@@ -15,8 +15,8 @@ alias ginit='git init && git commit -m "Initial commit" --allow-empty'
 alias gitgimmeprevious='git checkout HEAD~1'
 
 ### BRANCHES ###
-alias gbrrmlocal='git wt rm'
-alias gbrrmremote='git push origin --delete'
+alias gbrrmlocal="${ZSH_VERSION:+noglob }git wt rm"
+alias gbrrmremote="${ZSH_VERSION:+noglob }git push-delete"
 
 ### STASH ###
 alias gstash='git stash'

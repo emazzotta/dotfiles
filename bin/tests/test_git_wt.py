@@ -202,6 +202,28 @@ class TestRm:
         assert result.returncode == 0, result.stderr
         assert "plain" not in branches(git, project)
 
+    def should_remove_every_branch_a_glob_matches_and_the_worktrees_holding_them(
+            self, wt, added, git, project):
+        path = added("LEO-1-review-a")
+        git(project, "branch", "LEO-1-review-b/nested")
+        git(project, "branch", "LEO-1-other")
+
+        result = wt("rm", "LEO-1-review-*")
+
+        assert result.returncode == 0, result.stderr
+        assert not path.exists()
+        assert branches(git, project) == ["LEO-1-other", "main"]
+
+    def should_fail_on_a_glob_that_matches_no_branch_and_still_remove_the_others(
+            self, wt, git, project):
+        git(project, "branch", "plain")
+
+        result = wt("rm", "LEO-1-*", "plain")
+
+        assert result.returncode == 1
+        assert "no branch matches 'LEO-1-*'" in result.stderr
+        assert branches(git, project) == ["main"]
+
 
 class TestRmMerged:
     def should_remove_a_squash_merged_branch_and_its_clean_worktree(
