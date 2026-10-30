@@ -44,16 +44,6 @@
         ]
       }
     ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspace/.claude/hooks/user-prompt-session-topic.sh"
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
@@ -78,10 +68,6 @@
       {
         "matcher": "Edit|Write",
         "hooks": [
-          {
-            "type": "command",
-            "command": "/workspace/.claude/hooks/post-edit-sync-guidelines-check.sh"
-          },
           {
             "type": "command",
             "command": "/workspace/.claude/hooks/post-edit-autocomplete-check.sh"
