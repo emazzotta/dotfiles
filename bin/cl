@@ -937,13 +937,7 @@ def build_entrypoint_invocation(args, claude_args: list[str], pwd: Path) -> tupl
 
     plugin_args = []
     if entrypoint in (*CLAUDE_ENTRYPOINTS, "claude-resume"):
-        plugin_dir = Path("/workspace/.claude/plugins")
-        plugin_args = [
-            arg
-            for d in sorted(plugin_dir.iterdir()) if d.is_dir()
-            for arg in ("--plugin-dir", str(d))
-        ] if plugin_dir.is_dir() else []
-        plugin_args += build_leonardo_plugin_args(args.paths or [pwd])
+        plugin_args = build_leonardo_plugin_args(args.paths or [pwd])
 
     if entrypoint == "claude-resume":
         forwarded = [*permission_args, *plugin_args, *claude_args]
