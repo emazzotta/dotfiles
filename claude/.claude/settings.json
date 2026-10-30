@@ -73,15 +73,6 @@
             "command": "/workspace/.claude/hooks/post-edit-autocomplete-check.sh"
           }
         ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/workspace/.claude/hooks/post-tool-commit-observer.sh"
-          }
-        ]
       }
     ],
     "Notification": [
