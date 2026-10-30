@@ -33,7 +33,7 @@ def status_context(state):
 
 def pull_request(number, checks, merge_state="CLEAN", branch=None):
     return {"number": number, "title": f"Change {number}", "url": f"https://github.com/owner/repo/pull/{number}",
-            "headRefName": branch or f"branch-{number}", "headRefOid": f"sha{number}",
+            "headRefName": branch or f"renovate/dependency-{number}", "headRefOid": f"sha{number}",
             "mergeStateStatus": merge_state, "statusCheckRollup": checks}
 
 
@@ -62,15 +62,17 @@ def repo(tmp_path, git):
 
 @pytest.fixture
 def run(run_cli, tmp_path, git_env):
-    def _run(pull_requests, gum_answer=0, gh_merge_exit=0):
+    def _run(pull_requests, gum_choice="Merge all", gum_exit=0, picked_line=1, gh_list_exit=0, gh_merge_exit=0):
         (tmp_path / "prs.json").write_text(json.dumps(pull_requests))
         gh = (f'printf \'%s\\n\' "$*" >> "{tmp_path}/gh-calls"\n'
               f'case "$1 $2" in\n'
-              f'    "pr list") cat "{tmp_path}/prs.json" ;;\n'
+              f'    "pr list") [ {gh_list_exit} -eq 0 ] || {{ echo "HTTP 502: Bad Gateway" >&2; exit {gh_list_exit}; }}\n'
+              f'               cat "{tmp_path}/prs.json" ;;\n'
               f'    "pr merge") echo "merge refused" >&2; exit {gh_merge_exit} ;;\n'
               f'esac\n')
-        gum = f'printf \'%s\\n\' "$*" >> "{tmp_path}/gum-calls"\nexit {gum_answer}\n'
-        return run_cli("gmergegreen", [str(tmp_path / "scan")], mock_bins={"gh": gh, "gum": gum},
+        gum = f'printf \'%s\\n\' "$*" >> "{tmp_path}/gum-calls"\nprintf \'%s\\n\' "{gum_choice}"\nexit {gum_exit}\n'
+        picker = f'tee "{tmp_path}/picker-input" | sed -n {picked_line}p\n'
+        return run_cli("gmergegreen", [str(tmp_path / "scan")], mock_bins={"gh": gh, "gum": gum, "picker": picker},
                        env_extra=git_env)
     return _run
 
@@ -81,6 +83,14 @@ def calls(tmp_path):
         path = tmp_path / f"{client}-calls"
         return path.read_text().splitlines() if path.exists() else []
     return _calls
+
+
+def merges(calls):
+    return [call for call in calls("gh") if call.startswith("pr merge")]
+
+
+def merge_call(number):
+    return f"pr merge {number} --squash --delete-branch --match-head-commit sha{number} --repo owner/repo"
 
 
 @pytest.mark.parametrize("url, slug", [
@@ -121,6 +131,18 @@ def should_block_a_pull_request_unless_its_checks_passed_and_github_reports_it_m
 def should_block_a_merge_request_unless_its_pipeline_passed_and_gitlab_reports_it_mergeable(
         gmergegreen, pipeline_status, merge_status, blocker):
     assert gmergegreen.gitlab_blocker(gitlab_merge_request(1, pipeline_status, merge_status)) == blocker
+
+
+@pytest.mark.parametrize("branch, checks, green", [
+    ("renovate/python-3.x", [check_run()], True),
+    ("dependabot/npm_and_yarn/lodash-4.17.21", [check_run()], True),
+    ("feat/parking-layer", [check_run()], False),
+    ("renovate/python-3.x", [check_run("FAILURE")], False),
+])
+def should_offer_only_renovate_and_dependabot_updates_whose_pipeline_passed(gmergegreen, branch, checks, green):
+    merge_request = gmergegreen.GitHub._merge_request(pull_request(1, checks, branch=branch))
+
+    assert merge_request.green_dependency_update is green
 
 
 def should_read_each_open_gitlab_merge_request_with_its_head_pipeline(gmergegreen):
@@ -166,22 +188,55 @@ def should_find_repositories_up_to_three_levels_deep_without_entering_symlinks(g
     assert repos == [scan / "a", scan / "a" / "b" / "c", scan / "elsewhere" / "x"]
 
 
-def should_merge_only_the_passing_pull_requests_after_the_user_confirms(run, repo, calls):
-    repo("personal/repo")
-
-    result = run([pull_request(1, [check_run()]), pull_request(2, [check_run("FAILURE")])])
-
-    assert result.returncode == 0, result.stderr
-    assert [call for call in calls("gh") if call.startswith("pr merge")] == [
-        "pr merge 1 --squash --delete-branch --match-head-commit sha1 --repo owner/repo"]
-    assert calls("gum") == ["confirm --default=false Squash merge 1 merge request and delete their branches?"]
-    assert "pipeline failed" in result.stdout
-
-
-def should_merge_nothing_when_the_user_declines(run, repo, calls):
+def should_list_only_the_green_dependency_updates(run, repo):
     repo("repo")
 
-    result = run([pull_request(1, [check_run()])], gum_answer=1)
+    result = run([pull_request(1, [check_run()]), pull_request(2, [check_run("FAILURE")]),
+                  pull_request(3, [check_run()], branch="feat/parking-layer")], gum_choice="Skip")
+
+    assert "renovate/dependency-1" in result.stdout
+    assert "renovate/dependency-2" not in result.stdout
+    assert "feat/parking-layer" not in result.stdout
+
+
+def should_not_show_a_repository_whose_merge_requests_could_not_be_read(run, repo):
+    repo("repo")
+
+    result = run([], gh_list_exit=1)
+
+    assert result.returncode == 0
+    assert "502" not in result.stdout + result.stderr
+
+
+def should_merge_every_green_dependency_update_when_the_user_merges_all(run, repo, calls):
+    repo("personal/repo")
+
+    result = run([pull_request(1, [check_run()]), pull_request(2, [check_run("FAILURE")]),
+                  pull_request(3, [check_run()], branch="dependabot/npm_and_yarn/lodash-4.17.21")])
+
+    assert result.returncode == 0, result.stderr
+    assert merges(calls) == [merge_call(1), merge_call(3)]
+    assert calls("gum") == [("choose --header Squash merge 2 merge requests and delete their branches? "
+                             "Merge all Pick individually Skip")]
+
+
+def should_merge_only_the_picked_updates_when_the_user_picks_individually(run, repo, calls, tmp_path):
+    repo("repo")
+
+    result = run([pull_request(1, [check_run()]), pull_request(2, [check_run()])],
+                 gum_choice="Pick individually", picked_line=2)
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "picker-input").read_text().splitlines() == [
+        "repo  renovate/dependency-1  #1", "repo  renovate/dependency-2  #2"]
+    assert merges(calls) == [merge_call(2)]
+
+
+@pytest.mark.parametrize("gum_choice, gum_exit", [("Skip", 0), ("", 1)])
+def should_merge_nothing_when_the_user_skips_or_dismisses_the_prompt(run, repo, calls, gum_choice, gum_exit):
+    repo("repo")
+
+    result = run([pull_request(1, [check_run()])], gum_choice=gum_choice, gum_exit=gum_exit)
 
     assert result.returncode == 0
     assert calls("gh") == [("pr list --state open --limit 100 --json "
@@ -191,15 +246,19 @@ def should_merge_nothing_when_the_user_declines(run, repo, calls):
 def should_pass_on_the_exit_status_when_the_prompt_is_interrupted(run, repo):
     repo("repo")
 
-    result = run([pull_request(1, [check_run()])], gum_answer=130)
+    result = run([pull_request(1, [check_run()])], gum_choice="", gum_exit=130)
 
     assert result.returncode == 130
 
 
-def should_not_ask_when_nothing_can_be_merged(run, repo, calls):
+@pytest.mark.parametrize("open_pull_request", [
+    pull_request(1, []),
+    pull_request(1, [check_run()], branch="feat/parking-layer"),
+])
+def should_not_ask_when_no_green_dependency_update_is_open(run, repo, calls, open_pull_request):
     repo("repo")
 
-    result = run([pull_request(1, [])])
+    result = run([open_pull_request])
 
     assert result.returncode == 0
     assert calls("gum") == []
@@ -221,7 +280,7 @@ def should_fail_with_the_server_reason_when_a_merge_is_refused(run, repo):
     result = run([pull_request(1, [check_run()])], gh_merge_exit=1)
 
     assert result.returncode == 1
-    assert "repo #1 branch-1: merge refused" in result.stderr
+    assert "repo #1 renovate/dependency-1: merge refused" in result.stderr
 
 
 def should_reject_a_path_that_is_not_a_directory(run_cli, tmp_path):

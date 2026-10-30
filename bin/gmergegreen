@@ -9,12 +9,13 @@ import sys
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Final, Union
 from urllib.parse import quote
 
 from branch_ci import GITHUB_PASSING_CONCLUSIONS, CommandFailed, Run, run_command
-from scriptlog import DIM, GREEN, RESET, YELLOW, error, hyperlink, info, substep_error, substep_success, success
+from scriptlog import GREEN, RESET, TURQUOISE, YELLOW, error, hyperlink, info, substep_error, substep_success, success
 
 SCAN_DEPTH: Final = 3
 PARALLEL_LOOKUPS: Final = 8
@@ -30,8 +31,14 @@ GITLAB_PIPELINE_PASSED: Final = "success"
 NO_PIPELINE: Final = "no pipeline"
 PIPELINE_RUNNING: Final = "pipeline running"
 PIPELINE_FAILED: Final = "pipeline failed"
-GUM_YES: Final = 0
-GUM_NO: Final = 1
+DEPENDENCY_UPDATE_BRANCHES: Final = ("renovate/", "dependabot/")
+PROMPT_DECLINED: Final = 1
+
+
+class Choice(Enum):
+    MERGE_ALL = "Merge all"
+    PICK = "Pick individually"
+    SKIP = "Skip"
 
 
 @dataclass(frozen=True)
@@ -45,8 +52,8 @@ class MergeRequest:
     blocker: str
 
     @property
-    def mergeable(self) -> bool:
-        return not self.blocker
+    def green_dependency_update(self) -> bool:
+        return self.branch.startswith(DEPENDENCY_UPDATE_BRANCHES) and not self.blocker
 
 
 def readable(state: str) -> str:
@@ -160,6 +167,9 @@ class Lookup:
     merge_requests: tuple[MergeRequest, ...]
 
 
+Pending = tuple[Repo, MergeRequest]
+
+
 def provider_for(slug: str, run: Run) -> Provider:
     host, _, path = slug.partition("/")
     if host == GITHUB_HOST:
@@ -219,56 +229,62 @@ def repos_under(root: Path) -> list[Repo]:
     return list(repos.values())
 
 
-def lookup(repo: Repo) -> tuple[Lookup | None, str]:
-    client = repo.provider.CLIENT
-    if shutil.which(client) is None:
-        return None, f"{repo.slug}: {client} is not installed"
+def lookup(repo: Repo) -> Lookup | None:
+    if shutil.which(repo.provider.CLIENT) is None:
+        return None
     try:
-        return Lookup(repo, tuple(repo.provider.open_merge_requests())), ""
-    except CommandFailed as failure:
-        return None, f"{repo.slug}: {failure}"
-    except (ValueError, LookupError, TypeError):
-        return None, f"{repo.slug}: unexpected {client} response"
+        merge_requests = repo.provider.open_merge_requests()
+    except (CommandFailed, ValueError, LookupError, TypeError):
+        return None
+    return Lookup(repo, tuple(request for request in merge_requests if request.green_dependency_update))
 
 
-def lookup_all(repos: list[Repo]) -> tuple[list[Lookup], list[str]]:
+def lookup_all(repos: list[Repo]) -> list[Lookup]:
     with ThreadPoolExecutor(PARALLEL_LOOKUPS) as pool:
-        results = list(pool.map(lookup, repos))
-    return ([found for found, _ in results if found and found.merge_requests],
-            [warning for _, warning in results if warning])
+        return [found for found in pool.map(lookup, repos) if found and found.merge_requests]
 
 
-def render_row(merge_request: MergeRequest, ref_width: int, branch_width: int) -> str:
-    padding = " " * (ref_width - len(merge_request.ref))
-    columns = f"{hyperlink(merge_request.url, merge_request.ref)}{padding}  {merge_request.branch.ljust(branch_width)}"
-    if merge_request.mergeable:
-        return f"  {GREEN}✓{RESET} {columns}  {merge_request.title}"
-    return f"  {DIM}· {columns}  {merge_request.blocker}{RESET}"
+def render_row(merge_request: MergeRequest) -> str:
+    return f"  {GREEN}✓{RESET}  {hyperlink(merge_request.url, f'{TURQUOISE}{merge_request.branch}{RESET}')}"
 
 
 def render(found: Lookup) -> list[str]:
-    ref_width = max(len(merge_request.ref) for merge_request in found.merge_requests)
-    branch_width = max(len(merge_request.branch) for merge_request in found.merge_requests)
-    return [f"{YELLOW}{found.repo.label}{RESET}",
-            *(render_row(merge_request, ref_width, branch_width) for merge_request in found.merge_requests)]
+    return [f"{YELLOW}{found.repo.label}{RESET}", *(render_row(merge_request) for merge_request in found.merge_requests)]
 
 
-def report(lookups: list[Lookup], warnings: list[str]) -> None:
+def report(lookups: list[Lookup]) -> None:
     for found in lookups:
         print("\n".join(render(found)))
-    if warnings:
-        print()
-        error("No merge requests read:")
-        for warning in warnings:
-            substep_error(warning)
     print()
 
 
-def ask(count: int) -> int:
-    noun = "merge request" if count == 1 else "merge requests"
+def picker_entries(pending: list[Pending]) -> dict[str, Pending]:
+    label_width = max(len(repo.label) for repo, _ in pending)
+    branch_width = max(len(merge_request.branch) for _, merge_request in pending)
+    return {f"{repo.label.ljust(label_width)}  {merge_request.branch.ljust(branch_width)}  {merge_request.ref}":
+            (repo, merge_request) for repo, merge_request in pending}
+
+
+def pick(pending: list[Pending]) -> tuple[int, list[Pending]]:
+    entries = picker_entries(pending)
+    picked = subprocess.run(["picker", "--multi", "--header", "Merge which?"], input="\n".join(entries),
+                            stdout=subprocess.PIPE, text=True, check=False)
+    return picked.returncode, [entries[line] for line in picked.stdout.splitlines()]
+
+
+def choose(pending: list[Pending]) -> tuple[int, list[Pending]]:
+    noun = "merge request" if len(pending) == 1 else "merge requests"
     sys.stdout.flush()
-    return subprocess.run(["gum", "confirm", "--default=false",
-                           f"Squash merge {count} {noun} and delete their branches?"], check=False).returncode
+    answer = subprocess.run(["gum", "choose", "--header",
+                             f"Squash merge {len(pending)} {noun} and delete their branches?",
+                             *(choice.value for choice in Choice)],
+                            stdout=subprocess.PIPE, text=True, check=False)
+    if answer.returncode:
+        return answer.returncode, []
+    choice = Choice(answer.stdout.strip())
+    if choice is Choice.PICK:
+        return pick(pending)
+    return 0, pending if choice is Choice.MERGE_ALL else []
 
 
 def merge(repo: Repo, merge_request: MergeRequest) -> bool:
@@ -282,7 +298,7 @@ def merge(repo: Repo, merge_request: MergeRequest) -> bool:
     return True
 
 
-def merge_all(pending: list[tuple[Repo, MergeRequest]]) -> int:
+def merge_all(pending: list[Pending]) -> int:
     failed = [merge_request for repo, merge_request in pending if not merge(repo, merge_request)]
     if failed:
         error(f"{len(failed)} of {len(pending)} merges failed.")
@@ -293,9 +309,9 @@ def merge_all(pending: list[tuple[Repo, MergeRequest]]) -> int:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Squash merge every open GitLab merge request and GitHub pull request whose pipeline passed "
-                    "and that the server reports as mergeable, deleting its branch. Lists what it would merge, "
-                    "and why each other open one stays, then asks before merging.")
+        description="Squash merge the open Renovate and Dependabot merge requests and pull requests whose "
+                    "pipeline passed and that the server reports as mergeable, deleting their branches. Lists them "
+                    "by repository, then merges all of them or only the ones you pick.")
     parser.add_argument("dir", nargs="?", type=Path, default=Path("."),
                         help=f"a repository, or a directory searched {SCAN_DEPTH} levels deep for them, "
                              "as gupallin does (default: the current directory)")
@@ -312,17 +328,16 @@ def main(argv: list[str]) -> int:
         return 1
     repos = repos_under(root)
     info(f"Reading the open merge requests of {len(repos)} repositories")
-    lookups, warnings = lookup_all(repos)
-    report(lookups, warnings)
-    pending = [(found.repo, merge_request) for found in lookups
-               for merge_request in found.merge_requests if merge_request.mergeable]
+    lookups = lookup_all(repos)
+    report(lookups)
+    pending = [(found.repo, merge_request) for found in lookups for merge_request in found.merge_requests]
     if not pending:
         success("Nothing to merge.")
         return 0
-    answer = ask(len(pending))
-    if answer != GUM_YES:
-        return 0 if answer == GUM_NO else answer
-    return merge_all(pending)
+    answer, chosen = choose(pending)
+    if answer:
+        return 0 if answer == PROMPT_DECLINED else answer
+    return merge_all(chosen) if chosen else 0
 
 
 if __name__ == "__main__":
