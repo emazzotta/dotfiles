@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "file=$(jq -r '.tool_input.file_path // empty'); case \"$file\" in */.claude/projects/*/memory/*) echo 'BLOCKED: auto-memory path. For curated session memory use /workspace/.claude/scripts/memory log \"<text>\" (or park/recall). See Session Memory in CLAUDE.md.' >&2; exit 2;; esac; exit 0"
+            "command": "file=$(jq -r '.tool_input.file_path // empty'); case \"$file\" in */.claude/projects/*/memory/*) echo 'BLOCKED: auto-memory path. For curated session memory use /workspace/.claude/scripts/memory log \"<text>\" (or park/recall). See the session-memory skill.' >&2; exit 2;; esac; exit 0"
           }
         ]
       },
