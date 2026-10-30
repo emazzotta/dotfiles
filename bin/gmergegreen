@@ -6,48 +6,109 @@ import json
 import shutil
 import subprocess
 import sys
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, auto
 from pathlib import Path
 from typing import Final, Union
 from urllib.parse import quote
 
 from branch_ci import GITHUB_PASSING_CONCLUSIONS, CommandFailed, Run, run_command
-from scriptlog import GREEN, RESET, TURQUOISE, YELLOW, error, hyperlink, info, substep_error, substep_success, success
+from scriptlog import (
+    BLUE,
+    DIM,
+    GREEN,
+    MAGENTA,
+    RED,
+    RESET,
+    TURQUOISE,
+    YELLOW,
+    error,
+    hyperlink,
+    info,
+    substep_error,
+    substep_success,
+    success,
+)
 
 SCAN_DEPTH: Final = 3
 PARALLEL_LOOKUPS: Final = 8
 PAGE_SIZE: Final = 100
 GITHUB_HOST: Final = "github.com"
-GITHUB_PULL_REQUEST_FIELDS: Final = "number,title,url,headRefName,headRefOid,mergeStateStatus,statusCheckRollup"
-GITHUB_MERGEABLE_STATES: Final = frozenset({"CLEAN", "HAS_HOOKS"})
+GITHUB_PULL_REQUEST_FIELDS: Final = "number,title,url,headRefName,headRefOid,body,mergeStateStatus,statusCheckRollup"
+GITHUB_MERGE_PERMISSIONS: Final = frozenset({"ADMIN", "MAINTAIN", "WRITE"})
 GITHUB_PENDING_STATES: Final = frozenset({"PENDING", "EXPECTED"})
 GITHUB_STATUS_CONTEXT: Final = "StatusContext"
 GITHUB_CHECK_COMPLETED: Final = "COMPLETED"
-GITLAB_MERGEABLE: Final = "mergeable"
-GITLAB_PIPELINE_PASSED: Final = "success"
-NO_PIPELINE: Final = "no pipeline"
-PIPELINE_RUNNING: Final = "pipeline running"
-PIPELINE_FAILED: Final = "pipeline failed"
-DEPENDENCY_UPDATE_BRANCHES: Final = ("renovate/", "dependabot/")
+RENOVATE_BRANCH: Final = "renovate/"
+DEPENDABOT_BRANCH: Final = "dependabot/"
+DEPENDENCY_UPDATE_BRANCHES: Final = (RENOVATE_BRANCH, DEPENDABOT_BRANCH)
+RENOVATE_REBASE_CHECKBOX: Final = "- [ ] <!-- rebase-check -->"
+RENOVATE_REBASE_TICKED: Final = "- [x] <!-- rebase-check -->"
+DEPENDABOT_REBASE_COMMAND: Final = "@dependabot rebase"
+BLOCKED_SYMBOL: Final = "⊘"
+OUTDATED_SYMBOL: Final = "↻"
 PROMPT_DECLINED: Final = 1
 OPENER: Final = "open"
 CHECKBOXES: Final = ("--no-limit", "--cursor-prefix", "[ ] ", "--selected-prefix", "[x] ",
                      "--unselected-prefix", "[ ] ")
+MERGE_PICKED: Final = "Merge individually"
+REBASE_ALL: Final = "Request rebase"
+OPEN_ALL: Final = "Open all"
+OPEN_PICKED: Final = "Open individually"
+SKIP: Final = "Skip"
 
 
-class Choice(Enum):
-    MERGE_ALL = "Merge all"
-    MERGE_PICKED = "Merge individually"
-    OPEN_ALL = "Open all"
-    OPEN_PICKED = "Open individually"
-    SKIP = "Skip"
+@dataclass(frozen=True)
+class Badge:
+    symbol: str
+    color: str
+    label: str
 
 
-PICK_HEADERS: Final = {Choice.MERGE_PICKED: "Merge which?", Choice.OPEN_PICKED: "Open which?"}
-OPEN_CHOICES: Final = frozenset({Choice.OPEN_ALL, Choice.OPEN_PICKED})
+class Pipeline(Enum):
+    PASSED = Badge("✓", GREEN, "")
+    NONE = Badge("○", BLUE, "no pipeline")
+    RUNNING = Badge("◐", YELLOW, "pipeline running")
+    FAILED = Badge("✗", RED, "pipeline failed")
+
+
+class Verb(Enum):
+    MERGE = auto()
+    REBASE = auto()
+    OPEN = auto()
+
+
+GITLAB_PIPELINE_OUTCOMES: Final = {"success": Pipeline.PASSED, "skipped": Pipeline.NONE,
+                                   "failed": Pipeline.FAILED, "canceled": Pipeline.FAILED}
+MERGE_TIERS: Final = (
+    ("Merge all passing", frozenset({Pipeline.PASSED})),
+    ("Merge all not failing", frozenset({Pipeline.PASSED, Pipeline.NONE, Pipeline.RUNNING})),
+    ("Merge all incl. failing", frozenset(Pipeline)),
+)
+
+
+def readable(state: str) -> str:
+    return state.lower().replace("_", " ")
+
+
+@dataclass(frozen=True)
+class MergeStates:
+    mergeable: frozenset[str]
+    pipeline_gated: frozenset[str]
+    outdated: frozenset[str]
+
+    def blocker(self, state: str, pipeline: Pipeline) -> str:
+        if state in self.mergeable or (pipeline is not Pipeline.PASSED and state in self.pipeline_gated):
+            return ""
+        return readable(state)
+
+
+GITLAB_MERGE_STATES: Final = MergeStates(frozenset({"mergeable"}), frozenset({"ci_must_pass", "ci_still_running"}),
+                                         frozenset({"need_rebase", "conflict"}))
+GITHUB_MERGE_STATES: Final = MergeStates(frozenset({"CLEAN", "HAS_HOOKS"}), frozenset({"UNSTABLE", "BLOCKED"}),
+                                         frozenset({"BEHIND", "DIRTY"}))
 
 
 @dataclass(frozen=True)
@@ -58,50 +119,51 @@ class MergeRequest:
     url: str
     branch: str
     sha: str
+    description: str
+    pipeline: Pipeline
     blocker: str
+    outdated: bool
 
     @property
-    def green_dependency_update(self) -> bool:
-        return self.branch.startswith(DEPENDENCY_UPDATE_BRANCHES) and not self.blocker
+    def dependency_update(self) -> bool:
+        return self.branch.startswith(DEPENDENCY_UPDATE_BRANCHES)
+
+    @property
+    def held_back(self) -> bool:
+        return bool(self.blocker) and not self.outdated
+
+    @property
+    def badge(self) -> Badge:
+        if self.outdated:
+            return Badge(OUTDATED_SYMBOL, MAGENTA, self.blocker)
+        if self.blocker:
+            return Badge(BLOCKED_SYMBOL, DIM, self.blocker)
+        return self.pipeline.value
 
 
-def readable(state: str) -> str:
-    return state.lower().replace("_", " ")
-
-
-def gitlab_blocker(merge_request: dict) -> str:
+def gitlab_pipeline(merge_request: dict) -> Pipeline:
     pipeline = merge_request.get("head_pipeline")
     if not pipeline:
-        return NO_PIPELINE
-    if pipeline["status"] != GITLAB_PIPELINE_PASSED:
-        return f"pipeline {readable(pipeline['status'])}"
-    status = merge_request["detailed_merge_status"]
-    return "" if status == GITLAB_MERGEABLE else readable(status)
+        return Pipeline.NONE
+    return GITLAB_PIPELINE_OUTCOMES.get(pipeline["status"], Pipeline.RUNNING)
 
 
-def github_check_blocker(check: dict) -> str:
+def github_check_pipeline(check: dict) -> Pipeline:
     if check.get("__typename") == GITHUB_STATUS_CONTEXT:
         pending, outcome = check["state"] in GITHUB_PENDING_STATES, check["state"]
     else:
         pending, outcome = check["status"] != GITHUB_CHECK_COMPLETED, check["conclusion"]
     if pending:
-        return PIPELINE_RUNNING
-    return "" if (outcome or "").lower() in GITHUB_PASSING_CONCLUSIONS else PIPELINE_FAILED
+        return Pipeline.RUNNING
+    return Pipeline.PASSED if (outcome or "").lower() in GITHUB_PASSING_CONCLUSIONS else Pipeline.FAILED
 
 
-def github_pipeline_blocker(checks: list[dict]) -> str:
+def github_pipeline(checks: list[dict]) -> Pipeline:
     if not checks:
-        return NO_PIPELINE
-    blockers = {github_check_blocker(check) for check in checks}
-    return next((blocker for blocker in (PIPELINE_FAILED, PIPELINE_RUNNING) if blocker in blockers), "")
-
-
-def github_blocker(pull_request: dict) -> str:
-    pipeline_blocker = github_pipeline_blocker(pull_request["statusCheckRollup"])
-    if pipeline_blocker:
-        return pipeline_blocker
-    state = pull_request["mergeStateStatus"]
-    return "" if state in GITHUB_MERGEABLE_STATES else readable(state)
+        return Pipeline.NONE
+    pipelines = {github_check_pipeline(check) for check in checks}
+    return next((pipeline for pipeline in (Pipeline.FAILED, Pipeline.RUNNING) if pipeline in pipelines),
+                Pipeline.PASSED)
 
 
 class GitLab:
@@ -119,19 +181,30 @@ class GitLab:
 
     def open_merge_requests(self) -> list[MergeRequest]:
         listed = json.loads(self._api(f"merge_requests?state=opened&per_page={PAGE_SIZE}"))
-        return [self._merge_request(json.loads(self._api(f"merge_requests/{merge_request['iid']}")))
-                for merge_request in listed]
+        detailed = [json.loads(self._api(f"merge_requests/{merge_request['iid']}")) for merge_request in listed]
+        return [self._merge_request(merge_request) for merge_request in detailed
+                if merge_request["user"]["can_merge"]]
 
     def merge(self, merge_request: MergeRequest) -> None:
         self._api(f"merge_requests/{merge_request.number}/merge", "--method", "PUT",
                   "--field", "squash=true", "--field", "should_remove_source_branch=true",
                   "--raw-field", f"sha={merge_request.sha}")
 
+    def update_description(self, merge_request: MergeRequest, description: str) -> None:
+        self._api(f"merge_requests/{merge_request.number}", "--method", "PUT",
+                  "--raw-field", f"description={description}")
+
+    def comment(self, merge_request: MergeRequest, text: str) -> None:
+        self._api(f"merge_requests/{merge_request.number}/notes", "--method", "POST", "--raw-field", f"body={text}")
+
     @staticmethod
     def _merge_request(merge_request: dict) -> MergeRequest:
+        pipeline = gitlab_pipeline(merge_request)
+        state = merge_request["detailed_merge_status"]
         return MergeRequest(merge_request["iid"], f"!{merge_request['iid']}", merge_request["title"],
                             merge_request["web_url"], merge_request["source_branch"], merge_request["sha"],
-                            gitlab_blocker(merge_request))
+                            merge_request["description"] or "", pipeline,
+                            GITLAB_MERGE_STATES.blocker(state, pipeline), state in GITLAB_MERGE_STATES.outdated)
 
 
 class GitHub:
@@ -147,17 +220,32 @@ class GitHub:
     def open_merge_requests(self) -> list[MergeRequest]:
         pull_requests = json.loads(self._gh("pr", "list", "--state", "open", "--limit", str(PAGE_SIZE),
                                             "--json", GITHUB_PULL_REQUEST_FIELDS))
+        if not pull_requests or not self._viewer_can_merge():
+            return []
         return [self._merge_request(pull_request) for pull_request in pull_requests]
+
+    def _viewer_can_merge(self) -> bool:
+        repo = json.loads(self.run([self.CLIENT, "repo", "view", self.repo, "--json", "viewerPermission"]))
+        return repo["viewerPermission"] in GITHUB_MERGE_PERMISSIONS
 
     def merge(self, merge_request: MergeRequest) -> None:
         self._gh("pr", "merge", str(merge_request.number), "--squash", "--delete-branch",
                  "--match-head-commit", merge_request.sha)
 
+    def update_description(self, merge_request: MergeRequest, description: str) -> None:
+        self._gh("pr", "edit", str(merge_request.number), "--body", description)
+
+    def comment(self, merge_request: MergeRequest, text: str) -> None:
+        self._gh("pr", "comment", str(merge_request.number), "--body", text)
+
     @staticmethod
     def _merge_request(pull_request: dict) -> MergeRequest:
+        pipeline = github_pipeline(pull_request["statusCheckRollup"])
+        state = pull_request["mergeStateStatus"]
         return MergeRequest(pull_request["number"], f"#{pull_request['number']}", pull_request["title"],
                             pull_request["url"], pull_request["headRefName"], pull_request["headRefOid"],
-                            github_blocker(pull_request))
+                            pull_request["body"], pipeline,
+                            GITHUB_MERGE_STATES.blocker(state, pipeline), state in GITHUB_MERGE_STATES.outdated)
 
 
 Provider = Union[GitLab, GitHub]
@@ -177,6 +265,13 @@ class Lookup:
 
 
 Pending = tuple[Repo, MergeRequest]
+
+
+@dataclass(frozen=True)
+class Action:
+    verb: Verb
+    targets: tuple[Pending, ...]
+    pick_header: str = ""
 
 
 def provider_for(slug: str, run: Run) -> Provider:
@@ -245,7 +340,7 @@ def lookup(repo: Repo) -> Lookup | None:
         merge_requests = repo.provider.open_merge_requests()
     except (CommandFailed, ValueError, LookupError, TypeError):
         return None
-    return Lookup(repo, tuple(request for request in merge_requests if request.green_dependency_update))
+    return Lookup(repo, tuple(request for request in merge_requests if request.dependency_update))
 
 
 def lookup_all(repos: list[Repo]) -> list[Lookup]:
@@ -253,25 +348,65 @@ def lookup_all(repos: list[Repo]) -> list[Lookup]:
         return [found for found in pool.map(lookup, repos) if found and found.merge_requests]
 
 
-def render_row(merge_request: MergeRequest) -> str:
-    return f"  {GREEN}✓{RESET}  {hyperlink(merge_request.url, f'{TURQUOISE}{merge_request.branch}{RESET}')}"
+def render_row(merge_request: MergeRequest, branch_width: int) -> str:
+    badge = merge_request.badge
+    branch_color = DIM if merge_request.held_back else TURQUOISE
+    branch = hyperlink(merge_request.url, f"{branch_color}{merge_request.branch}{RESET}")
+    padding = " " * (branch_width - len(merge_request.branch))
+    status = f"{padding}  {badge.color}{badge.label}{RESET}" if badge.label else ""
+    return f"  {badge.color}{badge.symbol}{RESET}  {branch}{status}"
 
 
-def render(found: Lookup) -> list[str]:
-    return [f"{YELLOW}{found.repo.label}{RESET}", *(render_row(merge_request) for merge_request in found.merge_requests)]
+def render(found: Lookup, branch_width: int) -> list[str]:
+    return [f"{YELLOW}{found.repo.label}{RESET}",
+            *(render_row(merge_request, branch_width) for merge_request in found.merge_requests)]
 
 
 def report(lookups: list[Lookup]) -> None:
+    branch_width = max((len(request.branch) for found in lookups for request in found.merge_requests), default=0)
     for found in lookups:
-        print("\n".join(render(found)))
+        print("\n".join(render(found, branch_width)))
     print()
 
 
+def aligned(rows: Sequence[tuple[str, ...]]) -> list[str]:
+    widths = [max(len(cell) for cell in column) for column in zip(*rows)]
+    return ["  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip() for row in rows]
+
+
 def checklist_entries(pending: list[Pending]) -> dict[str, Pending]:
-    label_width = max(len(repo.label) for repo, _ in pending)
-    branch_width = max(len(merge_request.branch) for _, merge_request in pending)
-    return {f"{repo.label.ljust(label_width)}  {merge_request.branch.ljust(branch_width)}  {merge_request.ref}":
-            (repo, merge_request) for repo, merge_request in pending}
+    rows = [(request.badge.symbol, repo.label, request.branch, request.ref, request.badge.label)
+            for repo, request in pending]
+    return dict(zip(aligned(rows), pending))
+
+
+def merge_tiers(offered: list[Pending]) -> dict[str, Action]:
+    tiers: dict[str, Action] = {}
+    previous: tuple[Pending, ...] = ()
+    for label, pipelines in MERGE_TIERS:
+        targets = tuple(pending for pending in offered if pending[1].pipeline in pipelines)
+        if len(targets) > len(previous):
+            tiers[f"{label} ({len(targets)})"] = Action(Verb.MERGE, targets)
+            previous = targets
+    return tiers
+
+
+def menu(offered: list[Pending], outdated: list[Pending]) -> dict[str, Action]:
+    options = merge_tiers(offered)
+    if offered:
+        options[MERGE_PICKED] = Action(Verb.MERGE, tuple(offered), "Merge which?")
+    if outdated:
+        options[f"{REBASE_ALL} ({len(outdated)})"] = Action(Verb.REBASE, tuple(outdated))
+    actionable = (*offered, *outdated)
+    options[OPEN_ALL] = Action(Verb.OPEN, actionable)
+    options[OPEN_PICKED] = Action(Verb.OPEN, actionable, "Open which?")
+    options[SKIP] = Action(Verb.MERGE, ())
+    return options
+
+
+def menu_header(offered: list[Pending], outdated: list[Pending]) -> str:
+    counts = ((len(offered), "to squash merge"), (len(outdated), "to rebase"))
+    return " · ".join(f"{count} {purpose}" for count, purpose in counts if count)
 
 
 def gum_choose(header: str, options: Iterable[str], *flags: str) -> tuple[int, list[str]]:
@@ -281,22 +416,16 @@ def gum_choose(header: str, options: Iterable[str], *flags: str) -> tuple[int, l
     return chosen.returncode, [line for line in chosen.stdout.splitlines() if line]
 
 
-def ask(count: int) -> tuple[int, Choice]:
-    noun = "merge request" if count == 1 else "merge requests"
-    answer, chosen = gum_choose(f"{count} {noun} ready to squash merge", [choice.value for choice in Choice])
-    return answer, (Choice(chosen[0]) if chosen else Choice.SKIP)
-
-
 def pick(pending: list[Pending], header: str) -> tuple[int, list[Pending]]:
     entries = checklist_entries(pending)
     answer, picked = gum_choose(header, entries, *CHECKBOXES)
     return answer, [entries[line] for line in picked]
 
 
-def selection(choice: Choice, pending: list[Pending]) -> tuple[int, list[Pending]]:
-    if choice in PICK_HEADERS:
-        return pick(pending, PICK_HEADERS[choice])
-    return 0, [] if choice is Choice.SKIP else pending
+def selection(action: Action) -> tuple[int, list[Pending]]:
+    if action.pick_header:
+        return pick(list(action.targets), action.pick_header)
+    return 0, list(action.targets)
 
 
 def open_links(chosen: list[Pending]) -> None:
@@ -304,21 +433,47 @@ def open_links(chosen: list[Pending]) -> None:
         subprocess.run([OPENER, *(merge_request.url for _, merge_request in chosen)], check=False)
 
 
-def choose(pending: list[Pending]) -> tuple[int, list[Pending]]:
-    while True:
-        answer, choice = ask(len(pending))
+def follow_up(action: Action, targets: list[Pending], outdated: list[Pending]) -> list[Pending]:
+    if action.verb is Verb.OPEN:
+        open_links(targets)
+        return outdated
+    request_rebases(targets)
+    return []
+
+
+def choose(offered: list[Pending], outdated: list[Pending]) -> tuple[int, list[Pending]]:
+    while offered or outdated:
+        options = menu(offered, outdated)
+        answer, chosen = gum_choose(menu_header(offered, outdated), options)
         if answer:
             return answer, []
-        answer, chosen = selection(choice, pending)
-        if answer or choice not in OPEN_CHOICES:
-            return answer, chosen
-        open_links(chosen)
+        action = options[chosen[0] if chosen else SKIP]
+        answer, targets = selection(action)
+        if answer or action.verb is Verb.MERGE:
+            return answer, targets
+        outdated = follow_up(action, targets, outdated)
+    return 0, []
 
 
-def merge(repo: Repo, merge_request: MergeRequest) -> bool:
+def merge(repo: Repo, merge_request: MergeRequest) -> None:
+    repo.provider.merge(merge_request)
+
+
+def request_rebase(repo: Repo, merge_request: MergeRequest) -> None:
+    description = merge_request.description
+    if merge_request.branch.startswith(DEPENDABOT_BRANCH):
+        repo.provider.comment(merge_request, DEPENDABOT_REBASE_COMMAND)
+    elif RENOVATE_REBASE_CHECKBOX in description:
+        repo.provider.update_description(
+            merge_request, description.replace(RENOVATE_REBASE_CHECKBOX, RENOVATE_REBASE_TICKED, 1))
+    elif RENOVATE_REBASE_TICKED not in description:
+        raise CommandFailed("its description has no Renovate rebase checkbox")
+
+
+def attempt(repo: Repo, merge_request: MergeRequest, operation: Callable[[Repo, MergeRequest], None]) -> bool:
     name = f"{repo.label} {merge_request.ref} {merge_request.branch}"
     try:
-        repo.provider.merge(merge_request)
+        operation(repo, merge_request)
     except CommandFailed as failure:
         substep_error(f"{name}: {failure}")
         return False
@@ -326,20 +481,33 @@ def merge(repo: Repo, merge_request: MergeRequest) -> bool:
     return True
 
 
-def merge_all(pending: list[Pending]) -> int:
-    failed = [merge_request for repo, merge_request in pending if not merge(repo, merge_request)]
+def attempt_all(pending: list[Pending], operation: Callable[[Repo, MergeRequest], None],
+                failures: str, done: str) -> int:
+    failed = [merge_request for repo, merge_request in pending if not attempt(repo, merge_request, operation)]
     if failed:
-        error(f"{len(failed)} of {len(pending)} merges failed.")
+        error(f"{len(failed)} of {len(pending)} {failures} failed.")
         return 1
-    success(f"Merged {len(pending)}.")
+    success(done)
     return 0
+
+
+def merge_all(pending: list[Pending]) -> int:
+    return attempt_all(pending, merge, "merges", f"Merged {len(pending)}.")
+
+
+def request_rebases(pending: list[Pending]) -> int:
+    return attempt_all(pending, request_rebase, "rebase requests", f"Requested {len(pending)} rebases.")
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Squash merge the open Renovate and Dependabot merge requests and pull requests whose "
-                    "pipeline passed and that the server reports as mergeable, deleting their branches. Lists them "
-                    "by repository, then merges or opens all of them or only the ones you tick.")
+        description="Squash merge the open Renovate and Dependabot merge requests and pull requests you may merge, "
+                    "deleting their branches. Lists them by repository with their pipeline state (passed, none, "
+                    "running, failed), then merges the passing ones, the ones not failing, all of them, or only "
+                    "the ones you tick. Requests that need a rebase or have a conflict can ask their bot to "
+                    "rebase: Renovate through its rebase checkbox, Dependabot through an @dependabot rebase "
+                    "comment. Requests the server holds back for another reason, such as a draft or a missing "
+                    "approval, are listed but never merged.")
     parser.add_argument("dir", nargs="?", type=Path, default=Path("."),
                         help=f"a repository, or a directory searched {SCAN_DEPTH} levels deep for them, "
                              "as gupallin does (default: the current directory)")
@@ -358,11 +526,13 @@ def main(argv: list[str]) -> int:
     info(f"Reading the open merge requests of {len(repos)} repositories")
     lookups = lookup_all(repos)
     report(lookups)
-    pending = [(found.repo, merge_request) for found in lookups for merge_request in found.merge_requests]
-    if not pending:
+    requests = [(found.repo, request) for found in lookups for request in found.merge_requests]
+    offered = [(repo, request) for repo, request in requests if not request.blocker]
+    outdated = [(repo, request) for repo, request in requests if request.outdated]
+    if not offered and not outdated:
         success("Nothing to merge.")
         return 0
-    answer, chosen = choose(pending)
+    answer, chosen = choose(offered, outdated)
     if answer:
         return 0 if answer == PROMPT_DECLINED else answer
     return merge_all(chosen) if chosen else 0
