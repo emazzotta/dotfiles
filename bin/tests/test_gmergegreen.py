@@ -62,17 +62,21 @@ def repo(tmp_path, git):
 
 @pytest.fixture
 def run(run_cli, tmp_path, git_env):
-    def _run(pull_requests, gum_choice="Merge all", gum_exit=0, picked_line=1, gh_list_exit=0, gh_merge_exit=0):
+    def _run(pull_requests, gum_answers=("Merge all",), gum_exit=0, gh_list_exit=0, gh_merge_exit=0):
         (tmp_path / "prs.json").write_text(json.dumps(pull_requests))
+        for number, answer in enumerate(gum_answers, 1):
+            (tmp_path / f"gum-answer-{number}").write_text(f"{answer}\n" if answer else "")
         gh = (f'printf \'%s\\n\' "$*" >> "{tmp_path}/gh-calls"\n'
               f'case "$1 $2" in\n'
               f'    "pr list") [ {gh_list_exit} -eq 0 ] || {{ echo "HTTP 502: Bad Gateway" >&2; exit {gh_list_exit}; }}\n'
               f'               cat "{tmp_path}/prs.json" ;;\n'
               f'    "pr merge") echo "merge refused" >&2; exit {gh_merge_exit} ;;\n'
               f'esac\n')
-        gum = f'printf \'%s\\n\' "$*" >> "{tmp_path}/gum-calls"\nprintf \'%s\\n\' "{gum_choice}"\nexit {gum_exit}\n'
-        picker = f'tee "{tmp_path}/picker-input" | sed -n {picked_line}p\n'
-        return run_cli("gmergegreen", [str(tmp_path / "scan")], mock_bins={"gh": gh, "gum": gum, "picker": picker},
+        gum = (f'printf \'%s\\n\' "$*" >> "{tmp_path}/gum-calls"\n'
+               f'cat "{tmp_path}/gum-answer-$(wc -l < "{tmp_path}/gum-calls" | tr -d " ")" 2>/dev/null\n'
+               f'exit {gum_exit}\n')
+        opener = f'printf \'%s\\n\' "$*" >> "{tmp_path}/open-calls"\n'
+        return run_cli("gmergegreen", [str(tmp_path / "scan")], mock_bins={"gh": gh, "gum": gum, "open": opener},
                        env_extra=git_env)
     return _run
 
@@ -91,6 +95,11 @@ def merges(calls):
 
 def merge_call(number):
     return f"pr merge {number} --squash --delete-branch --match-head-commit sha{number} --repo owner/repo"
+
+
+def checkbox_call(header, *entries):
+    return " ".join(["choose --no-limit --cursor-prefix [ ]  --selected-prefix [x]  --unselected-prefix [ ] ",
+                     "--header", header, *entries])
 
 
 @pytest.mark.parametrize("url, slug", [
@@ -192,7 +201,7 @@ def should_list_only_the_green_dependency_updates(run, repo):
     repo("repo")
 
     result = run([pull_request(1, [check_run()]), pull_request(2, [check_run("FAILURE")]),
-                  pull_request(3, [check_run()], branch="feat/parking-layer")], gum_choice="Skip")
+                  pull_request(3, [check_run()], branch="feat/parking-layer")], gum_answers=["Skip"])
 
     assert "renovate/dependency-1" in result.stdout
     assert "renovate/dependency-2" not in result.stdout
@@ -216,27 +225,60 @@ def should_merge_every_green_dependency_update_when_the_user_merges_all(run, rep
 
     assert result.returncode == 0, result.stderr
     assert merges(calls) == [merge_call(1), merge_call(3)]
-    assert calls("gum") == [("choose --header Squash merge 2 merge requests and delete their branches? "
-                             "Merge all Pick individually Skip")]
+    assert calls("gum") == [("choose --header 2 merge requests ready to squash merge "
+                             "Merge all Merge individually Open all Open individually Skip")]
 
 
-def should_merge_only_the_picked_updates_when_the_user_picks_individually(run, repo, calls, tmp_path):
+def should_merge_the_ticked_updates_when_the_user_merges_individually(run, repo, calls):
+    repo("repo")
+
+    result = run([pull_request(1, [check_run()]), pull_request(2, [check_run()]), pull_request(3, [check_run()])],
+                 gum_answers=["Merge individually", "repo  renovate/dependency-1  #1\nrepo  renovate/dependency-3  #3"])
+
+    assert result.returncode == 0, result.stderr
+    assert calls("gum")[1] == checkbox_call("Merge which?", "repo  renovate/dependency-1  #1",
+                                            "repo  renovate/dependency-2  #2", "repo  renovate/dependency-3  #3")
+    assert merges(calls) == [merge_call(1), merge_call(3)]
+
+
+def should_merge_nothing_when_no_update_is_ticked(run, repo, calls):
+    repo("repo")
+
+    result = run([pull_request(1, [check_run()])], gum_answers=["Merge individually", ""])
+
+    assert result.returncode == 0, result.stderr
+    assert merges(calls) == []
+
+
+def should_open_every_link_and_ask_again_when_the_user_opens_all(run, repo, calls):
     repo("repo")
 
     result = run([pull_request(1, [check_run()]), pull_request(2, [check_run()])],
-                 gum_choice="Pick individually", picked_line=2)
+                 gum_answers=["Open all", "Merge all"])
 
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "picker-input").read_text().splitlines() == [
-        "repo  renovate/dependency-1  #1", "repo  renovate/dependency-2  #2"]
-    assert merges(calls) == [merge_call(2)]
+    assert calls("open") == ["https://github.com/owner/repo/pull/1 https://github.com/owner/repo/pull/2"]
+    assert merges(calls) == [merge_call(1), merge_call(2)]
 
 
-@pytest.mark.parametrize("gum_choice, gum_exit", [("Skip", 0), ("", 1)])
-def should_merge_nothing_when_the_user_skips_or_dismisses_the_prompt(run, repo, calls, gum_choice, gum_exit):
+def should_open_only_the_ticked_links_when_the_user_opens_individually(run, repo, calls):
     repo("repo")
 
-    result = run([pull_request(1, [check_run()])], gum_choice=gum_choice, gum_exit=gum_exit)
+    result = run([pull_request(1, [check_run()]), pull_request(2, [check_run()]), pull_request(3, [check_run()])],
+                 gum_answers=["Open individually", "repo  renovate/dependency-2  #2\nrepo  renovate/dependency-3  #3",
+                              "Skip"])
+
+    assert result.returncode == 0, result.stderr
+    assert calls("gum")[1].startswith(checkbox_call("Open which?"))
+    assert calls("open") == ["https://github.com/owner/repo/pull/2 https://github.com/owner/repo/pull/3"]
+    assert merges(calls) == []
+
+
+@pytest.mark.parametrize("gum_answer, gum_exit", [("Skip", 0), ("", 1)])
+def should_merge_nothing_when_the_user_skips_or_dismisses_the_prompt(run, repo, calls, gum_answer, gum_exit):
+    repo("repo")
+
+    result = run([pull_request(1, [check_run()])], gum_answers=[gum_answer], gum_exit=gum_exit)
 
     assert result.returncode == 0
     assert calls("gh") == [("pr list --state open --limit 100 --json "
@@ -246,7 +288,7 @@ def should_merge_nothing_when_the_user_skips_or_dismisses_the_prompt(run, repo, 
 def should_pass_on_the_exit_status_when_the_prompt_is_interrupted(run, repo):
     repo("repo")
 
-    result = run([pull_request(1, [check_run()])], gum_choice="", gum_exit=130)
+    result = run([pull_request(1, [check_run()])], gum_answers=[""], gum_exit=130)
 
     assert result.returncode == 130
 

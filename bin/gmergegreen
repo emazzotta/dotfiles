@@ -6,7 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
@@ -33,12 +33,21 @@ PIPELINE_RUNNING: Final = "pipeline running"
 PIPELINE_FAILED: Final = "pipeline failed"
 DEPENDENCY_UPDATE_BRANCHES: Final = ("renovate/", "dependabot/")
 PROMPT_DECLINED: Final = 1
+OPENER: Final = "open"
+CHECKBOXES: Final = ("--no-limit", "--cursor-prefix", "[ ] ", "--selected-prefix", "[x] ",
+                     "--unselected-prefix", "[ ] ")
 
 
 class Choice(Enum):
     MERGE_ALL = "Merge all"
-    PICK = "Pick individually"
+    MERGE_PICKED = "Merge individually"
+    OPEN_ALL = "Open all"
+    OPEN_PICKED = "Open individually"
     SKIP = "Skip"
+
+
+PICK_HEADERS: Final = {Choice.MERGE_PICKED: "Merge which?", Choice.OPEN_PICKED: "Open which?"}
+OPEN_CHOICES: Final = frozenset({Choice.OPEN_ALL, Choice.OPEN_PICKED})
 
 
 @dataclass(frozen=True)
@@ -258,33 +267,52 @@ def report(lookups: list[Lookup]) -> None:
     print()
 
 
-def picker_entries(pending: list[Pending]) -> dict[str, Pending]:
+def checklist_entries(pending: list[Pending]) -> dict[str, Pending]:
     label_width = max(len(repo.label) for repo, _ in pending)
     branch_width = max(len(merge_request.branch) for _, merge_request in pending)
     return {f"{repo.label.ljust(label_width)}  {merge_request.branch.ljust(branch_width)}  {merge_request.ref}":
             (repo, merge_request) for repo, merge_request in pending}
 
 
-def pick(pending: list[Pending]) -> tuple[int, list[Pending]]:
-    entries = picker_entries(pending)
-    picked = subprocess.run(["picker", "--multi", "--header", "Merge which?"], input="\n".join(entries),
+def gum_choose(header: str, options: Iterable[str], *flags: str) -> tuple[int, list[str]]:
+    sys.stdout.flush()
+    chosen = subprocess.run(["gum", "choose", *flags, "--header", header, *options],
                             stdout=subprocess.PIPE, text=True, check=False)
-    return picked.returncode, [entries[line] for line in picked.stdout.splitlines()]
+    return chosen.returncode, [line for line in chosen.stdout.splitlines() if line]
+
+
+def ask(count: int) -> tuple[int, Choice]:
+    noun = "merge request" if count == 1 else "merge requests"
+    answer, chosen = gum_choose(f"{count} {noun} ready to squash merge", [choice.value for choice in Choice])
+    return answer, (Choice(chosen[0]) if chosen else Choice.SKIP)
+
+
+def pick(pending: list[Pending], header: str) -> tuple[int, list[Pending]]:
+    entries = checklist_entries(pending)
+    answer, picked = gum_choose(header, entries, *CHECKBOXES)
+    return answer, [entries[line] for line in picked]
+
+
+def selection(choice: Choice, pending: list[Pending]) -> tuple[int, list[Pending]]:
+    if choice in PICK_HEADERS:
+        return pick(pending, PICK_HEADERS[choice])
+    return 0, [] if choice is Choice.SKIP else pending
+
+
+def open_links(chosen: list[Pending]) -> None:
+    if chosen:
+        subprocess.run([OPENER, *(merge_request.url for _, merge_request in chosen)], check=False)
 
 
 def choose(pending: list[Pending]) -> tuple[int, list[Pending]]:
-    noun = "merge request" if len(pending) == 1 else "merge requests"
-    sys.stdout.flush()
-    answer = subprocess.run(["gum", "choose", "--header",
-                             f"Squash merge {len(pending)} {noun} and delete their branches?",
-                             *(choice.value for choice in Choice)],
-                            stdout=subprocess.PIPE, text=True, check=False)
-    if answer.returncode:
-        return answer.returncode, []
-    choice = Choice(answer.stdout.strip())
-    if choice is Choice.PICK:
-        return pick(pending)
-    return 0, pending if choice is Choice.MERGE_ALL else []
+    while True:
+        answer, choice = ask(len(pending))
+        if answer:
+            return answer, []
+        answer, chosen = selection(choice, pending)
+        if answer or choice not in OPEN_CHOICES:
+            return answer, chosen
+        open_links(chosen)
 
 
 def merge(repo: Repo, merge_request: MergeRequest) -> bool:
@@ -311,7 +339,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Squash merge the open Renovate and Dependabot merge requests and pull requests whose "
                     "pipeline passed and that the server reports as mergeable, deleting their branches. Lists them "
-                    "by repository, then merges all of them or only the ones you pick.")
+                    "by repository, then merges or opens all of them or only the ones you tick.")
     parser.add_argument("dir", nargs="?", type=Path, default=Path("."),
                         help=f"a repository, or a directory searched {SCAN_DEPTH} levels deep for them, "
                              "as gupallin does (default: the current directory)")
