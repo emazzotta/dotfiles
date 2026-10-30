@@ -1,0 +1,329 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Final, Union
+from urllib.parse import quote
+
+from branch_ci import GITHUB_PASSING_CONCLUSIONS, CommandFailed, Run, run_command
+from scriptlog import DIM, GREEN, RESET, YELLOW, error, hyperlink, info, substep_error, substep_success, success
+
+SCAN_DEPTH: Final = 3
+PARALLEL_LOOKUPS: Final = 8
+PAGE_SIZE: Final = 100
+GITHUB_HOST: Final = "github.com"
+GITHUB_PULL_REQUEST_FIELDS: Final = "number,title,url,headRefName,headRefOid,mergeStateStatus,statusCheckRollup"
+GITHUB_MERGEABLE_STATES: Final = frozenset({"CLEAN", "HAS_HOOKS"})
+GITHUB_PENDING_STATES: Final = frozenset({"PENDING", "EXPECTED"})
+GITHUB_STATUS_CONTEXT: Final = "StatusContext"
+GITHUB_CHECK_COMPLETED: Final = "COMPLETED"
+GITLAB_MERGEABLE: Final = "mergeable"
+GITLAB_PIPELINE_PASSED: Final = "success"
+NO_PIPELINE: Final = "no pipeline"
+PIPELINE_RUNNING: Final = "pipeline running"
+PIPELINE_FAILED: Final = "pipeline failed"
+GUM_YES: Final = 0
+GUM_NO: Final = 1
+
+
+@dataclass(frozen=True)
+class MergeRequest:
+    number: int
+    ref: str
+    title: str
+    url: str
+    branch: str
+    sha: str
+    blocker: str
+
+    @property
+    def mergeable(self) -> bool:
+        return not self.blocker
+
+
+def readable(state: str) -> str:
+    return state.lower().replace("_", " ")
+
+
+def gitlab_blocker(merge_request: dict) -> str:
+    pipeline = merge_request.get("head_pipeline")
+    if not pipeline:
+        return NO_PIPELINE
+    if pipeline["status"] != GITLAB_PIPELINE_PASSED:
+        return f"pipeline {readable(pipeline['status'])}"
+    status = merge_request["detailed_merge_status"]
+    return "" if status == GITLAB_MERGEABLE else readable(status)
+
+
+def github_check_blocker(check: dict) -> str:
+    if check.get("__typename") == GITHUB_STATUS_CONTEXT:
+        pending, outcome = check["state"] in GITHUB_PENDING_STATES, check["state"]
+    else:
+        pending, outcome = check["status"] != GITHUB_CHECK_COMPLETED, check["conclusion"]
+    if pending:
+        return PIPELINE_RUNNING
+    return "" if (outcome or "").lower() in GITHUB_PASSING_CONCLUSIONS else PIPELINE_FAILED
+
+
+def github_pipeline_blocker(checks: list[dict]) -> str:
+    if not checks:
+        return NO_PIPELINE
+    blockers = {github_check_blocker(check) for check in checks}
+    return next((blocker for blocker in (PIPELINE_FAILED, PIPELINE_RUNNING) if blocker in blockers), "")
+
+
+def github_blocker(pull_request: dict) -> str:
+    pipeline_blocker = github_pipeline_blocker(pull_request["statusCheckRollup"])
+    if pipeline_blocker:
+        return pipeline_blocker
+    state = pull_request["mergeStateStatus"]
+    return "" if state in GITHUB_MERGEABLE_STATES else readable(state)
+
+
+class GitLab:
+    CLIENT = "glab"
+
+    def __init__(self, run: Run, host: str, project: str):
+        self.run = run
+        self.host = host
+        self.project = project
+
+    def _api(self, endpoint: str, *options: str) -> str:
+        project_path = quote(self.project, safe="")
+        return self.run([self.CLIENT, "api", "--hostname", self.host, *options,
+                         f"projects/{project_path}/{endpoint}"])
+
+    def open_merge_requests(self) -> list[MergeRequest]:
+        listed = json.loads(self._api(f"merge_requests?state=opened&per_page={PAGE_SIZE}"))
+        return [self._merge_request(json.loads(self._api(f"merge_requests/{merge_request['iid']}")))
+                for merge_request in listed]
+
+    def merge(self, merge_request: MergeRequest) -> None:
+        self._api(f"merge_requests/{merge_request.number}/merge", "--method", "PUT",
+                  "--field", "squash=true", "--field", "should_remove_source_branch=true",
+                  "--raw-field", f"sha={merge_request.sha}")
+
+    @staticmethod
+    def _merge_request(merge_request: dict) -> MergeRequest:
+        return MergeRequest(merge_request["iid"], f"!{merge_request['iid']}", merge_request["title"],
+                            merge_request["web_url"], merge_request["source_branch"], merge_request["sha"],
+                            gitlab_blocker(merge_request))
+
+
+class GitHub:
+    CLIENT = "gh"
+
+    def __init__(self, run: Run, repo: str):
+        self.run = run
+        self.repo = repo
+
+    def _gh(self, *args: str) -> str:
+        return self.run([self.CLIENT, *args, "--repo", self.repo])
+
+    def open_merge_requests(self) -> list[MergeRequest]:
+        pull_requests = json.loads(self._gh("pr", "list", "--state", "open", "--limit", str(PAGE_SIZE),
+                                            "--json", GITHUB_PULL_REQUEST_FIELDS))
+        return [self._merge_request(pull_request) for pull_request in pull_requests]
+
+    def merge(self, merge_request: MergeRequest) -> None:
+        self._gh("pr", "merge", str(merge_request.number), "--squash", "--delete-branch",
+                 "--match-head-commit", merge_request.sha)
+
+    @staticmethod
+    def _merge_request(pull_request: dict) -> MergeRequest:
+        return MergeRequest(pull_request["number"], f"#{pull_request['number']}", pull_request["title"],
+                            pull_request["url"], pull_request["headRefName"], pull_request["headRefOid"],
+                            github_blocker(pull_request))
+
+
+Provider = Union[GitLab, GitHub]
+
+
+@dataclass(frozen=True)
+class Repo:
+    label: str
+    slug: str
+    provider: Provider
+
+
+@dataclass(frozen=True)
+class Lookup:
+    repo: Repo
+    merge_requests: tuple[MergeRequest, ...]
+
+
+def provider_for(slug: str, run: Run) -> Provider:
+    host, _, path = slug.partition("/")
+    if host == GITHUB_HOST:
+        return GitHub(run, path)
+    return GitLab(run, host, path)
+
+
+def remote_slug(url: str) -> str:
+    remote = url.strip().removesuffix(".git")
+    if "://" in remote:
+        remote = remote.split("://", 1)[1]
+    elif ":" in remote:
+        host, _, path = remote.partition(":")
+        remote = f"{host}/{path}"
+    else:
+        return ""
+    return remote.split("@", 1)[-1]
+
+
+def origin_url(path: Path) -> str:
+    try:
+        return run_command(["git", "-C", str(path), "remote", "get-url", "origin"])
+    except CommandFailed:
+        return ""
+
+
+def is_directory(path: Path) -> bool:
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
+
+
+def subdirectories(directory: Path) -> list[Path]:
+    try:
+        children = sorted(directory.iterdir())
+    except OSError:
+        return []
+    return [child for child in children if is_directory(child)]
+
+
+def find_repos(directory: Path, depth: int = SCAN_DEPTH) -> Iterator[Path]:
+    if is_directory(directory / ".git"):
+        yield directory
+    if depth > 0 and not directory.is_symlink():
+        for child in subdirectories(directory):
+            yield from find_repos(child, depth - 1)
+
+
+def repos_under(root: Path) -> list[Repo]:
+    repos: dict[str, Repo] = {}
+    for path in find_repos(root):
+        slug = remote_slug(origin_url(path))
+        if slug and slug not in repos:
+            label = path.name if path == root else str(path.relative_to(root))
+            repos[slug] = Repo(label, slug, provider_for(slug, run_command))
+    return list(repos.values())
+
+
+def lookup(repo: Repo) -> tuple[Lookup | None, str]:
+    client = repo.provider.CLIENT
+    if shutil.which(client) is None:
+        return None, f"{repo.slug}: {client} is not installed"
+    try:
+        return Lookup(repo, tuple(repo.provider.open_merge_requests())), ""
+    except CommandFailed as failure:
+        return None, f"{repo.slug}: {failure}"
+    except (ValueError, LookupError, TypeError):
+        return None, f"{repo.slug}: unexpected {client} response"
+
+
+def lookup_all(repos: list[Repo]) -> tuple[list[Lookup], list[str]]:
+    with ThreadPoolExecutor(PARALLEL_LOOKUPS) as pool:
+        results = list(pool.map(lookup, repos))
+    return ([found for found, _ in results if found and found.merge_requests],
+            [warning for _, warning in results if warning])
+
+
+def render_row(merge_request: MergeRequest, ref_width: int, branch_width: int) -> str:
+    padding = " " * (ref_width - len(merge_request.ref))
+    columns = f"{hyperlink(merge_request.url, merge_request.ref)}{padding}  {merge_request.branch.ljust(branch_width)}"
+    if merge_request.mergeable:
+        return f"  {GREEN}✓{RESET} {columns}  {merge_request.title}"
+    return f"  {DIM}· {columns}  {merge_request.blocker}{RESET}"
+
+
+def render(found: Lookup) -> list[str]:
+    ref_width = max(len(merge_request.ref) for merge_request in found.merge_requests)
+    branch_width = max(len(merge_request.branch) for merge_request in found.merge_requests)
+    return [f"{YELLOW}{found.repo.label}{RESET}",
+            *(render_row(merge_request, ref_width, branch_width) for merge_request in found.merge_requests)]
+
+
+def report(lookups: list[Lookup], warnings: list[str]) -> None:
+    for found in lookups:
+        print("\n".join(render(found)))
+    if warnings:
+        print()
+        error("No merge requests read:")
+        for warning in warnings:
+            substep_error(warning)
+    print()
+
+
+def ask(count: int) -> int:
+    noun = "merge request" if count == 1 else "merge requests"
+    sys.stdout.flush()
+    return subprocess.run(["gum", "confirm", "--default=false",
+                           f"Squash merge {count} {noun} and delete their branches?"], check=False).returncode
+
+
+def merge(repo: Repo, merge_request: MergeRequest) -> bool:
+    name = f"{repo.label} {merge_request.ref} {merge_request.branch}"
+    try:
+        repo.provider.merge(merge_request)
+    except CommandFailed as failure:
+        substep_error(f"{name}: {failure}")
+        return False
+    substep_success(name)
+    return True
+
+
+def merge_all(pending: list[tuple[Repo, MergeRequest]]) -> int:
+    failed = [merge_request for repo, merge_request in pending if not merge(repo, merge_request)]
+    if failed:
+        error(f"{len(failed)} of {len(pending)} merges failed.")
+        return 1
+    success(f"Merged {len(pending)}.")
+    return 0
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Squash merge every open GitLab merge request and GitHub pull request whose pipeline passed "
+                    "and that the server reports as mergeable, deleting its branch. Lists what it would merge, "
+                    "and why each other open one stays, then asks before merging.")
+    parser.add_argument("dir", nargs="?", type=Path, default=Path("."),
+                        help=f"a repository, or a directory searched {SCAN_DEPTH} levels deep for them, "
+                             "as gupallin does (default: the current directory)")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str]) -> int:
+    root = parse_args(argv).dir.resolve()
+    if not root.is_dir():
+        error(f"{root} is not a directory")
+        return 2
+    if shutil.which("gum") is None:
+        error("gum is not installed")
+        return 1
+    repos = repos_under(root)
+    info(f"Reading the open merge requests of {len(repos)} repositories")
+    lookups, warnings = lookup_all(repos)
+    report(lookups, warnings)
+    pending = [(found.repo, merge_request) for found in lookups
+               for merge_request in found.merge_requests if merge_request.mergeable]
+    if not pending:
+        success("Nothing to merge.")
+        return 0
+    answer = ask(len(pending))
+    if answer != GUM_YES:
+        return 0 if answer == GUM_NO else answer
+    return merge_all(pending)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
