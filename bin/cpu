@@ -1,4 +1,39 @@
 #!/bin/bash
+set -uo pipefail
 
-export CORES=$(sysctl -n hw.ncpu)
-ps -axro pcpu | awk '{sum+=$1} END {print "scale=2; " sum " / " ENVIRON["CORES"]}' | bc -l | xargs -I {} echo "{}%"
+readonly SAMPLE_SECONDS=0.5
+
+cpu_percent_macos() {
+  local cores
+  cores=$(sysctl -n hw.ncpu) || return 1
+  ps -axro pcpu | awk -v cores="$cores" '{ sum += $1 } END { printf "%f\n", sum / cores }'
+}
+
+cpu_ticks_linux() {
+  awk '/^cpu / { printf "%.0f %.0f\n", $2 + $3 + $4 + $5 + $6 + $7 + $8 + $9, $5 + $6; exit }' /proc/stat
+}
+
+cpu_percent_linux() {
+  { cpu_ticks_linux; sleep "$SAMPLE_SECONDS"; cpu_ticks_linux; } | awk '
+    NR == 1 { total = $1; idle = $2 }
+    NR == 2 { elapsed = $1 - total; printf "%f\n", elapsed ? 100 * (elapsed - ($2 - idle)) / elapsed : 0 }
+  '
+}
+
+format_percent() {
+  awk '{ printf "%.2f%%\n", $1 }'
+}
+
+main() {
+  local os
+  os=$(uname -s)
+  case "$os" in
+    Darwin) cpu_percent_macos ;;
+    Linux) cpu_percent_linux ;;
+    *) echo "cpu: unsupported OS: $os" >&2; return 1 ;;
+  esac | format_percent
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi
