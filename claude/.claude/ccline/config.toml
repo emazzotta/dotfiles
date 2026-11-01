@@ -9,7 +9,7 @@ left = [
   { metric = "git", icon = "🌿" },
   { metric = "context", widget = "text", icon = "⚡️", format = "{pct}%[ · {tokens} tokens]" },
   { metric = "quota.5h", widget = "text", icon = "📊", format = "5h {pct}%[ · {reset}]" },
-  { metric = "quota.7d", widget = "text", icon = "", format = "7d {pct}%[ · {reset}]" },
+  { metric = "quota.7d", widget = "text", icon = "📊", format = "7d {pct}%[ · {reset}]" },
   { metric = "cost", icon = "💰" },
 ]
 right = ["update"]
