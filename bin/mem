@@ -1,25 +1,41 @@
 #!/bin/bash
+set -uo pipefail
 
-get_mem_usage_osx(){
-  local page_size=$(sysctl -nq "vm.pagesize")
-  vm_stat | awk -v page_size=$page_size -F ':' '
-    BEGIN { used=0 }
+readonly BYTES_PER_KIB=1024
+readonly BYTES_PER_GIB=1073741824
 
-    /Pages active/ ||
-    /Pages inactive/ {
-      gsub(/^[ \t]+|[ \t]+$/, "", $2); used+=$2;
-    }
-
-    END { print (used * page_size)/(1024*1024*1024) }
+mem_bytes_macos() {
+  local page_size total
+  page_size=$(sysctl -n vm.pagesize) || return 1
+  total=$(sysctl -n hw.memsize) || return 1
+  vm_stat | awk -F ':' -v page_size="$page_size" -v total="$total" '
+    /^Pages (active|inactive):/ { used += $2 }
+    END { printf "%.0f %.0f\n", used * page_size, total }
   '
 }
 
-echo "scale=2; $(get_mem_usage_osx) / 1" | bc -l
+mem_bytes_linux() {
+  awk -v kib="$BYTES_PER_KIB" '
+    /^MemTotal:/ { total = $2 }
+    /^MemAvailable:/ { available = $2 }
+    END { printf "%.0f %.0f\n", (total - available) * kib, total * kib }
+  ' /proc/meminfo
+}
 
-TOTAL=$(($(sysctl hw.memsize | awk '{print $2}')/1024/1024))
-TOTAL_GB=$(echo "scale=2; $TOTAL/1024" | bc -l)
-USED_GB=$(echo "scale=2; $(get_mem_usage_osx) / 1" | bc -l)
+format_gib() {
+  awk -v gib="$BYTES_PER_GIB" '{ printf "%.2fG/%.2fG\n", $1 / gib, $2 / gib }'
+}
 
-echo "${USED_GB}G/${TOTAL_GB}G"
+main() {
+  local os
+  os=$(uname -s)
+  case "$os" in
+    Darwin) mem_bytes_macos ;;
+    Linux) mem_bytes_linux ;;
+    *) echo "mem: unsupported OS: $os" >&2; return 1 ;;
+  esac | format_gib
+}
 
-# vm_stat | grep pages | awk '{print $NF}' | xargs -I {} echo {} | sed 's/\.//' | xargs -I {} echo "scale=2; {}*4096/1024/1024/1024" | bc -l | xargs -I {} echo {} GB
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi
