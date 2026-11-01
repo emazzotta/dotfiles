@@ -5,6 +5,7 @@ import argparse
 import fnmatch
 import json
 import os
+import platform
 import re
 import select
 import shlex
@@ -255,6 +256,7 @@ def _install_orphan_guard(container_name: str) -> None:
         signal.signal(number, remove_and_exit)
 
 
+IS_DARWIN = platform.system() == "Darwin"
 OPENCODE_ROOT = Path.home() / "Projects" / "private" / "opencode"
 COMPOSE_FILE = OPENCODE_ROOT / "docker-compose.yml"
 LEONARDO_PROJECTS = Path.home() / "Projects" / "leo-productions"
@@ -951,9 +953,9 @@ def build_entrypoint_invocation(args, claude_args: list[str], pwd: Path) -> tupl
 def run_in_place(entrypoint: str, plugin_args: list[str], entrypoint_args: list[str]) -> None:
     """Run the tool directly instead of launching a container around it.
 
-    With no opencode project present we are already inside the environment cl
-    would otherwise start - the dev box, where the image bakes these dotfiles in.
-    The argument handling still applies; only docker does not.
+    Off macOS, or with no opencode project present, we are already inside the
+    environment cl would otherwise start - the dev box, where the image bakes
+    these dotfiles in. The argument handling still applies; only docker does not.
 
     Compose always starts the container in CONTAINER_WORKSPACE and Claude Code
     keys its session store on that directory, so inheriting the caller's shell
@@ -961,7 +963,8 @@ def run_in_place(entrypoint: str, plugin_args: list[str], entrypoint_args: list[
     """
     if shutil.which(entrypoint) is None:
         print(
-            f"cl: no opencode project at {OPENCODE_ROOT} to launch, and {entrypoint} is not on PATH",
+            f"cl: {entrypoint} is not on PATH, and cl starts a container only on macOS"
+            f" with the opencode project at {OPENCODE_ROOT}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -1026,7 +1029,7 @@ def main() -> None:
     if args.all_projects and args.opencode:
         parser.error("-a/--all scopes claude sessions by project; opencode keeps a single session store")
 
-    if not OPENCODE_ROOT.is_dir():
+    if not (IS_DARWIN and OPENCODE_ROOT.is_dir()):
         run_in_place(*build_entrypoint_invocation(args, claude_args, pwd))
 
     _profile("argparse")

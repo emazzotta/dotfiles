@@ -26,10 +26,11 @@ def _no_transcript_sync(cl, tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _assume_a_host_with_the_project(cl, tmp_path, monkeypatch):
-    """Most tests exercise the container path; that needs an opencode project present."""
+    """Most tests exercise the container path; that needs a Mac with an opencode project present."""
     root = tmp_path / "opencode-root"
     root.mkdir(exist_ok=True)
     monkeypatch.setattr(cl, "OPENCODE_ROOT", root)
+    monkeypatch.setattr(cl, "IS_DARWIN", True)
 
 
 @pytest.fixture(autouse=True)
@@ -852,6 +853,32 @@ class TestMain:
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
         monkeypatch.setattr(cl, "run", mock_run)
         return captured
+
+    @pytest.mark.parametrize(
+        ("is_darwin", "project_present"),
+        [(False, True), (False, False), (True, False)],
+        ids=["linux-with-project", "linux-without-project", "mac-without-project"],
+    )
+    def test_should_run_in_place_unless_this_is_a_mac_with_the_opencode_project(
+        self, cl, monkeypatch, mock_cl_run, tmp_path, is_darwin, project_present
+    ):
+        in_place = []
+
+        def stop_in_place(*invocation):
+            in_place.append(invocation)
+            raise SystemExit(0)
+
+        monkeypatch.setattr(cl, "IS_DARWIN", is_darwin)
+        if not project_present:
+            monkeypatch.setattr(cl, "OPENCODE_ROOT", tmp_path / "absent")
+        monkeypatch.setattr(cl, "run_in_place", stop_in_place)
+        monkeypatch.setattr(sys, "argv", ["cl"])
+
+        with pytest.raises(SystemExit):
+            cl.main()
+
+        assert len(in_place) == 1
+        assert not any(command[:2] == ["docker", "compose"] for command in mock_cl_run)
 
     def test_custom_path_only(self, cl, monkeypatch, mock_cl_run, tmp_path):
         custom_dir = tmp_path / "custom"
@@ -1798,14 +1825,18 @@ class TestOrphanGuardEndToEnd:
         (tmp_path / "home" / "Projects" / "private" / "opencode").mkdir(parents=True)
         return project
 
+    @staticmethod
+    def _as_a_mac(tmp_path):
+        """macOS ping reads -W as milliseconds, Linux as seconds: callers stub ping as well."""
+        site = tmp_path / "as-a-mac"
+        site.mkdir()
+        (site / "sitecustomize.py").write_text('import platform\nplatform.system = lambda: "Darwin"\n')
+        return {"PYTHONPATH": str(site)}
+
     def _run_cl(self, run_cli, tmp_path, project, docker_mock):
         calls = tmp_path / "docker-calls.log"
-        result = run_cli(
-            "cl",
-            env_extra={"HOME": str(tmp_path / "home"), "DOCKER_CALLS": str(calls)},
-            mock_bins={"docker": docker_mock},
-            cwd=project,
-        )
+        env = {"HOME": str(tmp_path / "home"), "DOCKER_CALLS": str(calls), **self._as_a_mac(tmp_path)}
+        result = run_cli("cl", env_extra=env, mock_bins={"docker": docker_mock, "ping": "exit 0"}, cwd=project)
         return result, calls.read_text().splitlines()
 
     def test_should_remove_the_container_when_the_terminal_hangs_up(self, run_cli, tmp_path, project):
