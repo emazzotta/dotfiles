@@ -41,6 +41,42 @@ def session_store(cl, tmp_path, monkeypatch):
     return store
 
 
+@pytest.fixture(autouse=True)
+def session_registry_dir(cl, tmp_path, monkeypatch):
+    """Keeps records and Claude's process files out of the real home, and the launch out of any real tmux."""
+    registry = tmp_path / "registry"
+    monkeypatch.setattr(cl, "SESSION_REGISTRY", registry)
+    monkeypatch.setattr(cl, "CLAUDE_PROCESSES", tmp_path / "claude-processes")
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TMUX_PANE", raising=False)
+    return registry
+
+
+class FakeProcess:
+    """Stands in for Popen so no test ever starts the real claude."""
+
+    launched: list[list[str]] = []
+    returncode = 0
+    while_running = staticmethod(lambda: None)
+
+    def __init__(self, command, **_kwargs):
+        FakeProcess.launched.append(command)
+        self.pid = 4242
+
+    def wait(self):
+        FakeProcess.while_running()
+        return FakeProcess.returncode
+
+
+@pytest.fixture
+def fake_popen(cl, monkeypatch):
+    FakeProcess.launched = []
+    FakeProcess.returncode = 0
+    FakeProcess.while_running = staticmethod(lambda: None)
+    monkeypatch.setattr(cl, "Popen", FakeProcess)
+    return FakeProcess
+
+
 class TestRunInPlace:
     def test_should_exec_a_tool_that_has_no_claude_session(self, cl, monkeypatch):
         execed = {}
@@ -52,15 +88,16 @@ class TestRunInPlace:
         assert execed["file"] == "opencode"
         assert execed["argv"] == ["opencode", "--session", "abc"]
 
-    def test_should_run_claude_and_then_note_a_session_left_without_a_prompt(self, cl, monkeypatch, capsys):
-        ran = []
+    def test_should_run_claude_and_then_note_a_session_left_without_a_prompt(
+        self, cl, monkeypatch, capsys, fake_popen
+    ):
         monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/claude")
-        monkeypatch.setattr(cl, "run", lambda cmd: ran.append(cmd) or subprocess.CompletedProcess(cmd, 3))
+        fake_popen.returncode = 3
 
         with pytest.raises(SystemExit) as exit_info:
             cl.run_in_place("claude", ["--plugin-dir", "/p"], ["--session-id", CLAUDE_SESSION_ID])
 
-        assert ran == [["claude", "--plugin-dir", "/p", "--session-id", CLAUDE_SESSION_ID]]
+        assert fake_popen.launched == [["claude", "--plugin-dir", "/p", "--session-id", CLAUDE_SESSION_ID]]
         assert exit_info.value.code == 3
         assert "nothing to resume" in capsys.readouterr().err
 
@@ -93,6 +130,29 @@ class TestRunInPlace:
         cl.run_in_place("opencode", [], [])
 
         assert visited == []
+
+    def test_should_run_the_resume_picker_as_a_tracked_child(self, cl, monkeypatch, fake_popen):
+        monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/claude-resume")
+        monkeypatch.setattr(cl.os, "execvp", lambda *_: pytest.fail("the picker must not replace cl"))
+
+        with pytest.raises(SystemExit):
+            cl.run_in_place("claude-resume", [], ["deploy"])
+
+        assert fake_popen.launched == [["claude-resume", "deploy"]]
+
+    def test_should_hold_a_record_while_claude_runs_and_drop_it_after_a_clean_exit(
+        self, cl, monkeypatch, fake_popen, session_registry_dir, tmp_path
+    ):
+        seen_while_running = []
+        monkeypatch.setattr(cl.shutil, "which", lambda _: "/usr/bin/claude")
+        fake_popen.while_running = staticmethod(lambda: seen_while_running.extend(session_registry_dir.glob("*.json")))
+        record = cl.session_registry.SessionRecord(None, tmp_path, (), None, cl.datetime.now(cl.timezone.utc))
+
+        with pytest.raises(SystemExit):
+            cl.run_in_place("claude", [], [], record)
+
+        assert len(seen_while_running) == 1
+        assert not list(session_registry_dir.glob("*.json"))
 
 
 class TestNoteWhenNothingToResume:
@@ -1785,7 +1845,7 @@ class TestOrphanGuard:
             signal.signal(number, handler)
 
     def test_should_guard_against_hangup_and_termination(self, cl):
-        cl._install_orphan_guard("opencode-1787254728")
+        cl._install_exit_guard(cl.session_registry.UNTRACKED, "opencode-1787254728")
 
         handlers = {signal.getsignal(number) for number in self.GUARDED_SIGNALS}
 
@@ -1794,7 +1854,7 @@ class TestOrphanGuard:
 
     def test_should_remove_the_container_when_the_signal_arrives(self, cl, docker_run):
         docker_calls = docker_run()
-        cl._install_orphan_guard("opencode-1787254728")
+        cl._install_exit_guard(cl.session_registry.UNTRACKED, "opencode-1787254728")
         handler = signal.getsignal(signal.SIGHUP)
 
         with pytest.raises(SystemExit):
@@ -1804,7 +1864,7 @@ class TestOrphanGuard:
 
     def test_should_exit_with_the_status_of_the_signal(self, cl, docker_run):
         docker_run()
-        cl._install_orphan_guard("opencode-1787254728")
+        cl._install_exit_guard(cl.session_registry.UNTRACKED, "opencode-1787254728")
         handler = signal.getsignal(signal.SIGTERM)
 
         with pytest.raises(SystemExit) as exit_info:
@@ -1850,6 +1910,141 @@ class TestOrphanGuardEndToEnd:
 
         assert not any(call.startswith("rm ") for call in docker_calls)
         assert result.returncode == 0
+
+
+
+def cl_namespace(**overrides):
+    defaults = dict(files=[], paths=[], excludes=[], no_skip=False, skip=False, git_ignore_mount=False)
+    return argparse.Namespace(**(defaults | overrides))
+
+
+class TestRestoreArgs:
+    def test_should_keep_mounts_permission_mode_and_claude_flags(self, cl, tmp_path):
+        args = cl_namespace(files=["a.py"], paths=[tmp_path], excludes=["*.env"], skip=True, git_ignore_mount=True)
+
+        result = cl.restore_args(args, ["--model", "opus"])
+
+        assert result == ["-f", "a.py", "-p", str(tmp_path), "-x", "*.env", "-s", "--git-ignore-mount", "--model", "opus"]
+
+    def test_should_drop_the_opening_prompt_and_how_the_session_was_picked(self, cl):
+        claude_args = ["--session-id", CLAUDE_SESSION_ID, "--fork-session", "-c", "--model", "opus", "fix the bug"]
+
+        assert cl.restore_args(cl_namespace(no_skip=True), claude_args) == ["-n", "--model", "opus"]
+
+    def test_should_drop_a_session_id_given_inline(self, cl):
+        assert cl.restore_args(cl_namespace(), [f"--session-id={CLAUDE_SESSION_ID}", "--verbose"]) == ["--verbose"]
+
+
+class TestBuildSessionRecord:
+    @pytest.mark.parametrize(("invocation", "claude_args"), [
+        (("opencode", [], []), []),
+        (("claude", [], ["--print"]), ["--print"]),
+    ], ids=["opencode", "print"])
+    def test_should_not_track_what_cannot_be_resumed_interactively(self, cl, tmp_path, invocation, claude_args):
+        assert cl.build_session_record(cl_namespace(), claude_args, invocation, tmp_path) is None
+
+    def test_should_record_the_session_cl_named_up_front(self, cl, tmp_path):
+        invocation = ("claude", [], ["--session-id", CLAUDE_SESSION_ID, "--model", "opus"])
+
+        record = cl.build_session_record(cl_namespace(skip=True), ["--model", "opus"], invocation, tmp_path)
+
+        assert str(record.session_id) == CLAUDE_SESSION_ID
+        assert record.cl_args == ("-s", "--model", "opus")
+        assert record.cwd == tmp_path
+        assert record.tmux_session is None
+
+    def test_should_leave_the_session_open_until_the_picker_chose_one(self, cl, tmp_path):
+        record = cl.build_session_record(cl_namespace(), [], ("claude-resume", [], ["deploy"]), tmp_path)
+
+        assert record.session_id is None
+
+
+class TestRestoreFlag:
+    def test_should_reopen_interrupted_sessions_instead_of_launching(self, cl, monkeypatch, fake_popen):
+        restored = []
+        monkeypatch.setattr(cl.session_registry.Registry, "restore", lambda registry: restored.append(registry) or 0)
+        monkeypatch.setattr(sys, "argv", ["cl", "--restore"])
+
+        with pytest.raises(SystemExit) as exit_info:
+            cl.main()
+
+        assert exit_info.value.code == 0
+        assert restored[0].directory == cl.SESSION_REGISTRY
+        assert not fake_popen.launched
+
+
+class TestInterruptedSessionsHint:
+    @pytest.mark.parametrize(("count", "hint"), [
+        (0, None),
+        (1, "cl --restore reopens 1 interrupted session"),
+        (3, "cl --restore reopens 3 interrupted sessions"),
+    ])
+    def test_should_mention_restore_when_sessions_are_waiting(self, cl, monkeypatch, capsys, count, hint):
+        monkeypatch.setattr(cl.session_registry.Registry, "count_interrupted", lambda _registry: count)
+        monkeypatch.setattr(cl, "IS_DARWIN", False)
+        monkeypatch.setattr(cl, "run_in_place", lambda *_: sys.exit(0))
+        monkeypatch.setattr(sys, "argv", ["cl"])
+
+        with pytest.raises(SystemExit):
+            cl.main()
+
+        err = capsys.readouterr().err
+        assert (hint in err) if hint else "--restore" not in err
+
+
+class TestSessionTrackingEndToEnd:
+    """Real cl, mock claude: what a pod kill and a closed tmux window leave behind."""
+
+    CLEARED = "12628732-a407-4733-9384-f014ec3a4d00"
+    SWITCH_TO_CLEARED_SESSION = (
+        'mkdir -p "$HOME/.claude/sessions"\n'
+        f'printf \'{{"pid":%s,"sessionId":"{CLEARED}","startedAt":%s000,"pidDomain":"d"}}\' "$$" "$(date +%s)"'
+        ' > "$HOME/.claude/sessions/$$.json"\n'
+        'exec >/dev/null 2>&1\n'
+    )
+    TMUX_ON = {"TMUX": "/tmp/tmux-test/default,1,0", "TMUX_PANE": "%1"}
+    TMUX_OFF = {"TMUX": "", "TMUX_PANE": ""}
+
+    @pytest.fixture
+    def home(self, tmp_path):
+        home = tmp_path / "home"
+        home.mkdir()
+        return home
+
+    def _run_cl(self, run_cli, home, claude_mock, env):
+        mocks = {"claude": claude_mock, "tmux": "echo work"}
+        return run_cli("cl", args=["-s", "--model", "opus"], env_extra={"HOME": str(home), **env}, mock_bins=mocks)
+
+    @staticmethod
+    def _records(home):
+        return [json.loads(path.read_text()) for path in (home / ".local/state/cl/sessions").glob("*.json")]
+
+    @pytest.mark.slow
+    def test_should_keep_the_current_session_of_a_killed_cl_for_restore(self, run_cli, home):
+        kill_after_clear = self.SWITCH_TO_CLEARED_SESSION + 'sleep 3\nkill -KILL "$PPID"\n'
+
+        result = self._run_cl(run_cli, home, kill_after_clear, self.TMUX_ON)
+
+        assert result.returncode == -signal.SIGKILL
+        [record] = self._records(home)
+        assert record["sessionId"] == self.CLEARED
+        assert record["clArgs"] == ["-s", "--model", "opus"]
+        assert record["tmuxSession"] == "work"
+
+    @pytest.mark.parametrize(("env", "kept"), [(TMUX_ON, False), (TMUX_OFF, True)], ids=["ctrl-q", "ssh-dropped"])
+    def test_should_forget_a_closed_tmux_window_but_keep_a_dropped_connection(self, run_cli, home, env, kept):
+        hang_up = 'exec >/dev/null 2>&1\nkill -HUP "$PPID"\nsleep 2\n'
+
+        result = self._run_cl(run_cli, home, hang_up, env)
+
+        assert result.returncode == 128 + signal.SIGHUP
+        assert bool(self._records(home)) is kept
+
+    def test_should_forget_a_session_that_exited_on_its_own(self, run_cli, home):
+        result = self._run_cl(run_cli, home, "exit 0", self.TMUX_ON)
+
+        assert result.returncode == 0
+        assert not self._records(home)
 
 
 class TestTranscriptSync:

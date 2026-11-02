@@ -15,12 +15,15 @@ import sys
 import threading
 import importlib.util
 from collections.abc import Callable
+from datetime import datetime, timezone
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from subprocess import DEVNULL, PIPE, Popen, SubprocessError, run
 from time import perf_counter, sleep, time, time_ns
 from types import FrameType
-from uuid import uuid4
+from uuid import UUID, uuid4
+
+import session_registry
 
 INTERNET_CHECK_HOST = "one.one.one.one"
 INTERNET_CHECK_TIMEOUT_MS = 1000
@@ -241,19 +244,21 @@ def _remove_container(container_name: str) -> None:
             return
 
 
-def _install_orphan_guard(container_name: str) -> None:
-    """Take the container down with us when the terminal or the process dies.
+def _install_exit_guard(session: session_registry.Session, container_name: str | None = None) -> None:
+    """Settle the session record, and take the container down with us, when the terminal or the process dies.
 
     Killing the tmux window hangs up cl and the compose client, but the container
     belongs to the daemon: nothing stops it and `compose run --rm` never gets to
     clean up, so the session lingers as a running orphan until reaped by hand.
     """
-    def remove_and_exit(signum: int, _frame: FrameType | None) -> None:
-        _remove_container(container_name)
+    def finish_and_exit(signum: int, _frame: FrameType | None) -> None:
+        session.finish(signum)
+        if container_name:
+            _remove_container(container_name)
         sys.exit(SIGNAL_EXIT_BASE + signum)
 
     for number in (signal.SIGHUP, signal.SIGTERM):
-        signal.signal(number, remove_and_exit)
+        signal.signal(number, finish_and_exit)
 
 
 IS_DARWIN = platform.system() == "Darwin"
@@ -278,7 +283,10 @@ DEVBOX_REACHABLE_TIMEOUT_MS = 500
 DOTFILES_CONTAINER = "/home/opencode/dotfiles"
 CONTAINER_WORKSPACE = Path("/workspace")
 CLAUDE_SESSION_STORE = Path.home() / ".claude" / "projects" / str(CONTAINER_WORKSPACE).replace("/", "-")
+CLAUDE_PROCESSES = Path.home() / ".claude" / "sessions"
+SESSION_REGISTRY = Path.home() / ".local" / "state" / "cl" / "sessions"
 SESSION_CHOOSING_FLAGS = ("--session-id", "--resume", "-r", "--continue", "-c")
+RESTORE_DROPPED_FLAGS = (*SESSION_CHOOSING_FLAGS, "--fork-session")
 DOTFILES_CRUFT_PATTERNS = (
     "__pycache__", "*.pyc", "*.pyo",
     ".DS_Store",
@@ -286,6 +294,7 @@ DOTFILES_CRUFT_PATTERNS = (
     ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
 )
 CLAUDE_ENTRYPOINTS = ("claude", "claude-route")
+TRACKED_ENTRYPOINTS = (*CLAUDE_ENTRYPOINTS, "claude-resume")
 ROUTE_OVERRIDING_FLAGS = ("--model", "--effort", "--print")
 CLAUDE_VALUE_FLAGS = (
     "--model", "--effort", "--permission-mode", "--add-dir", "--agent", "--settings", "--setting-sources",
@@ -748,6 +757,61 @@ def note_when_nothing_to_resume(entrypoint: str, entrypoint_args: list[str]) -> 
         _note(f"Session {session_id} ended before its first prompt, nothing to resume")
 
 
+def _session_registry() -> session_registry.Registry:
+    return session_registry.Registry(SESSION_REGISTRY, CLAUDE_PROCESSES, CLAUDE_SESSION_STORE)
+
+
+def note_interrupted_sessions() -> None:
+    """After a pod restart the first launch is the moment to learn what is waiting."""
+    count = _session_registry().count_interrupted()
+    if count:
+        _note(f"cl --restore reopens {count} interrupted session{'' if count == 1 else 's'}")
+
+
+def _without_session_choice(claude_args: list[str]) -> list[str]:
+    """Drop the opening prompt and every flag that picks a session: a restore resumes its own."""
+    remaining = claude_args[:-1] if launch_prompt(claude_args) else claude_args
+    kept: list[str] = []
+    takes_value = False
+    for arg in remaining:
+        if takes_value:
+            takes_value = False
+        elif arg.split("=", 1)[0] in RESTORE_DROPPED_FLAGS:
+            takes_value = arg == "--session-id"
+        else:
+            kept.append(arg)
+    return kept
+
+
+def restore_args(args: argparse.Namespace, claude_args: list[str]) -> list[str]:
+    """The cl arguments that relaunch this session the way it was started, minus how it was picked."""
+    return [
+        *(flag for file in args.files for flag in ("-f", file)),
+        *(flag for path in args.paths for flag in ("-p", str(path))),
+        *(flag for exclude in args.excludes for flag in ("-x", str(exclude))),
+        *(["-n"] if args.no_skip else []),
+        *(["-s"] if args.skip else []),
+        *(["--git-ignore-mount"] if args.git_ignore_mount else []),
+        *_without_session_choice(claude_args),
+    ]
+
+
+def build_session_record(
+    args: argparse.Namespace, claude_args: list[str], invocation: tuple[str, list[str], list[str]], pwd: Path,
+) -> session_registry.SessionRecord | None:
+    entrypoint, _plugin_args, entrypoint_args = invocation
+    if entrypoint not in TRACKED_ENTRYPOINTS or "--print" in claude_args:
+        return None
+    session_id = _named_session_id(entrypoint_args)
+    return session_registry.SessionRecord(
+        session_id=UUID(session_id) if session_id else None,
+        cwd=pwd,
+        cl_args=tuple(restore_args(args, claude_args)),
+        tmux_session=session_registry.current_tmux_session(),
+        started_at=datetime.now(timezone.utc),
+    )
+
+
 def launch_prompt(claude_args: list[str]) -> str:
     """The prompt claude would open with: a trailing positional that is no flag's value."""
     if not claude_args or claude_args[-1].startswith("-"):
@@ -950,7 +1014,20 @@ def build_entrypoint_invocation(args, claude_args: list[str], pwd: Path) -> tupl
     return entrypoint, plugin_args, entrypoint_args
 
 
-def run_in_place(entrypoint: str, plugin_args: list[str], entrypoint_args: list[str]) -> None:
+def _run_tracked(command: list[str], record: session_registry.SessionRecord | None) -> int:
+    with _session_registry().track(record) as session:
+        _install_exit_guard(session)
+        process = Popen(command)
+        session.follow(process.pid)
+        returncode = process.wait()
+        session.finish(session_registry.signal_of(returncode))
+    return returncode
+
+
+def run_in_place(
+    entrypoint: str, plugin_args: list[str], entrypoint_args: list[str],
+    record: session_registry.SessionRecord | None = None,
+) -> None:
     """Run the tool directly instead of launching a container around it.
 
     Off macOS, or with no opencode project present, we are already inside the
@@ -971,11 +1048,30 @@ def run_in_place(entrypoint: str, plugin_args: list[str], entrypoint_args: list[
     if CONTAINER_WORKSPACE.is_dir():
         os.chdir(CONTAINER_WORKSPACE)
     command = [entrypoint, *plugin_args, *entrypoint_args]
-    if entrypoint in CLAUDE_ENTRYPOINTS:
-        returncode = run(command).returncode
+    if entrypoint in TRACKED_ENTRYPOINTS:
+        returncode = _run_tracked(command, record)
         note_when_nothing_to_resume(entrypoint, entrypoint_args)
         sys.exit(returncode)
     os.execvp(entrypoint, command)
+
+
+def _run_container(
+    command: list[str], auto_mounts: tuple[tuple[Path, str, bool], ...], container_name: str,
+) -> int:
+    monitor = _start_docker_events_monitor(container_name, time_ns())
+    optional_paths = [host_path for host_path, _, _ in auto_mounts]
+    try:
+        returncode, stderr_text = _run_capturing_stderr(command, optional_paths)
+        if returncode:
+            retried = _retry_without_denied_mount(command, stderr_text, optional_paths, container_name)
+            returncode = returncode if retried is None else retried
+    finally:
+        if monitor is not None:
+            events_proc, events_thread = monitor
+            events_proc.terminate()
+            events_thread.join(timeout=1.0)
+        _print_docker_events(monitor)
+    return returncode
 
 
 def main() -> None:
@@ -1023,14 +1119,23 @@ def main() -> None:
         dest="rm", nargs="?", const="", default=None, metavar="SEARCH",
         help="remove sessions via interactive picker (claude by default, opencode with -o)",
     )
+    parser.add_argument(
+        "--restore", action="store_true", default=False,
+        help="reopen every claude session a restart or crash interrupted, each in a tmux window of its own",
+    )
 
     args, claude_args = parser.parse_known_args()
+
+    if args.restore:
+        sys.exit(_session_registry().restore())
+    note_interrupted_sessions()
 
     if args.all_projects and args.opencode:
         parser.error("-a/--all scopes claude sessions by project; opencode keeps a single session store")
 
     if not (IS_DARWIN and OPENCODE_ROOT.is_dir()):
-        run_in_place(*build_entrypoint_invocation(args, claude_args, pwd))
+        invocation = build_entrypoint_invocation(args, claude_args, pwd)
+        run_in_place(*invocation, build_session_record(args, claude_args, invocation, pwd))
 
     _profile("argparse")
 
@@ -1066,7 +1171,8 @@ def main() -> None:
     container_name = f"opencode-{int(time())}"
     sync_transcripts(args.resume is not None)
     _profile("transcript sync")
-    entrypoint, plugin_args, entrypoint_args = build_entrypoint_invocation(args, claude_args, pwd)
+    invocation = build_entrypoint_invocation(args, claude_args, pwd)
+    entrypoint, plugin_args, entrypoint_args = invocation
     _profile("plugin dir scan")
     command = [
         "docker", "compose",
@@ -1083,20 +1189,11 @@ def main() -> None:
     ]
     _profile("handoff to docker compose")
 
-    _install_orphan_guard(container_name)
-    monitor = _start_docker_events_monitor(container_name, time_ns())
-    optional_paths = [host_path for host_path, _, _ in auto_mounts]
-    try:
-        returncode, stderr_text = _run_capturing_stderr(command, optional_paths)
-        if returncode:
-            retried = _retry_without_denied_mount(command, stderr_text, optional_paths, container_name)
-            returncode = returncode if retried is None else retried
-    finally:
-        if monitor is not None:
-            events_proc, events_thread = monitor
-            events_proc.terminate()
-            events_thread.join(timeout=1.0)
-        _print_docker_events(monitor)
+    with _session_registry().track(build_session_record(args, claude_args, invocation, pwd)) as session:
+        _install_exit_guard(session, container_name)
+        session.follow(None)
+        returncode = _run_container(command, auto_mounts, container_name)
+        session.finish(session_registry.signal_of(returncode))
     note_when_nothing_to_resume(entrypoint, entrypoint_args)
     sys.exit(returncode)
 
