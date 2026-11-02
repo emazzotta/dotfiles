@@ -22,6 +22,7 @@ YEAR = 365 * DAY
 
 GLAB_MOCK = r'''
 printf '%s\n' "$*" >> "${GLAB_CALLS:-/dev/null}"
+printf '%s\n' "${GITLAB_TOKEN:-}" >> "${GLAB_TOKENS:-/dev/null}"
 case "$*" in
     "mr list"*) ;;
     *"pipelines?scope=branches&"*) echo '[
@@ -121,10 +122,14 @@ def aged_branch(git, now):
 
 @pytest.fixture
 def run_gck(run_bash, tmp_path, git_env, now):
-    def _run_gck(*args):
-        return run_bash("gck", list(args), mock_bins={"glab": GLAB_MOCK, "date": f"echo {now}"},
+    def _run_gck(*args, forge_token="", forge_token_exit=0):
+        forge_token_mock = (f'printf "%s\\n" "$*" >> "{tmp_path / "forge-token-calls"}"\n'
+                            f'echo "{forge_token}"\nexit {forge_token_exit}')
+        return run_bash("gck", list(args),
+                        mock_bins={"glab": GLAB_MOCK, "date": f"echo {now}", "keyguard-forge-token": forge_token_mock},
                         env_extra={**git_env, "CUSTOM_BIN_DIR": str(BIN_DIR), "HOME": str(tmp_path / "home"),
-                                   "GLAB_CALLS": str(tmp_path / "glab-calls")})
+                                   "GLAB_CALLS": str(tmp_path / "glab-calls"),
+                                   "GLAB_TOKENS": str(tmp_path / "glab-tokens"), "GITLAB_TOKEN": ""})
     return _run_gck
 
 
@@ -410,3 +415,22 @@ def should_reject_an_unknown_option(run_gck):
 
     assert result.returncode == 2
     assert "unknown option: --slow" in result.stderr
+
+
+@pytest.mark.parametrize("forge_token, forge_token_exit", [("GITLAB_TOKEN=from-keyguard", 0), ("", 1)])
+def should_ask_keyguard_for_a_token_once_per_host_whether_or_not_it_loads(
+        run_gck, workspace, git, tmp_path, forge_token, forge_token_exit):
+    second = workspace / "second"
+    git(tmp_path, "clone", "-q", str(tmp_path / "origin.git"), str(second))
+    git(second, "remote", "set-url", "origin", "git@gitlab.example.com:group/second.git")
+
+    result = run_gck(str(workspace), forge_token=forge_token, forge_token_exit=forge_token_exit)
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "forge-token-calls").read_text().splitlines() == ["gitlab.example.com"]
+
+
+def should_hand_glab_the_token_keyguard_supplies(run_gck, workspace, tmp_path):
+    run_gck(str(workspace), forge_token="GITLAB_TOKEN=from-keyguard")
+
+    assert set((tmp_path / "glab-tokens").read_text().splitlines()) == {"from-keyguard"}

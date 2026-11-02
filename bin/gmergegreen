@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -51,6 +52,7 @@ BLOCKED_SYMBOL: Final = "⊘"
 OUTDATED_SYMBOL: Final = "↻"
 PROMPT_DECLINED: Final = 1
 OPENER: Final = "open"
+FORGE_TOKEN_HELPER: Final = "keyguard-forge-token"
 CHECKBOXES: Final = ("--no-limit", "--cursor-prefix", "[ ] ", "--selected-prefix", "[x] ",
                      "--unselected-prefix", "[ ] ")
 MERGE_PICKED: Final = "Merge individually"
@@ -333,6 +335,16 @@ def repos_under(root: Path) -> list[Repo]:
     return list(repos.values())
 
 
+def load_forge_tokens(repos: list[Repo]) -> None:
+    if shutil.which(FORGE_TOKEN_HELPER) is None:
+        return
+    for host in sorted({repo.slug.partition("/")[0] for repo in repos}):
+        loaded = subprocess.run([FORGE_TOKEN_HELPER, host], stdout=subprocess.PIPE, text=True, check=False)
+        name, separator, token = loaded.stdout.strip().partition("=")
+        if loaded.returncode == 0 and separator:
+            os.environ[name] = token
+
+
 def lookup(repo: Repo) -> Lookup | None:
     if shutil.which(repo.provider.CLIENT) is None:
         return None
@@ -524,6 +536,7 @@ def main(argv: list[str]) -> int:
         return 1
     repos = repos_under(root)
     info(f"Reading the open merge requests of {len(repos)} repositories")
+    load_forge_tokens(repos)
     lookups = lookup_all(repos)
     report(lookups)
     requests = [(found.repo, request) for found in lookups for request in found.merge_requests]

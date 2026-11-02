@@ -1,0 +1,100 @@
+#!/bin/bash
+set -uo pipefail
+
+readonly GITHUB_HOST="github.com"
+readonly GITHUB_SECRET="GITHUB_TOKEN"
+readonly TOKENS_FILE="${HOME}/.config/repos/tokens"
+
+show_usage() {
+    cat <<EOF
+Usage: keyguard-forge-token <host>
+
+Print NAME=token for the CLI that serves host when that CLI has no login for it:
+GH_TOKEN for gh on github.com, GITLAB_TOKEN for glab on any other host. The token
+comes from the keyguard secret named for the host on a "<host> <secret>" line in
+~/.config/repos/tokens, or from GITHUB_TOKEN for github.com. Prints nothing when
+the CLI is logged in, missing, or no secret is known for the host. Callers export
+the line for the rest of their run, so the token never reaches disk.
+
+Options:
+  -h, --help    show this help
+EOF
+}
+
+client_for() {
+    if [ "$1" = "${GITHUB_HOST}" ]; then
+        printf 'gh'
+    else
+        printf 'glab'
+    fi
+}
+
+token_variable_for() {
+    if [ "$1" = "${GITHUB_HOST}" ]; then
+        printf 'GH_TOKEN'
+    else
+        printf 'GITLAB_TOKEN'
+    fi
+}
+
+is_logged_in() {
+    local host="$1"
+    if [ "${host}" = "${GITHUB_HOST}" ]; then
+        [ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ] || gh auth token --hostname "${host}" >/dev/null 2>&1
+    else
+        [ -n "${GITLAB_TOKEN:-}" ] || [ -n "$(glab config get token --host "${host}" 2>/dev/null)" ]
+    fi
+}
+
+secret_for() {
+    local host="$1"
+    local entry_host entry_secret
+    if [ -f "${TOKENS_FILE}" ]; then
+        while read -r entry_host entry_secret _ || [ -n "${entry_host}" ]; do
+            if [ "${entry_host}" = "${host}" ]; then
+                printf '%s' "${entry_secret}"
+                return 0
+            fi
+        done < "${TOKENS_FILE}"
+    fi
+    if [ "${host}" = "${GITHUB_HOST}" ]; then
+        printf '%s' "${GITHUB_SECRET}"
+    fi
+}
+
+load_secret() {
+    local secret="$1"
+    case "${secret}" in
+        [!A-Za-z_]*|*[!A-Za-z0-9_]*)
+            echo "keyguard-forge-token: '${secret}' in ${TOKENS_FILE} is no secret name" >&2
+            return 2 ;;
+    esac
+    # shellcheck disable=SC1091
+    source envify "${secret}" >/dev/null
+    if [ -z "${!secret:-}" ]; then
+        echo "keyguard-forge-token: ${secret} came back empty (approval dismissed or timed out?)" >&2
+        return 1
+    fi
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help) show_usage; return 0 ;;
+        ""|-*) show_usage >&2; return 2 ;;
+    esac
+    local host="$1"
+    local secret
+    if ! command -v "$(client_for "${host}")" >/dev/null || is_logged_in "${host}"; then
+        return 0
+    fi
+    secret=$(secret_for "${host}")
+    if [ -z "${secret}" ]; then
+        return 0
+    fi
+    load_secret "${secret}" || return
+    printf '%s=%s\n' "$(token_variable_for "${host}")" "${!secret}"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

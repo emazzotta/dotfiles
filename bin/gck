@@ -19,7 +19,8 @@ everything that needs no action is dimmed.
 Each line under [gck] in ~/.config/repos/ignore is a glob for the end of a repo's
 path, such as private/tad; a matching repo shows only work to push, commit or
 unstash. A repo matching a line under [gck-hide] is never shown, not even its
-work to save.
+work to save. When gh or glab has no login for a repo's host, keyguard-forge-token
+supplies the token once per host and run.
 
   💻        local branch
   ⛅        branch only on origin
@@ -70,6 +71,7 @@ week_seconds=$((7 * day_seconds))
 year_seconds=$((365 * day_seconds))
 age_units=("y:${year_seconds}" "mo:$((year_seconds / 12))" "w:${week_seconds}" "d:${day_seconds}" "h:${hour_seconds}")
 now=$(date +%s)
+forge_token_hosts=" "
 mkdir -p "${pull_request_cache_dir}"
 
 action_file=$(mktemp)
@@ -97,6 +99,25 @@ remote_slug() {
         *) return 0 ;;
     esac
     printf '%s' "${remote#*@}"
+}
+
+load_forge_token() {
+    local dir="${1}"
+    local slug host pair
+    slug=$(remote_slug "${dir}")
+    host="${slug%%/*}"
+    if [ -z "${host}" ]; then
+        return 0
+    fi
+    case "${forge_token_hosts}" in
+        *" ${host} "*) return 0 ;;
+    esac
+    forge_token_hosts="${forge_token_hosts}${host} "
+    pair=$(keyguard-forge-token "${host}") || return 0
+    if [ -n "${pair}" ]; then
+        # shellcheck disable=SC2163
+        export "${pair}"
+    fi
 }
 
 tree_url_prefix() {
@@ -619,6 +640,9 @@ fetch_branch_states() {
     : > "${ci_states_file}"
     if [ "${quiet}" = true ]; then
         return 0
+    fi
+    if [ -n "${origin_branches}" ] || [ "${fast}" = false ]; then
+        load_forge_token "${dir}"
     fi
     if [ -n "${origin_branches}" ]; then
         printf '%s\n' "${origin_branches}" | build_branch_links "${dir}"

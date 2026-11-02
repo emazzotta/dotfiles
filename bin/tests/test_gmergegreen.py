@@ -70,11 +70,13 @@ def repo(tmp_path, git):
 
 @pytest.fixture
 def run(run_cli, tmp_path, git_env):
-    def _run(pull_requests, gum_answers=(), gum_exit=0, gh_list_exit=0, gh_merge_exit=0, permission="WRITE"):
+    def _run(pull_requests, gum_answers=(), gum_exit=0, gh_list_exit=0, gh_merge_exit=0, permission="WRITE",
+             forge_token=""):
         (tmp_path / "prs.json").write_text(json.dumps(pull_requests))
         for number, answer in enumerate(gum_answers, 1):
             (tmp_path / f"gum-answer-{number}").write_text(f"{answer}\n" if answer else "")
         gh = (f'printf \'%s\\n\' "$*" >> "{tmp_path}/gh-calls"\n'
+              f'printf \'%s\\n\' "${{GH_TOKEN:-}}" >> "{tmp_path}/gh-tokens"\n'
               f'case "$1 $2" in\n'
               f'    "pr list") [ {gh_list_exit} -eq 0 ] || {{ echo "HTTP 502: Bad Gateway" >&2; exit {gh_list_exit}; }}\n'
               f'               cat "{tmp_path}/prs.json" ;;\n'
@@ -85,8 +87,10 @@ def run(run_cli, tmp_path, git_env):
                f'cat "{tmp_path}/gum-answer-$(wc -l < "{tmp_path}/gum-calls" | tr -d " ")" 2>/dev/null\n'
                f'exit {gum_exit}\n')
         opener = f'printf \'%s\\n\' "$*" >> "{tmp_path}/open-calls"\n'
-        return run_cli("gmergegreen", [str(tmp_path / "scan")], mock_bins={"gh": gh, "gum": gum, "open": opener},
-                       env_extra=git_env)
+        forge_token_mock = f'printf \'%s\\n\' "$*" >> "{tmp_path}/forge-token-calls"\necho "{forge_token}"\n'
+        return run_cli("gmergegreen", [str(tmp_path / "scan")],
+                       mock_bins={"gh": gh, "gum": gum, "open": opener, "keyguard-forge-token": forge_token_mock},
+                       env_extra={**git_env, "GH_TOKEN": ""})
     return _run
 
 
@@ -521,3 +525,13 @@ def should_reject_a_path_that_is_not_a_directory(run_cli, tmp_path):
 
     assert result.returncode == 2
     assert "is not a directory" in result.stderr
+
+
+def should_hand_gh_the_token_keyguard_supplies_after_asking_once_per_host(run, repo, calls, tmp_path):
+    repo("one")
+    repo("two", remote="git@github.com:owner/other.git")
+
+    run([pull_request(1, [check_run()])], gum_answers=["Skip"], forge_token="GH_TOKEN=from-keyguard")
+
+    assert calls("forge-token") == ["github.com"]
+    assert set((tmp_path / "gh-tokens").read_text().splitlines()) == {"from-keyguard"}
