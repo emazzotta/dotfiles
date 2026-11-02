@@ -9,7 +9,7 @@ root_dir="$(pwd)"
 # shellcheck source=repolib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/repolib.sh"
 
-CUSTOM_RELEASE_PATTERN="^[0-9]+.([0-9]+|x)(.[0-9]+|.x)?$"
+CUSTOM_RELEASE_PATTERN='^[0-9]+\.([0-9]+|x)(\.[0-9]+|\.x)?$'
 
 failed_pulls_file=$(mktemp)
 unreachable_file=$(mktemp)
@@ -108,8 +108,8 @@ update_repo() {
     pull_branch "main" "${dir}"
     pull_branch "master" "${dir}"
     pull_branches_by_regex "${CUSTOM_RELEASE_PATTERN}" "${dir}"
-    branch_name=$(git -C "${dir}" rev-parse --abbrev-ref HEAD)
-    if [ "${branch_name}" != "master" ] && [ "${branch_name}" != "main" ]; then
+    branch_name=$(git -C "${dir}" symbolic-ref -q --short HEAD) || branch_name=""
+    if [ -n "${branch_name}" ] && [ "${branch_name}" != "master" ] && [ "${branch_name}" != "main" ]; then
         git -C "${dir}" pull --quiet --rebase="$(rebase_mode "${branch_name}")" &>/dev/null || record_failed_pull "${branch_name}"
     fi
     if [ -s "${repo_failures_file}" ]; then

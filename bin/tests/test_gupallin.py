@@ -101,6 +101,26 @@ def should_keep_an_unpushed_merge_of_main_on_the_checked_out_branch(gupallin, cl
     assert git(project, "rev-parse", "HEAD") == merge
 
 
+def should_pull_only_branches_named_like_a_release_version(gupallin, clone, workspace, git, tmp_path):
+    git(tmp_path / "seed", "push", "origin", "main:535", "main:1a2")
+    project = clone("project")
+
+    gupallin(workspace)
+
+    assert git(project, "for-each-ref", "--format=%(refname:short)", "refs/heads/").splitlines() == ["25.4.x", "main"]
+
+
+def should_leave_a_repository_without_commits_alone(gupallin, workspace, git, tmp_path):
+    empty_origin = tmp_path / "empty.git"
+    git(tmp_path, "init", "--bare", str(empty_origin))
+    git(tmp_path, "clone", "-q", str(empty_origin), str(workspace / "fresh"))
+
+    result = gupallin(workspace)
+
+    assert plain(result.stdout) == "\n● Done.\n"
+    assert "fatal" not in result.stderr
+
+
 def should_only_report_done_when_every_pull_succeeds(gupallin, clone, workspace):
     clone("project")
 
