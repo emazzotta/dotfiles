@@ -101,6 +101,13 @@ remote_slug() {
     printf '%s' "${remote#*@}"
 }
 
+print_over_spinner() {
+    local line
+    while IFS= read -r line || [ -n "${line}" ]; do
+        printf '\r\033[2K%s\n' "${line}"
+    done
+}
+
 load_forge_token() {
     local dir="${1}"
     local slug host pair
@@ -113,7 +120,7 @@ load_forge_token() {
         *" ${host} "*) return 0 ;;
     esac
     forge_token_hosts="${forge_token_hosts}${host} "
-    pair=$(keyguard-forge-token "${host}") || return 0
+    pair=$(keyguard-forge-token "${host}" 2> >(print_over_spinner >&2)) || return 0
     if [ -n "${pair}" ]; then
         # shellcheck disable=SC2163
         export "${pair}"

@@ -122,8 +122,9 @@ def aged_branch(git, now):
 
 @pytest.fixture
 def run_gck(run_bash, tmp_path, git_env, now):
-    def _run_gck(*args, forge_token="", forge_token_exit=0):
+    def _run_gck(*args, forge_token="", forge_token_exit=0, forge_token_stderr=""):
         forge_token_mock = (f'printf "%s\\n" "$*" >> "{tmp_path / "forge-token-calls"}"\n'
+                            f'[ -z "{forge_token_stderr}" ] || printf "%s\\n" "{forge_token_stderr}" >&2\n'
                             f'echo "{forge_token}"\nexit {forge_token_exit}')
         return run_bash("gck", list(args),
                         mock_bins={"glab": GLAB_MOCK, "date": f"echo {now}", "keyguard-forge-token": forge_token_mock},
@@ -428,6 +429,12 @@ def should_ask_keyguard_for_a_token_once_per_host_whether_or_not_it_loads(
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "forge-token-calls").read_text().splitlines() == ["gitlab.example.com"]
+
+
+def should_start_each_line_keyguard_prints_by_clearing_the_spinner_line(run_gck, workspace):
+    result = run_gck(str(workspace), forge_token_stderr="Approve on your phone: https://unlock.example.com/approve")
+
+    assert "\x1b[2KApprove on your phone: https://unlock.example.com/approve\n" in result.stderr, result.stderr
 
 
 def should_hand_glab_the_token_keyguard_supplies(run_gck, workspace, tmp_path):
