@@ -7,14 +7,14 @@ GITLAB_HOST = "gitlab.example.com"
 def forge_token(run_bash, tmp_path):
     envify_calls = tmp_path / "envify.calls"
 
-    def _run(host, gh_logged_in=False, glab_token="", tokens_file=None, env=None, envify_loads=True):
+    def _run(host, gh_logged_in=False, glab_logged_in=False, tokens_file=None, env=None, envify_loads=True):
         if tokens_file is not None:
             config = tmp_path / ".config" / "repos" / "tokens"
             config.parent.mkdir(parents=True, exist_ok=True)
             config.write_text(tokens_file)
         mocks = {
             "gh": f'[ "$1 $2" = "auth token" ] && exit {0 if gh_logged_in else 1}',
-            "glab": f'[ "$1 $2 $3" = "config get token" ] && printf "%s" "{glab_token}"',
+            "glab": f'[ "$1 $2" = "auth status" ] && exit {0 if glab_logged_in else 1}',
             "envify": (f'printf "%s\\n" "$*" >> "{envify_calls}"\n'
                        + ('for name in "$@"; do export "$name=token-of-$name"; done' if envify_loads
                           else 'echo "Approve on your phone: https://unlock.example/approve" >&2')),
@@ -43,10 +43,10 @@ def should_load_the_secret_the_tokens_file_names_for_a_gitlab_host_for_glab(forg
     ("github.com", {"gh_logged_in": True}),
     ("github.com", {"env": {"GH_TOKEN": "set"}}),
     ("github.com", {"env": {"GITHUB_TOKEN": "set"}}),
-    (GITLAB_HOST, {"glab_token": "glpat-from-config"}),
+    (GITLAB_HOST, {"glab_logged_in": True}),
     (GITLAB_HOST, {"env": {"GITLAB_TOKEN": "set"}}),
 ])
-def should_print_nothing_and_ask_nothing_when_the_cli_already_has_a_token(forge_token, host, login):
+def should_print_nothing_and_ask_nothing_when_the_cli_already_authenticates(forge_token, host, login):
     result, asked = forge_token(host, tokens_file=f"{GITLAB_HOST} EXAMPLE_GITLAB_TOKEN\n", **login)
 
     assert (result.returncode, result.stdout, asked) == (0, "", [])

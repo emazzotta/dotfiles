@@ -42,7 +42,7 @@ is_logged_in() {
     if [ "${host}" = "${GITHUB_HOST}" ]; then
         [ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ] || gh auth token --hostname "${host}" >/dev/null 2>&1
     else
-        [ -n "${GITLAB_TOKEN:-}" ] || [ -n "$(glab config get token --host "${host}" 2>/dev/null)" ]
+        [ -n "${GITLAB_TOKEN:-}" ] || glab auth status --hostname "${host}" >/dev/null 2>&1
     fi
 }
 

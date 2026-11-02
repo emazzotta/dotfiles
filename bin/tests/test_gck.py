@@ -434,3 +434,14 @@ def should_hand_glab_the_token_keyguard_supplies(run_gck, workspace, tmp_path):
     run_gck(str(workspace), forge_token="GITLAB_TOKEN=from-keyguard")
 
     assert set((tmp_path / "glab-tokens").read_text().splitlines()) == {"from-keyguard"}
+
+
+def should_show_the_uncommitted_files_of_a_repository_without_commits_and_skip_an_empty_one(gck, workspace, git):
+    git(workspace, "init", "-q", str(workspace / "empty"))
+    git(workspace, "init", "-q", str(workspace / "fresh"))
+    (workspace / "fresh" / "draft.txt").write_text("idea\n")
+
+    output = gck(workspace)
+
+    assert re.search(r"^fresh  main  ✎1$", output, re.MULTILINE), output
+    assert "empty" not in output
