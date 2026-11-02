@@ -115,6 +115,9 @@ if [ "$DOTFILES_OS" = "macos" ]; then
     export HOMEBREW_CASK_OPTS="--appdir=/Applications"
     export HOMEBREW_NO_ASK=1
     export POSH_THEMES_PATH="/opt/homebrew/opt/oh-my-posh/themes"
+else
+    # Only the Mac stows git/.gitconfig, whose core.sshCommand pins the Mac's key.
+    export GIT_SSH_COMMAND="keyguard-ssh"
 fi
 
 ### LOAD .env ###

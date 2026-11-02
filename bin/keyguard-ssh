@@ -1,0 +1,74 @@
+#!/bin/bash
+set -uo pipefail
+
+readonly KEY_VAR="GITLAB_SSH_KEY_BASE64"
+readonly PASSPHRASE_VAR="GITLAB_SSH_KEY_PASSPHRASE"
+readonly SSH_FAILURE=255
+
+show_usage() {
+    cat <<EOF
+Usage: keyguard-ssh <ssh args>
+
+Run ssh with your own key when there is one: a key in the agent, or an identity
+file that ssh -G names for the host. Without one, load the keyguard key into
+keyguard-ssh-agent first, so the remote is reachable with no key on disk. The
+key stays in that agent only for envify's cache window. Meant as GIT_SSH_COMMAND.
+
+Options:
+  -h, --help    show this help
+EOF
+}
+
+is_config_query() {
+    local arg
+    for arg in "$@"; do
+        if [ "${arg}" = "-G" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+has_agent_key() {
+    ssh-add -l >/dev/null 2>&1
+}
+
+has_identity_file() {
+    local config="$1"
+    local option file
+    while read -r option file; do
+        if [ "${option}" = "identityfile" ] && [ -f "${file/#\~/${HOME}}" ]; then
+            return 0
+        fi
+    done <<< "${config}"
+    return 1
+}
+
+config_value() {
+    awk -v key="$1" '$1 == key { print $2; exit }' <<< "$2"
+}
+
+load_keyguard_key() {
+    local host="$1"
+    local exports
+    exports=$(keyguard-ssh-agent "${KEY_VAR}" "${PASSPHRASE_VAR}" ${host:+"${host}"}) || return 1
+    eval "${exports}"
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help) show_usage; return 0 ;;
+    esac
+    if ! is_config_query "$@"; then
+        local config
+        config=$(ssh -G "$@" 2>/dev/null)
+        if ! has_agent_key && ! has_identity_file "${config}"; then
+            load_keyguard_key "$(config_value hostname "${config}")" || exit "${SSH_FAILURE}"
+        fi
+    fi
+    exec ssh "$@"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
