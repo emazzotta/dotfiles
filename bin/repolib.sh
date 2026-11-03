@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# bin/repolib.py reads this file the same way for Python scripts: change both.
 rh_ignore_file="${HOME}/.config/repos/ignore"
 
 rh_ignored() {

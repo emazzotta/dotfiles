@@ -16,6 +16,7 @@ from typing import Final, Union
 from urllib.parse import quote
 
 from branch_ci import GITHUB_PASSING_CONCLUSIONS, CommandFailed, Run, run_command
+from repolib import ignore_entries, is_ignored
 from scriptlog import (
     BLUE,
     DIM,
@@ -36,6 +37,7 @@ from scriptlog import (
 SCAN_DEPTH: Final = 3
 PARALLEL_LOOKUPS: Final = 8
 PAGE_SIZE: Final = 100
+IGNORE_SECTION: Final = "gck"
 GITHUB_HOST: Final = "github.com"
 GITHUB_PULL_REQUEST_FIELDS: Final = "number,title,url,headRefName,headRefOid,body,mergeStateStatus,statusCheckRollup"
 GITHUB_MERGE_PERMISSIONS: Final = frozenset({"ADMIN", "MAINTAIN", "WRITE"})
@@ -326,8 +328,11 @@ def find_repos(directory: Path, depth: int = SCAN_DEPTH) -> Iterator[Path]:
 
 
 def repos_under(root: Path) -> list[Repo]:
+    ignored = ignore_entries(IGNORE_SECTION)
     repos: dict[str, Repo] = {}
     for path in find_repos(root):
+        if is_ignored(path, ignored):
+            continue
         slug = remote_slug(origin_url(path))
         if slug and slug not in repos:
             label = path.name if path == root else str(path.relative_to(root))
@@ -519,7 +524,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                     "the ones you tick. Requests that need a rebase or have a conflict can ask their bot to "
                     "rebase: Renovate through its rebase checkbox, Dependabot through an @dependabot rebase "
                     "comment. Requests the server holds back for another reason, such as a draft or a missing "
-                    "approval, are listed but never merged.")
+                    "approval, are listed but never merged. Repositories that match a line under [gck] in "
+                    "~/.config/repos/ignore, read as gck reads it, are skipped.")
     parser.add_argument("dir", nargs="?", type=Path, default=Path("."),
                         help=f"a repository, or a directory searched {SCAN_DEPTH} levels deep for them, "
                              "as gupallin does (default: the current directory)")

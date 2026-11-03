@@ -90,7 +90,7 @@ def run(run_cli, tmp_path, git_env):
         forge_token_mock = f'printf \'%s\\n\' "$*" >> "{tmp_path}/forge-token-calls"\necho "{forge_token}"\n'
         return run_cli("gmergegreen", [str(tmp_path / "scan")],
                        mock_bins={"gh": gh, "gum": gum, "open": opener, "keyguard-forge-token": forge_token_mock},
-                       env_extra={**git_env, "GH_TOKEN": ""})
+                       env_extra={**git_env, "GH_TOKEN": "", "HOME": str(tmp_path / "home")})
     return _run
 
 
@@ -509,6 +509,16 @@ def should_read_a_remote_once_when_two_checkouts_share_it(run, repo, calls):
     run([])
 
     assert len(calls("gh")) == 1
+
+
+def should_skip_only_the_repositories_listed_under_gck_in_the_ignore_list(run, repo, calls, repo_ignore):
+    repo("private/tad", remote="git@github.com:owner/tad.git")
+    repo("project")
+    repo_ignore("[gck-hide]", "project", "[gck]", "tad")
+
+    run([pull_request(1, CHECKS["PASSED"])], gum_answers=["Skip"])
+
+    assert [call.split()[-1] for call in calls("gh") if call.startswith("pr list")] == ["owner/repo"]
 
 
 def should_fail_with_the_server_reason_when_a_merge_is_refused(run, repo):

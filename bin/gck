@@ -18,9 +18,9 @@ everything that needs no action is dimmed.
 
 Each line under [gck] in ~/.config/repos/ignore is a glob for the end of a repo's
 path, such as private/tad; a matching repo shows only work to push, commit or
-unstash. A repo matching a line under [gck-hide] is never shown, not even its
-work to save. When gh or glab has no login for a repo's host, keyguard-forge-token
-supplies the token once per host and run.
+unstash, and gmergegreen skips it. A repo matching a line under [gck-hide] is
+never shown, not even its work to save. When gh or glab has no login for a repo's
+host, keyguard-forge-token supplies the token once per host and run.
 
   💻        local branch
   ⛅        branch only on origin
