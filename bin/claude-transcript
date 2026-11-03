@@ -2,9 +2,10 @@
 # claude-transcript - render a Claude Code session's JSONL to one self-contained
 # HTML page and publish it to the file-server. Prints the public URL.
 #
-# Three views of a session:
+# Four views of a session:
 #   chat     (default) the conversation as the web-terminal's chat shows it, rendered
 #            by the web-terminal checkout's own code (bun scripts/share.ts)
+#   text     (--text-only) the same without tool steps: prompts and replies only
 #   message  (--message ID) one prompt or reply of it, in the same style
 #   insight  (--insight) vibe-replay's interactive replay: playback, thinking,
 #            diffs, token and cost charts
@@ -25,6 +26,7 @@
 #   claude-transcript --title "<TITLE>" --latest
 #                                    render the most recently updated session
 #   --message ID                     render only that prompt or reply
+#   --text-only                      leave out the tool steps and their output
 #   --insight                        render the vibe-replay instead of the chat
 #   --allow-secrets                  publish even when the render flags secrets
 set -euo pipefail
@@ -38,6 +40,8 @@ readonly stamp_pattern='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z'
 readonly chat_secrets_status=3
 
 work_dir=""
+# chat, text, message or insight; set once from the flags, by pick_view.
+view=chat
 
 error() { echo "claude-transcript: $*" >&2; }
 
@@ -50,7 +54,7 @@ cleanup() {
 
 show_usage() {
     cat <<EOF
-Usage: claude-transcript --title "<TITLE>" [--message ID | --insight] <SESSION_ID | --latest>
+Usage: claude-transcript --title "<TITLE>" [--text-only | --message ID | --insight] <SESSION_ID | --latest>
 
 Render a Claude Code session into one HTML page and publish it to the
 file-server, printing the public URL. By default the page shows the
@@ -59,6 +63,8 @@ conversation as the web-terminal's chat does.
   SESSION_ID       UUID of the session (the id in your scratchpad path)
   --latest         use the most recently updated session JSONL
   --title TITLE    page title (browser tab + page header). Required.
+  --text-only      leave out the tool steps and their output: only the
+                   prompts and the replies, the ones between steps included
   --message ID     publish only that prompt or reply (its id in the chat),
                    as its own page
   --insight        render vibe-replay's interactive replay instead, with
@@ -87,6 +93,7 @@ find_latest_jsonl() {
 view_prefix() {
     case "$1" in
         chat) printf 'claude-chat' ;;
+        text) printf 'claude-text' ;;
         message) printf 'claude-message' ;;
         insight) printf 'claude-transcript' ;;
     esac
@@ -184,8 +191,17 @@ check_replay_secrets() {
     refuse_secrets
 }
 
+# The view flags pick one view each; a second one is a mistake, not an override.
+pick_view() {
+    if [ "$view" != chat ]; then
+        error "--text-only, --message and --insight do not mix"
+        exit 2
+    fi
+    view="$1"
+}
+
 main() {
-    local title="" selector="" allow_secrets=false view=chat item=""
+    local title="" selector="" allow_secrets=false item=""
     while [ $# -gt 0 ]; do
         case "$1" in
             -h | --help) show_usage; exit 0 ;;
@@ -197,15 +213,11 @@ main() {
             --message)
                 item="${2:-}"
                 [[ "$item" =~ ^[A-Za-z0-9:_-]+$ ]] || { error "--message needs a message id"; exit 2; }
-                [ "$view" != insight ] || { error "--message and --insight do not mix"; exit 2; }
-                view=message
+                pick_view message
                 shift 2
                 ;;
-            --insight)
-                [ "$view" != message ] || { error "--message and --insight do not mix"; exit 2; }
-                view=insight
-                shift
-                ;;
+            --text-only) pick_view text; shift ;;
+            --insight) pick_view insight; shift ;;
             --allow-secrets) allow_secrets=true; shift ;;
             --latest) selector="$1"; shift ;;
             -*) error "unknown option: $1"; show_usage >&2; exit 2 ;;
@@ -245,6 +257,8 @@ main() {
     if [ "$view" = message ]; then
         key="${item//:/-}"
         options+=(--item "$item")
+    elif [ "$view" = text ]; then
+        options+=(--text-only)
     fi
     if [ "$view" = insight ]; then
         render_replay "$jsonl" "$title" "$page" "${work_dir}/render.log"

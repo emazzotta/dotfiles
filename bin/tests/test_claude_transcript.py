@@ -208,6 +208,34 @@ class TestMessageView:
         assert "do not mix" in result.stderr
 
 
+class TestTextView:
+    def should_render_the_conversation_without_tool_steps_under_its_own_name(self, publish):
+        result = publish([SESSION, "--text-only"])
+
+        assert "--text-only" in result.calls
+        assert result.published.startswith("claude-text-")
+        assert (result.server / result.published).read_text() == RENDERED
+
+    def should_reuse_the_name_of_an_earlier_text_only_share(self, publish):
+        published = f"claude-text-{STAMP}-{SESSION}.html"
+
+        result = publish([SESSION, "--text-only"], listing=f"{PUBLISHED_CHAT}\n{published}")
+
+        assert result.published == published
+
+    def should_not_overwrite_the_text_only_page_with_the_full_chat(self, publish):
+        result = publish([SESSION], listing=f"claude-text-{STAMP}-{SESSION}.html")
+
+        assert result.published.startswith("claude-chat-")
+
+    @pytest.mark.parametrize("other", [["--insight"], ["--message", MESSAGE]])
+    def should_refuse_to_mix_with_another_view(self, publish, other):
+        result = publish([SESSION, "--text-only", *other])
+
+        assert result.returncode == 2
+        assert "do not mix" in result.stderr
+
+
 class TestInsightView:
     def should_upload_the_replay_the_renderer_generated(self, publish):
         result = publish([SESSION, "--insight"])
