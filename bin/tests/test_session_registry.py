@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import shutil
 import signal
 import subprocess
@@ -59,6 +60,34 @@ def tmux_calls(registry_module, monkeypatch):
     return calls
 
 
+@pytest.fixture
+def tmux_server(registry_module, monkeypatch):
+    """Answers each poll for the tmux server in turn, repeating the last answer."""
+    def _answer(*running: bool):
+        answers = list(running)
+        monkeypatch.setattr(registry_module, "_tmux_server_running", lambda: answers.pop(0) if len(answers) > 1 else answers[0])
+    monkeypatch.setattr(registry_module, "TMUX_EXIT_GRACE", timedelta(milliseconds=50))
+    monkeypatch.setattr(registry_module, "TMUX_POLL_INTERVAL", timedelta(0))
+    return _answer
+
+
+@pytest.fixture
+def private_tmux(tmp_path, monkeypatch):
+    """A server of its own whose windows run cat, so a typed command is echoed, never run.
+
+    tmux picks the socket in $TMUX over TMUX_TMPDIR: drop it, or the tests drive the caller's server.
+    """
+    socket_dir = tmp_path / "tmux"
+    socket_dir.mkdir()
+    monkeypatch.setenv("TMUX_TMPDIR", str(socket_dir))
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TMUX_PANE", raising=False)
+    subprocess.run(["tmux", "-f", os.devnull, "new-session", "-d", "-s", "work", "cat"], check=True)
+    subprocess.run(["tmux", "set", "-g", "default-command", "cat"], check=True)
+    yield
+    subprocess.run(["tmux", "kill-server"], capture_output=True, check=False)
+
+
 def write_process_file(directory: Path, pid: int, session_id: UUID, started: datetime, domain: str = POD_DOMAIN):
     directory.mkdir(parents=True, exist_ok=True)
     payload = {"pid": pid, "sessionId": str(session_id), "startedAt": int(started.timestamp() * 1000), "pidDomain": domain}
@@ -113,8 +142,16 @@ class TestEndedByUser:
         (signal.SIGTERM, True, False),
         (signal.SIGKILL, True, False),
     ], ids=["exited", "interrupted-key", "tmux-window-closed", "connection-dropped", "terminated", "killed"])
-    def test_should_tell_a_deliberate_end_from_an_interruption(self, registry_module, signum, in_tmux, expected):
+    def test_should_tell_a_deliberate_end_from_an_interruption(self, registry_module, tmux_server, signum, in_tmux, expected):
+        tmux_server(True)
+
         assert registry_module.ended_by_user(signum, in_tmux) is expected
+
+    @pytest.mark.parametrize("running", [(False,), (True, True, False)], ids=["already-gone", "gone-a-moment-later"])
+    def test_should_count_a_hangup_from_a_dying_tmux_server_as_an_interruption(self, registry_module, tmux_server, running):
+        tmux_server(*running)
+
+        assert registry_module.ended_by_user(signal.SIGHUP, in_tmux=True) is False
 
 
 class TestTrackedSession:
@@ -130,12 +167,16 @@ class TestTrackedSession:
 
         assert not list(registry.directory.iterdir())
 
-    @pytest.mark.parametrize(("signum", "tmux_session", "kept"), [
-        (signal.SIGHUP, "work", False),
-        (signal.SIGHUP, None, True),
-        (signal.SIGTERM, "work", True),
-    ], ids=["ctrl-q-in-tmux", "ssh-dropped", "terminated"])
-    def test_should_keep_only_records_of_interrupted_sessions(self, registry, make_record, signum, tmux_session, kept):
+    @pytest.mark.parametrize(("signum", "tmux_session", "tmux_running", "kept"), [
+        (signal.SIGHUP, "work", True, False),
+        (signal.SIGHUP, "work", False, True),
+        (signal.SIGHUP, None, False, True),
+        (signal.SIGTERM, "work", True, True),
+    ], ids=["ctrl-q-in-tmux", "tmux-server-died", "ssh-dropped", "terminated"])
+    def test_should_keep_only_records_of_interrupted_sessions(
+        self, registry, make_record, tmux_server, signum, tmux_session, tmux_running, kept
+    ):
+        tmux_server(tmux_running)
         with registry.track(make_record(tmux_session=tmux_session)) as session:
             session.finish(signum)
 
@@ -315,19 +356,6 @@ class TestRestore:
 @pytest.mark.slow
 @pytest.mark.skipif(shutil.which("tmux") is None, reason="needs tmux")
 class TestRestoreWithRealTmux:
-    @pytest.fixture
-    def private_tmux(self, tmp_path, monkeypatch):
-        """A server of its own whose windows run cat, so a typed command is echoed, never run."""
-        socket_dir = tmp_path / "tmux"
-        socket_dir.mkdir()
-        monkeypatch.setenv("TMUX_TMPDIR", str(socket_dir))
-        monkeypatch.delenv("TMUX", raising=False)
-        monkeypatch.delenv("TMUX_PANE", raising=False)
-        subprocess.run(["tmux", "-f", os.devnull, "new-session", "-d", "-s", "work", "cat"], check=True)
-        subprocess.run(["tmux", "set", "-g", "default-command", "cat"], check=True)
-        yield
-        subprocess.run(["tmux", "kill-server"], capture_output=True, check=False)
-
     def test_should_open_one_window_per_interrupted_session(self, registry, make_record, private_tmux):
         second_id = UUID("32455626-ba1a-47a3-8064-01be22525795")
         for session_id in (FIRST_ID, second_id):
@@ -357,3 +385,61 @@ class TestRestoreWithRealTmux:
                 break
             time.sleep(0.05)
         return found
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(shutil.which("tmux") is None, reason="needs tmux")
+class TestHangupFromRealTmux:
+    """A tracked process in a tmux window, settling its record on SIGHUP as cl's exit guard does."""
+
+    HOLD_RECORD = (
+        "import signal, sys, time\n"
+        "sys.path.insert(0, sys.argv[1])\n"
+        "import session_registry as r\n"
+        "from datetime import datetime, timezone\n"
+        "from pathlib import Path\n"
+        "record = r.SessionRecord(None, Path('.'), (), 'work', datetime.now(timezone.utc))\n"
+        "session = r.Registry(Path(sys.argv[2]), Path(sys.argv[2]), Path(sys.argv[2])).track(record)\n"
+        "signal.signal(signal.SIGHUP, lambda signum, _frame: (session.finish(signum), sys.exit(129)))\n"
+        "Path(sys.argv[3]).touch()\n"
+        "time.sleep(30)\n"
+    )
+
+    @pytest.fixture
+    def record_in_window(self, tmp_path, private_tmux):
+        registry_dir, ready = tmp_path / "registry", tmp_path / "ready"
+        holder = shlex.join([sys.executable, "-c", self.HOLD_RECORD, str(BIN_DIR), str(registry_dir), str(ready)])
+        subprocess.run(["tmux", "new-window", "-d", "-t", "=work:", "-n", "held", holder], check=True)
+        self.wait_until(ready.exists)
+        return next(registry_dir.glob("*.json"))
+
+    def test_should_drop_the_record_when_its_window_is_closed(self, registry_module, record_in_window):
+        subprocess.run(["tmux", "kill-window", "-t", "=work:held"], check=True)
+
+        assert self.settle(registry_module, record_in_window) is False
+
+    def test_should_keep_the_record_when_the_tmux_server_is_killed(self, registry_module, record_in_window):
+        subprocess.run(["tmux", "kill-server"], check=True)
+
+        assert self.settle(registry_module, record_in_window) is True
+
+    @staticmethod
+    def settle(registry_module, path: Path, attempts=100) -> bool:
+        """Wait for the holder to let go of the record, and tell whether it kept it."""
+        for _ in range(attempts):
+            claim = registry_module._Claim.take(path)
+            if claim is not None:
+                claim.release(discard=False)
+                return path.exists()
+            if not path.exists():
+                return False
+            time.sleep(0.05)
+        raise AssertionError("the holder never let go of its record")
+
+    @staticmethod
+    def wait_until(condition, attempts=100):
+        for _ in range(attempts):
+            if condition():
+                return
+            time.sleep(0.05)
+        raise AssertionError("gave up waiting")

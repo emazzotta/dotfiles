@@ -12,6 +12,7 @@ import os
 import shlex
 import signal
 import threading
+import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -25,6 +26,8 @@ LAUNCHER: Final = "cl"
 FOLLOW_INTERVAL: Final = timedelta(seconds=2)
 CLOCK_SKEW: Final = timedelta(seconds=30)
 TMUX_TIMEOUT_SECONDS: Final = 5
+TMUX_EXIT_GRACE: Final = timedelta(seconds=1)
+TMUX_POLL_INTERVAL: Final = timedelta(milliseconds=100)
 FALLBACK_TMUX_SESSION: Final = "main"
 SIGNAL_EXIT_BASE: Final = 128
 
@@ -72,12 +75,31 @@ def signal_of(returncode: int) -> int | None:
 def ended_by_user(signum: int | None, in_tmux: bool) -> bool:
     """A pod kill or a reboot arrives as SIGKILL and never reaches cl.
 
-    In tmux a hangup means its window was closed (ctrl+q); outside tmux it is just as
-    likely a dropped connection, and reopening a session costs less than losing it.
+    In tmux a hangup means its window was closed (ctrl+q), unless the server went down and
+    hung up every pane at once: a crash, or a stray `tmux kill-server`. Outside tmux it is
+    just as likely a dropped connection, and reopening a session costs less than losing it.
     """
     if signum is None or signum == signal.SIGINT:
         return True
-    return signum == signal.SIGHUP and in_tmux
+    return signum == signal.SIGHUP and in_tmux and _tmux_outlives_hangup()
+
+
+def _tmux_outlives_hangup() -> bool:
+    """A dying server hangs up its panes before it exits, so give it a moment to go."""
+    deadline = time.monotonic() + TMUX_EXIT_GRACE.total_seconds()
+    while _tmux_server_running():
+        if time.monotonic() >= deadline:
+            return True
+        time.sleep(TMUX_POLL_INTERVAL.total_seconds())
+    return False
+
+
+def _tmux_server_running() -> bool:
+    try:
+        _tmux("list-sessions")
+    except (OSError, SubprocessError):
+        return False
+    return True
 
 
 def current_tmux_session() -> str | None:
