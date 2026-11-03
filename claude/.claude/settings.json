@@ -30,6 +30,10 @@
           {
             "type": "command",
             "command": "/home/opencode/dotfiles/bin/stop-bell"
+          },
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-notify"
           }
         ]
       }
@@ -40,6 +44,10 @@
           {
             "type": "command",
             "command": "/workspace/.claude/hooks/session-end-claude-sync.sh"
+          },
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-notify"
           }
         ]
       }
@@ -81,6 +89,35 @@
           {
             "type": "command",
             "command": "printf '\\a'"
+          }
+        ]
+      },
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-notify"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-notify"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-notify"
           }
         ]
       }

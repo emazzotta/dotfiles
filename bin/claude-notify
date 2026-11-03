@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""Ping Telegram through mazzotta-bot when a Claude session waits for input.
+
+As a Claude Code hook (no arguments, the hook's JSON on stdin):
+- Stop arms a ping that goes out 10 s later with the first sentence of the reply,
+  unless a prompt is submitted first or background agents still work for the session.
+- PermissionRequest notes what the prompt is about. The permission_prompt Notification,
+  which Claude Code raises only once a prompt has waited about 6 s unanswered, sends it.
+- UserPromptSubmit and SessionEnd cancel what is pending.
+
+The unlock service holds the bot token and composes the message. The dev box reaches it
+with its request token, the Mac with its tailnet identity, and a Mac container through
+the public keyguard bridge endpoint `claude-notify`, which runs `claude-notify send` on
+the Mac. Runs outside an interactive session (`claude -p`, the Agent SDK) never ping.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import secrets
+import socket
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable, Sequence
+from datetime import timedelta
+from pathlib import Path
+from typing import Final
+from uuid import UUID
+
+FINISHED_DELAY: Final = timedelta(seconds=10)
+SEND_TIMEOUT: Final = timedelta(seconds=10)
+SENTENCE_LIMIT: Final = 200
+FINISHED_FALLBACK: Final = "Finished, waiting for your input."
+STATE_DIR: Final = Path.home() / ".cache" / "claude-notify"
+DEFAULT_STORE_URL: Final = "https://unlock.asymptote-bass.ts.net"
+DEVBOX_TOKEN_FILE: Final = Path("/etc/devbox-unlock/request-token")
+BRIDGE_ENDPOINT: Final = "claude-notify"
+IS_MAC: Final = sys.platform == "darwin"
+UNATTENDED_ENTRYPOINT_PREFIX: Final = "sdk"
+WAKING_TASK_TYPES_EXEMPT: Final = frozenset({"shell"})
+CANARY: Final = re.compile(
+    r"^\s*Emanuele,\s*(?:\d{4}-\d{2}-\d{2} \d{2}:\d{2} [A-Z]+ \([^)]*\):\s*)?")
+MARKDOWN_LINK: Final = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+MARKDOWN_EMPHASIS: Final = re.compile(r"\*\*|__|`")
+LINE_MARKER: Final = re.compile(r"^(?:[#>*\-]+|\d+\.)\s+")
+SENTENCE_END: Final = re.compile(r"(?<=[.!?])\s")
+USAGE: Final = """Usage: claude-notify [send | fire SESSION TOKEN]
+
+Without arguments, a Claude Code hook: reads the hook event on stdin and arms,
+sends or cancels a Telegram ping through the unlock service.
+
+  send                read a notice ({"session", "container", "text"}) on stdin and
+                      deliver it; the keyguard bridge endpoint runs this on the Mac
+  fire SESSION TOKEN  internal: wait, then send the session's pending ping if TOKEN
+                      still holds it
+
+Options:
+  -h, --help  show this help and exit
+"""
+
+
+def capped(text: str, limit: int = SENTENCE_LIMIT) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "\u2026"
+
+
+def first_sentence(message: str) -> str:
+    text = MARKDOWN_EMPHASIS.sub("", MARKDOWN_LINK.sub(r"\1", CANARY.sub("", message)))
+    lines = [LINE_MARKER.sub("", line).strip() for line in text.splitlines()]
+    line = next((line for line in lines if line), "")
+    sentence = SENTENCE_END.split(line, maxsplit=1)[0]
+    return capped(sentence[:1].upper() + sentence[1:]) if sentence else FINISHED_FALLBACK
+
+
+def prompt_sentence(tool_name: str, tool_input: dict) -> str:
+    if tool_name == "AskUserQuestion":
+        questions = tool_input.get("questions") or [{}]
+        return capped(f"Asks: {questions[0].get('question', 'a question')}")
+    if tool_name == "ExitPlanMode":
+        return "Has a plan ready for your approval."
+    if tool_name == "Bash":
+        return capped(f"Needs your OK to run: {tool_input.get('description') or tool_input.get('command', '')}")
+    return capped(f"Needs your OK for {tool_name}.")
+
+
+def is_unattended() -> bool:
+    return os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith(UNATTENDED_ENTRYPOINT_PREFIX)
+
+
+def background_work_pending(event: dict) -> bool:
+    tasks = event.get("background_tasks") or []
+    return any(task.get("type") not in WAKING_TASK_TYPES_EXEMPT for task in tasks)
+
+
+def container_label() -> str | None:
+    return None if IS_MAC else socket.gethostname().split(".")[0]
+
+
+def notice(session: UUID, text: str) -> dict:
+    return {"session": str(session), "container": container_label(), "text": text}
+
+
+def state_file(session: UUID, kind: str) -> Path:
+    return STATE_DIR / f"{session}.{kind}"
+
+
+def write_state(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.{os.getpid()}")
+    temporary.write_text(content)
+    os.replace(temporary, path)
+
+
+def take_state(path: Path) -> str | None:
+    try:
+        content = path.read_text()
+        path.unlink()
+    except FileNotFoundError:
+        return None
+    return content
+
+
+def spawn(arguments: Sequence[str], payload: str | None = None) -> None:
+    child = subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), *arguments],
+        stdin=subprocess.PIPE if payload is not None else subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+    if payload is not None and child.stdin:
+        child.stdin.write(payload)
+        child.stdin.close()
+
+
+def on_stop(session: UUID, event: dict) -> None:
+    pending = state_file(session, "pending")
+    if background_work_pending(event):
+        take_state(pending)
+        return
+    token = secrets.token_hex(8)
+    text = first_sentence(event.get("last_assistant_message") or "")
+    write_state(pending, json.dumps({"token": token, "text": text}))
+    spawn(["fire", str(session), token])
+
+
+def on_permission_request(session: UUID, event: dict) -> None:
+    sentence = prompt_sentence(event.get("tool_name", "a tool"), event.get("tool_input") or {})
+    write_state(state_file(session, "prompt"), sentence)
+
+
+def on_notification(session: UUID, event: dict) -> None:
+    if event.get("notification_type") != "permission_prompt":
+        return
+    noted = take_state(state_file(session, "prompt"))
+    spawn(["send"], json.dumps(notice(session, noted or event.get("message") or "Needs your input.")))
+
+
+def on_cancel(session: UUID, event: dict) -> None:
+    take_state(state_file(session, "pending"))
+    take_state(state_file(session, "prompt"))
+
+
+HANDLERS: Final[dict[str, Callable[[UUID, dict], None]]] = {
+    "Stop": on_stop,
+    "PermissionRequest": on_permission_request,
+    "Notification": on_notification,
+    "UserPromptSubmit": on_cancel,
+    "SessionEnd": on_cancel,
+}
+
+
+def handle_hook(raw: str) -> None:
+    event = json.loads(raw)
+    handler = HANDLERS.get(event.get("hook_event_name", ""))
+    if handler is None or is_unattended():
+        return
+    handler(UUID(event["session_id"]), event)
+
+
+def fire(session: UUID, token: str, sleep: Callable[[float], None] = time.sleep) -> int:
+    sleep(FINISHED_DELAY.total_seconds())
+    path = state_file(session, "pending")
+    try:
+        pending = json.loads(path.read_text())
+    except FileNotFoundError:
+        return 0
+    if pending.get("token") != token:
+        return 0
+    take_state(path)
+    return deliver(json.dumps(notice(session, pending["text"])))
+
+
+def post_to_store(body: str, bearer: str | None) -> int:
+    url = f"{os.environ.get('KEYGUARD_STORE_URL', DEFAULT_STORE_URL)}/notify"
+    headers = {"Content-Type": "application/json"}
+    if bearer:
+        headers["Authorization"] = f"Bearer {bearer}"
+    request = urllib.request.Request(url, data=body.encode(), headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=SEND_TIMEOUT.total_seconds()) as response:
+            response.read()
+    except (OSError, ValueError) as error:
+        detail = f"HTTP {error.code}" if isinstance(error, urllib.error.HTTPError) else type(error).__name__
+        print(f"claude-notify: not sent ({detail})", file=sys.stderr)
+        return 1
+    return 0
+
+
+def deliver(body: str) -> int:
+    if DEVBOX_TOKEN_FILE.is_file():
+        return post_to_store(body, DEVBOX_TOKEN_FILE.read_text().strip())
+    if IS_MAC:
+        return post_to_store(body, None)
+    command = ["envify", "--bridge", BRIDGE_ENDPOINT, "--stdin"]
+    return subprocess.run(command, input=body, text=True, stdout=subprocess.DEVNULL, check=False).returncode
+
+
+def main(argv: Sequence[str]) -> int:
+    if argv[:1] in (["-h"], ["--help"]):
+        print(USAGE, end="")
+        return 0
+    if not argv:
+        try:
+            handle_hook(sys.stdin.read())
+        except (ValueError, KeyError, OSError) as error:
+            print(f"claude-notify: hook skipped ({type(error).__name__}: {error})", file=sys.stderr)
+        return 0
+    if argv == ["send"]:
+        return deliver(sys.stdin.read())
+    if len(argv) == 3 and argv[0] == "fire":
+        return fire(UUID(argv[1]), argv[2])
+    print(USAGE, end="", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
