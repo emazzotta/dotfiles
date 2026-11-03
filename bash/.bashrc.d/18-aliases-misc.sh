@@ -94,7 +94,11 @@ alias pwz='source envify PASSWORD_ZIPS && echo -ne "$PASSWORD_ZIPS" | pbcopy'
 
 ### UPDATES ###
 alias macsoftwareupdate='softwareupdate -i -a'
-alias update='macsoftwareupdate;bup;npm install -g npm;sdkmanupdate;vimpluginupdate'
+if [ "$DOTFILES_OS" = "macos" ]; then
+    alias update='macsoftwareupdate;bup;npm install -g npm;sdkmanupdate;vimpluginupdate'
+else
+    alias update='uv tool upgrade --all'
+fi
 
 ### MISC ###
 alias encrypt='hashify'

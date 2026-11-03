@@ -145,22 +145,36 @@ j() {
 superocd() {
     echo "Starting superocd sequence..."
 
-    sshkeyadd && \
-    ocd && \
-    devbox-drive --mount && \
+    if [ "$DOTFILES_OS" = "macos" ]; then
+        _superocd_mac_start || return
+    fi
+
     update && \
-    rmraycastclipboard && \
-    rmmac && \
-    rm_old_gitlab_builds && \
     gupallin "$HOME" && \
     zgen update <<< "n" &> /dev/null && \
-    gck "$WDIR" && \
+    gck "$WDIR" || return
+
+    if [ "$DOTFILES_OS" = "macos" ]; then
+        _superocd_mac_finish
+    fi
+}
+
+# Pull before ocd pushes: the push is rejected whenever the devbox pushed dotfiles first.
+_superocd_mac_start() {
+    sshkeyadd && \
+    git -C "$DOTFILESPATH" pull --rebase --autostash --quiet && \
+    ocd && \
+    "$PRIVATE_PROJECTS/web-terminal/deploy/macos/install.sh" update && \
+    devbox-drive --mount && \
+    rmraycastclipboard && \
+    rmmac && \
+    rm_old_gitlab_builds
+}
+
+_superocd_mac_finish() {
     source envify MAC_SUDO_PW GOOGLE_DOCUMENTS_API_KEY NOTION_API_KEY PASSWORD_ZIPS && \
     kill_unwanted_processes && \
     rm_launch_items && \
     gsheet_backup -e "1KZK4zhVIMSk-EHjCc_E0O3MJOYTFOCWb6awhigELBJ8" "$GDRIVEDIR/Dokumente/Docs/Automated_Backups" && \
     notion_backup "$GDRIVEDIR/Dokumente/Docs/Automated_Backups"
-
-    local exit_code=$?
-    return $exit_code
 }
