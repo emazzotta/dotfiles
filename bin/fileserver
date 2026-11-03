@@ -137,6 +137,7 @@ print_alias_help() {
 # ---------------------------------------------------------------------------
 readonly bridge_staging="${FILESERVER_BRIDGE_STAGING:-/workspace/code/Desktop/.fileserver-staging}"
 readonly bridge_url="http://host.docker.internal:7777/_bridge/fileserver"
+readonly service_account_token="${FILESERVER_SERVICE_ACCOUNT_TOKEN:-/var/run/secrets/kubernetes.io/serviceaccount/token}"
 
 bridge_call() {
     printf '%s\n' "$@" | curl -sS --fail-with-body -X POST --data-binary @- "$bridge_url"
@@ -371,6 +372,26 @@ serve_bridge() {
     esac
 }
 
+has_kubeconfig() {
+    local files file
+    IFS=: read -r -a files <<< "${KUBECONFIG:-${HOME}/.kube/config}"
+    for file in "${files[@]}"; do
+        [ -f "$file" ] && return 0
+    done
+    return 1
+}
+
+# On the devbox, a shell arrives over SSH, which drops the pod's KUBERNETES_SERVICE_*
+# variables, and the shared shell setup names a kubeconfig that exists only on the
+# Mac. Restoring the variables lets kubectl fall back to the pod's ServiceAccount,
+# whose Role in the namespace allows what list/upload/download/remove need.
+use_pod_service_account() {
+    if ! has_kubeconfig && [ -f "$service_account_token" ]; then
+        export KUBERNETES_SERVICE_HOST="${KUBERNETES_SERVICE_HOST:-kubernetes.default.svc}"
+        export KUBERNETES_SERVICE_PORT="${KUBERNETES_SERVICE_PORT:-443}"
+    fi
+}
+
 main() {
     case "${1:-}" in
         __bridge_serve__) serve_bridge; return $? ;;
@@ -391,6 +412,7 @@ main() {
         return $?
     fi
 
+    use_pod_service_account
     case "$sub" in
         list)     list_files ;;
         upload)   upload_files "$@" ;;

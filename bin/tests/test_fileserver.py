@@ -45,3 +45,36 @@ class TestUploadReport:
         result = upload("am i in.flac")
 
         assert f"  {SITE}/listen/am%20i%20in.flac" in result.stdout.splitlines()
+
+
+class TestPodServiceAccount:
+    """On the devbox, kubectl has no kubeconfig and the SSH session lacks the pod's API server variables."""
+
+    @pytest.fixture
+    def list_files(self, run_cli, tmp_path):
+        def _list(token_exists=True, kubeconfig_exists=False):
+            token = tmp_path / "token"
+            if token_exists:
+                token.write_text("t")
+            kubeconfig = tmp_path / "personal-infra.yaml"
+            if kubeconfig_exists:
+                kubeconfig.write_text("apiVersion: v1\n")
+            env = {"HOME": str(tmp_path), "KUBECONFIG": str(kubeconfig), "FILESERVER_SERVICE_ACCOUNT_TOKEN": str(token)}
+            mocks = {"kubectl": 'echo "api=${KUBERNETES_SERVICE_HOST:-none}:${KUBERNETES_SERVICE_PORT:-none}"'}
+            return run_cli("fileserver", ["list"], mock_bins=mocks, isolate_path=True, env_extra=env)
+        return _list
+
+    def should_point_kubectl_at_the_api_server_when_the_named_kubeconfig_is_missing(self, list_files):
+        result = list_files()
+
+        assert "api=kubernetes.default.svc:443" in result.stdout
+
+    def should_leave_kubectl_alone_when_a_kubeconfig_exists(self, list_files):
+        result = list_files(kubeconfig_exists=True)
+
+        assert "api=none:none" in result.stdout
+
+    def should_leave_kubectl_alone_outside_a_pod(self, list_files):
+        result = list_files(token_exists=False)
+
+        assert "api=none:none" in result.stdout
