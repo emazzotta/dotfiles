@@ -2,8 +2,11 @@
 """Ping Telegram through mazzotta-bot when a Claude session waits for input.
 
 As a Claude Code hook (no arguments, the hook's JSON on stdin):
-- Stop arms a ping that goes out 10 s later with the first sentence of the reply,
-  unless a prompt is submitted first or background agents still work for the session.
+- Stop arms a ping that goes out 10 min later with the first sentence of the reply,
+  unless the session was seen first: a prompt was submitted, or a tmux client showing
+  its pane got a key or a focus change. Attaching alone does not count, since the web
+  terminal reattaches every tab at once. Background agents still at work for the
+  session hold the ping too.
 - PermissionRequest notes what the prompt is about. The permission_prompt Notification,
   which Claude Code raises only once a prompt has waited about 6 s unanswered, sends it.
 - UserPromptSubmit and SessionEnd cancel what is pending.
@@ -25,13 +28,17 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Sequence
-from datetime import timedelta
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final
 from uuid import UUID
 
-FINISHED_DELAY: Final = timedelta(seconds=10)
+FINISHED_DELAY: Final = timedelta(minutes=10)
+SEEN_POLL: Final = timedelta(seconds=5)
+TMUX_TIMEOUT: Final = timedelta(seconds=2)
+TMUX_CLIENT_FORMAT: Final = "#{pane_id}\t#{client_created}\t#{client_activity}"
 SEND_TIMEOUT: Final = timedelta(seconds=10)
 SENTENCE_LIMIT: Final = 200
 FINISHED_FALLBACK: Final = "Finished, waiting for your input."
@@ -55,8 +62,8 @@ sends or cancels a Telegram ping through the unlock service.
 
   send                read a notice ({"session", "container", "text"}) on stdin and
                       deliver it; the keyguard bridge endpoint runs this on the Mac
-  fire SESSION TOKEN  internal: wait, then send the session's pending ping if TOKEN
-                      still holds it
+  fire SESSION TOKEN  internal: wait 10 minutes, then send the session's pending ping
+                      if TOKEN still holds it and the session's tmux pane went unseen
 
 Options:
   -h, --help  show this help and exit
@@ -179,17 +186,66 @@ def handle_hook(raw: str) -> None:
     handler(UUID(event["session_id"]), event)
 
 
-def fire(session: UUID, token: str, sleep: Callable[[float], None] = time.sleep) -> int:
-    sleep(FINISHED_DELAY.total_seconds())
-    path = state_file(session, "pending")
+@dataclass(frozen=True)
+class TmuxClient:
+    pane: str
+    created: datetime
+    activity: datetime
+
+    def used_since(self, armed: datetime) -> bool:
+        return self.activity >= armed and self.activity > self.created
+
+
+def parse_clients(listing: str) -> list[TmuxClient]:
+    clients = []
+    for line in listing.splitlines():
+        pane, *stamps = line.split("\t")
+        if len(stamps) == 2 and all(stamp.isdigit() for stamp in stamps):
+            created, activity = (datetime.fromtimestamp(int(stamp), UTC) for stamp in stamps)
+            clients.append(TmuxClient(pane, created, activity))
+    return clients
+
+
+def tmux_clients() -> list[TmuxClient]:
+    command = ["tmux", "list-clients", "-F", TMUX_CLIENT_FORMAT]
     try:
-        pending = json.loads(path.read_text())
+        listing = subprocess.run(command, capture_output=True, text=True, check=False,
+                                 timeout=TMUX_TIMEOUT.total_seconds()).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return parse_clients(listing)
+
+
+def seen_since(pane: str, armed: datetime, clients: Iterable[TmuxClient]) -> bool:
+    return any(client.pane == pane and client.used_since(armed) for client in clients)
+
+
+def pending_text(session: UUID, token: str) -> str | None:
+    try:
+        pending = json.loads(state_file(session, "pending").read_text())
     except FileNotFoundError:
+        return None
+    return pending["text"] if pending.get("token") == token else None
+
+
+def wait_unseen(session: UUID, token: str, sleep: Callable[[float], None], seen: Callable[[], bool]) -> bool:
+    for _ in range(FINISHED_DELAY // SEEN_POLL):
+        sleep(SEEN_POLL.total_seconds())
+        if pending_text(session, token) is None or seen():
+            return False
+    return True
+
+
+def fire(session: UUID, token: str, sleep: Callable[[float], None] = time.sleep,
+         clients: Callable[[], Iterable[TmuxClient]] = tmux_clients) -> int:
+    armed = datetime.now(UTC).replace(microsecond=0)
+    pane = os.environ.get("TMUX_PANE")
+    unseen = wait_unseen(session, token, sleep, lambda: pane is not None and seen_since(pane, armed, clients()))
+    text = pending_text(session, token)
+    if text is None:
         return 0
-    if pending.get("token") != token:
-        return 0
-    take_state(path)
-    return deliver(json.dumps(notice(session, pending["text"])))
+    take_state(state_file(session, "pending"))
+    return deliver(json.dumps(notice(session, text))) if unseen else 0
 
 
 def post_to_store(body: str, bearer: str | None) -> int:

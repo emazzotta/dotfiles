@@ -2,6 +2,7 @@ import io
 import json
 import threading
 from contextlib import redirect_stderr
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import ClassVar
 from uuid import UUID
@@ -9,6 +10,9 @@ from uuid import UUID
 import pytest
 
 SESSION = UUID("4a015f0f-199b-4270-9c06-fecc5d85b976")
+PANE = "%4"
+LONG_AGO = datetime(2020, 1, 1, tzinfo=UTC)
+LONG_AFTER = datetime(2100, 1, 1, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -19,6 +23,7 @@ def notify(load_script, tmp_path, monkeypatch):
     monkeypatch.setattr(module, "IS_MAC", False)
     monkeypatch.setattr(module.socket, "gethostname", lambda: "f635a28c3a2e")
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    monkeypatch.delenv("TMUX_PANE", raising=False)
     return module
 
 
@@ -87,13 +92,27 @@ class TestFinishedPing:
         assert notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None) == 0
         assert delivered == [{"session": str(SESSION), "container": "f635a28c3a2e", "text": "Done."}]
 
-    def should_wait_the_finished_delay_before_sending(self, notify, spawned, delivered):
+    def should_wait_ten_minutes_in_short_polls_before_sending(self, notify, spawned, delivered):
         _hook(notify, "Stop", last_assistant_message="Done.")
         waited = []
 
         notify.fire(SESSION, _armed_token(spawned), sleep=waited.append)
 
-        assert waited == [10.0]
+        assert waited == [5.0] * 120
+        assert [body["text"] for body in delivered] == ["Done."]
+
+    def should_stop_waiting_as_soon_as_a_prompt_cancels_the_ping(self, notify, spawned, delivered):
+        _hook(notify, "Stop", last_assistant_message="Done.")
+        waited = []
+
+        def submit_on_first_poll(seconds):
+            waited.append(seconds)
+            _hook(notify, "UserPromptSubmit", prompt="next")
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=submit_on_first_poll)
+
+        assert waited == [5.0]
+        assert delivered == []
 
     def should_not_ping_when_a_prompt_was_submitted_in_time(self, notify, spawned, delivered):
         _hook(notify, "Stop", last_assistant_message="Done.")
@@ -136,6 +155,62 @@ class TestFinishedPing:
         _hook(notify, "Stop", last_assistant_message="Done.")
 
         assert spawned == []
+
+
+class TestSeenPane:
+    def should_not_ping_when_a_client_showing_the_pane_was_used_after_the_reply(
+            self, notify, spawned, delivered, monkeypatch):
+        monkeypatch.setenv("TMUX_PANE", PANE)
+        _hook(notify, "Stop", last_assistant_message="Done.")
+        waited = []
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=waited.append,
+                    clients=lambda: [notify.TmuxClient(PANE, LONG_AGO, LONG_AFTER)])
+
+        assert waited == [5.0]
+        assert delivered == []
+        assert not notify.state_file(SESSION, "pending").exists()
+
+    @pytest.mark.parametrize("pane, created, activity", [
+        (PANE, LONG_AGO - timedelta(days=1), LONG_AGO),
+        ("%9", LONG_AGO, LONG_AFTER),
+        (PANE, LONG_AFTER, LONG_AFTER),
+    ], ids=["used-before-the-reply", "other-pane-used", "only-attached-after-the-reply"])
+    def should_ping_when_no_client_used_the_pane_after_the_reply(
+            self, notify, spawned, delivered, monkeypatch, pane, created, activity):
+        monkeypatch.setenv("TMUX_PANE", PANE)
+        _hook(notify, "Stop", last_assistant_message="Done.")
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None,
+                    clients=lambda: [notify.TmuxClient(pane, created, activity)])
+
+        assert [body["text"] for body in delivered] == ["Done."]
+
+    def should_not_ask_tmux_outside_a_tmux_pane(self, notify, spawned, delivered):
+        _hook(notify, "Stop", last_assistant_message="Done.")
+        asked = []
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None,
+                    clients=lambda: asked.append(True) or [])
+
+        assert asked == []
+        assert [body["text"] for body in delivered] == ["Done."]
+
+    def should_parse_each_client_and_skip_malformed_lines(self, notify):
+        listing = "%4\t1793727500\t1793727602\n%1\t1793727600\t1793727600\nno-tab-here\n%2\t\t\n%3\t1793727600\n"
+
+        assert notify.parse_clients(listing) == [
+            notify.TmuxClient("%4", datetime.fromtimestamp(1793727500, UTC), datetime.fromtimestamp(1793727602, UTC)),
+            notify.TmuxClient("%1", datetime.fromtimestamp(1793727600, UTC), datetime.fromtimestamp(1793727600, UTC)),
+        ]
+
+    def should_see_no_clients_when_tmux_cannot_run(self, notify, monkeypatch):
+        def missing_tmux(*args, **kwargs):
+            raise FileNotFoundError("tmux")
+
+        monkeypatch.setattr(notify.subprocess, "run", missing_tmux)
+
+        assert notify.tmux_clients() == []
 
 
 class TestPromptPing:
