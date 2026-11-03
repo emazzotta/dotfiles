@@ -71,6 +71,66 @@ class TestLoadEnv:
         assert resolved == []
 
 
+class TestGuiSession:
+    @pytest.fixture
+    def launchd(self, envify, monkeypatch):
+        def _answer(domain, status=0):
+            monkeypatch.setattr(envify.shutil, "which", lambda name: f"/bin/{name}")
+            monkeypatch.setattr(envify.subprocess, "run",
+                                lambda args, **kwargs: envify.subprocess.CompletedProcess(args, status, f"{domain}\n"))
+        return _answer
+
+    def should_report_a_shell_in_the_background_domain_as_outside(self, envify, launchd):
+        launchd("Background")
+
+        assert envify._outside_gui_session() is True
+
+    def should_report_a_shell_in_the_aqua_domain_as_inside(self, envify, launchd):
+        launchd("Aqua")
+
+        assert envify._outside_gui_session() is False
+
+    def should_report_inside_when_launchctl_cannot_name_the_domain(self, envify, launchd):
+        launchd("", status=1)
+
+        assert envify._outside_gui_session() is False
+
+    def should_report_inside_where_there_is_no_launchctl(self, envify, monkeypatch):
+        monkeypatch.setattr(envify.shutil, "which", lambda name: None)
+
+        assert envify._outside_gui_session() is False
+
+
+class TestKeychainRoute:
+    @pytest.fixture
+    def route(self, envify, monkeypatch):
+        def _route(outside):
+            monkeypatch.setattr(envify, "_keyguard_available", lambda: True)
+            monkeypatch.setattr(envify, "_outside_gui_session", lambda: outside)
+            monkeypatch.setattr(envify, "_resolve_via_keyguard", lambda *keys: {"ENVIFY_TEST_A": "keyguard"})
+            monkeypatch.setattr(envify, "_resolve_via_server", lambda *keys: {"ENVIFY_TEST_A": "server"})
+            monkeypatch.delenv("ENVIFY_TEST_A", raising=False)
+        return _route
+
+    @pytest.mark.parametrize("outside, source", [(True, "server"), (False, "keyguard")])
+    def should_resolve_through_the_server_only_outside_the_gui_session(self, envify, route, outside, source):
+        route(outside)
+
+        envify.load_env(("ENVIFY_TEST_A",))
+
+        assert os.environ["ENVIFY_TEST_A"] == source
+
+    def should_list_through_the_server_outside_the_gui_session(self, envify, route, monkeypatch, capsys):
+        route(True)
+        monkeypatch.setattr(envify.subprocess, "run", lambda *args, **kwargs: pytest.fail("ran keyguard list"))
+        monkeypatch.setattr(envify, "_require_host", lambda: "localhost")
+        monkeypatch.setattr(envify, "_server_get", lambda host, path, timeout: "ENVIFY_TEST_A\n")
+
+        envify.list_params()
+
+        assert capsys.readouterr().out == "ENVIFY_TEST_A\n"
+
+
 class TestSourcing:
     def should_export_the_fetched_secret_into_the_sourcing_shell(self, source_envify):
         result = source_envify('print("export ENVIFY_TEST_TOKEN=t0ken")\n')

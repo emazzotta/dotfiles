@@ -32,6 +32,7 @@ _LONGEST_BRIDGE_RUN: int = 600
 _BRIDGE_TIMEOUT: int = _TOUCH_ID_WAIT + _LONGEST_BRIDGE_RUN
 _PROMPT_BUSY_POLL: float = 1.0
 _CANDIDATE_HOSTS: tuple[str, ...] = ("localhost", "host.docker.internal")
+_GUI_DOMAIN: str = "Aqua"
 _VARIABLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
@@ -106,6 +107,18 @@ def _keyguard_available() -> bool:
     return shutil.which("keyguard") is not None
 
 
+def _outside_gui_session() -> bool:
+    launchctl = shutil.which("launchctl")
+    if launchctl is None:
+        return False
+    result = subprocess.run([launchctl, "managername"], capture_output=True, text=True, check=False)
+    return result.returncode == 0 and result.stdout.strip() != _GUI_DOMAIN
+
+
+def _keyguard_reaches_keychain() -> bool:
+    return _keyguard_available() and not _outside_gui_session()
+
+
 def _parse_kv_output(output: str, keys: tuple[str, ...]) -> dict[str, str]:
     if len(keys) == 1:
         return {keys[0]: output.strip()}
@@ -151,7 +164,7 @@ def _resolve_missing(keys: tuple[str, ...]) -> dict[str, str]:
         return {}
     resolved = (
         _resolve_via_keyguard(*missing)
-        if _keyguard_available()
+        if _keyguard_reaches_keychain()
         else _resolve_via_server(*missing)
     )
     return {key: _decode_value(value) for key, value in resolved.items()}
@@ -212,7 +225,7 @@ def rm_param(key: str) -> None:
 
 
 def list_params() -> None:
-    if _keyguard_available():
+    if _keyguard_reaches_keychain():
         result = subprocess.run(["keyguard", "list"])
         sys.exit(result.returncode)
     host = _require_host()
