@@ -8,4 +8,9 @@ if [[ "$OSTYPE" == darwin* ]]; then
   if [[ ! -S "$SSH_AUTH_SOCK" ]]; then
     () { if (( $# )); then export SSH_AUTH_SOCK="$1"; fi } /private/tmp/com.apple.launchd.*/Listeners(N=U)
   fi
+
+  # Terminal.app sets LANG, sshd does not, and pbcopy without it copies UTF-8 as MacRoman.
+  if [[ -z "$LANG" ]]; then
+    export LANG=en_US.UTF-8
+  fi
 fi
