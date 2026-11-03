@@ -92,6 +92,9 @@ echo "Setting up terminal"
 if $IS_MAC; then
   echo "Installing CoC extensions"
   vim -c 'CocInstall coc-clangd coc-tsserver coc-python coc-json coc-css coc-html' -c 'qa'
+
+  echo "Running the tmux server from launchd"
+  ./bin/tmux-agent install
 fi
 
 echo "Setup complete! Restart your terminal."

@@ -1,0 +1,184 @@
+#!/bin/bash
+# A tmux server that an SSH login starts (web-terminal, iSH) leaves its panes without Keychain and Touch ID.
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly SCRIPT_DIR
+# shellcheck source=shelllog.sh
+source "$SCRIPT_DIR/shelllog.sh"
+
+readonly LABEL=com.emazzotta.tmux
+readonly PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+readonly LOG_FILE="$HOME/Library/Logs/tmux-agent.log"
+readonly TAKEOVER_FLAG="$HOME/Library/Caches/$LABEL.takeover"
+readonly WAIT_SECONDS=5
+readonly TAKEOVER_WAIT_SECONDS=0.2
+DOMAIN="gui/$(id -u)"
+readonly DOMAIN
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") <command>
+
+Runs this Mac's tmux server as the LaunchAgent $LABEL, in the GUI session.
+
+Commands:
+  {install,takeover,status,uninstall}
+    install     add the agent; it starts its server once no other tmux server runs
+    takeover    end the running tmux server and all its sessions, so the agent starts its own now
+    status      show whether the running tmux server is the agent's
+    uninstall   remove the agent, ending its server and all its sessions
+EOF
+}
+
+die() {
+    error "$*"
+    exit 1
+}
+
+confirm() {
+    if command -v gum >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
+        gum confirm --default=false "$1"
+    else
+        local answer
+        read -rp "$1 [y/N] " answer
+        [[ "$answer" =~ ^[Yy]$ ]]
+    fi
+}
+
+agent_loaded() {
+    launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1
+}
+
+agent_pid() {
+    launchctl print "$DOMAIN/$LABEL" 2>/dev/null | awk '$1 == "pid" && $2 == "=" { print $3; exit }'
+}
+
+server_pid() {
+    tmux -N display-message -p '#{pid}' 2>/dev/null
+}
+
+wait_for_no_server() {
+    while server_pid >/dev/null; do
+        sleep "$1"
+    done
+}
+
+serve() {
+    local pid
+    if [ -e "$TAKEOVER_FLAG" ]; then
+        /bin/rm -f "$TAKEOVER_FLAG"
+        if pid=$(server_pid); then
+            log "Ending tmux server $pid and all its sessions for the takeover"
+            tmux kill-server
+            wait_for_no_server "$TAKEOVER_WAIT_SECONDS"
+        fi
+    fi
+    if pid=$(server_pid); then
+        log "Waiting for tmux server $pid to exit"
+        wait_for_no_server "$WAIT_SECONDS"
+    fi
+    # .tmux.conf.local builds default-command from SHELL.
+    export SHELL="${SHELL:-/bin/zsh}"
+    log "Starting the tmux server"
+    exec tmux -D
+}
+
+# zsh -c reads .zshenv, which sets the PATH and LANG that launchd leaves out, as it does for sshd.
+plist_xml() {
+    cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/zsh</string><string>-c</string><string>exec "\$0" serve</string><string>$SCRIPT_DIR/tmux-agent</string></array>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>$LOG_FILE</string>
+  <key>StandardErrorPath</key><string>$LOG_FILE</string>
+</dict>
+</plist>
+EOF
+}
+
+install_agent() {
+    local plist
+    command -v tmux >/dev/null 2>&1 || die "tmux is missing: brew bundle --file ~/dotfiles/brew/Brewfile"
+    plist=$(plist_xml)
+    if agent_loaded; then
+        [ "$(cat "$PLIST" 2>/dev/null)" = "$plist" ] ||
+            die "$LABEL runs with another $PLIST: tmux-agent uninstall first, which ends its sessions"
+        info "$LABEL is already installed"
+        return 0
+    fi
+    mkdir -p "$(dirname "$PLIST")" "$(dirname "$LOG_FILE")"
+    printf '%s\n' "$plist" >| "$PLIST"
+    plutil -lint -s "$PLIST" || die "plutil rejects $PLIST"
+    launchctl bootstrap "$DOMAIN" "$PLIST" || die "launchd refused $PLIST"
+    success "Installed $LABEL"
+    status
+}
+
+status() {
+    local server
+    agent_loaded || die "$LABEL is not installed: tmux-agent install"
+    if ! server=$(server_pid); then
+        warn "No tmux server answers yet (log: $LOG_FILE)"
+    elif [ "$server" = "$(agent_pid)" ]; then
+        success "tmux server $server is $LABEL's, in the GUI session"
+    else
+        warn "tmux server $server is not $LABEL's, which starts its own once that one exits." \
+            "tmux-agent takeover ends it and all its sessions now"
+    fi
+}
+
+takeover() {
+    local server
+    agent_loaded || die "$LABEL is not installed: tmux-agent install"
+    if ! server=$(server_pid); then
+        info "No tmux server runs, so $LABEL starts its own"
+        return 0
+    fi
+    if [ "$server" = "$(agent_pid)" ]; then
+        info "tmux server $server already is $LABEL's"
+        return 0
+    fi
+    confirm "End tmux server $server and all its sessions, so $LABEL starts its own?" || die "Cancelled"
+    if ! { mkdir -p "$(dirname "$TAKEOVER_FLAG")" && touch "$TAKEOVER_FLAG"; }; then
+        die "cannot write $TAKEOVER_FLAG"
+    fi
+    launchctl kickstart -k "$DOMAIN/$LABEL" || die "launchd could not restart $LABEL"
+}
+
+uninstall() {
+    local server
+    if server=$(server_pid) && [ "$server" = "$(agent_pid)" ]; then
+        confirm "End tmux server $server and all its sessions?" || die "Cancelled"
+    fi
+    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null
+    /bin/rm -f "$PLIST" "$TAKEOVER_FLAG"
+    success "Removed $LABEL"
+}
+
+main() {
+    case "${1:-}" in
+        -h | --help) usage; return 0 ;;
+        install | takeover | status | uninstall | serve) ;;
+        *) usage >&2; return 2 ;;
+    esac
+    [ "$(uname -s)" = Darwin ] || die "tmux-agent runs on macOS only"
+    case "$1" in
+        install) install_agent ;;
+        takeover) takeover ;;
+        status) status ;;
+        uninstall) uninstall ;;
+        serve) serve ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
