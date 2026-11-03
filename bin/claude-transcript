@@ -1,13 +1,22 @@
 #!/bin/bash
-# claude-transcript - render a Claude Code session's JSONL to a self-contained
-# interactive replay and publish it to the file-server. Prints the public URL.
+# claude-transcript - render a Claude Code session's JSONL to one self-contained
+# HTML page and publish it to the file-server. Prints the public URL.
 #
-# Runs INSIDE the dev container (needs ~/.claude/projects and vibe-replay).
-# Upload goes through `fileserver upload`, which forwards to the Mac over the
-# keyguard bridge.
+# Three views of a session:
+#   chat     (default) the conversation as the web-terminal's chat shows it, rendered
+#            by the web-terminal checkout's own code (bun scripts/share.ts)
+#   message  (--message ID) one prompt or reply of it, in the same style
+#   insight  (--insight) vibe-replay's interactive replay: playback, thinking,
+#            diffs, token and cost charts
 #
-# Re-publishing a session reuses the name it already has on the server (date
-# included), so the URL you shared once keeps working and shows the new content.
+# Runs where ~/.claude/projects lives (the dev container, the devbox; the
+# web-terminal's share button runs it on the devbox over SSH). Upload goes through
+# `fileserver upload`: over the keyguard bridge to the Mac in the dev container,
+# with the pod's ServiceAccount on the devbox.
+#
+# Re-publishing a session or message in the same view reuses the name it already
+# has on the server (date included), so the URL you shared once keeps working and
+# shows the new content.
 #
 # Usage:
 #   claude-transcript --title "<TITLE>" <SESSION_ID>
@@ -15,42 +24,52 @@
 #                                    scratchpad path: .../-workspace/<id>/...)
 #   claude-transcript --title "<TITLE>" --latest
 #                                    render the most recently updated session
+#   --message ID                     render only that prompt or reply
+#   --insight                        render the vibe-replay instead of the chat
 #   --allow-secrets                  publish even when the render flags secrets
 set -euo pipefail
 
 readonly projects="${HOME}/.claude/projects"
-readonly staging="${FILESERVER_BRIDGE_STAGING:-/workspace/code/Desktop/.fileserver-staging}"
 # /share and /downloads both reach the same file-server (nginx rewrites /share/
 # onto /downloads/), so old /downloads links stay valid; /share is the one to hand out.
 readonly base_url="${FILESERVER_PUBLIC_BASE:-https://emanuelemazzotta.com/share}"
 readonly stamp_pattern='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z'
+# scripts/share.ts exits with this when it wrote nothing because of a possible secret.
+readonly chat_secrets_status=3
 
-render_log=""
+work_dir=""
 
 error() { echo "claude-transcript: $*" >&2; }
 
 cleanup() {
-    if [ -n "$render_log" ]; then
-        /bin/rm -f "$render_log"
+    if [ -n "$work_dir" ]; then
+        /bin/rm -rf "$work_dir"
     fi
     return 0
 }
 
 show_usage() {
     cat <<EOF
-Usage: claude-transcript --title "<TITLE>" <SESSION_ID | --latest>
+Usage: claude-transcript --title "<TITLE>" [--message ID | --insight] <SESSION_ID | --latest>
 
-Render a Claude Code session into an interactive vibe-replay page and publish it
-to the file-server, printing the public URL.
+Render a Claude Code session into one HTML page and publish it to the
+file-server, printing the public URL. By default the page shows the
+conversation as the web-terminal's chat does.
 
   SESSION_ID       UUID of the session (the id in your scratchpad path)
   --latest         use the most recently updated session JSONL
-  --title TITLE    replay title (browser tab + replay header). Required: the
-                   renderer asks for one interactively when it is missing.
+  --title TITLE    page title (browser tab + page header). Required.
+  --message ID     publish only that prompt or reply (its id in the chat),
+                   as its own page
+  --insight        render vibe-replay's interactive replay instead, with
+                   thinking, diffs, and token and cost charts
   --allow-secrets  publish even when the render flags possible secrets
 
-Re-publishing a session overwrites the file it already has on the server, so
-its URL (timestamp included) stays valid.
+The chat view is built by the web-terminal checkout: \$WEB_TERMINAL_DIR, else
+~/Projects/private/web-terminal, else /workspace/code/private/web-terminal.
+
+Re-publishing a session overwrites the file it already has on the server in
+that view, so its URL (timestamp included) stays valid.
 EOF
 }
 
@@ -63,23 +82,75 @@ find_latest_jsonl() {
         | sort -rn | head -1 | cut -d' ' -f2-
 }
 
+# The file name prefix of a view. Insight keeps the prefix every transcript had
+# before the chat view existed, so re-publishing one of those finds its URL.
+view_prefix() {
+    case "$1" in
+        chat) printf 'claude-chat' ;;
+        message) printf 'claude-message' ;;
+        insight) printf 'claude-transcript' ;;
+    esac
+}
+
+# An explicit WEB_TERMINAL_DIR is the only candidate, so a wrong one fails
+# instead of quietly rendering from another checkout.
+find_web_terminal() {
+    local dir candidates=("${HOME}/Projects/private/web-terminal" /workspace/code/private/web-terminal)
+    if [ -n "${WEB_TERMINAL_DIR:-}" ]; then
+        candidates=("$WEB_TERMINAL_DIR")
+    fi
+    for dir in "${candidates[@]}"; do
+        if [ -f "${dir}/scripts/share.ts" ]; then
+            printf '%s' "$dir"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # The published name of an earlier run for this session, if any. Reusing it keeps
 # a shared URL alive; a miss (or an unreachable server) just mints a fresh name.
+# KEY is the session id, or the message id for a message page; both hold only
+# characters that need no escaping in the pattern.
 find_published_name() {
-    local id="$1"
+    local prefix="$1" key="$2"
     fileserver list 2>/dev/null \
-        | grep -oE "claude-transcript-${stamp_pattern}-${id}\.html" \
+        | grep -oE "${prefix}-${stamp_pattern}-${key}\.html" \
         | head -1 || true
 }
 
 resolve_name() {
-    local id="$1" published
-    published=$(find_published_name "$id")
+    local prefix="$1" key="$2" published
+    published=$(find_published_name "$prefix" "$key")
     if [ -n "$published" ]; then
         error "re-publishing over ${published}"
         printf '%s' "$published"
     else
-        printf 'claude-transcript-%s-%s.html' "$(date -u +%Y-%m-%dT%H-%M-%SZ)" "$id"
+        printf '%s-%s-%s.html' "$prefix" "$(date -u +%Y-%m-%dT%H-%M-%SZ)" "$key"
+    fi
+}
+
+refuse_secrets() {
+    error "flagged possible secrets - not publishing. Check them, then re-run with --allow-secrets"
+    return 1
+}
+
+# The web-terminal builds the page from its own chat code, so a share looks like
+# the chat at the checkout's commit. It prints each finding and writes nothing
+# when it sees what looks like a credential. Further arguments are its options.
+render_chat() {
+    local jsonl="$1" out="$2" web_terminal status=0
+    shift 2
+    if ! web_terminal=$(find_web_terminal); then
+        error "no web-terminal checkout with scripts/share.ts; set WEB_TERMINAL_DIR"
+        return 1
+    fi
+    bun "${web_terminal}/scripts/share.ts" "$@" "$jsonl" "$out" >&2 || status=$?
+    if [ "$status" -eq "$chat_secrets_status" ]; then
+        refuse_secrets
+    elif [ "$status" -ne 0 ] || [ ! -f "$out" ]; then
+        error "the web-terminal rendered nothing for ${jsonl}"
+        return 1
     fi
 }
 
@@ -88,13 +159,13 @@ resolve_name() {
 # file already written, so the path it printed - not its exit status - is what
 # says whether the render worked.
 render_replay() {
-    local jsonl="$1" title="$2" out="$3" generated
-    vibe-replay --session "$jsonl" --title "$title" </dev/null >"$render_log" 2>&1 || true
+    local jsonl="$1" title="$2" out="$3" log="$4" generated
+    vibe-replay --session "$jsonl" --title "$title" </dev/null >"$log" 2>&1 || true
 
-    generated=$(grep -oE '/[^ ]+/index\.html' "$render_log" | head -1 || true)
+    generated=$(grep -oE '/[^ ]+/index\.html' "$log" | head -1 || true)
     if [ -z "$generated" ] || [ ! -f "$generated" ]; then
         error "vibe-replay rendered nothing for ${jsonl}"
-        cat "$render_log" >&2
+        cat "$log" >&2
         return 1
     fi
     /bin/cp "$generated" "$out"
@@ -102,20 +173,19 @@ render_replay() {
 
 # vibe-replay scans the replay for credentials but only stops on findings in the
 # interactive mode this never reaches, so the refusal to publish lives here.
-check_secrets() {
-    local allow="$1"
-    grep -q 'potential secret' "$render_log" || return 0
+check_replay_secrets() {
+    local log="$1" allow="$2"
+    grep -q 'potential secret' "$log" || return 0
     if [ "$allow" = true ]; then
         error "publishing despite flagged secrets"
         return 0
     fi
-    sed -n '/potential secret/,$p' "$render_log" | head -20 >&2
-    error "flagged possible secrets - not publishing. Check them, then re-run with --allow-secrets"
-    return 1
+    sed -n '/potential secret/,$p' "$log" | head -20 >&2
+    refuse_secrets
 }
 
 main() {
-    local title="" selector="" allow_secrets=false
+    local title="" selector="" allow_secrets=false view=chat item=""
     while [ $# -gt 0 ]; do
         case "$1" in
             -h | --help) show_usage; exit 0 ;;
@@ -123,6 +193,18 @@ main() {
                 title="${2:-}"
                 [ -n "$title" ] || { error "--title needs a value"; exit 2; }
                 shift 2
+                ;;
+            --message)
+                item="${2:-}"
+                [[ "$item" =~ ^[A-Za-z0-9:_-]+$ ]] || { error "--message needs a message id"; exit 2; }
+                [ "$view" != insight ] || { error "--message and --insight do not mix"; exit 2; }
+                view=message
+                shift 2
+                ;;
+            --insight)
+                [ "$view" != message ] || { error "--message and --insight do not mix"; exit 2; }
+                view=insight
+                shift
                 ;;
             --allow-secrets) allow_secrets=true; shift ;;
             --latest) selector="$1"; shift ;;
@@ -133,7 +215,11 @@ main() {
     [ -n "$selector" ] || { show_usage >&2; exit 2; }
     [ -n "$title" ] || { error "--title is required"; show_usage >&2; exit 2; }
 
-    for cmd in vibe-replay fileserver; do
+    local renderer=bun cmd
+    if [ "$view" = insight ]; then
+        renderer=vibe-replay
+    fi
+    for cmd in "$renderer" fileserver; do
         command -v "$cmd" >/dev/null 2>&1 || { error "missing required command: ${cmd}"; exit 1; }
     done
 
@@ -148,18 +234,30 @@ main() {
         [ -n "$jsonl" ] || { error "no transcript for session ${id} under ${projects}"; exit 1; }
     fi
 
-    local name
-    name=$(resolve_name "$id")
-
-    /bin/mkdir -p "$staging"
-    render_log=$(mktemp)
+    # Render and check before anything reaches the server or the shared staging dir.
+    work_dir=$(mktemp -d)
     trap cleanup EXIT
+    local page="${work_dir}/page.html"
+    local key="$id" options=(--title "$title")
+    if [ "$allow_secrets" = true ]; then
+        options+=(--allow-secrets)
+    fi
+    if [ "$view" = message ]; then
+        key="${item//:/-}"
+        options+=(--item "$item")
+    fi
+    if [ "$view" = insight ]; then
+        render_replay "$jsonl" "$title" "$page" "${work_dir}/render.log"
+        check_replay_secrets "${work_dir}/render.log" "$allow_secrets"
+    else
+        render_chat "$jsonl" "$page" "${options[@]}"
+    fi
 
-    render_replay "$jsonl" "$title" "${staging}/${name}"
-    check_secrets "$allow_secrets"
-
-    # fileserver (container) forwards the upload over the bridge; progress -> stderr.
-    fileserver upload "${staging}/${name}" >&2
+    local name
+    name=$(resolve_name "$(view_prefix "$view")" "$key")
+    /bin/cp "$page" "${work_dir}/${name}"
+    # In the dev container fileserver stages the file for the Mac itself; progress -> stderr.
+    fileserver upload "${work_dir}/${name}" >&2
 
     printf '%s/%s\n' "$base_url" "$name"
 }
