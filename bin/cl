@@ -261,6 +261,32 @@ def _install_exit_guard(session: session_registry.Session, container_name: str |
         signal.signal(number, finish_and_exit)
 
 
+DOCKER_PROBE_TIMEOUT_SECONDS = 5
+
+
+def _docker_answers() -> bool:
+    try:
+        probe = run(
+            ["docker", "version", "--format", "{{.Server.Version}}"],
+            capture_output=True, check=False, timeout=DOCKER_PROBE_TIMEOUT_SECONDS,
+        )
+    except (OSError, SubprocessError):
+        return False
+    return probe.returncode == 0
+
+
+def _ending_signal(returncode: int) -> int | None:
+    """The signal that ended the container's session, counting a Docker that went away as a kill.
+
+    Docker Desktop quitting cuts compose off before the container's exit status
+    arrives, and compose exits 125 as for any daemon error; only a daemon that no
+    longer answers tells that apart from a session that failed on its own.
+    """
+    if returncode and not _docker_answers():
+        return signal.SIGKILL
+    return session_registry.signal_of(returncode)
+
+
 IS_DARWIN = platform.system() == "Darwin"
 OPENCODE_ROOT = Path.home() / "Projects" / "private" / "opencode"
 COMPOSE_FILE = OPENCODE_ROOT / "docker-compose.yml"
@@ -1225,7 +1251,7 @@ def main() -> None:
         _install_exit_guard(session, container_name)
         session.follow(None)
         returncode = _run_container(command, auto_mounts, container_name)
-        session.finish(session_registry.signal_of(returncode))
+        session.finish(_ending_signal(returncode))
     if record is None:
         shutil.rmtree(run_dir, ignore_errors=True)
     note_when_nothing_to_resume(entrypoint, entrypoint_args)

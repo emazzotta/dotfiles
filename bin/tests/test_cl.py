@@ -12,6 +12,7 @@ import pytest
 CLAUDE_SESSION_ID = "7f4d8b0f-8a6d-4e20-aade-ca033d3074dd"
 OPENCODE_SESSION_ID = "ses_06f4ce24cffeAOOJ6OWziGgkml"
 ELSEWHERE = Path("/Users/someone/Desktop")
+COMPOSE_LOST_THE_DAEMON = 125
 
 
 @pytest.fixture
@@ -2086,6 +2087,62 @@ class TestSessionTrackingEndToEnd:
 
         assert result.returncode == 0
         assert not self._records(home)
+
+
+class TestEndingSignal:
+    @pytest.mark.parametrize(("returncode", "docker_answers", "expected"), [
+        (0, False, None),
+        (COMPOSE_LOST_THE_DAEMON, False, signal.SIGKILL),
+        (COMPOSE_LOST_THE_DAEMON, True, None),
+        (128 + signal.SIGTERM, True, signal.SIGTERM),
+    ], ids=["claude-exited-without-asking-docker", "docker-went-away", "start-failed", "container-stopped"])
+    def test_should_count_a_docker_that_went_away_as_a_kill(
+        self, cl, monkeypatch, returncode, docker_answers, expected
+    ):
+        monkeypatch.setattr(cl, "_docker_answers", lambda: docker_answers)
+
+        assert cl._ending_signal(returncode) == expected
+
+
+class TestDockerGoingAway:
+    """Docker Desktop quitting cuts compose off before the container's own exit status arrives."""
+
+    @pytest.fixture
+    def compose_cut_off(self, cl, monkeypatch, tmp_path):
+        monkeypatch.setattr(cl, "CLAUDE_RUN_DIRS", tmp_path / "claude-sessions")
+        monkeypatch.setattr(cl, "CONVERSATION_LOG", tmp_path / "conversations.tsv")
+        monkeypatch.setattr(cl, "LEONARDO_COMMONS", tmp_path / "nonexistent")
+        monkeypatch.setattr(cl, "LEONARDO_AI", tmp_path / "nonexistent")
+        monkeypatch.setattr(cl, "warn_if_offline", lambda: None)
+        monkeypatch.setattr(sys, "argv", ["cl"])
+
+        def _cut_off(docker_answers: bool) -> None:
+            def fake_run(command, **_kwargs):
+                if command[:2] == ["docker", "compose"]:
+                    returncode = COMPOSE_LOST_THE_DAEMON
+                elif command[:2] == ["docker", "version"]:
+                    returncode = 0 if docker_answers else 1
+                else:
+                    returncode = 0
+                return subprocess.CompletedProcess(command, returncode, "", "")
+            monkeypatch.setattr(cl, "run", fake_run)
+        return _cut_off
+
+    @pytest.mark.parametrize(
+        ("docker_answers", "restorable"), [(False, 1), (True, 0)], ids=["docker-quit", "start-failed"],
+    )
+    def test_should_leave_the_session_to_restore_only_when_docker_went_away(
+        self, cl, compose_cut_off, session_registry_dir, session_store, docker_answers, restorable
+    ):
+        compose_cut_off(docker_answers)
+
+        with pytest.raises(SystemExit) as exit_info:
+            cl.main()
+
+        assert exit_info.value.code == COMPOSE_LOST_THE_DAEMON
+        for record in session_registry_dir.glob("*.json"):
+            (session_store / f"{json.loads(record.read_text())['sessionId']}.jsonl").write_text("{}\n")
+        assert cl._session_registry().count_interrupted() == restorable
 
 
 class TestTranscriptSync:
