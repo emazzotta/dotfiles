@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -1953,10 +1954,50 @@ class TestBuildSessionRecord:
         assert record.cwd == tmp_path
         assert record.tmux_session is None
 
+    def test_should_record_the_pane_cl_runs_in_and_its_own_pid(self, cl, tmp_path, monkeypatch):
+        monkeypatch.setenv("TMUX", "/tmp/tmux-501/default,1,0")
+        monkeypatch.setenv("TMUX_PANE", "%12")
+        monkeypatch.setattr(cl.session_registry, "current_tmux_session", lambda: "work")
+
+        record = cl.build_session_record(cl_namespace(), [], ("claude", [], []), tmp_path)
+
+        assert (record.tmux_pane, record.tmux_session, record.pid) == ("%12", "work", os.getpid())
+
+    def test_should_record_the_mounts_and_the_folder_of_claudes_pid_file(self, cl, tmp_path):
+        mounts = (cl.session_registry.Mount(tmp_path, "/workspace/code/project"),)
+
+        record = cl.build_session_record(cl_namespace(), [], ("claude", [], []), tmp_path, mounts, tmp_path / "run")
+
+        assert (record.mounts, record.claude_sessions) == (mounts, tmp_path / "run")
+
     def test_should_leave_the_session_open_until_the_picker_chose_one(self, cl, tmp_path):
         record = cl.build_session_record(cl_namespace(), [], ("claude-resume", [], ["deploy"]), tmp_path)
 
         assert record.session_id is None
+
+
+class TestMountsOf:
+    def test_should_pair_each_bind_mount_and_skip_anonymous_volumes_and_other_flags(self, cl):
+        volume_args = [
+            "-v", "/Users/me/web-terminal:/workspace/code/web-terminal",
+            "-v", "/Users/me/dotfiles/bin:/home/opencode/dotfiles/bin:ro",
+            "-v", "/workspace/code/web-terminal/node_modules",
+            "--name", "opencode-1",
+        ]
+
+        assert cl.mounts_of(volume_args) == (
+            cl.session_registry.Mount(Path("/Users/me/web-terminal"), "/workspace/code/web-terminal"),
+            cl.session_registry.Mount(Path("/Users/me/dotfiles/bin"), "/home/opencode/dotfiles/bin"),
+        )
+
+
+class TestClaudeRunDir:
+    def test_should_give_each_run_a_new_folder(self, cl, tmp_path, monkeypatch):
+        monkeypatch.setattr(cl, "CLAUDE_RUN_DIRS", tmp_path / "claude-sessions")
+
+        first, second = cl.claude_run_dir(), cl.claude_run_dir()
+
+        assert first != second and first.is_dir() and second.is_dir()
 
 
 class TestRestoreFlag:

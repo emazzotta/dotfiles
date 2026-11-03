@@ -114,6 +114,21 @@ class TestSessionRecord:
 
         assert registry_module.SessionRecord.from_json(record.to_json()) == record
 
+    def test_should_keep_the_pane_pid_mounts_and_run_folder_through_json(self, registry_module, make_record, tmp_path):
+        mount = registry_module.Mount(tmp_path / "web-terminal", "/workspace/code/web-terminal")
+        record = make_record(tmux_pane="%12", pid=4242, mounts=(mount,), claude_sessions=tmp_path / "run")
+
+        assert registry_module.SessionRecord.from_json(record.to_json()) == record
+
+    def test_should_read_a_record_written_before_the_pane_was_kept(self, registry_module, make_record):
+        old = json.loads(make_record().to_json())
+        for key in ("tmuxPane", "pid", "mounts", "claudeSessions"):
+            del old[key]
+
+        record = registry_module.SessionRecord.from_json(json.dumps(old))
+
+        assert (record.tmux_pane, record.pid, record.mounts, record.claude_sessions) == (None, None, (), None)
+
     def test_should_quote_the_resume_command_for_the_shell(self, make_record):
         record = make_record(cl_args=("-p", "/tmp/my project", "--model", "opus"))
 
@@ -181,6 +196,35 @@ class TestTrackedSession:
             session.finish(signum)
 
         assert bool(records_in(registry)) is kept
+
+    def test_should_remove_the_run_folder_with_the_record_of_a_session_that_ended(self, registry, make_record, tmp_path):
+        run = tmp_path / "run"
+        run.mkdir()
+        (run / "1.json").write_text("{}")
+
+        with registry.track(make_record(claude_sessions=run)) as session:
+            session.finish(None)
+
+        assert not run.exists()
+
+    def test_should_keep_the_run_folder_of_an_interrupted_session_for_restore(self, registry, make_record, tmp_path):
+        run = tmp_path / "run"
+        run.mkdir()
+
+        with registry.track(make_record(claude_sessions=run)) as session:
+            session.finish(signal.SIGTERM)
+
+        assert run.is_dir()
+
+    def test_should_log_the_folder_of_each_conversation_the_session_shows(self, registry_module, make_record, tmp_path):
+        log = tmp_path / "conversations.tsv"
+        registry = registry_module.Registry(tmp_path / "registry", tmp_path / "processes", tmp_path / "transcripts", log)
+
+        with registry.track(make_record()) as session:
+            session._update(CLEARED_ID)
+            session.finish(None)
+
+        assert log.read_text() == f"{FIRST_ID}\t{tmp_path}\n{CLEARED_ID}\t{tmp_path}\n"
 
     def test_should_settle_a_session_only_once(self, registry, make_record):
         with registry.track(make_record()) as session:
@@ -269,6 +313,12 @@ class TestClaudeProcess:
 
         assert process.session_id() is None
 
+    def test_should_follow_the_only_file_in_a_folder_of_its_own_without_pid_or_session(self, registry_module, tmp_path):
+        write_process_file(tmp_path, 1, CLEARED_ID, STARTED + timedelta(seconds=1))
+        process = registry_module.ClaudeProcess(tmp_path, STARTED, None, None, alone=True)
+
+        assert process.session_id() == CLEARED_ID
+
     def test_should_know_nothing_without_a_pid_or_a_session(self, registry_module, tmp_path):
         write_process_file(tmp_path, 7, FIRST_ID, STARTED + timedelta(seconds=1))
 
@@ -309,6 +359,16 @@ class TestRestore:
         registry.restore()
 
         assert tmux_calls[0][:4] == ("new-session", "-d", "-s", "gone")
+
+    def test_should_remove_the_run_folder_of_a_session_it_reopened(self, registry, make_record, tmux_calls, tmp_path):
+        run = tmp_path / "run"
+        run.mkdir()
+        write_transcript(registry, FIRST_ID)
+        self.interrupt(registry, make_record(claude_sessions=run))
+
+        registry.restore()
+
+        assert not run.exists()
 
     def test_should_drop_a_session_killed_before_its_first_prompt(self, registry, make_record, tmux_calls):
         self.interrupt(registry, make_record())

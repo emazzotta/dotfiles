@@ -285,6 +285,11 @@ CONTAINER_WORKSPACE = Path("/workspace")
 CLAUDE_SESSION_STORE = Path.home() / ".claude" / "projects" / str(CONTAINER_WORKSPACE).replace("/", "-")
 CLAUDE_PROCESSES = Path.home() / ".claude" / "sessions"
 SESSION_REGISTRY = Path.home() / ".local" / "state" / "cl" / "sessions"
+CLAUDE_RUN_DIRS = SESSION_REGISTRY.parent / "claude-sessions"
+CONVERSATION_LOG = SESSION_REGISTRY.parent / "conversations.tsv"
+CONTAINER_CLAUDE_SESSIONS = "/home/opencode/.claude/sessions"
+MAC_INBOX = Path.home() / "devbox-mac-inbox"
+MAC_INBOX_CONTAINER = "/home/opencode/devbox-mac-inbox"
 SESSION_CHOOSING_FLAGS = ("--session-id", "--resume", "-r", "--continue", "-c")
 RESTORE_DROPPED_FLAGS = (*SESSION_CHOOSING_FLAGS, "--fork-session")
 DOTFILES_CRUFT_PATTERNS = (
@@ -758,7 +763,7 @@ def note_when_nothing_to_resume(entrypoint: str, entrypoint_args: list[str]) -> 
 
 
 def _session_registry() -> session_registry.Registry:
-    return session_registry.Registry(SESSION_REGISTRY, CLAUDE_PROCESSES, CLAUDE_SESSION_STORE)
+    return session_registry.Registry(SESSION_REGISTRY, CLAUDE_PROCESSES, CLAUDE_SESSION_STORE, CONVERSATION_LOG)
 
 
 def note_interrupted_sessions() -> None:
@@ -798,6 +803,7 @@ def restore_args(args: argparse.Namespace, claude_args: list[str]) -> list[str]:
 
 def build_session_record(
     args: argparse.Namespace, claude_args: list[str], invocation: tuple[str, list[str], list[str]], pwd: Path,
+    mounts: tuple[session_registry.Mount, ...] = (), claude_sessions: Path | None = None,
 ) -> session_registry.SessionRecord | None:
     entrypoint, _plugin_args, entrypoint_args = invocation
     if entrypoint not in TRACKED_ENTRYPOINTS or "--print" in claude_args:
@@ -809,7 +815,29 @@ def build_session_record(
         cl_args=tuple(restore_args(args, claude_args)),
         tmux_session=session_registry.current_tmux_session(),
         started_at=datetime.now(timezone.utc),
+        tmux_pane=session_registry.current_tmux_pane(),
+        pid=os.getpid(),
+        mounts=mounts,
+        claude_sessions=claude_sessions,
     )
+
+
+def mounts_of(volume_args: list[str]) -> tuple[session_registry.Mount, ...]:
+    """The host folders a container sees, from docker's -v host:container[:options] pairs."""
+    specs = (value for flag, value in zip(volume_args, volume_args[1:]) if flag == "-v")
+    pairs = (spec.split(":")[:2] for spec in specs)
+    return tuple(
+        session_registry.Mount(Path(host), container)
+        for host, container in (pair for pair in pairs if len(pair) == 2)
+        if host.startswith("/") and container.startswith("/")
+    )
+
+
+def claude_run_dir() -> Path:
+    """A folder of this run's own for Claude's pid file: every container is pid 1 and writes the same 1.json."""
+    directory = CLAUDE_RUN_DIRS / uuid4().hex
+    directory.mkdir(parents=True)
+    return directory
 
 
 def launch_prompt(claude_args: list[str]) -> str:
@@ -1164,11 +1192,13 @@ def main() -> None:
         (KEYGUARD, "/workspace/code/keyguard", True),
         (DESKTOP, "/workspace/code/Desktop", False),
         (DOWNLOADS, "/workspace/code/Downloads", False),
+        (MAC_INBOX, MAC_INBOX_CONTAINER, False),
     )
     for host_path, container_path, lock in auto_mounts:
         volume_args = _mount_always_available(volume_args, host_path, container_path, locked_roots, lock=lock)
         _profile(f"{Path(container_path).name} mount")
     container_name = f"opencode-{int(time())}"
+    run_dir = claude_run_dir()
     sync_transcripts(args.resume is not None)
     _profile("transcript sync")
     invocation = build_entrypoint_invocation(args, claude_args, pwd)
@@ -1182,6 +1212,7 @@ def main() -> None:
         "--name", container_name,
         *dotfiles_volume_args,
         *volume_args,
+        "-v", f"{run_dir}:{CONTAINER_CLAUDE_SESSIONS}",
         "opencode",
         entrypoint,
         *plugin_args,
@@ -1189,11 +1220,14 @@ def main() -> None:
     ]
     _profile("handoff to docker compose")
 
-    with _session_registry().track(build_session_record(args, claude_args, invocation, pwd)) as session:
+    record = build_session_record(args, claude_args, invocation, pwd, mounts_of(volume_args), run_dir)
+    with _session_registry().track(record) as session:
         _install_exit_guard(session, container_name)
         session.follow(None)
         returncode = _run_container(command, auto_mounts, container_name)
         session.finish(session_registry.signal_of(returncode))
+    if record is None:
+        shutil.rmtree(run_dir, ignore_errors=True)
     note_when_nothing_to_resume(entrypoint, entrypoint_args)
     sys.exit(returncode)
 

@@ -10,6 +10,7 @@ import fcntl
 import json
 import os
 import shlex
+import shutil
 import signal
 import threading
 import time
@@ -33,12 +34,26 @@ SIGNAL_EXIT_BASE: Final = 128
 
 
 @dataclass(frozen=True)
+class Mount:
+    """A host folder and where the container sees it, so paths a container prints can be opened on the host."""
+
+    host: Path
+    container: str
+
+
+@dataclass(frozen=True)
 class SessionRecord:
+    """One cl run. tmux_pane, pid, mounts and claude_sessions let web-terminal find the Claude a pane runs."""
+
     session_id: UUID | None
     cwd: Path
     cl_args: tuple[str, ...]
     tmux_session: str | None
     started_at: datetime
+    tmux_pane: str | None = None
+    pid: int | None = None
+    mounts: tuple[Mount, ...] = ()
+    claude_sessions: Path | None = None
 
     def to_json(self) -> str:
         return json.dumps({
@@ -47,17 +62,26 @@ class SessionRecord:
             "clArgs": list(self.cl_args),
             "tmuxSession": self.tmux_session,
             "startedAt": self.started_at.isoformat(),
+            "tmuxPane": self.tmux_pane,
+            "pid": self.pid,
+            "mounts": [{"host": str(mount.host), "container": mount.container} for mount in self.mounts],
+            "claudeSessions": str(self.claude_sessions) if self.claude_sessions else None,
         })
 
     @classmethod
     def from_json(cls, text: str) -> SessionRecord:
         data = json.loads(text)
+        claude_sessions = data.get("claudeSessions")
         return cls(
             session_id=UUID(data["sessionId"]) if data["sessionId"] else None,
             cwd=Path(data["cwd"]),
             cl_args=tuple(data["clArgs"]),
             tmux_session=data["tmuxSession"],
             started_at=datetime.fromisoformat(data["startedAt"]),
+            tmux_pane=data.get("tmuxPane"),
+            pid=data.get("pid"),
+            mounts=tuple(Mount(Path(mount["host"]), mount["container"]) for mount in data.get("mounts", ())),
+            claude_sessions=Path(claude_sessions) if claude_sessions else None,
         )
 
     def resume_command(self) -> str:
@@ -102,14 +126,37 @@ def _tmux_server_running() -> bool:
     return True
 
 
-def current_tmux_session() -> str | None:
+def current_tmux_pane() -> str | None:
     pane = os.environ.get("TMUX_PANE")
-    if not os.environ.get("TMUX") or not pane:
+    return pane if os.environ.get("TMUX") and pane else None
+
+
+def current_tmux_session() -> str | None:
+    pane = current_tmux_pane()
+    if pane is None:
         return None
     try:
         return _tmux("display-message", "-p", "-t", pane, "#{session_name}") or None
     except (OSError, SubprocessError):
         return None
+
+
+def remove_run_files(record: SessionRecord) -> None:
+    """The folder that held this run's Claude pid file, once the record that names it goes."""
+    if record.claude_sessions is not None:
+        shutil.rmtree(record.claude_sessions, ignore_errors=True)
+
+
+def note_conversation(log: Path | None, session_id: UUID, cwd: Path) -> None:
+    """Append which folder a conversation ran in, which its transcript does not say for a container's /workspace."""
+    if log is None:
+        return
+    try:
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open("a") as handle:
+            handle.write(f"{session_id}\t{cwd}\n")
+    except OSError as error:
+        scriptlog.warn(f"Could not note the folder of {session_id}: {error}")
 
 
 @dataclass(frozen=True)
@@ -136,14 +183,18 @@ class ClaudeProcess:
 
     That name changes on /clear or /resume. Each docker container numbers its processes
     from 1, so containers sharing ~/.claude can write the same file: the pid domain tells
-    this process apart from another that took the file over.
+    this process apart from another that took the file over. A directory of its own
+    (alone) holds this process's file only, whatever its pid and first session.
     """
 
-    def __init__(self, directory: Path, since: datetime, pid: int | None, session_id: UUID | None) -> None:
+    def __init__(
+        self, directory: Path, since: datetime, pid: int | None, session_id: UUID | None, alone: bool = False,
+    ) -> None:
         self._directory = directory
         self._since = since - CLOCK_SKEW
         self._file = directory / f"{pid}.json" if pid else None
         self._first_session_id = session_id
+        self._alone = alone
         self._pid_domain: str | None = None
 
     def session_id(self) -> UUID | None:
@@ -160,6 +211,8 @@ class ClaudeProcess:
         return state.pid_domain == self._pid_domain
 
     def _find_by_session(self) -> Path | None:
+        if self._alone:
+            return next(iter(sorted(self._directory.glob("*.json"))), None)
         if self._first_session_id is None:
             return None
         for path in self._directory.glob("*.json"):
@@ -178,16 +231,21 @@ def _write(handle: IO[str], record: SessionRecord) -> None:
 
 
 class TrackedSession:
-    def __init__(self, handle: IO[str], path: Path, record: SessionRecord, processes: Path) -> None:
+    def __init__(
+        self, handle: IO[str], path: Path, record: SessionRecord, processes: Path, conversations: Path | None = None,
+    ) -> None:
         self._handle = handle
         self._path = path
         self._record = record
         self._processes = processes
+        self._conversations = conversations
         self._lock = threading.RLock()
         self._finished = threading.Event()
 
     @classmethod
-    def start(cls, directory: Path, record: SessionRecord, processes: Path) -> TrackedSession:
+    def start(
+        cls, directory: Path, record: SessionRecord, processes: Path, conversations: Path | None = None,
+    ) -> TrackedSession:
         """Lock before the record shows up under its name, so restore never claims a live one."""
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{uuid4()}.json"
@@ -196,7 +254,9 @@ class TrackedSession:
         fcntl.flock(handle, fcntl.LOCK_EX)
         _write(handle, record)
         os.replace(staging, path)
-        return cls(handle, path, record, processes)
+        if record.session_id is not None:
+            note_conversation(conversations, record.session_id, record.cwd)
+        return cls(handle, path, record, processes, conversations)
 
     def __enter__(self) -> TrackedSession:
         return self
@@ -205,7 +265,10 @@ class TrackedSession:
         self.finish(None)
 
     def follow(self, pid: int | None) -> None:
-        process = ClaudeProcess(self._processes, self._record.started_at, pid, self._record.session_id)
+        own = self._record.claude_sessions
+        process = ClaudeProcess(
+            own or self._processes, self._record.started_at, pid, self._record.session_id, alone=own is not None,
+        )
         threading.Thread(target=self._follow, args=(process,), daemon=True).start()
 
     def finish(self, signum: int | None) -> None:
@@ -215,6 +278,7 @@ class TrackedSession:
             self._finished.set()
             if ended_by_user(signum, self._record.tmux_session is not None):
                 self._path.unlink(missing_ok=True)
+                remove_run_files(self._record)
             self._handle.close()
 
     def _follow(self, process: ClaudeProcess) -> None:
@@ -229,6 +293,7 @@ class TrackedSession:
                 return
             self._record = replace(self._record, session_id=session_id)
             _write(self._handle, self._record)
+            note_conversation(self._conversations, session_id, self._record.cwd)
 
 
 class Untracked:
@@ -284,12 +349,13 @@ class Registry:
     directory: Path
     claude_processes: Path
     transcripts: Path
+    conversations: Path | None = None
 
     def track(self, record: SessionRecord | None) -> Session:
         if record is None:
             return UNTRACKED
         try:
-            return TrackedSession.start(self.directory, record, self.claude_processes)
+            return TrackedSession.start(self.directory, record, self.claude_processes, self.conversations)
         except OSError as error:
             scriptlog.warn(f"This session will not be restorable: {error}")
             return UNTRACKED
@@ -317,6 +383,8 @@ class Registry:
         record = claim.record()
         if record is None or not self._resumable(record):
             claim.release(discard=True)
+            if record is not None:
+                remove_run_files(record)
             return True
         target = record.tmux_session or fallback
         try:
@@ -326,6 +394,7 @@ class Registry:
             claim.release(discard=False)
             return False
         claim.release(discard=True)
+        remove_run_files(record)
         scriptlog.success(f"Reopened {record.session_id} in tmux session {target}")
         return True
 
