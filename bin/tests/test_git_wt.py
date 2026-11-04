@@ -22,6 +22,37 @@ def finish_upstream(git, project, worktree, branch):
     fetch(git, project)
 
 
+SUBMODULE = "lib"
+ALLOW_FILE_TRANSPORT = ("-c", "protocol.file.allow=always")
+
+
+@pytest.fixture
+def with_submodule(git, tmp_path, project):
+    library = tmp_path / "lib.git"
+    git(tmp_path, "init", "--bare", str(library))
+    seed = tmp_path / "lib-seed"
+    git(tmp_path, "clone", str(library), str(seed))
+    git(seed, "commit", "--allow-empty", "-m", "Library")
+    git(seed, "push", "origin", "main")
+    git(project, *ALLOW_FILE_TRANSPORT, "submodule", "add", str(library), SUBMODULE)
+    git(project, "commit", "-m", "Add library")
+    git(project, "push", "origin", "main")
+
+
+@pytest.fixture
+def added_with_submodule(added, git, with_submodule):
+    def _added(branch):
+        path = added(branch)
+        git(path, *ALLOW_FILE_TRANSPORT, "submodule", "update", "--init")
+        return path
+    return _added
+
+
+def commit_in_submodule_only(git, worktree):
+    git(worktree / SUBMODULE, "commit", "--allow-empty", "-m", "Local library work")
+    git(worktree, "commit", "-am", "Record local library work")
+
+
 class TestAdd:
     def should_create_a_branch_off_origin_head_inside_claude_worktrees(self, wt, git, project):
         result = wt("add", "feature")
@@ -479,6 +510,59 @@ class TestSweep:
         assert result.returncode == 0, result.stderr
         assert not (other_side / WORKTREES / "feature").exists()
         assert registered_paths(git, other_side) == [str(other_side)]
+
+
+class TestSubmodules:
+    def should_remove_a_clean_worktree_with_a_checked_out_submodule(
+            self, wt, added_with_submodule, git, project):
+        path = added_with_submodule("feature")
+
+        result = wt("rm", "feature")
+
+        assert result.returncode == 0, result.stderr
+        assert not path.exists()
+        assert "feature" not in branches(git, project)
+
+    def should_leave_the_submodule_of_the_main_checkout_initialised(
+            self, wt, added_with_submodule, git, project):
+        added_with_submodule("feature")
+
+        wt("rm", "feature")
+
+        assert not git(project, "submodule", "status").startswith("-")
+
+    def should_keep_a_worktree_whose_submodule_holds_commits_on_no_remote_branch(
+            self, wt, added_with_submodule, git, project):
+        path = added_with_submodule("feature")
+        commit_in_submodule_only(git, path)
+
+        result = wt("rm", "feature")
+
+        assert result.returncode == 1
+        assert f"kept {path}: submodule commits on no remote branch: {SUBMODULE}" in result.stderr
+        assert path.exists()
+        assert "feature" in branches(git, project)
+
+    def should_sweep_a_finished_worktree_with_a_checked_out_submodule(
+            self, wt, added_with_submodule, git, project):
+        path = added_with_submodule("feature")
+        finish_upstream(git, project, path, "feature")
+
+        result = wt("sweep")
+
+        assert f"removed {path} (upstream gone)" in result.stdout
+        assert not path.exists()
+
+    def should_not_sweep_a_worktree_whose_submodule_holds_commits_on_no_remote_branch(
+            self, wt, added_with_submodule, git, project):
+        path = added_with_submodule("feature")
+        commit_in_submodule_only(git, path)
+        finish_upstream(git, project, path, "feature")
+
+        result = wt("sweep")
+
+        assert result.stdout == ""
+        assert path.exists()
 
 
 class TestComplete:

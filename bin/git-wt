@@ -12,13 +12,14 @@ Usage: git wt <command>
   path <branch>           print where the worktree holding <branch> is checked out on this machine
   rm <branch>...          delete each branch, or every branch a glob like 'LEO-1-*' matches, and
                           the worktree holding it, also when that worktree was registered from
-                          the other side of a container mount
+                          the other side of a container mount; a worktree with uncommitted changes
+                          or submodule commits on no remote branch is kept, with its branch
   rm --merged             delete each branch whose work is in origin/HEAD, squash merges included,
                           and its worktree; a branch without commits of its own qualifies only once
-                          its upstream is gone, and checked-out branches and worktrees with
-                          uncommitted changes or not on this machine are kept
-  sweep [-n]              remove clean worktrees whose branch is merged or upstream gone, and registrations
-                          whose $WORKTREE_DIR directory is gone; -n only lists them
+                          its upstream is gone, and checked-out branches, worktrees rm would keep
+                          and worktrees not on this machine are kept
+  sweep [-n]              remove worktrees rm would not keep whose branch is merged or upstream gone,
+                          and registrations whose $WORKTREE_DIR directory is gone; -n only lists them
 EOF
 }
 
@@ -95,6 +96,28 @@ is_clean() {
     [ -z "$status" ]
 }
 
+# Removing a worktree deletes the submodule repositories in its admin directory, and with them
+# any submodule commit that no remote branch holds.
+submodules_on_no_remote() {
+    local admin
+    admin=$(admin_dir_of "$1") || return 1
+    [ -d "$admin/modules" ] || return 0
+    # shellcheck disable=SC2016 # foreach sets $displaypath in each submodule
+    git -C "$2" submodule foreach --quiet --recursive \
+        'git branch -r --contains HEAD | grep -q . || echo "$displaypath"'
+}
+
+removal_blocker() {
+    local unpushed
+    if ! is_clean "$1" "$2"; then
+        echo "uncommitted changes"
+    elif ! unpushed=$(submodules_on_no_remote "$1" "$2"); then
+        echo "submodules could not be checked"
+    elif [ -n "$unpushed" ]; then
+        echo "submodule commits on no remote branch: ${unpushed//$'\n'/, }"
+    fi
+}
+
 delete_worktree() {
     local registered="$1" local_path="${2:-}"
     if [ -z "$local_path" ]; then
@@ -104,18 +127,20 @@ delete_worktree() {
     if [ "$local_path" != "$registered" ]; then
         git worktree repair "$local_path" >/dev/null 2>&1 || return 1
     fi
-    git worktree remove "$local_path"
+    # Callers check removal_blocker first; --force is what lets git remove one with submodules.
+    git worktree remove --force "$local_path"
 }
 
 remove_if_clean() {
-    local registered="$1" local_path
+    local registered="$1" local_path blocker
     if ! local_path=$(locate_worktree "$registered"); then
         delete_worktree "$registered" || return 1
         echo "dropped $registered (directory not on this machine)"
         return 0
     fi
-    if ! is_clean "$registered" "$local_path"; then
-        echo "kept $local_path: uncommitted changes" >&2
+    blocker=$(removal_blocker "$registered" "$local_path")
+    if [ -n "$blocker" ]; then
+        echo "kept $local_path: $blocker" >&2
         return 1
     fi
     delete_worktree "$registered" "$local_path"
@@ -213,7 +238,7 @@ sweep_reason() {
     else
         return 1
     fi
-    is_clean "$registered" "$local_path" || return 1
+    [ -z "$(removal_blocker "$registered" "$local_path")" ] || return 1
     echo "$reason"
 }
 
@@ -238,7 +263,7 @@ landed_and_clean() {
     registered=$(worktree_of_branch "$branch")
     [ -n "$registered" ] || return 0
     local_path=$(locate_worktree "$registered") || return 1
-    is_clean "$registered" "$local_path"
+    [ -z "$(removal_blocker "$registered" "$local_path")" ]
 }
 
 remove_merged_branches() {
