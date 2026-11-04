@@ -194,6 +194,8 @@ esac''',
         "docker": f'''
 echo "$*" >> "{files['docker']}"
 case "$1" in
+    build) [ -z "${{BUILD_FAILS:-}}" ] || exit 1 ;;
+    buildx) [ -z "${{NO_BUILDX:-}}" ] || exit 1 ;;
     context) echo unix:///mock/docker.sock ;;
     push) printf 'ghcr.io\\n' | docker-credential-demo get > "{files['creds']}"
           grep -rl "$DEMO_REGISTRY_SECRET" "$DOCKER_CONFIG" > "{files['leaks']}"
@@ -350,6 +352,18 @@ class TestPushContainer:
         assert result.returncode == 1
         assert len(calls_matching(result, "kubectl", "delete deployment,service")) == 1
         assert "removed it" in result.stderr
+
+    @pytest.mark.parametrize("env,message", [
+        ({"BUILD_FAILS": "1", "NO_BUILDX": "1"}, "this docker has no buildx plugin"),
+        ({"BUILD_FAILS": "1"}, "plexius: docker build failed, nothing was pushed"),
+    ])
+    def should_stop_before_pushing_when_the_build_fails(self, demo, tmp_path, env, message):
+        result = demo(["push"], cwd=project(tmp_path / "plexius", {"Dockerfile": CADDY}), env=env)
+
+        assert result.returncode == 1
+        assert message in result.stderr
+        assert not any(call.startswith("push") for call in result.calls["docker"])
+        assert "kubectl" not in result.calls
 
     def should_explain_how_to_get_a_token_when_envify_has_none(self, demo, tmp_path):
         result = demo(["push"], cwd=project(tmp_path / "plexius", {"Dockerfile": CADDY}), env={"GHCR_DEMO_TOKEN": ""})

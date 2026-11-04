@@ -312,8 +312,14 @@ def announce(ctl_output: str) -> None:
 def docker_build(project: Path, image: str, name: str) -> None:
     info(f"{name}: docker build ({PLATFORM})")
     revision = run_quiet(["git", "-C", str(project), "rev-parse", "--short", "HEAD"]) or "LOCAL"
-    run(["docker", "build", "--platform", PLATFORM, "--build-arg", f"VCS_REF={revision}", "-t", image, str(project)],
-        f"{name}: docker build failed, nothing was pushed")
+    build = subprocess.run(
+        ["docker", "build", "--platform", PLATFORM, "--build-arg", f"VCS_REF={revision}", "-t", image, str(project)])
+    if build.returncode == 0:
+        return
+    if subprocess.run(["docker", "buildx", "version"], capture_output=True).returncode != 0:
+        die(f"{name}: docker build failed, and this docker has no buildx plugin, so BuildKit features "
+            "(--platform=$BUILDPLATFORM, RUN --mount) cannot work; the devbox image installs docker-buildx")
+    die(f"{name}: docker build failed, nothing was pushed")
 
 
 def extract_site(image: str, candidates: Sequence[str], into: Path) -> Path:
