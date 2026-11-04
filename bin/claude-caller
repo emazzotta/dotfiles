@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Name the Claude Code session this process runs in, for secret approval prompts.
+
+Prints one JSON line, {"session": "<first block of the session ID>", "title": "<session title>"},
+which envify sends to keyguard and the devbox unlock client signs into its request. Outside
+Claude the title names the shell and its tmux window. An unknown value is empty, and the exit
+status is always 0, so an approval never fails on this lookup.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import unicodedata
+from collections.abc import Iterator, Sequence
+from pathlib import Path
+from typing import Final
+from uuid import UUID
+
+PROJECTS_DIR: Final = Path(os.environ.get("CLAUDE_PROJECTS", Path.home() / ".claude" / "projects"))
+SESSION_ENV: Final = "CLAUDE_CODE_SESSION_ID"
+SHORT_ID_LENGTH: Final = 8
+TITLE_LIMIT: Final = 60
+ELLIPSIS: Final = "\u2026"
+HIDDEN_CATEGORIES: Final = frozenset({"Cc", "Cf", "Co", "Cs", "Zl", "Zp"})
+TITLE_TYPE: Final = "ai-title"
+TITLE_MARK: Final = TITLE_TYPE.encode()
+CHUNK_BYTES: Final = 1 << 16
+SCAN_LIMIT_BYTES: Final = 16 << 20
+TMUX_TIMEOUT_SECONDS: Final = 1.0
+SHELL_TITLE: Final = "shell"
+
+
+def session_id() -> UUID | None:
+    try:
+        return UUID(os.environ.get(SESSION_ENV, ""))
+    except ValueError:
+        return None
+
+
+def clean(title: str) -> str:
+    spaced = "".join(" " if char.isspace() else char for char in title)
+    visible = "".join(char for char in spaced if unicodedata.category(char) not in HIDDEN_CATEGORIES)
+    collapsed = " ".join(visible.split())
+    if len(collapsed) <= TITLE_LIMIT:
+        return collapsed
+    return collapsed[:TITLE_LIMIT - len(ELLIPSIS)].rstrip() + ELLIPSIS
+
+
+def lines_from_end(path: Path) -> Iterator[bytes]:
+    with path.open("rb") as handle:
+        position = handle.seek(0, os.SEEK_END)
+        floor = max(0, position - SCAN_LIMIT_BYTES)
+        partial = b""
+        while position > floor:
+            step = min(CHUNK_BYTES, position - floor)
+            position -= step
+            handle.seek(position)
+            lines = (handle.read(step) + partial).split(b"\n")
+            partial = lines.pop(0)
+            yield from reversed(lines)
+        if position == 0:
+            yield partial
+
+
+def title_in(line: bytes) -> str | None:
+    if TITLE_MARK not in line:
+        return None
+    try:
+        record = json.loads(line)
+    except ValueError:
+        return None
+    title = record.get("aiTitle") if isinstance(record, dict) and record.get("type") == TITLE_TYPE else None
+    return title if isinstance(title, str) else None
+
+
+def session_title(session: UUID) -> str:
+    transcript = next(PROJECTS_DIR.glob(f"*/{session}.jsonl"), None)
+    if transcript is None:
+        return ""
+    try:
+        titles = (title_in(line) for line in lines_from_end(transcript))
+        return clean(next((title for title in titles if title is not None), ""))
+    except OSError:
+        return ""
+
+
+def tmux_place() -> str | None:
+    server, pane = os.environ.get("TMUX", ""), os.environ.get("TMUX_PANE", "")
+    if not server or not pane:
+        return None
+    command = ["tmux", "-S", server.split(",")[0], "display-message", "-p", "-t", pane, "#S:#I"]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=TMUX_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return clean(result.stdout) or None
+
+
+def shell_title() -> str:
+    place = tmux_place()
+    return f"{SHELL_TITLE} in tmux {place}" if place else SHELL_TITLE
+
+
+def describe() -> dict[str, str]:
+    session = session_id()
+    if session is None:
+        return {"session": "", "title": shell_title()}
+    return {"session": session.hex[:SHORT_ID_LENGTH], "title": session_title(session)}
+
+
+def main(argv: Sequence[str]) -> int:
+    argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter).parse_args(argv)
+    print(json.dumps(describe()))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

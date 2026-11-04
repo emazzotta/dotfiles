@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import functools
 import getpass
+import json
 import os
 import re
 import shlex
@@ -18,6 +20,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http import HTTPStatus
 from pathlib import Path
@@ -34,6 +37,10 @@ _PROMPT_BUSY_POLL: float = 1.0
 _CANDIDATE_HOSTS: tuple[str, ...] = ("localhost", "host.docker.internal")
 _GUI_DOMAIN: str = "Aqua"
 _VARIABLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_CALLER_HELPER: Path = Path(__file__).resolve().parent / "claude-caller"
+_CALLER_TIMEOUT: int = 2
+_SESSION_HEADER: str = "X-Keyguard-Session"
+_TITLE_HEADER: str = "X-Keyguard-Title"
 
 
 # ---------------------------------------------------------------------------
@@ -78,11 +85,31 @@ def _require_host() -> str:
     return host
 
 
+@functools.lru_cache(maxsize=None)
+def _caller() -> dict[str, str]:
+    try:
+        result = subprocess.run([str(_CALLER_HELPER)], capture_output=True, text=True, timeout=_CALLER_TIMEOUT)
+        caller = json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return {}
+    if not isinstance(caller, dict):
+        return {}
+    return {key: value for key, value in caller.items() if isinstance(value, str) and value}
+
+
+def _caller_headers() -> dict[str, str]:
+    caller = _caller()
+    headers = {_SESSION_HEADER: caller["session"]} if "session" in caller else {}
+    if "title" in caller:
+        headers[_TITLE_HEADER] = urllib.parse.quote(caller["title"], safe="")
+    return headers
+
+
 def _server_get(host: str, path: str, *, timeout: int | None = None) -> str:
     qs = f"?timeout={timeout}" if timeout else ""
     req = urllib.request.Request(
         f"http://{host}:{_SERVER_PORT}/{path}{qs}",
-        headers={"X-Keyguard-Source": socket.gethostname()},
+        headers={"X-Keyguard-Source": socket.gethostname(), **_caller_headers()},
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -183,7 +210,7 @@ def load_env(keys: tuple[str, ...]) -> None:
 def store_param(key: str, value: str) -> None:
     host = _require_host()
     req = urllib.request.Request(
-        f"http://{host}:{_SERVER_PORT}/{key}", data=value.encode(), method="POST",
+        f"http://{host}:{_SERVER_PORT}/{key}", data=value.encode(), method="POST", headers=_caller_headers(),
     )
     try:
         with urllib.request.urlopen(req, timeout=_STORE_TIMEOUT):
@@ -239,7 +266,7 @@ def list_params() -> None:
 
 def _bridge_call(host: str, path: str, *, method: str = "GET", data: bytes | None = None) -> str:
     request = urllib.request.Request(
-        f"http://{host}:{_SERVER_PORT}/_bridge/{path}", data=data, method=method,
+        f"http://{host}:{_SERVER_PORT}/_bridge/{path}", data=data, method=method, headers=_caller_headers(),
     )
     deadline = time.monotonic() + _TOUCH_ID_WAIT
     while True:

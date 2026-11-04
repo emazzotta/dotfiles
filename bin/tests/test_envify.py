@@ -164,6 +164,73 @@ class TestStoreParam:
         assert request.data == b"s3cret"
 
 
+class TestCallerHeaders:
+    @pytest.fixture
+    def opened(self, envify, monkeypatch):
+        requests = []
+
+        def fake_urlopen(request, timeout):
+            requests.append(request)
+            return FakeResponse()
+
+        monkeypatch.setattr(envify.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(envify, "_require_host", lambda: "localhost")
+        return requests
+
+    @pytest.fixture
+    def helper_prints(self, envify, monkeypatch):
+        runs = []
+
+        def _prints(stdout):
+            def fake_run(command, **_):
+                runs.append(command)
+                return SimpleNamespace(returncode=0, stdout=stdout)
+            monkeypatch.setattr(envify.subprocess, "run", fake_run)
+            return runs
+        return _prints
+
+    def should_name_the_calling_session_on_every_server_request(self, envify, opened, helper_prints):
+        helper_prints('{"session": "48f92bcb", "title": "Caf\\u00e9 \\u2013 notes"}')
+
+        envify._server_get("localhost", "GITLAB_TOKEN")
+        envify.store_param("GITLAB_TOKEN", "value")
+        envify._bridge_call("localhost", "mac-trash", method="POST", data=b"/a\n")
+
+        assert [request.get_header("X-keyguard-session") for request in opened] == ["48f92bcb"] * 3
+        assert {request.get_header("X-keyguard-title") for request in opened} == {"Caf%C3%A9%20%E2%80%93%20notes"}
+
+    def should_run_the_helper_once_per_envify_run(self, envify, opened, helper_prints):
+        runs = helper_prints('{"session": "48f92bcb", "title": "t"}')
+
+        envify._server_get("localhost", "A")
+        envify._server_get("localhost", "B")
+
+        assert runs == [[str(envify._CALLER_HELPER)]]
+
+    @pytest.mark.parametrize("stdout", ["", "not json", "[]", '{"session": "", "title": 5}'])
+    def should_send_no_caller_headers_when_the_helper_says_nothing_usable(self, envify, opened, helper_prints,
+                                                                         stdout):
+        helper_prints(stdout)
+
+        envify._server_get("localhost", "GITLAB_TOKEN")
+
+        assert not opened[0].has_header("X-keyguard-session")
+        assert not opened[0].has_header("X-keyguard-title")
+
+    def should_send_no_caller_headers_when_the_helper_cannot_run(self, envify, opened, monkeypatch):
+        def missing(command, **_):
+            raise FileNotFoundError(command[0])
+        monkeypatch.setattr(envify.subprocess, "run", missing)
+
+        envify._server_get("localhost", "GITLAB_TOKEN")
+
+        assert opened[0].get_header("X-keyguard-source")
+        assert not opened[0].has_header("X-keyguard-session")
+
+    def should_find_the_helper_next_to_envify(self, envify):
+        assert envify._CALLER_HELPER == WRAPPER.resolve().parent / "claude-caller"
+
+
 class TestSetFlag:
     @pytest.fixture
     def stored(self, envify, monkeypatch):
