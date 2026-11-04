@@ -76,6 +76,7 @@ conversation as the web-terminal's chat does.
 
 The chat view is built by the web-terminal checkout: \$WEB_TERMINAL_DIR, else
 ~/Projects/private/web-terminal, else /workspace/code/private/web-terminal.
+Its dependencies are installed there first (bun install --frozen-lockfile).
 
 Re-publishing a session overwrites the file it already has on the server in
 that view, so its URL (timestamp included) stays valid.
@@ -145,6 +146,16 @@ refuse_secrets() {
     return 1
 }
 
+# The checkout is a working copy: a fresh clone has no node_modules and a pull
+# can change the lockfile. With both current, the install is a no-op.
+install_web_terminal_deps() {
+    local web_terminal="$1"
+    if ! (cd "$web_terminal" && bun install --frozen-lockfile) >&2; then
+        error "could not install the web-terminal's dependencies in ${web_terminal}"
+        return 1
+    fi
+}
+
 # The web-terminal builds the page from its own chat code, so a share looks like
 # the chat at the checkout's commit. It prints each finding and writes nothing
 # when it sees what looks like a credential. Further arguments are its options.
@@ -155,6 +166,7 @@ render_chat() {
         error "no web-terminal checkout with scripts/share.ts; set WEB_TERMINAL_DIR"
         return 1
     fi
+    install_web_terminal_deps "$web_terminal" || return 1
     bun "${web_terminal}/scripts/share.ts" "$@" "$jsonl" "$out" >&2 || status=$?
     if [ "$status" -eq "$chat_secrets_status" ]; then
         refuse_secrets

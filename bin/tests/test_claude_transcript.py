@@ -1,6 +1,15 @@
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
 import pytest
 
 SESSION = "ba40747f-3772-4931-b0e5-fc421983d509"
+TRANSCRIPT = Path(".claude", "projects", "-workspace", f"{SESSION}.jsonl")
 STAMP = "2026-07-16T02-42-00Z"
 PUBLISHED_CHAT = f"claude-chat-{STAMP}-{SESSION}.html"
 PUBLISHED_INSIGHT = f"claude-transcript-{STAMP}-{SESSION}.html"
@@ -10,15 +19,44 @@ TITLE = "Fixing case-save corruption"
 RENDERED = "<html>rendered page</html>"
 SECRETS_FOUND = "2 potential secret(s) found"
 CHAT_FINDING = "possible GitHub token in the tool Bash 2026-07-16T02:42:00Z: ghp_a1…"
+INSTALL_FAILED = "claude-transcript: could not install the web-terminal's dependencies in"
+WEB_TERMINAL_CHECKOUTS = (
+    os.environ.get("WEB_TERMINAL_DIR", ""),
+    str(Path.home() / "Projects" / "private" / "web-terminal"),
+    "/workspace/code/private/web-terminal",
+)
 
 
 @pytest.fixture
 def projects(tmp_path):
     """A fake ~/.claude/projects holding one session JSONL."""
-    project = tmp_path / "home" / ".claude" / "projects" / "-workspace"
-    project.mkdir(parents=True)
-    (project / f"{SESSION}.jsonl").write_text("{}\n")
-    return tmp_path / "home"
+    home = tmp_path / "home"
+    (home / TRANSCRIPT).parent.mkdir(parents=True)
+    (home / TRANSCRIPT).write_text("{}\n")
+    return home
+
+
+def write_transcript(home: Path, prompt: str, reply: str) -> None:
+    """Replace the session's JSONL with one prompt and its reply, as Claude Code records them."""
+    records = [
+        {"type": "user", "uuid": "u-1", "timestamp": "2026-07-16T02:42:00Z",
+         "message": {"role": "user", "content": prompt}},
+        {"type": "assistant", "uuid": "a-1", "timestamp": "2026-07-16T02:42:05Z",
+         "message": {"role": "assistant", "content": [{"type": "text", "text": reply}]}},
+    ]
+    (home / TRANSCRIPT).write_text("".join(json.dumps(record) + "\n" for record in records))
+
+
+def scripted_bun(log: Path, chat_status: int, renders: bool, installs: bool) -> str:
+    """A bun mock: `bun install` succeeds or fails, the share script exits with `chat_status`."""
+    install = "exit 0" if installs else "echo 'error: lockfile had changes, but lockfile is frozen' >&2\nexit 1"
+    chat = f'if [ "$1" = install ]; then\necho "bun $* in $PWD" >> {log}\n{install}\nfi\n'
+    chat += f'echo "bun $*" >> {log}\n'
+    if chat_status == 3:
+        chat += f'echo "{CHAT_FINDING}" >&2\n'
+    elif renders:
+        chat += f"for last; do :; done\nprintf '%s' '{RENDERED}' > \"$last\"\n"
+    return chat + f"exit {chat_status}"
 
 
 @pytest.fixture
@@ -31,14 +69,40 @@ def web_terminal(tmp_path):
 
 
 @pytest.fixture
+def fresh_web_terminal(tmp_path):
+    """The web-terminal at a local checkout's HEAD without node_modules, as a fresh clone has it."""
+    source = next((Path(c) for c in WEB_TERMINAL_CHECKOUTS if c and (Path(c) / ".git").exists()), None)
+    if source is None:
+        pytest.skip("no web-terminal checkout to export")
+    archive = tmp_path / "web-terminal.tar"
+    checkout = tmp_path / "fresh-web-terminal"
+    checkout.mkdir()
+    subprocess.run(["git", "-C", str(source), "archive", "-o", str(archive), "HEAD"], check=True)
+    subprocess.run(["tar", "-xf", str(archive), "-C", str(checkout)], check=True)
+    return checkout
+
+
+@pytest.fixture
+def real_bun(monkeypatch):
+    """A bun mock body that runs the real bun, installing from the owner's package cache."""
+    bun = shutil.which("bun")
+    if bun is None:
+        pytest.skip("bun is not installed")
+    cache = os.environ.get("BUN_INSTALL_CACHE_DIR", str(Path.home() / ".bun" / "install" / "cache"))
+    monkeypatch.setenv("BUN_INSTALL_CACHE_DIR", cache)
+    return f'exec "{bun}" "$@"'
+
+
+@pytest.fixture
 def publish(run_bash, tmp_path, projects, web_terminal):
     """Run claude-transcript against mocked bun, vibe-replay and fileserver.
 
     `listing` seeds what `fileserver list` reports. `chat_status` is the exit
-    status of the web-terminal's share script (3 = possible secrets) and `scan`
-    vibe-replay's secret verdict. The mocks log every call to calls.log, and the
-    fileserver mock keeps each uploaded file in `server`. Every run is titled
-    unless `title=None`.
+    status of the web-terminal's share script (3 = possible secrets), `installs`
+    whether its dependencies install, and `scan` vibe-replay's secret verdict.
+    `bun` replaces the bun mock's body. The mocks log every call to calls.log,
+    and the fileserver mock keeps each uploaded file in `server`. Every run is
+    titled unless `title=None`.
     """
     server = tmp_path / "server"
     server.mkdir()
@@ -46,13 +110,7 @@ def publish(run_bash, tmp_path, projects, web_terminal):
     replay = tmp_path / "vibe" / "ba40747f" / "index.html"
 
     def _publish(args, listing="", chat_status=0, scan="No secrets detected", renders=True, title=TITLE,
-                 checkout=web_terminal):
-        chat = f'echo "bun $*" >> {log}\n'
-        if chat_status == 3:
-            chat += f'echo "{CHAT_FINDING}" >&2\n'
-        elif renders:
-            chat += f"for last; do :; done\nprintf '%s' '{RENDERED}' > \"$last\"\n"
-        chat += f"exit {chat_status}"
+                 checkout=web_terminal, installs=True, bun=None):
         replayer = f'echo "vibe-replay $*" >> {log}\n'
         if renders:
             replayer += (
@@ -62,7 +120,7 @@ def publish(run_bash, tmp_path, projects, web_terminal):
             )
         replayer += f'echo "  {scan}"\n'
         mocks = {
-            "bun": chat,
+            "bun": bun or scripted_bun(log, chat_status, renders, installs),
             "vibe-replay": replayer,
             "fileserver": (
                 f'echo "fileserver $*" >> {log}\n'
@@ -180,6 +238,44 @@ class TestChatView:
         assert result.returncode == 1
         assert "no web-terminal checkout" in result.stderr
         assert "bun" not in result.calls
+
+    def should_install_the_checkouts_dependencies_before_rendering(self, publish, web_terminal):
+        result = publish([SESSION])
+
+        install, render = result.calls.splitlines()[:2]
+        assert install == f"bun install --frozen-lockfile in {web_terminal}"
+        assert render.startswith(f"bun {web_terminal}/scripts/share.ts ")
+
+    def should_end_with_why_and_publish_nothing_when_the_dependencies_do_not_install(self, publish, web_terminal):
+        result = publish([SESSION], installs=False)
+
+        assert result.returncode == 1
+        assert result.stderr.strip().splitlines()[-1] == f"{INSTALL_FAILED} {web_terminal}"
+        assert "scripts/share.ts" not in result.calls
+        assert "fileserver" not in result.calls
+
+
+@pytest.mark.slow
+class TestWithTheRealWebTerminal:
+    """The real bun and share script, from a web-terminal checkout whose dependencies were never installed."""
+
+    def should_publish_the_conversation(self, publish, projects, fresh_web_terminal, real_bun):
+        write_transcript(projects, "Share this conversation again", "The page renders.")
+
+        result = publish([SESSION], checkout=fresh_web_terminal, bun=real_bun)
+
+        assert result.returncode == 0, result.stderr
+        assert "Share this conversation again" in (result.server / result.published).read_text()
+
+    def should_refuse_a_conversation_that_shows_a_credential(self, publish, projects, fresh_web_terminal, real_bun):
+        write_transcript(projects, "Deploy it", "export DEPLOY_TOKEN=" + "4f9c2a7e" * 2)
+
+        result = publish([SESSION], checkout=fresh_web_terminal, bun=real_bun)
+
+        assert result.returncode == 1
+        assert "possible secret assignment in the reply" in result.stderr
+        assert "not publishing" in result.stderr
+        assert not list(result.server.iterdir())
 
 
 class TestMessageView:
