@@ -343,7 +343,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def require_telethon() -> None:
     if TelegramClient is None:
-        raise SyncError("python package 'telethon' missing: pip install telethon")
+        raise SyncError("python package 'telethon' missing: uv pip install telethon")
 
 
 def login() -> int:
