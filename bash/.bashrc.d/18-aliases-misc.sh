@@ -9,7 +9,6 @@ alias bup='echo "Updating Brew and uv tools";git -C "$(brew --repo)" fetch --tag
 alias av='if [ -f "./venv/bin/activate"  ]; then source "./venv/bin/activate"; else source "$VENV_PYTHON_3/bin/activate"; fi'
 alias dv='deactivate'
 alias py='av;ptpython;dv'
-alias genvenv3='virtualenv -p python3'
 alias reinstall_py='rm -rf "$VENV_PYTHON_3";UV_PROJECT_ENVIRONMENT="$VENV_PYTHON_3" uv sync --locked --project "$DOTFILESPATH/python" && av'
 alias autopep='av;find . -name "*py" | xargs -I {} autopep8 -i {};dv'
 
