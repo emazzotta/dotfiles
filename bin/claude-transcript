@@ -146,12 +146,36 @@ refuse_secrets() {
     return 1
 }
 
+# Runs a command with its output on stderr and saved to LOG, so that a failure
+# can be summed up from LOG afterwards.
+run_logged() {
+    local log="$1" status=0
+    shift
+    "$@" >"$log" 2>&1 || status=$?
+    cat "$log" >&2
+    return "$status"
+}
+
+# Why a bun run failed, from its LOG. Bun reports an uncaught error as a source
+# excerpt, an "error: ..." line and a stack, then its version; the share script
+# reports its own failures as one plain line. The web-terminal's share sheet
+# shows only the last line of stderr, which is where this reason goes.
+failure_reason() {
+    local log="$1" reason
+    reason=$(grep -m1 '^error: ' "$log" || true)
+    if [ -z "$reason" ]; then
+        reason=$(grep -v -e '^Bun v[0-9]' -e '^[[:space:]]*$' "$log" | tail -1 || true)
+    fi
+    printf '%s' "${reason#error: }"
+}
+
 # The checkout is a working copy: a fresh clone has no node_modules and a pull
 # can change the lockfile. With both current, the install is a no-op.
 install_web_terminal_deps() {
-    local web_terminal="$1"
-    if ! (cd "$web_terminal" && bun install --frozen-lockfile) >&2; then
-        error "could not install the web-terminal's dependencies in ${web_terminal}"
+    local web_terminal="$1" log="${work_dir}/install.log" reason
+    if ! (cd "$web_terminal" && run_logged "$log" bun install --frozen-lockfile); then
+        reason=$(failure_reason "$log")
+        error "could not install the web-terminal's dependencies in ${web_terminal}${reason:+: ${reason}}"
         return 1
     fi
 }
@@ -160,18 +184,21 @@ install_web_terminal_deps() {
 # the chat at the checkout's commit. It prints each finding and writes nothing
 # when it sees what looks like a credential. Further arguments are its options.
 render_chat() {
-    local jsonl="$1" out="$2" web_terminal status=0
+    local jsonl="$1" out="$2" log="${work_dir}/share.log" web_terminal status=0 reason=""
     shift 2
     if ! web_terminal=$(find_web_terminal); then
         error "no web-terminal checkout with scripts/share.ts; set WEB_TERMINAL_DIR"
         return 1
     fi
     install_web_terminal_deps "$web_terminal" || return 1
-    bun "${web_terminal}/scripts/share.ts" "$@" "$jsonl" "$out" >&2 || status=$?
+    run_logged "$log" bun "${web_terminal}/scripts/share.ts" "$@" "$jsonl" "$out" || status=$?
     if [ "$status" -eq "$chat_secrets_status" ]; then
         refuse_secrets
     elif [ "$status" -ne 0 ] || [ ! -f "$out" ]; then
-        error "the web-terminal rendered nothing for ${jsonl}"
+        if [ "$status" -ne 0 ]; then
+            reason=$(failure_reason "$log")
+        fi
+        error "the web-terminal rendered nothing for ${jsonl##*/}${reason:+: ${reason}}"
         return 1
     fi
 }

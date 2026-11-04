@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -20,6 +21,15 @@ RENDERED = "<html>rendered page</html>"
 SECRETS_FOUND = "2 potential secret(s) found"
 CHAT_FINDING = "possible GitHub token in the tool Bash 2026-07-16T02:42:00Z: ghp_a1…"
 INSTALL_FAILED = "claude-transcript: could not install the web-terminal's dependencies in"
+RENDER_FAILED = f"claude-transcript: the web-terminal rendered nothing for {SESSION}.jsonl"
+UNRESOLVED = 'Could not resolve: "markdown-it". Maybe you need to "bun install"?'
+# How bun reports an uncaught error: a source excerpt, the error, its stack, then its version.
+BUN_CRASH = f"""16 |   loading ??= import('markdown-it')
+                          ^
+error: {UNRESOLVED}
+    at /web-terminal/src/client/chat/render.ts:16:22
+
+Bun v1.4.4 (Linux arm64)"""
 WEB_TERMINAL_CHECKOUTS = (
     os.environ.get("WEB_TERMINAL_DIR", ""),
     str(Path.home() / "Projects" / "private" / "web-terminal"),
@@ -47,11 +57,13 @@ def write_transcript(home: Path, prompt: str, reply: str) -> None:
     (home / TRANSCRIPT).write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
-def scripted_bun(log: Path, chat_status: int, renders: bool, installs: bool) -> str:
-    """A bun mock: `bun install` succeeds or fails, the share script exits with `chat_status`."""
+def scripted_bun(log: Path, chat_status: int, renders: bool, installs: bool, complaint: str) -> str:
+    """A bun mock: `bun install` succeeds or fails, the share script prints `complaint` to stderr and exits with `chat_status`."""
     install = "exit 0" if installs else "echo 'error: lockfile had changes, but lockfile is frozen' >&2\nexit 1"
     chat = f'if [ "$1" = install ]; then\necho "bun $* in $PWD" >> {log}\n{install}\nfi\n'
     chat += f'echo "bun $*" >> {log}\n'
+    if complaint:
+        chat += f"printf '%s\\n' {shlex.quote(complaint)} >&2\n"
     if chat_status == 3:
         chat += f'echo "{CHAT_FINDING}" >&2\n'
     elif renders:
@@ -98,8 +110,9 @@ def publish(run_bash, tmp_path, projects, web_terminal):
     """Run claude-transcript against mocked bun, vibe-replay and fileserver.
 
     `listing` seeds what `fileserver list` reports. `chat_status` is the exit
-    status of the web-terminal's share script (3 = possible secrets), `installs`
-    whether its dependencies install, and `scan` vibe-replay's secret verdict.
+    status of the web-terminal's share script (3 = possible secrets) and
+    `complaint` what it prints to stderr, `installs` whether its dependencies
+    install, and `scan` vibe-replay's secret verdict.
     `bun` replaces the bun mock's body. The mocks log every call to calls.log,
     and the fileserver mock keeps each uploaded file in `server`. Every run is
     titled unless `title=None`.
@@ -110,7 +123,7 @@ def publish(run_bash, tmp_path, projects, web_terminal):
     replay = tmp_path / "vibe" / "ba40747f" / "index.html"
 
     def _publish(args, listing="", chat_status=0, scan="No secrets detected", renders=True, title=TITLE,
-                 checkout=web_terminal, installs=True, bun=None):
+                 checkout=web_terminal, installs=True, bun=None, complaint=""):
         replayer = f'echo "vibe-replay $*" >> {log}\n'
         if renders:
             replayer += (
@@ -120,7 +133,7 @@ def publish(run_bash, tmp_path, projects, web_terminal):
             )
         replayer += f'echo "  {scan}"\n'
         mocks = {
-            "bun": bun or scripted_bun(log, chat_status, renders, installs),
+            "bun": bun or scripted_bun(log, chat_status, renders, installs, complaint),
             "vibe-replay": replayer,
             "fileserver": (
                 f'echo "fileserver $*" >> {log}\n'
@@ -229,8 +242,24 @@ class TestChatView:
         result = publish([SESSION], renders=False)
 
         assert result.returncode == 1
-        assert "rendered nothing" in result.stderr
+        assert result.stderr.strip().splitlines()[-1] == RENDER_FAILED
         assert "fileserver" not in result.calls
+
+    # The share sheet shows only the last line of stderr, so that line has to say why.
+    def should_end_with_bun_s_error_when_the_share_script_crashes(self, publish):
+        result = publish([SESSION], chat_status=1, renders=False, complaint=BUN_CRASH)
+
+        assert result.returncode == 1
+        assert BUN_CRASH in result.stderr
+        assert result.stderr.strip().splitlines()[-1] == f"{RENDER_FAILED}: {UNRESOLVED}"
+        assert "fileserver" not in result.calls
+
+    def should_end_with_the_share_script_s_own_error_when_it_gives_up(self, publish):
+        result = publish([SESSION, "--message", MESSAGE], chat_status=1, renders=False,
+                         complaint=f"no message {MESSAGE} in {SESSION}.jsonl")
+
+        assert result.returncode == 1
+        assert result.stderr.strip().splitlines()[-1] == f"{RENDER_FAILED}: no message {MESSAGE} in {SESSION}.jsonl"
 
     def should_fail_when_the_web_terminal_checkout_is_missing(self, publish, tmp_path):
         result = publish([SESSION], checkout=tmp_path / "nowhere")
@@ -250,7 +279,9 @@ class TestChatView:
         result = publish([SESSION], installs=False)
 
         assert result.returncode == 1
-        assert result.stderr.strip().splitlines()[-1] == f"{INSTALL_FAILED} {web_terminal}"
+        assert result.stderr.strip().splitlines()[-1] == (
+            f"{INSTALL_FAILED} {web_terminal}: lockfile had changes, but lockfile is frozen"
+        )
         assert "scripts/share.ts" not in result.calls
         assert "fileserver" not in result.calls
 
@@ -276,6 +307,18 @@ class TestWithTheRealWebTerminal:
         assert "possible secret assignment in the reply" in result.stderr
         assert "not publishing" in result.stderr
         assert not list(result.server.iterdir())
+
+    def should_end_with_bun_s_error_when_a_dependency_is_missing(self, publish, projects, fresh_web_terminal,
+                                                                real_bun):
+        write_transcript(projects, "Share this", "It renders markdown.")
+        skip_install = 'if [ "$1" = install ]; then exit 0; fi\n'
+
+        result = publish([SESSION], checkout=fresh_web_terminal, bun=skip_install + real_bun)
+
+        assert result.returncode == 1
+        last = result.stderr.strip().splitlines()[-1]
+        assert last.startswith(f"{RENDER_FAILED}: Could not resolve: ")
+        assert "Bun v" not in last
 
 
 class TestMessageView:
