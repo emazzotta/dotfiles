@@ -416,10 +416,12 @@ def roll_out(name: str, image: str, port: int) -> None:
     die(f"{name}: demo-{name} did not become ready; removed it")
 
 
+# kubectl prints "No resources found" on stdout when nothing matched, so only
+# lines naming a resource (deployment.apps/demo-x, service/demo-x) count.
 def remove_workload(name: str) -> bool:
     deleted = run_quiet(kubectl("delete", "deployment,service", "-l", f"{NAME_LABEL}={name}",
                                 "--ignore-not-found", "-o", "name"))
-    return bool(deleted)
+    return any("/" in line for line in deleted.splitlines())
 
 
 def github(method: str, path: str, token: str) -> object:
@@ -450,6 +452,8 @@ def delete_images(name: str) -> None:
     except urllib.error.HTTPError as failure:
         if failure.code != 404:
             warn(f"{name}: {REGISTRY}/demo-{name} stays: {failure}")
+    except (urllib.error.URLError, DemoError) as failure:
+        warn(f"{name}: {REGISTRY}/demo-{name} stays: {failure}")
 
 
 def drop_container(name: str) -> None:

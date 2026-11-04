@@ -189,7 +189,7 @@ case "$*" in
     *"get deployment"*) echo "${{EXISTING:-}}" ;;
     *" apply "*) cat > "{files['manifest.json']}" ;;
     *"rollout status"*) [ -z "${{ROLLOUT_FAILS:-}}" ] || exit 1 ;;
-    *"delete deployment,service"*) echo "${{DELETED:-}}" ;;
+    *"delete deployment,service"*) echo "${{DELETED:-No resources found}}" ;;
 esac''',
         "docker": f'''
 echo "$*" >> "{files['docker']}"
@@ -291,6 +291,21 @@ class TestPushFiles:
         assert result.returncode == 1
         assert "nothing to publish" in result.stderr
         assert calls_matching(result, "kubectl", " push ") == []
+
+    def should_leave_containers_and_images_alone_when_the_name_ran_none(self, demo, tmp_path):
+        result = demo(["push"], cwd=project(tmp_path / "shop", {"index.html": "hi"}), env={"GHCR_DEMO_TOKEN": ""})
+
+        assert result.returncode == 0, result.stderr
+        assert "removed the container" not in result.stdout
+        assert result.github == []
+
+    def should_finish_the_push_when_old_images_cannot_be_deleted(self, demo, tmp_path):
+        site = project(tmp_path / "shop", {"index.html": "hi"})
+
+        result = demo(["push"], cwd=site, env={"DELETED": "deployment.apps/demo-shop", "GHCR_DEMO_TOKEN": ""})
+
+        assert result.returncode == 0, result.stderr
+        assert "ghcr.io/emazzotta/demo-shop stays" in result.stdout + result.stderr
 
     def should_remove_a_container_the_name_ran_before(self, demo, tmp_path, github_api):
         site = project(tmp_path / "shop", {"index.html": "hi"})
