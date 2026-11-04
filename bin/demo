@@ -1,0 +1,562 @@
+#!/usr/bin/env python3
+"""Publish a prototype at https://<name>-demo.plexius.ch, deployed the way its Dockerfile says."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
+from typing import Final, Iterator, NoReturn, Optional, Sequence, Union
+
+from scriptlog import error, info, success, warn
+
+COMMANDS: Final = ("push", "list", "logs", "rm")
+ARITY: Final = {
+    "push": (0, 1, "push takes at most one name"),
+    "list": (0, 0, "list takes no name"),
+    "logs": (1, 1, "logs takes one name"),
+    "rm": (1, sys.maxsize, "rm takes one or more names"),
+}
+STARTED: Final = time.monotonic()
+NAMESPACE: Final = "demos"
+HOST: Final = ("deployment/demos", "-c", "host", "--", "bun", "/app/ctl.ts")
+NAME_LABEL: Final = "demos.plexius.ch/name"
+NAME_PATTERN: Final = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,56}[a-z0-9])?$")
+MAX_NAME_LENGTH: Final = 58
+SITE_DIRS: Final = ("dist", "build", "out", "public")
+SKIPPED_NAMES: Final = frozenset({".git", "node_modules", ".DS_Store"})
+BUN_IMAGE: Final = re.compile(r"^(docker\.io/)?oven/bun([:@]|$)")
+REGISTRY: Final = "ghcr.io/emazzotta"
+REGISTRY_USER: Final = "emazzotta"
+PLATFORM: Final = "linux/arm64"
+TOKEN_KEY: Final = "GHCR_DEMO_TOKEN"
+IMAGE_VERSIONS_KEPT: Final = 2
+ROLLOUT_TIMEOUT: Final = "180s"
+LOG_LINES: Final = "40"
+DEMO_USER: Final = 1000
+SERVICE_ACCOUNT_TOKEN: Final = Path(
+    os.environ.get("DEMO_SERVICE_ACCOUNT_TOKEN", "/var/run/secrets/kubernetes.io/serviceaccount/token"))
+CONTAINER_MARKER: Final = Path(os.environ.get("DEMO_CONTAINER_MARKER", "/.dockerenv"))
+GITHUB_API: Final = os.environ.get("DEMO_GITHUB_API", "https://api.github.com")
+
+EPILOG: Final = f"""\
+push reads the project's Dockerfile and deploys it the cheapest way that matches it:
+  FROM oven/bun with CMD ["bun", <entry>]  Bun server on the demo host, in seconds
+  no EXPOSE (an image of files)           built locally, its index.html dir served
+  anything else that EXPOSEs a port       built for {PLATFORM}, pushed to {REGISTRY},
+                                          run as Deployment demo-<name> (needs {TOKEN_KEY})
+without a Dockerfile: a start script runs as `bun run start`, otherwise static files from
+dist/ build/ out/ public/ or the project itself. bun run build runs first when it exists.
+--dir and --spa force static. .git, node_modules, .env* and .DS_Store are never uploaded.
+Every demo is public and noindex. Runs on the devbox and the Mac host, not in a container."""
+
+
+class DemoError(Exception):
+    pass
+
+
+def die(message: str) -> NoReturn:
+    raise DemoError(message)
+
+
+@dataclass
+class Stage:
+    name: str
+    base: str
+    expose: list[int] = field(default_factory=list)
+    entrypoint: list[str] = field(default_factory=list)
+    cmd: list[str] = field(default_factory=list)
+    workdir: str = "/"
+    copies: list[str] = field(default_factory=list)
+
+    @property
+    def command(self) -> list[str]:
+        return self.entrypoint + self.cmd
+
+
+@dataclass(frozen=True)
+class Static:
+    site_dir: Optional[str]
+    spa: bool
+
+
+@dataclass(frozen=True)
+class BunServer:
+    ctl_args: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Files:
+    candidates: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Container:
+    port: int
+
+
+Plan = Union[Static, BunServer, Files, Container]
+
+
+def instructions(text: str) -> Iterator[tuple[str, str]]:
+    pending = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.endswith("\\"):
+            pending += line[:-1] + " "
+            continue
+        keyword, _, rest = (pending + line).partition(" ")
+        pending = ""
+        yield keyword.upper(), rest.strip()
+
+
+def words(value: str) -> list[str]:
+    if value.startswith("["):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list) and all(isinstance(word, str) for word in parsed):
+            return parsed
+    try:
+        return shlex.split(value)
+    except ValueError:
+        return value.split()
+
+
+def new_stage(value: str, stages: Sequence[Stage]) -> Stage:
+    parts = [part for part in value.split() if not part.startswith("--")]
+    base = parts[0] if parts else ""
+    name = parts[2].lower() if len(parts) >= 3 and parts[1].upper() == "AS" else ""
+    parent = next((stage for stage in stages if stage.name and stage.name == base.lower()), None)
+    if parent is None:
+        return Stage(name=name, base=base)
+    return Stage(name=name, base=parent.base, expose=list(parent.expose), entrypoint=list(parent.entrypoint),
+                 cmd=list(parent.cmd), workdir=parent.workdir, copies=list(parent.copies))
+
+
+def apply_instruction(stage: Stage, keyword: str, value: str) -> None:
+    if keyword == "EXPOSE":
+        stage.expose += [int(port.split("/")[0]) for port in value.split() if port.split("/")[0].isdigit()]
+    elif keyword == "CMD":
+        stage.cmd = words(value)
+    elif keyword == "ENTRYPOINT":
+        stage.entrypoint, stage.cmd = words(value), []
+    elif keyword == "WORKDIR":
+        stage.workdir = str(PurePosixPath(stage.workdir) / value)
+    elif keyword in ("COPY", "ADD"):
+        arguments = [word for word in words(value) if not word.startswith("--")]
+        if len(arguments) >= 2:
+            stage.copies.append(str(PurePosixPath(stage.workdir) / arguments[-1]))
+
+
+def final_stage(dockerfile: Path) -> Optional[Stage]:
+    if not dockerfile.is_file():
+        return None
+    stages: list[Stage] = []
+    for keyword, value in instructions(dockerfile.read_text()):
+        if keyword == "FROM":
+            stages.append(new_stage(value, stages))
+        elif stages:
+            apply_instruction(stages[-1], keyword, value)
+    return stages[-1] if stages else None
+
+
+def package_scripts(project: Path) -> dict:
+    package = project / "package.json"
+    if not package.is_file():
+        return {}
+    return json.loads(package.read_text()).get("scripts") or {}
+
+
+def bun_ctl_args(command: Sequence[str]) -> Optional[tuple[str, ...]]:
+    if not command or PurePosixPath(command[0]).name != "bun":
+        return None
+    arguments = tuple(command[1:])
+    if len(arguments) == 1:
+        return ("--entry", arguments[0])
+    if len(arguments) == 2 and arguments[0] == "run":
+        return ("--script", arguments[1])
+    return None
+
+
+def plan_push(project: Path, site_dir: Optional[str], spa: bool) -> Plan:
+    if site_dir is not None or spa:
+        return Static(site_dir, spa)
+    stage = final_stage(project / "Dockerfile")
+    if stage is None:
+        return BunServer(("--script", "start")) if "start" in package_scripts(project) else Static(None, False)
+    bun_args = bun_ctl_args(stage.command) if BUN_IMAGE.match(stage.base) else None
+    if bun_args is not None:
+        return BunServer(bun_args)
+    if not stage.expose:
+        return Files(tuple(stage.copies))
+    return Container(stage.expose[0])
+
+
+def describe(plan: Plan) -> str:
+    if isinstance(plan, Static):
+        return "static" + (", spa" if plan.spa else "")
+    if isinstance(plan, BunServer):
+        return "Bun server: " + " ".join(plan.ctl_args)
+    if isinstance(plan, Files):
+        return "files from the Dockerfile's image"
+    return f"container on port {plan.port}"
+
+
+def slug(text: str) -> str:
+    cleaned = re.sub(r"-+", "-", re.sub(r"[^a-z0-9-]+", "-", text.lower())).strip("-")
+    return cleaned[:MAX_NAME_LENGTH].rstrip("-")
+
+
+def default_name(project: Path) -> str:
+    toplevel = run_quiet(["git", "-C", str(project), "rev-parse", "--show-toplevel"])
+    return slug(Path(toplevel).name if toplevel else project.resolve().name)
+
+
+def require_names(names: Sequence[str]) -> None:
+    for name in names:
+        if not NAME_PATTERN.match(name):
+            die(f"not a demo name: {name} (lowercase letters, digits and dashes, at most {MAX_NAME_LENGTH})")
+
+
+def run(command: Sequence[str], failure: str, **kwargs) -> subprocess.CompletedProcess:
+    result = subprocess.run(list(command), **kwargs)
+    if result.returncode != 0:
+        die(failure)
+    return result
+
+
+def run_quiet(command: Sequence[str]) -> str:
+    result = subprocess.run(list(command), capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def kubectl(*arguments: str) -> list[str]:
+    return ["kubectl", "-n", NAMESPACE, *arguments]
+
+
+def ctl(*arguments: str, upload: bool = False) -> list[str]:
+    return kubectl("exec", *(["-i"] if upload else []), *HOST, *arguments)
+
+
+def require_cluster_access() -> None:
+    if CONTAINER_MARKER.exists():
+        die("demo needs the cluster: run it on the devbox or the Mac host, not in a container")
+    kubeconfigs = os.environ.get("KUBECONFIG", str(Path.home() / ".kube" / "config")).split(os.pathsep)
+    if not any(Path(path).is_file() for path in kubeconfigs if path) and SERVICE_ACCOUNT_TOKEN.is_file():
+        os.environ.setdefault("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
+        os.environ.setdefault("KUBERNETES_SERVICE_PORT", "443")
+
+
+def build_with_bun(project: Path, name: str) -> None:
+    if "build" not in package_scripts(project):
+        return
+    if not (project / "node_modules").is_dir():
+        info(f"{name}: bun install")
+        run(["bun", "install", "--frozen-lockfile"], f"{name}: bun install failed", cwd=project)
+    info(f"{name}: bun run build")
+    run(["bun", "run", "build"], f"{name}: the build failed, nothing was pushed", cwd=project)
+
+
+def find_site_dir(project: Path, site_dir: Optional[str], name: str) -> Path:
+    if site_dir is not None:
+        if not (project / site_dir).is_dir():
+            die(f"no such directory: {site_dir}")
+        return project / site_dir
+    for candidate in SITE_DIRS:
+        if (project / candidate).is_dir():
+            return project / candidate
+    if (project / "index.html").is_file():
+        return project
+    die(f"{name}: nothing to publish: no Dockerfile, no {', '.join(SITE_DIRS)}, no index.html (try --dir)")
+
+
+def without_local_files(member: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
+    leaf = PurePosixPath(member.name).name
+    if leaf in SKIPPED_NAMES or leaf.startswith(".env"):
+        return None
+    member.uid = member.gid = 0
+    member.uname = member.gname = ""
+    return member
+
+
+def upload(name: str, source: Path, ctl_args: Sequence[str], label: Optional[str] = None) -> None:
+    info(f"{name}: uploading {label or source.name}")
+    with tempfile.TemporaryFile() as archive:
+        with tarfile.open(fileobj=archive, mode="w:gz") as tar:
+            tar.add(str(source), arcname=".", filter=without_local_files)
+        archive.seek(0)
+        published = run(ctl("push", name, *ctl_args, upload=True), f"{name}: push failed",
+                        stdin=archive, stdout=subprocess.PIPE, text=True)
+    announce(published.stdout)
+
+
+def announce(ctl_output: str) -> None:
+    for line in ctl_output.splitlines():
+        success(f"{line} in {time.monotonic() - STARTED:.0f}s")
+
+
+def docker_build(project: Path, image: str, name: str) -> None:
+    info(f"{name}: docker build ({PLATFORM})")
+    revision = run_quiet(["git", "-C", str(project), "rev-parse", "--short", "HEAD"]) or "LOCAL"
+    run(["docker", "build", "--platform", PLATFORM, "--build-arg", f"VCS_REF={revision}", "-t", image, str(project)],
+        f"{name}: docker build failed, nothing was pushed")
+
+
+def extract_site(image: str, candidates: Sequence[str], into: Path) -> Path:
+    container = run(["docker", "create", image, "demo"], "docker create failed",
+                    capture_output=True, text=True).stdout.strip()
+    try:
+        for candidate in candidates:
+            probe = subprocess.run(["docker", "cp", f"{container}:{candidate}/index.html", "-"],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if probe.returncode == 0:
+                run(["docker", "cp", f"{container}:{candidate}/.", str(into)], "docker cp failed",
+                    stdout=subprocess.DEVNULL)
+                return into
+        die(f"the image has no index.html in {', '.join(candidates) or 'any COPY destination'} and EXPOSEs no port")
+    finally:
+        subprocess.run(["docker", "rm", container], stdout=subprocess.DEVNULL)
+
+
+def load_token() -> str:
+    if os.environ.get(TOKEN_KEY):
+        return os.environ[TOKEN_KEY]
+    script = f'source envify {TOKEN_KEY} && printf "%s" "${TOKEN_KEY}"'
+    result = subprocess.run(["bash", "-c", script], stdout=subprocess.PIPE, text=True)
+    if result.returncode != 0 or not result.stdout:
+        die(f"no {TOKEN_KEY}: create a classic PAT with write:packages and delete:packages, "
+            f"then `keyguard set {TOKEN_KEY}`")
+    return result.stdout
+
+
+def docker_host() -> str:
+    return os.environ.get("DOCKER_HOST") or run_quiet(
+        ["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"])
+
+
+# The token reaches docker through a credential helper reading the environment,
+# so it never lands in a config file; the throwaway config holds only the helper's name.
+def docker_push(image: str, token: str, name: str) -> None:
+    info(f"{name}: docker push {image}")
+    host = docker_host()
+    with tempfile.TemporaryDirectory(prefix="demo-docker-") as config:
+        helper = Path(config) / "docker-credential-demo"
+        helper.write_text('#!/bin/sh\nread -r _\nprintf \'{"Username":"%s","Secret":"%s"}\' '
+                          '"$DEMO_REGISTRY_USER" "$DEMO_REGISTRY_SECRET"\n')
+        helper.chmod(0o700)
+        (Path(config) / "config.json").write_text(json.dumps({"credHelpers": {"ghcr.io": "demo"}}))
+        env = {**os.environ, "DOCKER_CONFIG": config, "PATH": f"{config}{os.pathsep}{os.environ.get('PATH', '')}",
+               "DEMO_REGISTRY_USER": REGISTRY_USER, "DEMO_REGISTRY_SECRET": token, **({"DOCKER_HOST": host} if host else {})}
+        run(["docker", "push", "--quiet", image], f"{name}: docker push failed", env=env, stdout=subprocess.DEVNULL)
+
+
+def workload(name: str, image: str, port: int) -> dict:
+    labels = {"app": "demo", NAME_LABEL: name}
+    metadata = {"name": f"demo-{name}", "namespace": NAMESPACE, "labels": labels}
+    container = {
+        "name": "demo", "image": image, "imagePullPolicy": "IfNotPresent",
+        "ports": [{"name": "http", "containerPort": port}],
+        "readinessProbe": {"tcpSocket": {"port": port}, "periodSeconds": 2},
+        "resources": {"requests": {"cpu": "10m", "memory": "64Mi"}, "limits": {"cpu": "500m", "memory": "512Mi"}},
+        "securityContext": {"allowPrivilegeEscalation": False,
+                            "capabilities": {"drop": ["ALL"], "add": ["NET_BIND_SERVICE"]}},
+        "volumeMounts": [{"name": "tmp", "mountPath": "/tmp"}],
+    }
+    pod = {
+        "automountServiceAccountToken": False, "enableServiceLinks": False,
+        "securityContext": {"runAsNonRoot": True, "runAsUser": DEMO_USER, "runAsGroup": DEMO_USER,
+                            "fsGroup": DEMO_USER, "seccompProfile": {"type": "RuntimeDefault"}},
+        "containers": [container], "volumes": [{"name": "tmp", "emptyDir": {}}],
+    }
+    deployment = {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": metadata, "spec": {
+        "replicas": 1, "revisionHistoryLimit": IMAGE_VERSIONS_KEPT, "progressDeadlineSeconds": 120,
+        "strategy": {"type": "RollingUpdate", "rollingUpdate": {"maxSurge": 1, "maxUnavailable": 0}},
+        "selector": {"matchLabels": labels}, "template": {"metadata": {"labels": labels}, "spec": pod}}}
+    service = {"apiVersion": "v1", "kind": "Service", "metadata": metadata, "spec": {
+        "selector": labels, "ports": [{"name": "http", "port": port, "targetPort": port}]}}
+    return {"apiVersion": "v1", "kind": "List", "items": [deployment, service]}
+
+
+def roll_out(name: str, image: str, port: int) -> None:
+    info(f"{name}: rolling out demo-{name}")
+    existed = bool(run_quiet(kubectl("get", "deployment", f"demo-{name}", "-o", "name", "--ignore-not-found")))
+    run(kubectl("apply", "--server-side", "--force-conflicts", "--field-manager=demo", "-f", "-"),
+        f"{name}: kubectl apply failed", input=json.dumps(workload(name, image, port)), text=True,
+        stdout=subprocess.DEVNULL)
+    status = subprocess.run(kubectl("rollout", "status", f"deployment/demo-{name}", f"--timeout={ROLLOUT_TIMEOUT}"),
+                            stdout=subprocess.DEVNULL)
+    if status.returncode == 0:
+        return
+    subprocess.run(kubectl("get", "pods", "-l", f"{NAME_LABEL}={name}"))
+    subprocess.run(kubectl("logs", "-l", f"{NAME_LABEL}={name}", "--all-containers", "--prefix", "--tail", LOG_LINES))
+    if existed:
+        subprocess.run(kubectl("rollout", "undo", f"deployment/demo-{name}"), stdout=subprocess.DEVNULL)
+        die(f"{name}: demo-{name} did not become ready; rolled back, the previous release keeps serving")
+    remove_workload(name)
+    die(f"{name}: demo-{name} did not become ready; removed it")
+
+
+def remove_workload(name: str) -> bool:
+    deleted = run_quiet(kubectl("delete", "deployment,service", "-l", f"{NAME_LABEL}={name}",
+                                "--ignore-not-found", "-o", "name"))
+    return bool(deleted)
+
+
+def github(method: str, path: str, token: str) -> object:
+    request = urllib.request.Request(f"{GITHUB_API}{path}", method=method, headers={
+        "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        body = response.read()
+    return json.loads(body) if body else None
+
+
+def prune_images(name: str, token: str) -> None:
+    package = f"/user/packages/container/demo-{name}"
+    try:
+        versions = github("GET", f"{package}/versions?per_page=100", token)
+        newest_first = sorted(versions, key=lambda version: version["created_at"], reverse=True) \
+            if isinstance(versions, list) else []
+        stale = newest_first[IMAGE_VERSIONS_KEPT:]
+        for version in stale:
+            github("DELETE", f"{package}/versions/{version['id']}", token)
+    except (urllib.error.URLError, KeyError, TypeError) as failure:
+        warn(f"{name}: old images stay in {REGISTRY}/demo-{name}: {failure}")
+
+
+def delete_images(name: str) -> None:
+    try:
+        github("DELETE", f"/user/packages/container/demo-{name}", load_token())
+    except urllib.error.HTTPError as failure:
+        if failure.code != 404:
+            warn(f"{name}: {REGISTRY}/demo-{name} stays: {failure}")
+
+
+def drop_container(name: str) -> None:
+    if remove_workload(name):
+        info(f"{name}: removed the container demo-{name}")
+        delete_images(name)
+
+
+def push_container(project: Path, name: str, port: int) -> None:
+    token = load_token()
+    image = f"{REGISTRY}/demo-{name}:{time.strftime('%Y%m%d%H%M%S', time.gmtime())}"
+    docker_build(project, image, name)
+    docker_push(image, token, name)
+    roll_out(name, image, port)
+    linked = run(ctl("push", name, "--image", image, "--port", str(port)), f"{name}: the demo host did not take the route",
+                 stdout=subprocess.PIPE, text=True)
+    announce(linked.stdout)
+    prune_images(name, token)
+
+
+def push_files(project: Path, name: str, candidates: Sequence[str]) -> None:
+    image = f"demo-files/{name}:latest"
+    docker_build(project, image, name)
+    with tempfile.TemporaryDirectory(prefix="demo-site-") as site:
+        upload(name, extract_site(image, candidates, Path(site)), [], label="the image's site files")
+
+
+def push(project: Path, name: str, site_dir: Optional[str], spa: bool) -> None:
+    plan = plan_push(project, site_dir, spa)
+    info(f"{name}: {describe(plan)}")
+    if isinstance(plan, Container):
+        push_container(project, name, plan.port)
+        return
+    if isinstance(plan, Files):
+        push_files(project, name, plan.candidates)
+    elif isinstance(plan, BunServer):
+        build_with_bun(project, name)
+        upload(name, project, plan.ctl_args)
+    else:
+        build_with_bun(project, name)
+        upload(name, find_site_dir(project, plan.site_dir, name), ["--spa"] if plan.spa else [])
+    drop_container(name)
+
+
+def remove(names: Sequence[str]) -> int:
+    code = subprocess.run(ctl("rm", *names)).returncode
+    for name in names:
+        drop_container(name)
+    return code
+
+
+def demo_names() -> list[str]:
+    if CONTAINER_MARKER.exists():
+        return []
+    require_cluster_access()
+    listed = run_quiet(ctl("list", "--json"))
+    try:
+        return [demo["name"] for demo in json.loads(listed)] if listed else []
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return []
+
+
+def complete(typed: Sequence[str]) -> list[str]:
+    if not typed:
+        return list(COMMANDS)
+    if typed[0] == "push" and len(typed) == 1:
+        return [default_name(Path.cwd())]
+    if (typed[0] == "logs" and len(typed) == 1) or typed[0] == "rm":
+        return demo_names()
+    return []
+
+
+def parse_args(argv: Sequence[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="demo", description="Publish a prototype at https://<name>-demo.plexius.ch in seconds.",
+        epilog=EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("command", choices=COMMANDS, help="push the current directory, or list, logs, rm")
+    parser.add_argument("names", nargs="*", metavar="name", help="demo name (push: the git toplevel's name)")
+    parser.add_argument("--dir", dest="site_dir", metavar="DIR", help="push: publish DIR as a static site")
+    parser.add_argument("--spa", action="store_true", help="push: answer unknown paths with index.html")
+    args = parser.parse_args(argv)
+    fewest, most, usage = ARITY[args.command]
+    if not fewest <= len(args.names) <= most:
+        parser.error(usage)
+    if args.command != "push" and (args.site_dir is not None or args.spa):
+        parser.error("--dir and --spa are for push")
+    return args
+
+
+def dispatch(args: argparse.Namespace) -> int:
+    project = Path.cwd()
+    names = args.names or ([default_name(project)] if args.command == "push" else [])
+    require_names(names)
+    require_cluster_access()
+    if args.command == "push":
+        push(project, names[0], args.site_dir, args.spa)
+        return 0
+    if args.command == "rm":
+        return remove(names)
+    return subprocess.run(ctl(args.command, *names)).returncode
+
+
+def main(argv: Sequence[str]) -> int:
+    sys.stdout.reconfigure(line_buffering=True)
+    if argv[:1] == ["--complete"]:
+        print("\n".join(complete(argv[1:])))
+        return 0
+    try:
+        return dispatch(parse_args(argv))
+    except DemoError as failure:
+        error(str(failure))
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
