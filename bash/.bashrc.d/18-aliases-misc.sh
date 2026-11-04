@@ -10,7 +10,7 @@ alias av='if [ -f "./venv/bin/activate"  ]; then source "./venv/bin/activate"; e
 alias dv='deactivate'
 alias py='av;ptpython;dv'
 alias genvenv3='virtualenv -p python3'
-alias reinstall_py='rm -rf "$VENV_PYTHON_3";genvenv3 "$VENV_PYTHON_3" && av && pip install --upgrade pip && pip install -r $DOTFILESPATH/python/requirements.txt'
+alias reinstall_py='rm -rf "$VENV_PYTHON_3";UV_PROJECT_ENVIRONMENT="$VENV_PYTHON_3" uv sync --locked --project "$DOTFILESPATH/python" && av'
 alias autopep='av;find . -name "*py" | xargs -I {} autopep8 -i {};dv'
 
 ### JAVA / SDKMAN ###

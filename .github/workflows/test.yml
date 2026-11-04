@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.15"
-      - run: pip install pytest beautifulsoup4 html5lib trafilatura
-      - run: python -m pytest bin/tests/ -v
+      - run: uv sync --locked --project python
+      - run: uv run --locked --project python python -m pytest bin/tests/ -v
