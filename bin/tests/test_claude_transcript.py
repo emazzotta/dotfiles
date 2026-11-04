@@ -84,6 +84,7 @@ def publish(run_bash, tmp_path, projects, web_terminal):
         result.calls = log.read_text() if log.is_file() else ""
         result.server = server
         result.published = result.stdout.strip().rsplit("/", 1)[-1]
+        result.jsonl = projects / ".claude" / "projects" / "-workspace" / f"{SESSION}.jsonl"
         return result
 
     return _publish
@@ -277,11 +278,19 @@ class TestInsightView:
 
 
 class TestArguments:
-    def should_require_a_title(self, publish):
+    def should_leave_the_title_to_the_session_when_none_is_given(self, publish, web_terminal):
         result = publish([SESSION], title=None)
 
+        assert result.returncode == 0
+        assert f"bun {web_terminal}/scripts/share.ts {result.jsonl}" in result.calls
+        assert "--title" not in result.calls
+
+    def should_require_a_title_for_the_insight_view(self, publish):
+        result = publish([SESSION, "--insight"], title=None)
+
         assert result.returncode == 2
-        assert "--title is required" in result.stderr
+        assert "--insight needs --title" in result.stderr
+        assert "vibe-replay" not in result.calls
 
     def should_reject_a_title_without_a_value(self, publish):
         result = publish(["--title"], title=None)

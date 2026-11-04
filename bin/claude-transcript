@@ -20,11 +20,12 @@
 # shows the new content.
 #
 # Usage:
-#   claude-transcript --title "<TITLE>" <SESSION_ID>
+#   claude-transcript [--title "<TITLE>"] <SESSION_ID>
 #                                    render that session (id from the caller's
 #                                    scratchpad path: .../-workspace/<id>/...)
-#   claude-transcript --title "<TITLE>" --latest
+#   claude-transcript [--title "<TITLE>"] --latest
 #                                    render the most recently updated session
+#   --title TITLE                    page title; without one, the session's own
 #   --message ID                     render only that prompt or reply
 #   --text-only                      leave out the tool steps and their output
 #   --insight                        render the vibe-replay instead of the chat
@@ -54,7 +55,7 @@ cleanup() {
 
 show_usage() {
     cat <<EOF
-Usage: claude-transcript --title "<TITLE>" [--text-only | --message ID | --insight] <SESSION_ID | --latest>
+Usage: claude-transcript [--title "<TITLE>"] [--text-only | --message ID | --insight] <SESSION_ID | --latest>
 
 Render a Claude Code session into one HTML page and publish it to the
 file-server, printing the public URL. By default the page shows the
@@ -62,7 +63,9 @@ conversation as the web-terminal's chat does.
 
   SESSION_ID       UUID of the session (the id in your scratchpad path)
   --latest         use the most recently updated session JSONL
-  --title TITLE    page title (browser tab + page header). Required.
+  --title TITLE    page title (browser tab + page header). Without it the
+                   page takes the title Claude Code gave the session;
+                   --insight needs one
   --text-only      leave out the tool steps and their output: only the
                    prompts and the replies, the ones between steps included
   --message ID     publish only that prompt or reply (its id in the chat),
@@ -225,7 +228,11 @@ main() {
         esac
     done
     [ -n "$selector" ] || { show_usage >&2; exit 2; }
-    [ -n "$title" ] || { error "--title is required"; show_usage >&2; exit 2; }
+    if [ -z "$title" ] && [ "$view" = insight ]; then
+        error "--insight needs --title"
+        show_usage >&2
+        exit 2
+    fi
 
     local renderer=bun cmd
     if [ "$view" = insight ]; then
@@ -250,7 +257,10 @@ main() {
     work_dir=$(mktemp -d)
     trap cleanup EXIT
     local page="${work_dir}/page.html"
-    local key="$id" options=(--title "$title")
+    local key="$id" options=()
+    if [ -n "$title" ]; then
+        options+=(--title "$title")
+    fi
     if [ "$allow_secrets" = true ]; then
         options+=(--allow-secrets)
     fi
@@ -264,7 +274,7 @@ main() {
         render_replay "$jsonl" "$title" "$page" "${work_dir}/render.log"
         check_replay_secrets "${work_dir}/render.log" "$allow_secrets"
     else
-        render_chat "$jsonl" "$page" "${options[@]}"
+        render_chat "$jsonl" "$page" ${options[@]+"${options[@]}"}
     fi
 
     local name
