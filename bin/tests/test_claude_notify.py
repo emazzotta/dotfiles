@@ -13,6 +13,8 @@ SESSION = UUID("4a015f0f-199b-4270-9c06-fecc5d85b976")
 PANE = "%4"
 LONG_AGO = datetime(2020, 1, 1, tzinfo=UTC)
 LONG_AFTER = datetime(2100, 1, 1, tzinfo=UTC)
+SUBAGENT = "a3f9c2e1b7d04e55"
+QUESTION = {"questions": [{"question": "Tea or coffee?"}]}
 
 
 @pytest.fixture
@@ -30,7 +32,7 @@ def notify(load_script, tmp_path, monkeypatch):
 @pytest.fixture
 def spawned(notify, monkeypatch):
     calls = []
-    monkeypatch.setattr(notify, "spawn", lambda arguments, payload=None: calls.append((list(arguments), payload)))
+    monkeypatch.setattr(notify, "spawn", lambda arguments: calls.append(list(arguments)))
     return calls
 
 
@@ -46,7 +48,7 @@ def _hook(notify, event_name, **fields):
 
 
 def _armed_token(spawned):
-    (arguments, _), = spawned
+    arguments, = spawned
     assert arguments[:2] == ["fire", str(SESSION)]
     return arguments[2]
 
@@ -125,7 +127,7 @@ class TestFinishedPing:
     def should_let_only_the_latest_stop_ping(self, notify, spawned, delivered):
         _hook(notify, "Stop", last_assistant_message="First.")
         _hook(notify, "Stop", last_assistant_message="Second.")
-        (first, _), (second, _) = spawned
+        first, second = spawned
 
         notify.fire(SESSION, first[2], sleep=lambda seconds: None)
         assert delivered == []
@@ -213,29 +215,83 @@ class TestSeenPane:
         assert notify.tmux_clients() == []
 
 
+def _ask(notify, agent=None):
+    _hook(notify, "PermissionRequest", tool_name="AskUserQuestion", tool_input=QUESTION, **_from(agent))
+    _hook(notify, "Notification", notification_type="permission_prompt", message="Claude needs your input")
+
+
+def _from(agent):
+    return {"agent_id": agent} if agent else {}
+
+
+def _texts_after_fire(notify, spawned, delivered):
+    notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
+    return [body["text"] for body in delivered]
+
+
 class TestPromptPing:
-    def should_send_the_noted_prompt_when_claude_code_reports_it_unanswered(self, notify, spawned):
+    def should_arm_the_noted_prompt_when_claude_code_reports_it_unanswered(self, notify, spawned, delivered):
         _hook(notify, "PermissionRequest", tool_name="ExitPlanMode", tool_input={})
         _hook(notify, "Notification", notification_type="permission_prompt",
               message="Claude Code needs your approval for the plan")
 
-        (arguments, payload), = spawned
-        assert arguments == ["send"]
-        assert json.loads(payload)["text"] == "Has a plan ready for your approval."
+        assert _texts_after_fire(notify, spawned, delivered) == ["Has a plan ready for your approval."]
 
-    def should_fall_back_to_the_notification_message(self, notify, spawned):
+    def should_wait_ten_minutes_in_short_polls_before_sending(self, notify, spawned, delivered):
+        _ask(notify)
+        waited = []
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=waited.append)
+
+        assert waited == [5.0] * 120
+        assert [body["text"] for body in delivered] == ["Asks: Tea or coffee?"]
+
+    def should_not_ping_when_a_client_showing_the_pane_was_used_after_the_prompt(
+            self, notify, spawned, delivered, monkeypatch):
+        monkeypatch.setenv("TMUX_PANE", PANE)
+        _ask(notify)
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None,
+                    clients=lambda: [notify.TmuxClient(PANE, LONG_AGO, LONG_AFTER)])
+
+        assert delivered == []
+
+    @pytest.mark.parametrize("event_name", ["PostToolUse", "PostToolUseFailure"])
+    @pytest.mark.parametrize("agent", [None, SUBAGENT], ids=["main", "subagent"])
+    def should_drop_the_ping_once_the_prompted_tool_ran(self, notify, spawned, delivered, event_name, agent):
+        _ask(notify, agent)
+
+        _hook(notify, event_name, tool_name="AskUserQuestion", **_from(agent))
+
+        assert _texts_after_fire(notify, spawned, delivered) == []
+
+    @pytest.mark.parametrize("tool_name, agent", [("Bash", None), ("AskUserQuestion", SUBAGENT)],
+                             ids=["other-tool", "same-tool-in-a-subagent"])
+    def should_keep_the_ping_when_another_call_finished(self, notify, spawned, delivered, tool_name, agent):
+        _ask(notify)
+
+        _hook(notify, "PostToolUse", tool_name=tool_name, **_from(agent))
+
+        assert _texts_after_fire(notify, spawned, delivered) == ["Asks: Tea or coffee?"]
+
+    def should_keep_a_finished_ping_when_a_tool_ran(self, notify, spawned, delivered):
+        _hook(notify, "Stop", last_assistant_message="Done.")
+
+        _hook(notify, "PostToolUse", tool_name="Bash")
+
+        assert _texts_after_fire(notify, spawned, delivered) == ["Done."]
+
+    def should_fall_back_to_the_notification_message(self, notify, spawned, delivered):
         _hook(notify, "Notification", notification_type="permission_prompt", message="Claude needs your permission")
 
-        (_, payload), = spawned
-        assert json.loads(payload)["text"] == "Claude needs your permission"
+        assert _texts_after_fire(notify, spawned, delivered) == ["Claude needs your permission"]
 
-    def should_not_reuse_a_prompt_note_after_a_new_prompt_was_submitted(self, notify, spawned):
+    def should_not_reuse_a_prompt_note_after_a_new_prompt_was_submitted(self, notify, spawned, delivered):
         _hook(notify, "PermissionRequest", tool_name="Bash", tool_input={"command": "git push"})
         _hook(notify, "UserPromptSubmit", prompt="no, wait")
         _hook(notify, "Notification", notification_type="permission_prompt", message="Claude needs your permission")
 
-        (_, payload), = spawned
-        assert json.loads(payload)["text"] == "Claude needs your permission"
+        assert _texts_after_fire(notify, spawned, delivered) == ["Claude needs your permission"]
 
     @pytest.mark.parametrize("notification_type", ["idle_prompt", "auth_success"])
     def should_ignore_other_notifications(self, notify, spawned, notification_type):

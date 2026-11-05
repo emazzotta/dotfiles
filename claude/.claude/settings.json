@@ -81,6 +81,15 @@
             "command": "/workspace/.claude/hooks/post-edit-autocomplete-check.sh"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-notify",
+            "async": true
+          }
+        ]
       }
     ],
     "Notification": [
@@ -118,6 +127,17 @@
           {
             "type": "command",
             "command": "/home/opencode/dotfiles/bin/claude-notify"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-notify",
+            "async": true
           }
         ]
       }

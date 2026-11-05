@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Ping Telegram through mazzotta-bot when a Claude session waits for input.
 
-As a Claude Code hook (no arguments, the hook's JSON on stdin):
-- Stop arms a ping that goes out 10 min later with the first sentence of the reply,
-  unless the session was seen first: a prompt was submitted, or a tmux client showing
-  its pane got a key or a focus change. Attaching alone does not count, since the web
-  terminal reattaches every tab at once. Background agents still at work for the
-  session hold the ping too.
+As a Claude Code hook (no arguments, the hook's JSON on stdin), it arms a ping that goes
+out 10 min later unless the session was seen first: a prompt was submitted, or a tmux
+client showing its pane got a key or a focus change. Attaching alone does not count,
+since the web terminal reattaches every tab at once.
+- Stop arms the ping with the first sentence of the reply. Background agents still at
+  work for the session hold it.
 - PermissionRequest notes what the prompt is about. The permission_prompt Notification,
-  which Claude Code raises only once a prompt has waited about 6 s unanswered, sends it.
+  which Claude Code raises only once a prompt has waited about 6 s unanswered, arms it.
+- PostToolUse and PostToolUseFailure of the prompted tool cancel the prompt's ping: an
+  answer from the web terminal's chat view comes as tmux send-keys, which is not seen.
 - UserPromptSubmit and SessionEnd cancel what is pending.
 
 The unlock service holds the bot token and composes the message. The dev box reaches it
@@ -35,7 +37,7 @@ from pathlib import Path
 from typing import Final
 from uuid import UUID
 
-FINISHED_DELAY: Final = timedelta(minutes=10)
+PING_DELAY: Final = timedelta(minutes=10)
 SEEN_POLL: Final = timedelta(seconds=5)
 TMUX_TIMEOUT: Final = timedelta(seconds=2)
 TMUX_CLIENT_FORMAT: Final = "#{pane_id}\t#{client_created}\t#{client_activity}"
@@ -57,8 +59,8 @@ LINE_MARKER: Final = re.compile(r"^(?:[#>*\-]+|\d+\.)\s+")
 SENTENCE_END: Final = re.compile(r"(?<=[.!?])\s")
 USAGE: Final = """Usage: claude-notify [send | fire SESSION TOKEN]
 
-Without arguments, a Claude Code hook: reads the hook event on stdin and arms,
-sends or cancels a Telegram ping through the unlock service.
+Without arguments, a Claude Code hook: reads the hook event on stdin and arms
+or cancels a Telegram ping through the unlock service.
 
   send                read a notice ({"session", "container", "text"}) on stdin and
                       deliver it; the keyguard bridge endpoint runs this on the Mac
@@ -131,37 +133,52 @@ def take_state(path: Path) -> str | None:
     return content
 
 
-def spawn(arguments: Sequence[str], payload: str | None = None) -> None:
-    child = subprocess.Popen(
-        [sys.executable, str(Path(__file__).resolve()), *arguments],
-        stdin=subprocess.PIPE if payload is not None else subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
-    if payload is not None and child.stdin:
-        child.stdin.write(payload)
-        child.stdin.close()
+def read_pending(session: UUID) -> dict | None:
+    try:
+        return json.loads(state_file(session, "pending").read_text())
+    except FileNotFoundError:
+        return None
+
+
+def spawn(arguments: Sequence[str]) -> None:
+    subprocess.Popen([sys.executable, str(Path(__file__).resolve()), *arguments],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+
+
+def arm(session: UUID, text: str, prompt: dict | None = None) -> None:
+    token = secrets.token_hex(8)
+    write_state(state_file(session, "pending"), json.dumps({"token": token, "text": text, "prompt": prompt}))
+    spawn(["fire", str(session), token])
+
+
+def prompted_tool(event: dict) -> dict:
+    return {"tool": event.get("tool_name"), "agent": event.get("agent_id")}
 
 
 def on_stop(session: UUID, event: dict) -> None:
-    pending = state_file(session, "pending")
     if background_work_pending(event):
-        take_state(pending)
+        take_state(state_file(session, "pending"))
         return
-    token = secrets.token_hex(8)
-    text = first_sentence(event.get("last_assistant_message") or "")
-    write_state(pending, json.dumps({"token": token, "text": text}))
-    spawn(["fire", str(session), token])
+    arm(session, first_sentence(event.get("last_assistant_message") or ""))
 
 
 def on_permission_request(session: UUID, event: dict) -> None:
     sentence = prompt_sentence(event.get("tool_name", "a tool"), event.get("tool_input") or {})
-    write_state(state_file(session, "prompt"), sentence)
+    write_state(state_file(session, "prompt"), json.dumps({"text": sentence, "prompt": prompted_tool(event)}))
 
 
 def on_notification(session: UUID, event: dict) -> None:
     if event.get("notification_type") != "permission_prompt":
         return
-    noted = take_state(state_file(session, "prompt"))
-    spawn(["send"], json.dumps(notice(session, noted or event.get("message") or "Needs your input.")))
+    noted = json.loads(take_state(state_file(session, "prompt")) or "{}")
+    arm(session, noted.get("text") or event.get("message") or "Needs your input.", noted.get("prompt"))
+
+
+def on_tool_done(session: UUID, event: dict) -> None:
+    pending = read_pending(session)
+    if pending is not None and pending.get("prompt") == prompted_tool(event):
+        take_state(state_file(session, "pending"))
 
 
 def on_cancel(session: UUID, event: dict) -> None:
@@ -173,6 +190,8 @@ HANDLERS: Final[dict[str, Callable[[UUID, dict], None]]] = {
     "Stop": on_stop,
     "PermissionRequest": on_permission_request,
     "Notification": on_notification,
+    "PostToolUse": on_tool_done,
+    "PostToolUseFailure": on_tool_done,
     "UserPromptSubmit": on_cancel,
     "SessionEnd": on_cancel,
 }
@@ -221,15 +240,12 @@ def seen_since(pane: str, armed: datetime, clients: Iterable[TmuxClient]) -> boo
 
 
 def pending_text(session: UUID, token: str) -> str | None:
-    try:
-        pending = json.loads(state_file(session, "pending").read_text())
-    except FileNotFoundError:
-        return None
-    return pending["text"] if pending.get("token") == token else None
+    pending = read_pending(session)
+    return pending["text"] if pending is not None and pending.get("token") == token else None
 
 
 def wait_unseen(session: UUID, token: str, sleep: Callable[[float], None], seen: Callable[[], bool]) -> bool:
-    for _ in range(FINISHED_DELAY // SEEN_POLL):
+    for _ in range(PING_DELAY // SEEN_POLL):
         sleep(SEEN_POLL.total_seconds())
         if pending_text(session, token) is None or seen():
             return False
