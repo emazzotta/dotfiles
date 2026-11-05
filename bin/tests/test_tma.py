@@ -2,6 +2,8 @@ import os
 import pty
 import subprocess
 
+import pytest
+
 from bin.tests.conftest import BIN_DIR
 
 
@@ -12,7 +14,7 @@ case "$1" in
     list-sessions)
         [ -n "{listing}" ] || {{ echo "no server running" >&2; exit 1; }}
         printf "{listing}" ;;
-    attach) echo "$*" >> "{tmp_path / 'attached'}" ;;
+    attach|switch-client) echo "$*" >> "{tmp_path / 'attached'}" ;;
 esac
 """
 
@@ -42,6 +44,11 @@ def run_on_tty(tmp_path, mock_bins):
         os.close(follower)
 
 
+@pytest.fixture(autouse=True)
+def outside_tmux(monkeypatch):
+    monkeypatch.delenv("TMUX", raising=False)
+
+
 class TestTma:
     def should_attach_to_the_session_named_in_the_argument(self, run_cli, tmp_path):
         mocks = {"tmux": tmux_mock(tmp_path, "0", "dj")}
@@ -50,6 +57,15 @@ class TestTma:
 
         assert result.returncode == 0
         assert attached(tmp_path) == "attach -t dj"
+
+    def should_switch_to_the_named_session_when_already_inside_tmux(self, run_cli, tmp_path):
+        mocks = {"tmux": tmux_mock(tmp_path, "main", "probe")}
+
+        result = run_cli("tma", ["probe"], env_extra={"TMUX": "/tmp/tmux-1000/default,1,0"},
+                         mock_bins=mocks, isolate_path=True, stdin="")
+
+        assert result.returncode == 0
+        assert attached(tmp_path) == "switch-client -t probe"
 
     def should_attach_to_the_only_open_session_without_asking(self, run_cli, tmp_path):
         mocks = {"tmux": tmux_mock(tmp_path, "work"), "gum": gum_mock(tmp_path, "unused")}
