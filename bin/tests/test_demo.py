@@ -402,14 +402,26 @@ class TestGuards:
         assert result.returncode in (1, 2)
         assert "kubectl" not in result.calls
 
-    def should_refuse_to_run_inside_a_container(self, demo, tmp_path):
-        marker = project(tmp_path, {"dockerenv": "", "index.html": ""}) / "dockerenv"
+    def should_reach_the_cluster_through_the_tailnet_inside_a_container(self, run_cli, tmp_path):
+        marker = project(tmp_path, {"dockerenv": ""}) / "dockerenv"
+        mocks = {"kubectl": 'echo "$KUBECONFIG"; grep "server:" "$KUBECONFIG"'}
 
-        result = demo(["push", "x"], env={"DEMO_CONTAINER_MARKER": str(marker)})
+        result = run_cli("demo", ["list"], mock_bins=mocks, isolate_path=True, env_extra={
+            "HOME": str(tmp_path), "KUBECONFIG": str(tmp_path / "none"),
+            "DEMO_SERVICE_ACCOUNT_TOKEN": str(tmp_path / "none"), "DEMO_CONTAINER_MARKER": str(marker)})
 
-        assert result.returncode == 1
-        assert "run it on the devbox or the Mac host" in result.stderr
-        assert "kubectl" not in result.calls
+        kubeconfig, server = result.stdout.splitlines()
+        assert server.strip() == "server: https://personal-infra-operator.asymptote-bass.ts.net"
+        assert not Path(kubeconfig).exists()
+
+    def should_keep_an_existing_kubeconfig_inside_a_container(self, run_cli, tmp_path):
+        files = project(tmp_path, {"dockerenv": "", "kubeconfig": "own"})
+
+        result = run_cli("demo", ["list"], mock_bins={"kubectl": 'echo "$KUBECONFIG"'}, isolate_path=True,
+                         env_extra={"HOME": str(tmp_path), "KUBECONFIG": str(files / "kubeconfig"),
+                                    "DEMO_CONTAINER_MARKER": str(files / "dockerenv")})
+
+        assert result.stdout == f"{files / 'kubeconfig'}\n"
 
     def should_use_the_pod_service_account_when_there_is_no_kubeconfig(self, run_cli, tmp_path):
         token = project(tmp_path, {"token": "t"}) / "token"

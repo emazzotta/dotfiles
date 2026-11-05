@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import re
@@ -49,6 +50,26 @@ STOP_DELAY_SECONDS: Final = 5
 SERVICE_ACCOUNT_TOKEN: Final = Path(
     os.environ.get("DEMO_SERVICE_ACCOUNT_TOKEN", "/var/run/secrets/kubernetes.io/serviceaccount/token"))
 CONTAINER_MARKER: Final = Path(os.environ.get("DEMO_CONTAINER_MARKER", "/.dockerenv"))
+# The Tailscale operator's API server proxy: the tailnet identity authenticates, so the
+# token is only a placeholder that keeps kubectl from prompting for Basic auth.
+TAILNET_KUBECONFIG: Final = """\
+apiVersion: v1
+kind: Config
+clusters:
+  - name: personal-infra
+    cluster:
+      server: https://personal-infra-operator.asymptote-bass.ts.net
+contexts:
+  - name: personal-infra
+    context:
+      cluster: personal-infra
+      user: tailscale
+current-context: personal-infra
+users:
+  - name: tailscale
+    user:
+      token: tailscale-managed
+"""
 GITHUB_API: Final = os.environ.get("DEMO_GITHUB_API", "https://api.github.com")
 
 EPILOG: Final = f"""\
@@ -60,7 +81,8 @@ push reads the project's Dockerfile and deploys it the cheapest way that matches
 without a Dockerfile: a start script runs as `bun run start`, otherwise static files from
 dist/ build/ out/ public/ or the project itself. bun run build runs first when it exists.
 --dir and --spa force static. .git, node_modules, .env* and .DS_Store are never uploaded.
-Every demo is public and noindex. Runs on the devbox and the Mac host, not in a container."""
+Every demo is public and noindex. Runs on the devbox, the Mac host and in a container
+on the tailnet; container demos need a docker daemon."""
 
 
 class DemoError(Exception):
@@ -255,12 +277,23 @@ def ctl(*arguments: str, upload: bool = False) -> list[str]:
 
 
 def require_cluster_access() -> None:
-    if CONTAINER_MARKER.exists():
-        die("demo needs the cluster: run it on the devbox or the Mac host, not in a container")
     kubeconfigs = os.environ.get("KUBECONFIG", str(Path.home() / ".kube" / "config")).split(os.pathsep)
-    if not any(Path(path).is_file() for path in kubeconfigs if path) and SERVICE_ACCOUNT_TOKEN.is_file():
+    if any(Path(path).is_file() for path in kubeconfigs if path):
+        return
+    if SERVICE_ACCOUNT_TOKEN.is_file():
         os.environ.setdefault("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
         os.environ.setdefault("KUBERNETES_SERVICE_PORT", "443")
+    elif CONTAINER_MARKER.exists():
+        os.environ["KUBECONFIG"] = str(write_tailnet_kubeconfig())
+
+
+def write_tailnet_kubeconfig() -> Path:
+    descriptor, name = tempfile.mkstemp(prefix="demo-kubeconfig-", suffix=".yaml")
+    with os.fdopen(descriptor, "w") as config:
+        config.write(TAILNET_KUBECONFIG)
+    path = Path(name)
+    atexit.register(path.unlink, missing_ok=True)
+    return path
 
 
 def build_with_bun(project: Path, name: str) -> None:
@@ -509,8 +542,6 @@ def remove(names: Sequence[str]) -> int:
 
 
 def demo_names() -> list[str]:
-    if CONTAINER_MARKER.exists():
-        return []
     require_cluster_access()
     listed = run_quiet(ctl("list", "--json"))
     try:
