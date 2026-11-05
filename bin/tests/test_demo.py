@@ -138,6 +138,7 @@ class TestWorkload:
         assert deployment["metadata"]["name"] == service["metadata"]["name"] == "demo-shop"
         assert deployment["spec"]["selector"]["matchLabels"] == {"app": "demo", "demos.plexius.ch/name": "shop"}
         assert (container["image"], container["ports"][0]["containerPort"]) == ("ghcr.io/emazzotta/demo-shop:1", 8000)
+        assert container["lifecycle"] == {"preStop": {"sleep": {"seconds": 5}}}
         assert pod["automountServiceAccountToken"] is False
         assert pod["securityContext"]["runAsNonRoot"] is True
         assert container["securityContext"]["capabilities"] == {"drop": ["ALL"], "add": ["NET_BIND_SERVICE"]}

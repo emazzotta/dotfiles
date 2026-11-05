@@ -44,6 +44,8 @@ IMAGE_VERSIONS_KEPT: Final = 2
 ROLLOUT_TIMEOUT: Final = "180s"
 LOG_LINES: Final = "40"
 DEMO_USER: Final = 1000
+# A replaced pod keeps answering while the Service drops it, so a push causes no 502.
+STOP_DELAY_SECONDS: Final = 5
 SERVICE_ACCOUNT_TOKEN: Final = Path(
     os.environ.get("DEMO_SERVICE_ACCOUNT_TOKEN", "/var/run/secrets/kubernetes.io/serviceaccount/token"))
 CONTAINER_MARKER: Final = Path(os.environ.get("DEMO_CONTAINER_MARKER", "/.dockerenv"))
@@ -377,6 +379,7 @@ def workload(name: str, image: str, port: int) -> dict:
         "name": "demo", "image": image, "imagePullPolicy": "IfNotPresent",
         "ports": [{"name": "http", "containerPort": port}],
         "readinessProbe": {"tcpSocket": {"port": port}, "periodSeconds": 2},
+        "lifecycle": {"preStop": {"sleep": {"seconds": STOP_DELAY_SECONDS}}},
         "resources": {"requests": {"cpu": "10m", "memory": "64Mi"}, "limits": {"cpu": "500m", "memory": "512Mi"}},
         "securityContext": {"allowPrivilegeEscalation": False,
                             "capabilities": {"drop": ["ALL"], "add": ["NET_BIND_SERVICE"]}},
