@@ -7,13 +7,17 @@ import pytest
 from bin.tests.conftest import BIN_DIR
 
 
-def tmux_mock(tmp_path, *sessions):
+INSIDE_TMUX = "/tmp/tmux-1000/default,1,0"
+
+
+def tmux_mock(tmp_path, *sessions, current=""):
     listing = "".join(f"{name}\\n" for name in sessions)
     return f"""
 case "$1" in
     list-sessions)
         [ -n "{listing}" ] || {{ echo "no server running" >&2; exit 1; }}
         printf "{listing}" ;;
+    display-message) echo "{current}" ;;
     attach|switch-client) echo "$*" >> "{tmp_path / 'attached'}" ;;
 esac
 """
@@ -61,11 +65,43 @@ class TestTma:
     def should_switch_to_the_named_session_when_already_inside_tmux(self, run_cli, tmp_path):
         mocks = {"tmux": tmux_mock(tmp_path, "main", "probe")}
 
-        result = run_cli("tma", ["probe"], env_extra={"TMUX": "/tmp/tmux-1000/default,1,0"},
+        result = run_cli("tma", ["probe"], env_extra={"TMUX": INSIDE_TMUX},
                          mock_bins=mocks, isolate_path=True, stdin="")
 
         assert result.returncode == 0
         assert attached(tmp_path) == "switch-client -t probe"
+
+    def should_switch_to_the_only_other_session_without_asking_inside_tmux(self, run_cli, tmp_path):
+        mocks = {"tmux": tmux_mock(tmp_path, "main", "probe", current="main"),
+                 "gum": gum_mock(tmp_path, "unused")}
+
+        result = run_cli("tma", env_extra={"TMUX": INSIDE_TMUX}, mock_bins=mocks,
+                         isolate_path=True, stdin="")
+
+        assert result.returncode == 0
+        assert attached(tmp_path) == "switch-client -t probe"
+        assert not (tmp_path / "offered").exists()
+
+    def should_leave_the_current_session_out_of_the_gum_pick_inside_tmux(self, tmp_path, monkeypatch):
+        mocks = {"tmux": tmux_mock(tmp_path, "main", "probe", "dj set", current="main"),
+                 "gum": gum_mock(tmp_path, "dj set")}
+        monkeypatch.setenv("TMUX", INSIDE_TMUX)
+
+        result = run_on_tty(tmp_path, mocks)
+
+        assert result.returncode == 0
+        assert (tmp_path / "offered").read_text() == "probe\ndj set\n"
+        assert attached(tmp_path) == "switch-client -t dj set"
+
+    def should_fail_when_no_other_session_is_open_inside_tmux(self, run_cli, tmp_path):
+        mocks = {"tmux": tmux_mock(tmp_path, "main", current="main")}
+
+        result = run_cli("tma", env_extra={"TMUX": INSIDE_TMUX}, mock_bins=mocks,
+                         isolate_path=True, stdin="")
+
+        assert result.returncode == 1
+        assert "no other tmux sessions open" in result.stderr
+        assert not (tmp_path / "attached").exists()
 
     def should_attach_to_the_only_open_session_without_asking(self, run_cli, tmp_path):
         mocks = {"tmux": tmux_mock(tmp_path, "work"), "gum": gum_mock(tmp_path, "unused")}

@@ -7,7 +7,7 @@ Usage: $(basename "$0") [session]
 
 Attach to a tmux session, or switch to it when already inside tmux.
 Without one, take the only open session, or pick one with gum when
-several are open.
+several are open. Inside tmux, the current session is left out.
 EOF
 }
 
@@ -29,6 +29,16 @@ join_session() {
     exec tmux attach -t "$1"
 }
 
+list_candidate_sessions() {
+    if [ -z "${TMUX:-}" ]; then
+        tmux list-sessions -F '#S' 2>/dev/null
+        return
+    fi
+    local current
+    current=$(tmux display-message -p '#S')
+    tmux list-sessions -F '#S' | grep -vxF -- "$current"
+}
+
 main() {
     case "${1:-}" in
         -h|--help) show_usage; exit 0 ;;
@@ -37,9 +47,9 @@ main() {
     esac
 
     local sessions session
-    sessions=$(tmux list-sessions -F '#S' 2>/dev/null)
+    sessions=$(list_candidate_sessions)
     if [ -z "$sessions" ]; then
-        echo "tma: no tmux sessions open" >&2
+        echo "tma: no ${TMUX:+other }tmux sessions open" >&2
         exit 1
     fi
 
