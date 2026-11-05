@@ -1,9 +1,48 @@
 #!/bin/bash
+set -uo pipefail
 
-SESSION_NAME="0"
+show_usage() {
+    cat <<EOF
+Usage: $(basename "$0") [session]
 
-if [ ! -z "$1" ]; then
-    SESSION_NAME=$1
+Attach to a tmux session. Without one, attach to the only open session,
+or pick one with gum when several are open.
+EOF
+}
+
+choose_session() {
+    local sessions="$1"
+    if [ -t 0 ] && command -v gum >/dev/null 2>&1; then
+        printf '%s\n' "$sessions" | gum choose --header "Attach to session:"
+        return
+    fi
+    echo "tma: several tmux sessions open, pass one:" >&2
+    printf '%s\n' "$sessions" | sed 's/^/  /' >&2
+    return 1
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help) show_usage; exit 0 ;;
+        "") ;;
+        *) exec tmux attach -t "$1" ;;
+    esac
+
+    local sessions session
+    sessions=$(tmux list-sessions -F '#S' 2>/dev/null)
+    if [ -z "$sessions" ]; then
+        echo "tma: no tmux sessions open" >&2
+        exit 1
+    fi
+
+    if [[ "$sessions" == *$'\n'* ]]; then
+        session=$(choose_session "$sessions") || exit
+    else
+        session=$sessions
+    fi
+    exec tmux attach -t "$session"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
 fi
-
-tmux attach -t "$SESSION_NAME"
