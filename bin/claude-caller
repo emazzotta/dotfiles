@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Name the Claude Code session this process runs in, for secret approval prompts.
+"""Name the Claude Code or opencode session this process runs in, for secret approval prompts.
 
-Prints one JSON line, {"session": "<first block of the session ID>", "title": "<session title>"},
-which envify sends to keyguard and the devbox unlock client signs into its request. Outside
-Claude the title names the shell and its tmux window. An unknown value is empty, and the exit
+Prints one JSON line, {"session": "<short session ID>", "title": "<session title>"}, which
+envify sends to keyguard and the devbox unlock client signs into its request. The short ID is a
+Claude session ID's first block, or an opencode session ID's last eight characters, since
+opencode starts its IDs with the time. opencode gives its commands no session ID, so the
+session is the one the opencode above this process works on, as its server tells. Outside
+both the title names the shell and its tmux window. An unknown value is empty, and the exit
 status is always 0, so an approval never fails on this lookup.
 """
 from __future__ import annotations
@@ -11,9 +14,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import unicodedata
+import urllib.request
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Final
@@ -31,6 +36,12 @@ CHUNK_BYTES: Final = 1 << 16
 SCAN_LIMIT_BYTES: Final = 16 << 20
 TMUX_TIMEOUT_SECONDS: Final = 1.0
 SHELL_TITLE: Final = "shell"
+OPENCODE: Final = "opencode"
+OPENCODE_SESSION: Final = re.compile(r"ses_[0-9A-Za-z]{20,40}")
+OPENCODE_SHORT_ID: Final = 8
+OPENCODE_TIMEOUT_SECONDS: Final = 0.5
+WORKING: Final = frozenset({"busy", "retry"})
+MAX_DEPTH: Final = 40
 
 
 def session_id() -> UUID | None:
@@ -106,11 +117,95 @@ def shell_title() -> str:
     return f"{SHELL_TITLE} in tmux {place}" if place else SHELL_TITLE
 
 
+def parent_and_name(pid: int) -> tuple[int, str] | None:
+    try:
+        result = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)],
+                                capture_output=True, text=True, check=False, timeout=OPENCODE_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    fields = result.stdout.split(None, 1)
+    if result.returncode != 0 or len(fields) != 2 or not fields[0].isdigit():
+        return None
+    return int(fields[0]), fields[1].strip().rsplit("/", 1)[-1]
+
+
+def opencode_ancestor() -> int | None:
+    pid = os.getppid()
+    for _ in range(MAX_DEPTH):
+        found = parent_and_name(pid)
+        if found is None:
+            return None
+        parent, name = found
+        if name == OPENCODE:
+            return pid
+        if parent <= 1:
+            return None
+        pid = parent
+    return None
+
+
+def listening_ports(pid: int) -> list[int]:
+    try:
+        result = subprocess.run(["lsof", "-nP", "-a", "-p", str(pid), "-iTCP", "-sTCP:LISTEN", "-Fn"],
+                                capture_output=True, text=True, check=False, timeout=OPENCODE_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    ports = (line.rsplit(":", 1)[-1] for line in result.stdout.splitlines() if line.startswith("n"))
+    return [int(port) for port in ports if port.isdigit()]
+
+
+def asked(port: int, path: str) -> object:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=OPENCODE_TIMEOUT_SECONDS) as response:
+            return json.load(response)
+    except (OSError, ValueError):
+        return None
+
+
+def owner_of(port: int, session: object) -> dict | None:
+    """The session `session` belongs to: itself, or the one its subagent works for."""
+    for _ in range(MAX_DEPTH):
+        known = isinstance(session, str) and OPENCODE_SESSION.fullmatch(session)
+        info = asked(port, f"/session/{session}") if known else None
+        if not isinstance(info, dict) or info.get("id") != session:
+            return None
+        if info.get("parentID") is None:
+            return info
+        session = info["parentID"]
+    return None
+
+
+def working_owner(port: int, statuses: dict) -> dict | None:
+    owners = {}
+    for session, status in statuses.items():
+        if not isinstance(status, dict) or status.get("type") not in WORKING:
+            continue
+        owner = owner_of(port, session)
+        if owner is None:
+            return None
+        owners[owner["id"]] = owner
+    return next(iter(owners.values())) if len(owners) == 1 else None
+
+
+def opencode_session() -> dict[str, str] | None:
+    """The opencode session working above this process; None outside opencode or when it is unclear which one."""
+    pid = opencode_ancestor()
+    for port in [] if pid is None else listening_ports(pid):
+        statuses = asked(port, "/session/status")
+        if isinstance(statuses, dict):
+            owner = working_owner(port, statuses)
+            if owner is None:
+                return None
+            title = owner.get("title")
+            return {"session": owner["id"][-OPENCODE_SHORT_ID:], "title": clean(title) if isinstance(title, str) else ""}
+    return None
+
+
 def describe() -> dict[str, str]:
     session = session_id()
-    if session is None:
-        return {"session": "", "title": shell_title()}
-    return {"session": session.hex[:SHORT_ID_LENGTH], "title": session_title(session)}
+    if session is not None:
+        return {"session": session.hex[:SHORT_ID_LENGTH], "title": session_title(session)}
+    return opencode_session() or {"session": "", "title": shell_title()}
 
 
 def main(argv: Sequence[str]) -> int:
