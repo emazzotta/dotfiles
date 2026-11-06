@@ -1,0 +1,476 @@
+#!/usr/bin/env python3
+"""Move a running Claude session from this Mac to the dev box, uncommitted work included.
+
+Waits until the session is idle, copies its scratchpad out of the container, ends it with /exit
+in its tmux pane, snapshots every mounted repo into a commit pushed straight to the box's own
+checkout, and syncs the transcript. The box then restores each repo in a worktree, links the
+container paths the session knew, and resumes it in a new window of its tmux session main, with
+a first message saying what moved and what did not.
+
+`claude-move box ...` is the dev box's half, which the Mac runs over ssh.
+"""
+from __future__ import annotations
+
+import argparse
+import contextlib
+import json
+import os
+import platform
+import shlex
+import shutil
+import subprocess
+import sys
+import time
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from pathlib import Path, PurePosixPath
+from typing import Final
+from uuid import UUID
+
+import scriptlog
+import session_move
+import session_registry
+from session_move import BoxPaths, Lease, MountedRepo, MoveError, MovePlan, TranscriptPending
+
+BIN: Final = Path(__file__).resolve().parent
+CLAUDE_SYNC: Final = BIN / "claude-sync"
+CLAUDE_NOTIFY: Final = BIN / "claude-notify"
+PICKER: Final = BIN / "picker"
+LOG: Final = Path.home() / ".claude" / "claude-move.log"
+TRANSCRIPTS: Final = Path.home() / ".claude" / "projects" / "-workspace"
+DEFAULT_REMOTE: Final = "devbox"
+REMOTE_SCRIPT: Final = "/home/opencode/dotfiles/bin/claude-move"
+SSH_OPTIONS: Final = (
+    "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "RequestTTY=no",
+    "-o", "ControlMaster=auto", "-o", "ControlPath=~/.ssh/claude-sync-%C", "-o", "ControlPersist=60",
+)
+TOOL_DIRS: Final = ("/opt/homebrew/bin", "/usr/local/bin", str(Path.home() / ".docker" / "bin"))
+BOX_TMUX_SESSION: Final = session_registry.FALLBACK_TMUX_SESSION
+BOX_WORKSPACE: Final = Path("/workspace")
+MOVED_TO: Final = "devbox"
+IDLE: Final = "idle"
+POLL: Final = timedelta(seconds=1)
+IDLE_STABLE_POLLS: Final = 3
+IDLE_TIMEOUT: Final = timedelta(hours=1)
+EXIT_TIMEOUT: Final = timedelta(minutes=1)
+DOUBLE_PRESS_GAP: Final = timedelta(milliseconds=500)
+COMMAND_TIMEOUT: Final = timedelta(minutes=2)
+TRANSCRIPT_ATTEMPTS: Final = 5
+TRANSCRIPT_RETRY: Final = timedelta(seconds=3)
+TRANSCRIPT_PENDING_EXIT: Final = 75
+SCRATCHPAD_TAR: Final = 'cd /tmp && exec tar -cf - claude-*/-workspace/"$1"/scratchpad'
+
+Sleep = Callable[[float], None]
+
+
+def polls(span: timedelta) -> int:
+    return int(span / POLL)
+
+
+def tool(name: str) -> str | None:
+    """launchd starts the bridge with a PATH that has neither Homebrew nor Docker Desktop on it."""
+    candidates = (Path(directory) / name for directory in TOOL_DIRS)
+    return shutil.which(name) or next((str(path) for path in candidates if os.access(path, os.X_OK)), None)
+
+
+@dataclass(frozen=True)
+class LiveSession:
+    path: Path
+    record: session_registry.SessionRecord
+
+    @property
+    def id(self) -> UUID:
+        if self.record.session_id is None:
+            raise MoveError(f"{self.path} names no session yet")
+        return self.record.session_id
+
+    def running(self) -> bool:
+        return session_registry.held(self.path)
+
+    def status(self) -> str | None:
+        """What Claude Code says it is doing: idle, busy, waiting, or shell."""
+        folder = self.record.claude_sessions or Path.home() / ".claude" / "sessions"
+        for state_file in folder.glob("*.json"):
+            try:
+                state = json.loads(state_file.read_text())
+            except (OSError, ValueError):
+                continue
+            if state.get("sessionId") == str(self.id):
+                return state.get("status")
+        return None
+
+
+@dataclass(frozen=True)
+class Pane:
+    target: str
+    tmux: str
+
+    def press(self, key: str) -> None:
+        self._send(key)
+
+    def type(self, text: str) -> None:
+        self._send("-l", text)
+
+    def _send(self, *keys: str) -> None:
+        subprocess.run([self.tmux, "send-keys", "-t", self.target, *keys], check=True, capture_output=True,
+                       timeout=COMMAND_TIMEOUT.total_seconds())
+
+
+@dataclass(frozen=True)
+class Checkpoint:
+    session: LiveSession
+    pane: Pane
+    sleep: Sleep = time.sleep
+
+    def wait_until_idle(self, interrupt: bool) -> bool:
+        """True once the session has sat idle for a few polls; False when it ended on its own meanwhile."""
+        stable, interrupted = 0, False
+        for _ in range(polls(IDLE_TIMEOUT)):
+            if not self.session.running():
+                return False
+            status = self.session.status()
+            stable = stable + 1 if status == IDLE else 0
+            if stable >= IDLE_STABLE_POLLS:
+                return True
+            if interrupt and status != IDLE and not interrupted:
+                self.pane.press("Escape")
+                interrupted = True
+            self.sleep(POLL.total_seconds())
+        raise MoveError(f"{self.session.id} was not idle within {IDLE_TIMEOUT}; nothing moved")
+
+    def end(self) -> None:
+        """Ctrl+C first clears a half-typed draft, which /exit would otherwise be appended to."""
+        self.pane.press("C-c")
+        self.sleep(DOUBLE_PRESS_GAP.total_seconds())
+        self.pane.type("/exit")
+        self.pane.press("Enter")
+        for _ in range(polls(EXIT_TIMEOUT)):
+            if not self.session.running():
+                return
+            self.sleep(POLL.total_seconds())
+        raise MoveError(f"{self.session.id} did not exit within {EXIT_TIMEOUT} of /exit; nothing moved")
+
+
+def container_of(run_dir: Path | None, docker: str) -> str | None:
+    """The cl container whose Claude writes its pid file into this run's own folder."""
+    if run_dir is None:
+        return None
+    listed = subprocess.run([docker, "ps", "-q", "--filter", "name=opencode-"], capture_output=True, text=True,
+                            timeout=COMMAND_TIMEOUT.total_seconds())
+    ids = listed.stdout.split()
+    if listed.returncode != 0 or not ids:
+        return None
+    inspected = subprocess.run([docker, "inspect", *ids], capture_output=True, text=True,
+                               timeout=COMMAND_TIMEOUT.total_seconds())
+    for container in json.loads(inspected.stdout or "[]"):
+        if any(PurePosixPath(mount.get("Source", "")).name == run_dir.name for mount in container.get("Mounts", [])):
+            return container["Id"]
+    return None
+
+
+def scratchpad_archive(session: LiveSession, docker: str | None) -> bytes:
+    """The container's /tmp goes with it, so the scratchpad has to leave before the session ends."""
+    if docker is None:
+        return b""
+    try:
+        container = container_of(session.record.claude_sessions, docker)
+        if container is None:
+            return b""
+        archived = subprocess.run([docker, "exec", container, "sh", "-c", SCRATCHPAD_TAR, "sh", str(session.id)],
+                                  capture_output=True, timeout=COMMAND_TIMEOUT.total_seconds())
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        scriptlog.warn(f"Scratchpad stays behind: {error}")
+        return b""
+    return archived.stdout if archived.returncode == 0 else b""
+
+
+@dataclass(frozen=True)
+class Box:
+    host: str
+
+    def call(self, args: Sequence[str], stdin: bytes = b"") -> subprocess.CompletedProcess[bytes]:
+        command = shlex.join([REMOTE_SCRIPT, "box", *args])
+        return subprocess.run(["ssh", *SSH_OPTIONS, self.host, command], input=stdin, capture_output=True,
+                              timeout=COMMAND_TIMEOUT.total_seconds())
+
+    def checked(self, args: Sequence[str], stdin: bytes = b"") -> bytes:
+        result = self.call(args, stdin)
+        if result.returncode != 0:
+            detail = result.stderr.decode(errors="replace").strip()
+            raise MoveError(f"devbox {args[0]} failed (exit {result.returncode}): {detail}")
+        return result.stdout
+
+    def push(self, top: Path, sha: str, checkout: str, ref: str) -> None:
+        """Straight into the box's checkout, never through GitHub or GitLab."""
+        session_move.git(top, "push", "-q", f"{self.host}:{checkout}", f"{sha}:{ref}",
+                         env={"GIT_SSH_COMMAND": shlex.join(["ssh", *SSH_OPTIONS])})
+
+
+def mounted(mounts: Sequence[session_registry.Mount]) -> tuple[list[MountedRepo], list[str]]:
+    repos, missing = [], []
+    for mount in mounts:
+        repo = MountedRepo.find(mount.host, mount.container) if mount.host.exists() else None
+        if repo is None:
+            missing.append(mount.container)
+        else:
+            repos.append(repo)
+    return session_move.group_by_repo(repos), missing
+
+
+def locate(box: Box, repos: Sequence[MountedRepo]) -> list[str | None]:
+    request = json.dumps([{"name": repo.main.name, "origin": repo.origin} for repo in repos])
+    return json.loads(box.checked(["locate"], request.encode()))
+
+
+@dataclass(frozen=True)
+class Preparation:
+    session: LiveSession
+    pane: str
+    repos: list[MountedRepo]
+    checkouts: list[str | None]
+    missing: list[str]
+
+
+def prepare(session: LiveSession, box: Box) -> Preparation:
+    """Everything that can fail before the session is touched: tmux, the box, and where each repo lands."""
+    if not session.record.tmux_pane:
+        raise MoveError(f"{session.id} runs outside tmux, so nothing can type /exit into it")
+    repos, missing = mounted(session.record.mounts)
+    return Preparation(session, session.record.tmux_pane, repos, locate(box, repos), missing)
+
+
+def stop(preparation: Preparation, tmux: str, docker: str | None, now: bool, sleep: Sleep) -> bytes:
+    checkpoint = Checkpoint(preparation.session, Pane(preparation.pane, tmux), sleep)
+    if not checkpoint.wait_until_idle(interrupt=now):
+        scriptlog.warn(f"{preparation.session.id} ended on its own; its scratchpad went with its container")
+        return b""
+    archive = scratchpad_archive(preparation.session, docker)
+    checkpoint.end()
+    return archive
+
+
+def carry(preparation: Preparation, box: Box, archive: bytes) -> MovePlan:
+    session = preparation.session.id
+    states = [repo.state() for repo in preparation.repos]
+    for index, (state, repo, checkout) in enumerate(zip(states, preparation.repos, preparation.checkouts)):
+        if state.snapshot and checkout:
+            box.push(repo.top, state.snapshot, checkout, session_move.move_ref(session, index))
+    if archive:
+        box.checked(["scratchpad", str(session)], archive)
+    transcript = TRANSCRIPTS / f"{session}.jsonl"
+    if not transcript.is_file():
+        raise MoveError(f"{session} left no transcript, so there is nothing to resume")
+    return MovePlan(session, datetime.now().astimezone(), tuple(states), tuple(preparation.missing),
+                    transcript.stat().st_size, bool(archive))
+
+
+def sync_transcript(session: UUID) -> None:
+    subprocess.run([str(CLAUDE_SYNC), "--session", str(session)], capture_output=True,
+                   timeout=COMMAND_TIMEOUT.total_seconds())
+
+
+def hand_over(box: Box, plan: MovePlan, sync: Callable[[UUID], None], sleep: Sleep) -> str:
+    """The SessionEnd hook syncs too, and while it holds claude-sync's lock ours does nothing: retry."""
+    for _ in range(TRANSCRIPT_ATTEMPTS):
+        sync(plan.session)
+        result = box.call(["receive"], plan.to_json().encode())
+        if result.returncode != TRANSCRIPT_PENDING_EXIT:
+            break
+        sleep(TRANSCRIPT_RETRY.total_seconds())
+    if result.returncode != 0:
+        detail = result.stderr.decode(errors="replace").strip()
+        raise MoveError(f"devbox receive failed (exit {result.returncode}): {detail}")
+    return json.loads(result.stdout)["prompt"]
+
+
+def move(preparation: Preparation, box: Box, tools: tuple[str, str | None], now: bool,
+         sync: Callable[[UUID], None] = sync_transcript, sleep: Sleep = time.sleep) -> str:
+    tmux, docker = tools
+    archive = stop(preparation, tmux, docker, now, sleep)
+    try:
+        plan = carry(preparation, box, archive)
+        prompt = hand_over(box, plan, sync, sleep)
+    except MoveError as error:
+        session = preparation.session.id
+        raise MoveError(f"{error}. The session has ended here and its work on this Mac is untouched,"
+                        f" so cl -r {session} resumes it") from error
+    session_move.write_lease(Lease(plan.session, plan.moved_at, MOVED_TO))
+    return prompt
+
+
+def running_sessions() -> list[LiveSession]:
+    records = session_registry.running(session_registry.REGISTRY_DIR)
+    return [LiveSession(path, record) for path, record in records if record.session_id is not None]
+
+
+def choose(sessions: Sequence[LiveSession]) -> LiveSession:
+    lines = [f"{session.id}  {session.record.tmux_session or '-'}  {session.record.cwd}" for session in sessions]
+    picked = subprocess.run([str(PICKER), "--header", "Move which session to the devbox?"],
+                            input="\n".join(lines), stdout=subprocess.PIPE, text=True)
+    if picked.returncode != 0 or not picked.stdout.strip():
+        raise MoveError("nothing picked")
+    chosen = picked.stdout.split()[0]
+    return next(session for session in sessions if str(session.id) == chosen)
+
+
+def pick(wanted: UUID | None) -> LiveSession:
+    sessions = running_sessions()
+    if wanted is not None:
+        match = next((session for session in sessions if session.id == wanted), None)
+        if match is None:
+            raise MoveError(f"{wanted} is not a session cl runs on this Mac right now")
+        return match
+    if not sessions:
+        raise MoveError("cl runs no session on this Mac right now")
+    return sessions[0] if len(sessions) == 1 else choose(sessions)
+
+
+def show(preparation: Preparation) -> None:
+    scriptlog.info(f"Would move {preparation.session.id} out of tmux pane {preparation.pane}")
+    for repo, checkout in zip(preparation.repos, preparation.checkouts):
+        state = repo.state()
+        work = "uncommitted or unpushed work" if state.snapshot else "clean and pushed"
+        target = f"devbox {checkout}" if checkout else "no checkout on the devbox"
+        scriptlog.substep_info(f"{', '.join(state.containers)}: {work}, {target}")
+    for container in preparation.missing:
+        scriptlog.substep_info(f"{container}: not on the devbox")
+
+
+def notify(session: UUID, text: str) -> None:
+    """A move started from the phone through /move has nobody watching this Mac's terminal."""
+    payload = json.dumps({"session": str(session), "container": None, "text": text})
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        subprocess.run([str(CLAUDE_NOTIFY), "send"], input=payload, text=True, capture_output=True,
+                       timeout=COMMAND_TIMEOUT.total_seconds())
+
+
+def detach(session: UUID) -> int:
+    """The bridge waits for its command, and the session that asked is mid-turn until that returns."""
+    pick(session)
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a") as log:
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), str(session), "--notify"],
+                         stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+    print(f"Moving {session} to the devbox once this turn ends. Log: {LOG}")
+    return 0
+
+
+def run(args: argparse.Namespace) -> int:
+    session = pick(args.session)
+    box = Box(os.environ.get("CLAUDE_SYNC_REMOTE", DEFAULT_REMOTE))
+    preparation = prepare(session, box)
+    if args.dry_run:
+        show(preparation)
+        return 0
+    tmux = tool("tmux")
+    if tmux is None:
+        raise MoveError("tmux is not on PATH")
+    move(preparation, box, (tmux, tool("docker")), args.now)
+    done = f"Moved {session.id} to the devbox: tmux session {BOX_TMUX_SESSION} there resumes it"
+    scriptlog.success(done)
+    if args.notify:
+        notify(session.id, done)
+    return 0
+
+
+def read_session(text: str) -> UUID:
+    try:
+        return UUID(text.strip())
+    except ValueError:
+        raise MoveError(f"not a session id: {text.strip()!r}") from None
+
+
+def mac_main(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="claude-move",
+        description="Move a running Claude session from this Mac to the dev box, uncommitted work included.",
+        epilog="The dev box's half: claude-move box --help",
+    )
+    parser.add_argument("session", nargs="?", type=UUID,
+                        help="session id; a picker lists the running ones when left out")
+    parser.add_argument("--now", action="store_true", help="interrupt a running turn instead of waiting for it to end")
+    parser.add_argument("-n", "--dry-run", action="store_true", help="show what would move and change nothing")
+    parser.add_argument("--stdin", action="store_true",
+                        help="read the session id from stdin and move it in the background (the /move bridge endpoint)")
+    parser.add_argument("--notify", action="store_true",
+                        help="send the outcome as a Telegram ping through claude-notify")
+    args = parser.parse_args(argv)
+    if platform.system() != "Darwin":
+        parser.error("runs on the Mac, where cl starts each session in a container")
+    try:
+        if args.stdin:
+            return detach(read_session(sys.stdin.read()))
+        return run(args)
+    except MoveError as error:
+        scriptlog.error(str(error))
+        if args.notify and args.session:
+            notify(args.session, f"claude-move failed: {error}")
+        return 1
+
+
+def box_paths() -> BoxPaths:
+    home = Path.home()
+    return BoxPaths(
+        projects=Path(os.environ.get("CLAUDE_MOVE_PROJECTS", str(home / "Projects"))),
+        links=Path(os.environ.get("CLAUDE_MOVE_LINKS", str(session_move.CONTAINER_CODE))),
+        claude_home=Path(os.environ.get("CLAUDE_HOME", str(home / ".claude"))).expanduser(),
+        scratch=Path(os.environ.get("CLAUDE_MOVE_SCRATCH", f"/tmp/claude-{os.getuid()}/-workspace")),
+        git_wt=BIN / "git-wt",
+    )
+
+
+def box_locate(paths: BoxPaths) -> str:
+    wanted = json.loads(sys.stdin.read())
+    found = [session_move.find_checkout(paths.projects, repo["name"], repo["origin"]) for repo in wanted]
+    return json.dumps([str(checkout) if checkout else None for checkout in found])
+
+
+def box_receive(paths: BoxPaths, launch: bool) -> str:
+    plan = MovePlan.from_json(sys.stdin.read())
+    prompt = session_move.receive(plan, paths)
+    command = shlex.join(["cl", "-r", str(plan.session), prompt])
+    if launch:
+        session_registry.open_window(BOX_TMUX_SESSION, BOX_WORKSPACE, command)
+    return json.dumps({"prompt": prompt, "command": command, "launched": launch})
+
+
+def box_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="claude-move box",
+                                     description="The dev box's half of claude-move; the Mac runs these over ssh.")
+    steps = parser.add_subparsers(dest="step", required=True)
+    steps.add_parser("locate", help="stdin: [{name, origin}], stdout: this box's checkout of each, or null")
+    scratchpad = steps.add_parser("scratchpad", help="stdin: a tar of the session's scratchpad from the Mac container")
+    scratchpad.add_argument("session", type=UUID)
+    receive = steps.add_parser("receive", help="stdin: the move plan; restore, link, and resume the session in tmux")
+    receive.add_argument("--no-launch", action="store_true", help="restore and link, but resume nothing")
+    return parser
+
+
+def box_main(argv: Sequence[str]) -> int:
+    args = box_parser().parse_args(argv)
+    paths = box_paths()
+    try:
+        if args.step == "locate":
+            print(box_locate(paths))
+        elif args.step == "scratchpad":
+            session_move.unpack_scratchpad(sys.stdin.buffer.read(), args.session, paths.scratch)
+        else:
+            print(box_receive(paths, launch=not args.no_launch))
+    except TranscriptPending as error:
+        print(error, file=sys.stderr)
+        return TRANSCRIPT_PENDING_EXIT
+    except (MoveError, OSError, subprocess.SubprocessError) as error:
+        print(error, file=sys.stderr)
+        return 1
+    return 0
+
+
+def main(argv: Sequence[str]) -> int:
+    if argv[:1] == ["box"]:
+        return box_main(argv[1:])
+    return mac_main(argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

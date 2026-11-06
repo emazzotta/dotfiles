@@ -30,6 +30,8 @@ TMUX_TIMEOUT_SECONDS: Final = 5
 TMUX_EXIT_GRACE: Final = timedelta(seconds=1)
 TMUX_POLL_INTERVAL: Final = timedelta(milliseconds=100)
 FALLBACK_TMUX_SESSION: Final = "main"
+STATE_DIR: Final = Path.home() / ".local" / "state" / LAUNCHER
+REGISTRY_DIR: Final = STATE_DIR / "sessions"
 SIGNAL_EXIT_BASE: Final = 128
 
 
@@ -314,6 +316,34 @@ UNTRACKED: Final = Untracked()
 Session = Union[TrackedSession, Untracked]
 
 
+def held(path: Path) -> bool:
+    """Whether a running cl still holds this record."""
+    try:
+        handle = path.open("r")
+    except OSError:
+        return False
+    with handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return True
+        fcntl.flock(handle, fcntl.LOCK_UN)
+    return False
+
+
+def running(directory: Path) -> list[tuple[Path, SessionRecord]]:
+    """The records of the sessions a live cl runs right now."""
+    found = []
+    for path in sorted(directory.glob("*.json")):
+        if not held(path):
+            continue
+        try:
+            found.append((path, SessionRecord.from_json(path.read_text())))
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return found
+
+
 @dataclass
 class _Claim:
     path: Path
@@ -388,7 +418,7 @@ class Registry:
             return True
         target = record.tmux_session or fallback
         try:
-            _open_window(target, record.cwd, record.resume_command())
+            open_window(target, record.cwd, record.resume_command())
         except (OSError, SubprocessError) as error:
             scriptlog.error(f"Could not reopen {record.session_id}: {error}")
             claim.release(discard=False)
@@ -419,7 +449,7 @@ def _has_tmux_session(name: str) -> bool:
     return True
 
 
-def _open_window(tmux_session: str, cwd: Path, command: str) -> None:
+def open_window(tmux_session: str, cwd: Path, command: str) -> None:
     """Type the command into a fresh shell, so the window outlives the session as a normal one does."""
     directory = str(cwd if cwd.is_dir() else Path.home())
     if _has_tmux_session(tmux_session):

@@ -23,6 +23,7 @@ from time import perf_counter, sleep, time, time_ns
 from types import FrameType
 from uuid import UUID, uuid4
 
+import session_move
 import session_registry
 
 INTERNET_CHECK_HOST = "one.one.one.one"
@@ -310,7 +311,7 @@ DOTFILES_CONTAINER = "/home/opencode/dotfiles"
 CONTAINER_WORKSPACE = Path("/workspace")
 CLAUDE_SESSION_STORE = Path.home() / ".claude" / "projects" / str(CONTAINER_WORKSPACE).replace("/", "-")
 CLAUDE_PROCESSES = Path.home() / ".claude" / "sessions"
-SESSION_REGISTRY = Path.home() / ".local" / "state" / "cl" / "sessions"
+SESSION_REGISTRY = session_registry.REGISTRY_DIR
 CLAUDE_RUN_DIRS = SESSION_REGISTRY.parent / "claude-sessions"
 CONVERSATION_LOG = SESSION_REGISTRY.parent / "conversations.tsv"
 CONTAINER_CLAUDE_SESSIONS = "/home/opencode/.claude/sessions"
@@ -799,6 +800,18 @@ def note_interrupted_sessions() -> None:
         _note(f"cl --restore reopens {count} interrupted session{'' if count == 1 else 's'}")
 
 
+def confirm_resume_after_move(session_id: str) -> None:
+    """Resuming a session that moved to the other machine forks it if it still runs there."""
+    lease = session_move.read_lease(UUID(session_id))
+    if lease is None:
+        return
+    _warn(f"{session_id} moved to the {lease.to} on {lease.moved_at:%d %b at %H:%M}",
+          "If it still runs there, resuming it here forks it.")
+    if sys.stdin.isatty() and input("Resume it here anyway? [y/N] ").strip().lower() != "y":
+        sys.exit(1)
+    session_move.clear_lease(lease.session)
+
+
 def _without_session_choice(claude_args: list[str]) -> list[str]:
     """Drop the opening prompt and every flag that picks a session: a restore resumes its own."""
     remaining = claude_args[:-1] if launch_prompt(claude_args) else claude_args
@@ -1183,6 +1196,9 @@ def main() -> None:
     if args.restore:
         sys.exit(_session_registry().restore())
     note_interrupted_sessions()
+    resumed = resolve_session_id(args.resume, args.opencode)
+    if resumed and not args.opencode:
+        confirm_resume_after_move(resumed)
 
     if args.all_projects and args.opencode:
         parser.error("-a/--all scopes claude sessions by project; opencode keeps a single session store")
