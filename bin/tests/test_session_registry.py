@@ -120,14 +120,22 @@ class TestSessionRecord:
 
         assert registry_module.SessionRecord.from_json(record.to_json()) == record
 
+    def test_should_keep_the_agent_and_its_container_through_json(self, registry_module, make_record):
+        container = registry_module.Container("opencode-1787254728", Path("/usr/local/bin/docker"))
+        record = make_record(session_id=None, agent=registry_module.Agent.OPENCODE, container=container)
+
+        assert json.loads(record.to_json())["container"] == {"name": "opencode-1787254728", "docker": "/usr/local/bin/docker"}
+        assert registry_module.SessionRecord.from_json(record.to_json()) == record
+
     def test_should_read_a_record_written_before_the_pane_was_kept(self, registry_module, make_record):
         old = json.loads(make_record().to_json())
-        for key in ("tmuxPane", "pid", "mounts", "claudeSessions"):
+        for key in ("tmuxPane", "pid", "mounts", "claudeSessions", "agent", "container"):
             del old[key]
 
         record = registry_module.SessionRecord.from_json(json.dumps(old))
 
         assert (record.tmux_pane, record.pid, record.mounts, record.claude_sessions) == (None, None, (), None)
+        assert (record.agent, record.container) == (registry_module.Agent.CLAUDE, None)
 
     def test_should_quote_the_resume_command_for_the_shell(self, make_record):
         record = make_record(cl_args=("-p", "/tmp/my project", "--model", "opus"))
@@ -373,6 +381,15 @@ class TestRestore:
     def test_should_drop_a_session_killed_before_its_first_prompt(self, registry, make_record, tmux_calls):
         self.interrupt(registry, make_record())
 
+        assert registry.restore() == 0
+
+        assert not tmux_calls
+        assert not records_in(registry)
+
+    def test_should_drop_an_interrupted_opencode_run_instead_of_reopening_it(self, registry, registry_module, make_record, tmux_calls):
+        self.interrupt(registry, make_record(session_id=None, agent=registry_module.Agent.OPENCODE))
+
+        assert registry.count_interrupted() == 0
         assert registry.restore() == 0
 
         assert not tmux_calls

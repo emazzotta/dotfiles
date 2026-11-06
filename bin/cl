@@ -327,6 +327,8 @@ DOTFILES_CRUFT_PATTERNS = (
 )
 CLAUDE_ENTRYPOINTS = ("claude", "claude-route")
 TRACKED_ENTRYPOINTS = (*CLAUDE_ENTRYPOINTS, "claude-resume")
+OPENCODE_ENTRYPOINTS = ("opencode", "opencode-resume")
+OPENCODE_SERVER_ARGS = ("--port", "0")
 ROUTE_OVERRIDING_FLAGS = ("--model", "--effort", "--print")
 CLAUDE_VALUE_FLAGS = (
     "--model", "--effort", "--permission-mode", "--add-dir", "--agent", "--settings", "--setting-sources",
@@ -843,11 +845,14 @@ def restore_args(args: argparse.Namespace, claude_args: list[str]) -> list[str]:
 def build_session_record(
     args: argparse.Namespace, claude_args: list[str], invocation: tuple[str, list[str], list[str]], pwd: Path,
     mounts: tuple[session_registry.Mount, ...] = (), claude_sessions: Path | None = None,
+    container: session_registry.Container | None = None,
 ) -> session_registry.SessionRecord | None:
+    """opencode's runs are recorded for web-terminal only: no Claude session id, so restore never reopens one."""
     entrypoint, _plugin_args, entrypoint_args = invocation
-    if entrypoint not in TRACKED_ENTRYPOINTS or "--print" in claude_args:
+    if entrypoint not in (*TRACKED_ENTRYPOINTS, *OPENCODE_ENTRYPOINTS) or "--print" in claude_args:
         return None
     session_id = _named_session_id(entrypoint_args)
+    agent = session_registry.Agent.OPENCODE if entrypoint in OPENCODE_ENTRYPOINTS else session_registry.Agent.CLAUDE
     return session_registry.SessionRecord(
         session_id=UUID(session_id) if session_id else None,
         cwd=pwd,
@@ -858,7 +863,14 @@ def build_session_record(
         pid=os.getpid(),
         mounts=mounts,
         claude_sessions=claude_sessions,
+        agent=agent,
+        container=container,
     )
+
+
+def container_of(name: str) -> session_registry.Container | None:
+    docker = shutil.which("docker")
+    return session_registry.Container(name, Path(docker)) if docker else None
 
 
 def mounts_of(volume_args: list[str]) -> tuple[session_registry.Mount, ...]:
@@ -1033,6 +1045,21 @@ def build_leonardo_plugin_args(launch_dirs: list[Path]) -> list[str]:
     return ["--settings", json.dumps({"enabledPlugins": enabled})]
 
 
+def with_opencode_server(opencode_args: list[str]) -> list[str]:
+    """opencode serves its API only when given a port, and web-terminal follows its sessions through that API."""
+    if any(arg == "--port" or arg.startswith("--port=") for arg in opencode_args):
+        return opencode_args
+    return [*opencode_args, *OPENCODE_SERVER_ARGS]
+
+
+def forward_to_opencode(picker_args: list[str]) -> list[str]:
+    """opencode-resume hands what follows its `--` to the opencode it starts."""
+    if "--" not in picker_args:
+        return [*picker_args, "--", *OPENCODE_SERVER_ARGS]
+    split = picker_args.index("--") + 1
+    return [*picker_args[:split], *with_opencode_server(picker_args[split:])]
+
+
 def build_entrypoint_invocation(args, claude_args: list[str], pwd: Path) -> tuple[str, list[str], list[str]]:
     """Resolve which tool to run and with what, independent of how it gets run."""
     permission_args = build_permission_args(args.no_skip, args.skip)
@@ -1052,11 +1079,11 @@ def build_entrypoint_invocation(args, claude_args: list[str], pwd: Path) -> tupl
     elif args.opencode:
         if use_picker:
             entrypoint = "opencode-resume"
-            entrypoint_args = [*search_args, *claude_args]
+            entrypoint_args = forward_to_opencode([*search_args, *claude_args])
         else:
             entrypoint = "opencode"
             session_args = ["--session", session_id] if session_id else []
-            entrypoint_args = [*session_args, *claude_args]
+            entrypoint_args = with_opencode_server([*session_args, *claude_args])
     elif args.hermes:
         entrypoint = "hermes"
         entrypoint_args = claude_args
@@ -1262,7 +1289,9 @@ def main() -> None:
     ]
     _profile("handoff to docker compose")
 
-    record = build_session_record(args, claude_args, invocation, pwd, mounts_of(volume_args), run_dir)
+    record = build_session_record(
+        args, claude_args, invocation, pwd, mounts_of(volume_args), run_dir, container_of(container_name),
+    )
     with _session_registry().track(record) as session:
         _install_exit_guard(session, container_name)
         session.follow(None)

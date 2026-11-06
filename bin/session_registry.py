@@ -1,4 +1,4 @@
-"""The claude sessions cl runs, kept on disk so a restart can reopen the ones it cut short.
+"""The sessions cl runs, kept on disk so a restart can reopen the Claude ones it cut short.
 
 Every running cl holds an exclusive lock on its record and deletes the record when the
 session ends on purpose. The kernel drops the lock however cl dies, so a record nobody
@@ -16,6 +16,7 @@ import threading
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from pathlib import Path
 from subprocess import SubprocessError, run
 from typing import IO, Final, Union
@@ -43,9 +44,29 @@ class Mount:
     container: str
 
 
+class Agent(Enum):
+    CLAUDE = "claude"
+    OPENCODE = "opencode"
+
+
+@dataclass(frozen=True)
+class Container:
+    """The docker container a run lives in, and the docker binary that reaches it from a shell without Homebrew's PATH."""
+
+    name: str
+    docker: Path
+
+    def to_dict(self) -> dict[str, str]:
+        return {"name": self.name, "docker": str(self.docker)}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, str] | None) -> Container | None:
+        return cls(data["name"], Path(data["docker"])) if data else None
+
+
 @dataclass(frozen=True)
 class SessionRecord:
-    """One cl run. tmux_pane, pid, mounts and claude_sessions let web-terminal find the Claude a pane runs."""
+    """One cl run. tmux_pane, pid, agent, container, mounts and claude_sessions let web-terminal find what a pane runs."""
 
     session_id: UUID | None
     cwd: Path
@@ -56,6 +77,8 @@ class SessionRecord:
     pid: int | None = None
     mounts: tuple[Mount, ...] = ()
     claude_sessions: Path | None = None
+    agent: Agent = Agent.CLAUDE
+    container: Container | None = None
 
     def to_json(self) -> str:
         return json.dumps({
@@ -68,6 +91,8 @@ class SessionRecord:
             "pid": self.pid,
             "mounts": [{"host": str(mount.host), "container": mount.container} for mount in self.mounts],
             "claudeSessions": str(self.claude_sessions) if self.claude_sessions else None,
+            "agent": self.agent.value,
+            "container": self.container.to_dict() if self.container else None,
         })
 
     @classmethod
@@ -84,6 +109,8 @@ class SessionRecord:
             pid=data.get("pid"),
             mounts=tuple(Mount(Path(mount["host"]), mount["container"]) for mount in data.get("mounts", ())),
             claude_sessions=Path(claude_sessions) if claude_sessions else None,
+            agent=Agent(data.get("agent", Agent.CLAUDE.value)),
+            container=Container.from_dict(data.get("container")),
         )
 
     def resume_command(self) -> str:

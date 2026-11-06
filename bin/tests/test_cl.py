@@ -225,6 +225,26 @@ class TestBuildEntrypointInvocation:
         entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(self.args(opencode=True), [], ELSEWHERE)
         assert entrypoint == "opencode"
 
+    def test_should_start_opencode_with_a_server_web_terminal_can_follow(self, cl):
+        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(opencode=True, resume=OPENCODE_SESSION_ID), ["--model", "big"], ELSEWHERE)
+        assert entrypoint_args == ["--session", OPENCODE_SESSION_ID, "--model", "big", "--port", "0"]
+
+    @pytest.mark.parametrize("port_args", [["--port", "4097"], ["--port=4097"]])
+    def test_should_keep_the_port_the_caller_chose(self, cl, port_args):
+        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(self.args(opencode=True), port_args, ELSEWHERE)
+        assert entrypoint_args == port_args
+
+    @pytest.mark.parametrize(("claude_args", "expected"), [
+        ([], ["deploy", "--", "--port", "0"]),
+        (["-f", "--", "--model", "big"], ["deploy", "-f", "--", "--model", "big", "--port", "0"]),
+        (["--", "--port", "4097"], ["deploy", "--", "--port", "4097"]),
+    ], ids=["alone", "after-forwarded-args", "caller-port"])
+    def test_should_hand_the_server_port_through_the_opencode_picker(self, cl, claude_args, expected):
+        entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(opencode=True, resume="deploy"), claude_args, ELSEWHERE)
+        assert (entrypoint, entrypoint_args) == ("opencode-resume", expected)
+
     def test_should_open_the_picker_across_every_project_when_all_is_the_only_flag(self, cl):
         entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(self.args(all_projects=True), [], ELSEWHERE)
         assert entrypoint == "claude-resume"
@@ -1938,12 +1958,21 @@ class TestRestoreArgs:
 
 
 class TestBuildSessionRecord:
-    @pytest.mark.parametrize(("invocation", "claude_args"), [
-        (("opencode", [], []), []),
-        (("claude", [], ["--print"]), ["--print"]),
-    ], ids=["opencode", "print"])
-    def test_should_not_track_what_cannot_be_resumed_interactively(self, cl, tmp_path, invocation, claude_args):
-        assert cl.build_session_record(cl_namespace(), claude_args, invocation, tmp_path) is None
+    def test_should_not_track_a_claude_that_only_prints(self, cl, tmp_path):
+        assert cl.build_session_record(cl_namespace(), ["--print"], ("claude", [], ["--print"]), tmp_path) is None
+
+    @pytest.mark.parametrize("entrypoint", ["opencode", "opencode-resume"])
+    def test_should_record_an_opencode_run_for_web_terminal_without_a_session_to_restore(self, cl, tmp_path, entrypoint):
+        record = cl.build_session_record(cl_namespace(), [], (entrypoint, [], ["--session", OPENCODE_SESSION_ID]), tmp_path)
+
+        assert (record.agent, record.session_id) == (cl.session_registry.Agent.OPENCODE, None)
+
+    def test_should_record_the_container_the_run_lives_in(self, cl, tmp_path):
+        container = cl.session_registry.Container("opencode-1787254728", Path("/usr/local/bin/docker"))
+
+        record = cl.build_session_record(cl_namespace(), [], ("claude", [], []), tmp_path, container=container)
+
+        assert (record.agent, record.container) == (cl.session_registry.Agent.CLAUDE, container)
 
     def test_should_record_the_session_cl_named_up_front(self, cl, tmp_path):
         invocation = ("claude", [], ["--session-id", CLAUDE_SESSION_ID, "--model", "opus"])
@@ -1990,6 +2019,18 @@ class TestMountsOf:
             cl.session_registry.Mount(Path("/Users/me/web-terminal"), "/workspace/code/web-terminal"),
             cl.session_registry.Mount(Path("/Users/me/dotfiles/bin"), "/home/opencode/dotfiles/bin"),
         )
+
+
+class TestContainerOf:
+    def test_should_name_the_container_and_the_docker_that_reaches_it(self, cl, monkeypatch):
+        monkeypatch.setattr(cl.shutil, "which", lambda name: f"/opt/homebrew/bin/{name}")
+
+        assert cl.container_of("opencode-1") == cl.session_registry.Container("opencode-1", Path("/opt/homebrew/bin/docker"))
+
+    def test_should_record_no_container_without_a_docker_to_reach_it(self, cl, monkeypatch):
+        monkeypatch.setattr(cl.shutil, "which", lambda _name: None)
+
+        assert cl.container_of("opencode-1") is None
 
 
 class TestClaudeRunDir:
