@@ -32,7 +32,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Final
 from uuid import UUID
@@ -220,7 +220,7 @@ def parse_clients(listing: str) -> list[TmuxClient]:
     for line in listing.splitlines():
         pane, *stamps = line.split("\t")
         if len(stamps) == 2 and all(stamp.isdigit() for stamp in stamps):
-            created, activity = (datetime.fromtimestamp(int(stamp), UTC) for stamp in stamps)
+            created, activity = (datetime.fromtimestamp(int(stamp), timezone.utc) for stamp in stamps)
             clients.append(TmuxClient(pane, created, activity))
     return clients
 
@@ -254,7 +254,7 @@ def wait_unseen(session: UUID, token: str, sleep: Callable[[float], None], seen:
 
 def fire(session: UUID, token: str, sleep: Callable[[float], None] = time.sleep,
          clients: Callable[[], Iterable[TmuxClient]] = tmux_clients) -> int:
-    armed = datetime.now(UTC).replace(microsecond=0)
+    armed = datetime.now(timezone.utc).replace(microsecond=0)
     pane = os.environ.get("TMUX_PANE")
     unseen = wait_unseen(session, token, sleep, lambda: pane is not None and seen_since(pane, armed, clients()))
     text = pending_text(session, token)
