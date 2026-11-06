@@ -123,7 +123,7 @@ def publish(run_bash, tmp_path, projects, web_terminal):
     replay = tmp_path / "vibe" / "ba40747f" / "index.html"
 
     def _publish(args, listing="", chat_status=0, scan="No secrets detected", renders=True, title=TITLE,
-                 checkout=web_terminal, installs=True, bun=None, complaint=""):
+                 checkout=web_terminal, installs=True, bun=None, complaint="", stdin=None):
         replayer = f'echo "vibe-replay $*" >> {log}\n'
         if renders:
             replayer += (
@@ -145,7 +145,7 @@ def publish(run_bash, tmp_path, projects, web_terminal):
         result = run_bash(
             "claude-transcript",
             (["--title", title] if title is not None else []) + args,
-            mock_bins=mocks, isolate_path=True,
+            mock_bins=mocks, isolate_path=True, stdin=stdin,
             env_extra={
                 "HOME": str(projects),
                 "WEB_TERMINAL_DIR": str(checkout),
@@ -159,6 +159,46 @@ def publish(run_bash, tmp_path, projects, web_terminal):
         return result
 
     return _publish
+
+
+OPENCODE_SESSION = "ses_1aaf6b3a5001EcB3KHdF735xJV"
+OPENCODE_JSON = json.dumps({"id": OPENCODE_SESSION, "title": "Fix the form", "messages": []})
+
+
+class TestOpencode:
+    @pytest.fixture
+    def handed(self, tmp_path):
+        """A bun mock that keeps the session file the share script gets, and renders a page."""
+        kept = tmp_path / "handed.json"
+        body = (f'if [ "$1" = install ]; then exit 0; fi\n'
+                f'for arg; do case "$arg" in *.json) cp "$arg" {kept} ;; esac; done\n'
+                f"for last; do :; done\nprintf '%s' '{RENDERED}' > \"$last\"")
+        return kept, body
+
+    @pytest.mark.parametrize(("flags", "prefix"), [
+        ([], "opencode-chat"), (["--text-only"], "opencode-text"), (["--message", "prt_1aaf6b37b001"], "opencode-message"),
+    ])
+    def should_render_an_opencode_session_from_stdin_under_its_own_prefix(self, publish, handed, flags, prefix):
+        kept, body = handed
+
+        result = publish([*flags, OPENCODE_SESSION], bun=body, stdin=OPENCODE_JSON, title=None)
+
+        assert result.returncode == 0, result.stderr
+        assert result.published.startswith(f"{prefix}-")
+        assert kept.read_text() == OPENCODE_JSON
+
+    def should_refuse_to_replay_an_opencode_session(self, publish):
+        result = publish(["--insight", OPENCODE_SESSION], stdin=OPENCODE_JSON)
+
+        assert result.returncode == 2
+        assert "--insight replays Claude Code transcripts only" in result.stderr
+
+    def should_refuse_an_opencode_session_without_one_on_stdin(self, publish):
+        result = publish([OPENCODE_SESSION], stdin="", title=None)
+
+        assert result.returncode == 1
+        assert f"no opencode session on stdin for {OPENCODE_SESSION}" in result.stderr
+        assert not any(result.server.iterdir())
 
 
 class TestNameReuse:

@@ -11,7 +11,9 @@
 #            diffs, token and cost charts
 #
 # Runs where ~/.claude/projects lives (the dev container, the devbox; the
-# web-terminal's share button runs it on the devbox over SSH). Upload goes through
+# web-terminal's share button runs it on the devbox over SSH). An opencode session
+# (an id starting ses_) has no transcript there: web-terminal sends it as JSON on
+# stdin, its id, title and messages, and the chat views render it alike. Upload goes through
 # `fileserver upload`: over the keyguard bridge to the Mac in the dev container,
 # with the pod's ServiceAccount on the devbox.
 #
@@ -61,7 +63,9 @@ Render a Claude Code session into one HTML page and publish it to the
 file-server, printing the public URL. By default the page shows the
 conversation as the web-terminal's chat does.
 
-  SESSION_ID       UUID of the session (the id in your scratchpad path)
+  SESSION_ID       UUID of the session (the id in your scratchpad path), or an
+                   opencode session id (ses_...), whose session comes as JSON on
+                   stdin, as web-terminal sends it; --insight takes no opencode
   --latest         use the most recently updated session JSONL
   --title TITLE    page title (browser tab + page header). Without it the
                    page takes the title Claude Code gave the session;
@@ -92,13 +96,13 @@ find_latest_jsonl() {
         | sort -rn | head -1 | cut -d' ' -f2-
 }
 
-# The file name prefix of a view. Insight keeps the prefix every transcript had
-# before the chat view existed, so re-publishing one of those finds its URL.
+# The file name prefix of a view, after the agent: claude or opencode. Insight keeps
+# the prefix every transcript had before the chat view existed, so re-publishing
+# one of those finds its URL.
 view_prefix() {
+    local agent="$2"
     case "$1" in
-        chat) printf 'claude-chat' ;;
-        text) printf 'claude-text' ;;
-        message) printf 'claude-message' ;;
+        chat | text | message) printf '%s-%s' "$agent" "$1" ;;
         insight) printf 'claude-transcript' ;;
     esac
 }
@@ -267,6 +271,12 @@ main() {
         esac
     done
     [ -n "$selector" ] || { show_usage >&2; exit 2; }
+    local agent=claude
+    if [[ "$selector" =~ ^ses_[0-9A-Za-z]+$ ]]; then
+        agent=opencode
+        [ "$view" != insight ] || { error "--insight replays Claude Code transcripts only"; exit 2; }
+        [ ! -t 0 ] || { error "an opencode session comes as JSON on stdin, as web-terminal sends it"; exit 2; }
+    fi
     if [ -z "$title" ] && [ "$view" = insight ]; then
         error "--insight needs --title"
         show_usage >&2
@@ -281,8 +291,16 @@ main() {
         command -v "$cmd" >/dev/null 2>&1 || { error "missing required command: ${cmd}"; exit 1; }
     done
 
+    # Render and check before anything reaches the server or the shared staging dir.
+    work_dir=$(mktemp -d)
+    trap cleanup EXIT
     local jsonl id
-    if [ "$selector" = "--latest" ]; then
+    if [ "$agent" = opencode ]; then
+        id="$selector"
+        jsonl="${work_dir}/${id}.json"
+        cat >"$jsonl"
+        [ -s "$jsonl" ] || { error "no opencode session on stdin for ${id}"; exit 1; }
+    elif [ "$selector" = "--latest" ]; then
         jsonl=$(find_latest_jsonl)
         [ -n "$jsonl" ] || { error "no session transcripts under ${projects}"; exit 1; }
         id=$(basename "$jsonl" .jsonl)
@@ -292,9 +310,6 @@ main() {
         [ -n "$jsonl" ] || { error "no transcript for session ${id} under ${projects}"; exit 1; }
     fi
 
-    # Render and check before anything reaches the server or the shared staging dir.
-    work_dir=$(mktemp -d)
-    trap cleanup EXIT
     local page="${work_dir}/page.html"
     local key="$id" options=()
     if [ -n "$title" ]; then
@@ -317,7 +332,7 @@ main() {
     fi
 
     local name
-    name=$(resolve_name "$(view_prefix "$view")" "$key")
+    name=$(resolve_name "$(view_prefix "$view" "$agent")" "$key")
     /bin/cp "$page" "${work_dir}/${name}"
     # In the dev container fileserver stages the file for the Mac itself; progress -> stderr.
     fileserver upload "${work_dir}/${name}" >&2
