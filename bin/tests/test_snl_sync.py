@@ -622,6 +622,19 @@ class TestCli:
         assert code == 0
         assert "2 tracks, 0 to fetch" in capsys.readouterr().out
 
+    def should_fetch_a_downloaded_track_again_with_refetch(self, cli):
+        state = cli.snl.SyncState.load(cli.state)
+        state.mark_done(make_track(cli.snl, "t1", "Song 1"), Path("/x/t1.mp3"))
+        state.save()
+        FakeTelegramClient.scripts.extend([[audio_reply("t1.mp3")]])
+
+        code = cli.run("--last", "1", "--refetch", "--delay", "0")
+
+        assert code == 0
+        assert [p.name for p in cli.dest.iterdir()] == ["t1.mp3"]
+        assert json.loads(cli.state.read_text())["t1"]["file"] == str(cli.dest / "t1.mp3")
+        assert cli.snl.music_tag.files["t1.mp3"].saved == {"artist": "A, B", "tracktitle": "Song 1"}
+
     def should_reject_a_last_count_below_one(self, run_cli):
         result = run_cli(SCRIPT, ["--last", "0"])
 
