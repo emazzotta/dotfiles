@@ -1,6 +1,15 @@
 #!/bin/bash
 # Do NOT add set -euo pipefail - this script is sourced into interactive shells.
 
+# The devbox cannot reach the keyguard bridge, so it mounts an envify of its own here.
+_ENVIFY_SHIM="${ENVIFY_DEVBOX_SHIM:-/etc/devbox/envify}"
+if [ -r "$_ENVIFY_SHIM" ]; then
+    # shellcheck source=/dev/null
+    . "$_ENVIFY_SHIM" "$@"
+    eval "unset _ENVIFY_SHIM; return $? 2>/dev/null || exit $?"
+fi
+unset _ENVIFY_SHIM
+
 _ENVIFY_PY="${DOTFILESPATH:-$HOME/dotfiles}/bin/envify.py"
 
 if [ $# -eq 0 ]; then

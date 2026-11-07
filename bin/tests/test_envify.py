@@ -15,14 +15,19 @@ def envify(load_script):
 
 
 @pytest.fixture
-def source_envify(tmp_path):
+def devbox_shim(tmp_path):
+    return tmp_path / "devbox-envify"
+
+
+@pytest.fixture
+def source_envify(tmp_path, devbox_shim):
     def _source(envify_py_body):
         stub = tmp_path / "bin" / "envify.py"
         stub.parent.mkdir()
         stub.write_text(envify_py_body)
         chain = 'source "$1" ENVIFY_TEST_TOKEN && echo "loaded:$ENVIFY_TEST_TOKEN"'
         return subprocess.run(["bash", "-c", chain, "bash", str(WRAPPER)], capture_output=True, text=True,
-                              env={**os.environ, "DOTFILESPATH": str(tmp_path)})
+                              env={**os.environ, "DOTFILESPATH": str(tmp_path), "ENVIFY_DEVBOX_SHIM": str(devbox_shim)})
     return _source
 
 
@@ -142,6 +147,32 @@ class TestSourcing:
 
         assert (result.returncode, result.stdout) == (1, "")
         assert "server returned 403" in result.stderr
+
+
+class TestDevboxShim:
+    BRIDGE_CLIENT = 'raise SystemExit("ran the bridge client")\n'
+
+    def should_export_through_the_shim_instead_of_the_bridge_client(self, source_envify, devbox_shim):
+        devbox_shim.write_text('export "$1=fr0m-shim"\n')
+
+        result = source_envify(self.BRIDGE_CLIENT)
+
+        assert (result.returncode, result.stdout) == (0, "loaded:fr0m-shim\n")
+
+    def should_stop_the_chain_when_the_shim_fails(self, source_envify, devbox_shim):
+        devbox_shim.write_text("return 1\n")
+
+        result = source_envify(self.BRIDGE_CLIENT)
+
+        assert (result.returncode, result.stdout, result.stderr) == (1, "", "")
+
+    def should_exit_with_the_shims_status_when_run_as_a_command(self, devbox_shim):
+        devbox_shim.write_text('echo "listed:$1"\nreturn 3\n')
+
+        result = subprocess.run(["bash", str(WRAPPER), "--list"], capture_output=True, text=True,
+                                env={**os.environ, "ENVIFY_DEVBOX_SHIM": str(devbox_shim)})
+
+        assert (result.returncode, result.stdout, result.stderr) == (3, "listed:--list\n", "")
 
 
 class TestStoreParam:
