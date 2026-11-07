@@ -8,6 +8,7 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 VS_CODE_DIR="${HOME}/Library/Application Support/Code/User"
+CODE_SERVER_USER_DIR="${HOME}/.local/share/code-server/User"
 ZSH_THEME_DIR="${HOME}/.zprezto/modules/prompt/functions"
 VIM_PLUGINS_TARGET="${HOME}/.vim_runtime/my_plugins"
 RESOLVER_DIR="/etc/resolver"
@@ -98,6 +99,14 @@ link_tmux_conf() {
     ln -sfn .tmux/.tmux.conf "$HOME/.tmux.conf"
 }
 
+# A settings.json that code-server wrote before this link existed is in the way, and that must not fail
+# the rest of the setup.
+stow_code_server_settings() {
+    mkdir -p "$CODE_SERVER_USER_DIR"
+    stow -d "$DIR" -t "$CODE_SERVER_USER_DIR" vscode ||
+        printf 'stowsetup: %s keeps its own settings, files are in the way\n' "$CODE_SERVER_USER_DIR" >&2
+}
+
 main() {
     local minimal=false
 
@@ -118,6 +127,7 @@ main() {
 
     clone_vim_plugins
     link_tmux_conf
+    stow_code_server_settings
 
     if $minimal; then
         return 0
