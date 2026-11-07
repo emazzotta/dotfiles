@@ -15,11 +15,11 @@ IS_DARWIN = platform.system() == "Darwin"
 
 
 @pytest.fixture
-def load_script():
+def load_script(monkeypatch):
     def _load(name: str, mock_modules: dict | None = None) -> ModuleType:
         if mock_modules:
             for mod_name, mock in mock_modules.items():
-                sys.modules[mod_name] = mock
+                monkeypatch.setitem(sys.modules, mod_name, mock)
 
         script_path = BIN_DIR / name
         sys.path.insert(0, str(BIN_DIR))
