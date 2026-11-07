@@ -69,5 +69,6 @@
       ".continue/**/*.yaml"
     ]
   },
-  "makefile.configureOnOpen": true
+  "makefile.configureOnOpen": true,
+  "workbench.colorTheme": "Visual Studio Dark"
 }
