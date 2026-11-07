@@ -145,7 +145,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "/opt/ccline/ccline"
+    "command": "~/dotfiles/bin/claude-statusline /opt/ccline/ccline"
   },
   "enabledPlugins": {
     "superpowers@claude-plugins-official": false,

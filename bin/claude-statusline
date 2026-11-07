@@ -1,0 +1,58 @@
+#!/bin/bash
+set -uo pipefail
+
+readonly KEEP_DAYS=7
+
+show_usage() {
+    cat <<EOF
+Usage: $(basename "$0") [STATUS_LINE_COMMAND [ARG...]]
+
+Claude Code status line wrapper. Saves the JSON Claude Code hands its status
+line to \${CLAUDE_CONFIG_DIR:-~/.claude}/statusline/<session id>.json, where the
+web terminal reads each conversation's weekly rate limit, then runs
+STATUS_LINE_COMMAND on the same input.
+EOF
+}
+
+session_id_of() {
+    printf '%s' "$1" | tr -d '\n' \
+        | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([0-9a-f-]\{36\}\)".*/\1/p'
+}
+
+prune_old() {
+    find "$1" -type f -mtime +"$KEEP_DAYS" -exec /bin/rm -f {} + 2>/dev/null
+}
+
+save_status() {
+    local input="$1" id folder temp
+    id=$(session_id_of "$input")
+    [ -n "$id" ] || return 0
+    folder="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/statusline"
+    mkdir -p "$folder" || return 0
+    if [ ! -e "$folder/$id.json" ]; then
+        prune_old "$folder"
+    fi
+    temp=$(mktemp "$folder/.$id.XXXXXX") || return 0
+    if printf '%s\n' "$input" >"$temp"; then
+        /bin/mv -f "$temp" "$folder/$id.json"
+    else
+        /bin/rm -f "$temp"
+    fi
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help) show_usage; return 0 ;;
+    esac
+    umask 077
+    local input
+    input=$(cat)
+    save_status "$input"
+    if [ "$#" -gt 0 ]; then
+        printf '%s\n' "$input" | "$@"
+    fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
