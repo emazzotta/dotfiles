@@ -1,0 +1,46 @@
+#!/bin/bash
+set -uo pipefail
+
+readonly USER_DATA_DIR="$HOME/.local/share/code-server"
+readonly DATA_ARGS=(--user-data-dir "$USER_DATA_DIR" --extensions-dir "$USER_DATA_DIR/extensions")
+readonly EXTENSIONS=(anthropic.claude-code)
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") <address:port>
+
+Starts code-server on <address:port> the same way on the dev box and the Mac:
+no password, data in ~/.local/share/code-server, and these extensions installed
+first when missing: ${EXTENSIONS[*]}
+
+Bind only an address that nothing but the web terminal's passkey check reaches.
+EOF
+}
+
+install_missing_extensions() {
+    local installed extension
+    installed=$(code-server "${DATA_ARGS[@]}" --list-extensions 2>/dev/null) || installed=''
+    for extension in "${EXTENSIONS[@]}"; do
+        if ! grep -qixF -- "$extension" <<<"$installed"; then
+            code-server "${DATA_ARGS[@]}" --install-extension "$extension" ||
+                printf 'code-server-start: could not install %s, starting without it\n' "$extension" >&2
+        fi
+    done
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help) usage; return 0 ;;
+        ""|-*) usage >&2; return 2 ;;
+    esac
+    if ! command -v code-server >/dev/null; then
+        printf 'code-server-start: code-server is not installed\n' >&2
+        return 127
+    fi
+    install_missing_extensions
+    exec code-server "${DATA_ARGS[@]}" --bind-addr "$1" --auth none --disable-telemetry --disable-update-check
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
