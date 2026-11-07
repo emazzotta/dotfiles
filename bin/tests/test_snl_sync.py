@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import re
+import struct
 import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,11 +12,52 @@ import pytest
 SCRIPT = "snl-sync"
 ANSI_CODE = re.compile(r"\x1b\[[0-9;]*m")
 BOT_USERNAME_LITERAL = re.compile(r'"[A-Za-z0-9]+[Bb]ot"')
+FLAC_MAGIC = b"fLaC"
+LAST_STREAMINFO_BLOCK = bytes([0x80])
+STEREO_44K_16BIT = (44100 << 44) | (1 << 41) | (15 << 36)
+
+
+class FakeTags(dict):
+    def __init__(self):
+        super().__init__()
+        self.saved = None
+
+    def save(self):
+        self.saved = dict(self)
+
+
+class FakeMusicTag:
+    def __init__(self):
+        self.files = {}
+
+    def load_file(self, file):
+        return self.files.setdefault(Path(file).name, FakeTags())
 
 
 @pytest.fixture
 def snl(load_script):
-    return load_script(SCRIPT)
+    module = load_script(SCRIPT)
+    module.music_tag = FakeMusicTag()
+    return module
+
+
+@pytest.fixture
+def snl_with_music_tag(snl, monkeypatch):
+    monkeypatch.setattr(snl, "music_tag", pytest.importorskip("music_tag"))
+    return snl
+
+
+def read_flac(path):
+    return pytest.importorskip("mutagen.flac").FLAC(path)
+
+
+def write_flac(path, artists, title):
+    info = struct.pack(">HH3s3sQ16s", 4096, 4096, bytes(3), bytes(3), STEREO_44K_16BIT, bytes(16))
+    path.write_bytes(FLAC_MAGIC + LAST_STREAMINFO_BLOCK + len(info).to_bytes(3, "big") + info)
+    tags = read_flac(path)
+    tags["artist"] = list(artists)
+    tags["title"] = title
+    tags.save()
 
 
 def make_track(snl, track_id="abc", name="Song", artists=("A", "B")):
@@ -43,7 +85,32 @@ class TestTrack:
 
         assert track.url == "https://open.spotify.com/track/abc"
         assert track.uri == "spotify:track:abc"
+        assert track.artist == "A, B"
         assert track.label == "A, B - Song"
+
+
+class TestRestoreTags:
+    def should_replace_every_artist_and_the_title_with_the_spotify_values(
+            self, snl_with_music_tag, tmp_path):
+        file = tmp_path / "Mark Burger - Wunder.flac"
+        write_flac(file, artists=["Mark Burger"], title="Wunder")
+        track = make_track(snl_with_music_tag, name="Wünder - Extended Mix",
+                           artists=("Mark Bürger", "Änni"))
+
+        snl_with_music_tag.restore_tags(file, track)
+
+        tags = read_flac(file)
+        assert tags["artist"] == ["Mark Bürger, Änni"]
+        assert tags["title"] == ["Wünder - Extended Mix"]
+
+    def should_collapse_several_artist_values_into_the_spotify_artists(
+            self, snl_with_music_tag, tmp_path):
+        file = tmp_path / "song.flac"
+        write_flac(file, artists=["Mark Burger", "Anni"], title="Song")
+
+        snl_with_music_tag.restore_tags(file, make_track(snl_with_music_tag))
+
+        assert read_flac(file)["artist"] == ["A, B"]
 
 
 class TestFindPlaylist:
@@ -259,6 +326,22 @@ class TestRunSync:
 
         assert [conv.sent for conv in conversations] == [["https://open.spotify.com/track/t0"],
                                                          ["https://open.spotify.com/track/t1"]]
+
+    def should_write_the_spotify_artists_and_title_into_each_download(self, snl, tmp_path):
+        self.run(snl, tmp_path, [[audio_reply("t0.mp3")], [audio_reply("t1.mp3")]])
+
+        assert {name: tags.saved for name, tags in snl.music_tag.files.items()} == {
+            "t0.mp3": {"artist": "A, B", "tracktitle": "Song 0"},
+            "t1.mp3": {"artist": "A, B", "tracktitle": "Song 1"},
+        }
+
+    def should_keep_a_download_whose_tags_cannot_be_written_and_warn(
+            self, snl_with_music_tag, tmp_path, capsys):
+        report, state, _ = self.run(snl_with_music_tag, tmp_path, [[audio_reply("t0.mp3")]])
+
+        assert [saved.name for _, saved in report.downloaded] == ["t0.mp3"]
+        assert snl_with_music_tag.SyncState.load(state.path).is_done("t0")
+        assert "A, B - Song 0: kept the bot's tags" in capsys.readouterr().out
 
     def should_create_the_destination_directory(self, snl, tmp_path):
         self.run(snl, tmp_path, [[audio_reply("t0.mp3")]])
@@ -484,6 +567,15 @@ class TestCli:
 
         assert code == 1
         assert "telethon" in capsys.readouterr().err
+
+    def should_fail_clearly_before_downloading_when_music_tag_is_missing(self, cli, capsys):
+        cli.snl.music_tag = None
+
+        code = cli.run()
+
+        assert code == 1
+        assert "'music_tag' missing" in capsys.readouterr().err
+        assert not cli.dest.exists()
 
     def should_download_pending_tracks_and_exit_zero(self, cli):
         FakeTelegramClient.scripts.extend([[audio_reply("t0.mp3")], [audio_reply("t1.mp3")]])

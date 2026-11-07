@@ -27,6 +27,14 @@ except ImportError:
     TelegramClient = None
     StringSession = None
 
+try:
+    import music_tag
+    from mutagen import MutagenError
+    TAG_ERRORS = (MutagenError, NotImplementedError)
+except ImportError:
+    music_tag = None
+    TAG_ERRORS = ()
+
 
 DEFAULT_PLAYLIST: Final = "01 Sort'n'Load"
 DEFAULT_DEST: Final = Path(os.environ.get("DESKDIR", str(Path.home() / "Desktop")))
@@ -55,6 +63,8 @@ QUALITY_PREFERENCES: Final[dict[str, tuple[str, ...]]] = {
 }
 MAX_REPLIES: Final = 8
 DEFAULT_DELAY_SECONDS: Final = 3.0
+ARTIST_TAG: Final = "artist"
+TITLE_TAG: Final = "tracktitle"
 
 
 class SyncError(Exception):
@@ -88,8 +98,12 @@ class Track:
         return SPOTIFY_TRACK_URI.format(id=self.id)
 
     @property
+    def artist(self) -> str:
+        return ", ".join(self.artists)
+
+    @property
     def label(self) -> str:
-        return f"{', '.join(self.artists)} - {self.name}"
+        return f"{self.artist} - {self.name}"
 
 
 @dataclass(frozen=True)
@@ -262,6 +276,16 @@ async def _choose(reply: Any, labels: list[str], preferences: tuple[str, ...]) -
     await reply.click(text=label)
 
 
+def restore_tags(file: Path, track: Track) -> None:
+    try:
+        tags = music_tag.load_file(file)
+        tags[ARTIST_TAG] = track.artist
+        tags[TITLE_TAG] = track.name
+        tags.save()
+    except TAG_ERRORS as error:
+        logger.warn(f"{track.label}: kept the bot's tags, writing Spotify's failed: {error}")
+
+
 @dataclass
 class SyncReport:
     downloaded: list[tuple[Track, Path]] = field(default_factory=list)
@@ -292,6 +316,7 @@ async def _sync_one(track: Track, open_conversation: Callable[[], Any], dest: Pa
         logger.warn(f"{track.label}: {error}")
         report.failed.append((track, str(error)))
         return
+    restore_tags(saved, track)
     state.mark_done(track, saved)
     state.save()
     logger.success(f"{track.label} -> {saved.name}")
@@ -309,6 +334,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="snl-sync",
         description="Fetch new tracks of a Spotify playlist through a Telegram music bot, "
+                    "write Spotify's artists and title into each file, "
                     "then offer to remove the downloaded ones from the playlist.",
         epilog=f"Keyguard: {', '.join(SPOTIFY_VARS)}, "
                f"{', '.join(TELEGRAM_APP_VARS)} (my.telegram.org), "
@@ -341,13 +367,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def require_telethon() -> None:
-    if TelegramClient is None:
-        raise SyncError("python package 'telethon' missing: uv pip install telethon")
+def require_package(module: Any, name: str) -> None:
+    if module is None:
+        raise SyncError(f"python package '{name}' missing: uv pip install {name}")
 
 
 def login() -> int:
-    require_telethon()
+    require_package(TelegramClient, "telethon")
     load_env(TELEGRAM_APP_VARS)
     store_param(TELEGRAM_SESSION_VAR, asyncio.run(_interactive_login()))
     logger.success(f"{TELEGRAM_SESSION_VAR} stored in keyguard")
@@ -372,7 +398,8 @@ def _load_credentials(dry_run: bool) -> None:
     if dry_run:
         load_env(SPOTIFY_VARS)
         return
-    require_telethon()
+    require_package(TelegramClient, "telethon")
+    require_package(music_tag, "music_tag")
     load_env(SPOTIFY_VARS + TELEGRAM_VARS)
 
 
