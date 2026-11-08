@@ -35,6 +35,7 @@ from scriptlog import (
 )
 
 SCAN_DEPTH: Final = 3
+WORK_DIR_VARIABLE: Final = "WDIR"
 PARALLEL_LOOKUPS: Final = 8
 PAGE_SIZE: Final = 100
 IGNORE_SECTION: Final = "gck"
@@ -528,10 +529,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                     "comment. Requests the server holds back for another reason, such as a draft or a missing "
                     "approval, are listed but never merged. Repositories that match a line under [gck] in "
                     "~/.config/repos/ignore, read as gck reads it, are skipped.")
-    parser.add_argument("dir", nargs="?", type=Path, default=Path("."),
+    parser.add_argument("dir", nargs="?", type=Path, default=os.environ.get(WORK_DIR_VARIABLE) or None,
                         help=f"a repository, or a directory searched {SCAN_DEPTH} levels deep for them, "
-                             "as gupallin does (default: the current directory)")
-    return parser.parse_args(argv)
+                             f"as gupallin does (default: ${WORK_DIR_VARIABLE}, like gck)")
+    args = parser.parse_args(argv)
+    if args.dir is None:
+        parser.error(f"no directory given and ${WORK_DIR_VARIABLE} is not set")
+    return args
 
 
 def main(argv: list[str]) -> int:

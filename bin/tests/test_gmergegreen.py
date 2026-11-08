@@ -1,5 +1,6 @@
 import json
 import re
+from pathlib import Path
 
 import pytest
 
@@ -545,6 +546,25 @@ def should_reject_a_path_that_is_not_a_directory(run_cli, tmp_path):
 
     assert result.returncode == 2
     assert "is not a directory" in result.stderr
+
+
+def should_scan_wdir_when_no_directory_is_given(gmergegreen, monkeypatch, tmp_path):
+    monkeypatch.setenv("WDIR", str(tmp_path))
+
+    assert gmergegreen.parse_args([]).dir == tmp_path
+
+
+def should_scan_the_given_directory_over_wdir(gmergegreen, monkeypatch, tmp_path):
+    monkeypatch.setenv("WDIR", str(tmp_path))
+
+    assert gmergegreen.parse_args(["elsewhere"]).dir == Path("elsewhere")
+
+
+def should_ask_for_a_directory_when_none_is_given_and_wdir_is_empty(run_cli, tmp_path):
+    result = run_cli("gmergegreen", [], env_extra={"WDIR": ""}, cwd=tmp_path)
+
+    assert result.returncode == 2
+    assert "no directory given and $WDIR is not set" in result.stderr
 
 
 def should_hand_gh_the_token_keyguard_supplies_after_asking_once_per_host(run, repo, calls, tmp_path):
