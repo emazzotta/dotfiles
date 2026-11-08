@@ -164,6 +164,7 @@ _superocd_mac_start() {
     sshkeyadd && \
     git -C "$DOTFILESPATH" pull --rebase --autostash --quiet && \
     ocd && \
+    tmux-agent install && \
     "$PRIVATE_PROJECTS/web-terminal/deploy/macos/install.sh" update && \
     devbox-drive --mount && \
     rmraycastclipboard && \
