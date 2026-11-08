@@ -158,6 +158,13 @@ print_warnings() {
     done < "${file}"
 }
 
+fetch_error_reason() {
+    local fallback="${1}"
+    PYTHONPATH="${CUSTOM_BIN_DIR}" python3 -c \
+        'import sys; from branch_ci import failure_reason; print(failure_reason(sys.stdin.read(), sys.argv[1]))' \
+        "${fallback}" < "${fetch_error_file}"
+}
+
 fetch_pull_requests() {
     local slug="${1}"
     local cache_file
@@ -188,12 +195,7 @@ fetch_pull_requests() {
     local status=0
     pairs=$("${client_command[@]}" 2> "${fetch_error_file}") || status=$?
     if [ "${status}" -ne 0 ]; then
-        local reason
-        reason=$(head -1 "${fetch_error_file}")
-        if [ -z "${reason}" ]; then
-            reason="${client} exited with status ${status}"
-        fi
-        add_warning "${pull_request_warnings_file}" "${slug}: ${reason}"
+        add_warning "${pull_request_warnings_file}" "${slug}: $(fetch_error_reason "${client} exited with status ${status}")"
         return 0
     fi
     printf '%s\n' "${pairs}" | tee "${cache_file}"

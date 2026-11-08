@@ -30,6 +30,7 @@ ERROR_BANNER: Final = "ERROR"
 TRANSPORT_ERROR: Final = re.compile(r'^\w+ "[^"]*": (?P<cause>.+)$')
 GITHUB_FAILED_CONCLUSIONS: Final = frozenset({"failure", "timed_out", "startup_failure"})
 GITHUB_PASSING_CONCLUSIONS: Final = frozenset({SUCCESS, "skipped", "neutral"})
+GITHUB_MISSING_LOG: Final = "log not found"
 LOG_CATEGORIES: Final = (
     ("infra", re.compile(r"RPC failed|early EOF")),
     ("compile", re.compile(r"COMPILATION ERROR|Compilation fail")),
@@ -146,7 +147,16 @@ class GitHub:
     def _run_category(self, run_id: str) -> str:
         jobs = json.loads(self._gh("run", "view", run_id, "--json", "jobs"))["jobs"]
         failed_jobs = ", ".join(job["name"] for job in jobs if job["conclusion"] in GITHUB_FAILED_CONCLUSIONS)
-        return classify_log(self._gh("run", "view", run_id, "--log-failed"), failed_jobs)
+        return classify_log(self._failed_log(run_id), failed_jobs)
+
+    def _failed_log(self, run_id: str) -> str:
+        try:
+            return self._gh("run", "view", run_id, "--log-failed")
+        except CommandFailed as error:
+            # GitHub stores no log for a job whose runner vanished, so its name has to do.
+            if not str(error).startswith(GITHUB_MISSING_LOG):
+                raise
+            return ""
 
     def _pipeline(self, runs: list[dict]) -> Pipeline:
         head_runs = [run for run in runs if run["headSha"] == runs[0]["headSha"]]
