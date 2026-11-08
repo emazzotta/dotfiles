@@ -34,6 +34,10 @@ case "$*" in
     *) echo '[]' ;;
 esac
 '''
+GLAB_FAILING_WITH_BANNER = r'''
+printf '          \n   ERROR  \n          \n  the token for "gitlab.example.com" is missing from the operating system  \n  keyring.  \n\n' >&2
+exit 1
+'''
 
 
 @pytest.fixture
@@ -122,12 +126,12 @@ def aged_branch(git, now):
 
 @pytest.fixture
 def run_gck(run_bash, tmp_path, git_env, now):
-    def _run_gck(*args, forge_token="", forge_token_exit=0, forge_token_stderr=""):
+    def _run_gck(*args, forge_token="", forge_token_exit=0, forge_token_stderr="", glab=GLAB_MOCK):
         forge_token_mock = (f'printf "%s\\n" "$*" >> "{tmp_path / "forge-token-calls"}"\n'
                             f'[ -z "{forge_token_stderr}" ] || printf "%s\\n" "{forge_token_stderr}" >&2\n'
                             f'echo "{forge_token}"\nexit {forge_token_exit}')
         return run_bash("gck", list(args),
-                        mock_bins={"glab": GLAB_MOCK, "date": f"echo {now}", "keyguard-forge-token": forge_token_mock},
+                        mock_bins={"glab": glab, "date": f"echo {now}", "keyguard-forge-token": forge_token_mock},
                         env_extra={**git_env, "CUSTOM_BIN_DIR": str(BIN_DIR), "HOME": str(tmp_path / "home"),
                                    "GLAB_CALLS": str(tmp_path / "glab-calls"),
                                    "GLAB_TOKENS": str(tmp_path / "glab-tokens"), "GITLAB_TOKEN": ""})
@@ -435,6 +439,14 @@ def should_start_each_line_keyguard_prints_by_clearing_the_spinner_line(run_gck,
     result = run_gck(str(workspace), forge_token_stderr="Approve on your phone: https://unlock.example.com/approve")
 
     assert "\x1b[2KApprove on your phone: https://unlock.example.com/approve\n" in result.stderr, result.stderr
+
+
+def should_give_the_reason_glab_prints_below_its_error_banner_when_it_cannot_list_merge_requests(run_gck, workspace):
+    result = run_gck(str(workspace), glab=GLAB_FAILING_WITH_BANNER)
+
+    pull_request_warnings = TERMINAL_ESCAPES.sub("", result.stderr).split("No pull request links")[1].split("No CI")[0]
+    assert ('gitlab.example.com/group/project: the token for "gitlab.example.com" is missing from the '
+            "operating system keyring.") in pull_request_warnings, result.stderr
 
 
 def should_hand_glab_the_token_keyguard_supplies(run_gck, workspace, tmp_path):

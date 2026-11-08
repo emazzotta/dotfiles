@@ -244,6 +244,27 @@ def should_name_the_failed_github_jobs_when_their_log_matches_no_category(github
     assert provider.failure_categories(provider.latest_pipeline("feature")) == ["pytest"]
 
 
+def should_name_the_failed_github_jobs_when_github_kept_no_log_of_them(branch_ci, github):
+    provider, _ = github({
+        "run list": json.dumps([github_run(2, "new", conclusion="failure")]),
+        "--json jobs": json.dumps({"jobs": [{"name": "Build", "conclusion": "failure"}]}),
+        "--log-failed": branch_ci.CommandFailed("log not found: 127542415064"),
+    })
+
+    assert provider.failure_categories(provider.latest_pipeline("feature")) == ["Build"]
+
+
+def should_fail_the_github_category_lookup_when_the_failed_log_cannot_be_fetched(branch_ci, github):
+    provider, _ = github({
+        "run list": json.dumps([github_run(2, "new", conclusion="failure")]),
+        "--json jobs": json.dumps({"jobs": [{"name": "Build", "conclusion": "failure"}]}),
+        "--log-failed": branch_ci.CommandFailed("gh timed out after 30s"),
+    })
+
+    with pytest.raises(branch_ci.CommandFailed):
+        provider.failure_categories(provider.latest_pipeline("feature"))
+
+
 def should_reuse_the_cached_category_while_the_failed_pipeline_is_unchanged(branch_ci, gitlab):
     provider, cli = gitlab({
         "pipelines?scope=branches": gitlab_pipelines(gitlab_pipeline(4, "failed")),
