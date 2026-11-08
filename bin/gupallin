@@ -118,7 +118,7 @@ update_repo() {
 }
 
 update_repos() {
-    find "${root_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
+    rh_find_dirs "${root_dir}" | while read -r dir; do
         [ -d "${dir}/.git" ] || continue
         rh_ignored gupallin "${dir}" && continue
         printf '%s' "${dir}" > "${status_file}"

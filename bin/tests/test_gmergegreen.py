@@ -521,6 +521,16 @@ def should_skip_only_the_repositories_listed_under_gck_in_the_ignore_list(run, r
     assert [call.split()[-1] for call in calls("gh") if call.startswith("pr list")] == ["owner/repo"]
 
 
+def should_not_enter_a_directory_listed_under_prune_in_the_ignore_list(run, repo, calls, repo_ignore):
+    repo("private/tad", remote="git@github.com:owner/tad.git")
+    repo("project")
+    repo_ignore("[prune]", "private")
+
+    run([pull_request(1, CHECKS["PASSED"])], gum_answers=["Skip"])
+
+    assert [call.split()[-1] for call in calls("gh") if call.startswith("pr list")] == ["owner/repo"]
+
+
 def should_fail_with_the_server_reason_when_a_merge_is_refused(run, repo):
     repo("repo")
 

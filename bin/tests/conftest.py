@@ -172,6 +172,20 @@ def repo_ignore(tmp_path):
 
 
 @pytest.fixture
+def locked_dir():
+    locked = []
+
+    def _locked_dir(path):
+        path.mkdir(parents=True)
+        path.chmod(0)
+        locked.append(path)
+        return path
+    yield _locked_dir
+    for path in locked:
+        path.chmod(stat.S_IRWXU)
+
+
+@pytest.fixture
 def project(tmp_path, git):
     origin = tmp_path / "origin.git"
     git(tmp_path, "init", "--bare", str(origin))

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Final
 
 IGNORE_FILE: Final = Path(".config", "repos", "ignore")
+PRUNE_SECTION: Final = "prune"
 
 
 def ignore_entries(section: str) -> tuple[str, ...]:

@@ -87,6 +87,20 @@ def should_skip_only_the_repositories_listed_under_gupallin_in_the_ignore_list(g
     assert git(archive, "rev-parse", "main") == stale
 
 
+def should_not_enter_a_directory_listed_under_prune_in_the_ignore_list(gupallin, clone, workspace, origin, git,
+                                                                       tmp_path, repo_ignore, locked_dir):
+    project = clone("project")
+    git(tmp_path / "seed", "commit", "--allow-empty", "-m", "Advance")
+    git(tmp_path / "seed", "push", "origin", "main")
+    locked_dir(workspace / "Library")
+    repo_ignore("[prune]", "Library")
+
+    result = gupallin(workspace)
+
+    assert "Permission denied" not in result.stderr
+    assert git(project, "rev-parse", "main") == git(origin, "rev-parse", "main")
+
+
 def should_keep_an_unpushed_merge_of_main_on_the_checked_out_branch(gupallin, clone, workspace, git, tmp_path):
     project = clone("project")
     git(project, "checkout", "-q", "feature")

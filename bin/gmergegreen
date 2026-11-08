@@ -16,7 +16,7 @@ from typing import Final, Union
 from urllib.parse import quote
 
 from branch_ci import GITHUB_PASSING_CONCLUSIONS, CommandFailed, Run, run_command
-from repolib import ignore_entries, is_ignored
+from repolib import PRUNE_SECTION, ignore_entries, is_ignored
 from scriptlog import (
     BLUE,
     DIM,
@@ -319,18 +319,20 @@ def subdirectories(directory: Path) -> list[Path]:
     return [child for child in children if is_directory(child)]
 
 
-def find_repos(directory: Path, depth: int = SCAN_DEPTH) -> Iterator[Path]:
+def find_repos(directory: Path, pruned: Sequence[str] = (), depth: int = SCAN_DEPTH) -> Iterator[Path]:
+    if is_ignored(directory, pruned):
+        return
     if is_directory(directory / ".git"):
         yield directory
     if depth > 0 and not directory.is_symlink():
         for child in subdirectories(directory):
-            yield from find_repos(child, depth - 1)
+            yield from find_repos(child, pruned, depth - 1)
 
 
 def repos_under(root: Path) -> list[Repo]:
     ignored = ignore_entries(IGNORE_SECTION)
     repos: dict[str, Repo] = {}
-    for path in find_repos(root):
+    for path in find_repos(root, ignore_entries(PRUNE_SECTION)):
         if is_ignored(path, ignored):
             continue
         slug = remote_slug(origin_url(path))

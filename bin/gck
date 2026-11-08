@@ -724,7 +724,7 @@ scan_repo() {
 }
 
 scan_repos() {
-    find "${scan_dir}" -mindepth 0 -maxdepth 3 -type d -or -type l | while read -r dir; do
+    rh_find_dirs "${scan_dir}" | while read -r dir; do
         if [ -d "${dir}/.git" ] && ! rh_ignored gck-hide "${dir}"; then
             scan_repo "${dir}"
         fi

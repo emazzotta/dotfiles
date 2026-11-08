@@ -391,6 +391,17 @@ def should_keep_a_repository_whose_path_only_starts_like_an_ignore_entry(gck, wo
     assert output.startswith("project  main ✓\n")
 
 
+def should_not_enter_a_directory_listed_under_prune_in_the_ignore_list(run_gck, workspace, repo_ignore, locked_dir):
+    locked_dir(workspace / "Library")
+    repo_ignore("[prune]", "Library")
+
+    result = run_gck(str(workspace))
+
+    assert result.returncode == 0, result.stderr
+    assert "Permission denied" not in result.stderr
+    assert TERMINAL_ESCAPES.sub("", result.stdout).startswith("project  main ✓\n")
+
+
 def should_keep_a_repository_that_only_gupallin_ignores(gck, workspace, repo_ignore):
     repo_ignore("[gupallin]", "project")
 
