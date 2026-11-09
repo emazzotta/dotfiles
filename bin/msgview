@@ -1,0 +1,190 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.9"
+# dependencies = ["extract-msg>=0.58"]
+# ///
+"""Read an Outlook .msg file: subject, sender, recipients, date, attachments and body.
+
+With no FILE, reads the .msg file in the current directory (several: pick one).
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Final, Iterable, Optional, Sequence
+
+import extract_msg
+
+import scriptlog
+from scriptlog import BOLD, DIM, RESET
+
+LABEL_WIDTH: Final = 7
+RULE_MAX_WIDTH: Final = 80
+BYTES_PER_UNIT: Final = 1024
+LARGER_UNITS: Final = ("KB", "MB", "GB")
+DATE_FORMAT: Final = "%a %d %b %Y %H:%M %z"
+BLANK_LINE_RUN: Final = re.compile(r"\n{3,}")
+NO_SUBJECT: Final = "(no subject)"
+NO_BODY: Final = "(no plain-text body)"
+
+
+@dataclass(frozen=True)
+class Attachment:
+    name: str
+    size: Optional[int]
+
+
+@dataclass(frozen=True)
+class Email:
+    subject: str
+    sender: Optional[str]
+    to: Optional[str]
+    cc: Optional[str]
+    bcc: Optional[str]
+    date: Optional[datetime]
+    attachments: tuple[Attachment, ...]
+    body: str
+
+
+def parse_args(argv: Sequence[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="msgview",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "file", nargs="?", type=Path, help=".msg file (default: the one in cwd)"
+    )
+    parser.add_argument(
+        "-a", "--attachments", metavar="DIR", type=Path,
+        help="save the attachments into DIR",
+    )
+    return parser.parse_args(argv)
+
+
+def pick_msg_file() -> Optional[Path]:
+    picked = subprocess.run(["pickfile", "msg"], stdout=subprocess.PIPE, text=True)
+    if picked.returncode != 0:
+        return None
+    return Path(picked.stdout.strip())
+
+
+def read_email(msg: Any) -> Email:
+    return Email(
+        subject=msg.subject or "",
+        sender=msg.sender,
+        to=msg.to,
+        cc=msg.cc,
+        bcc=msg.bcc,
+        date=msg.date or msg.receivedTime,
+        attachments=tuple(read_attachment(a) for a in msg.attachments),
+        body=clean_body(msg.body or ""),
+    )
+
+
+def read_attachment(attachment: Any) -> Attachment:
+    data = attachment.data
+    size = len(data) if isinstance(data, bytes) else None
+    return Attachment(name=attachment.getFilename(), size=size)
+
+
+def clean_body(body: str) -> str:
+    lines = (line.rstrip() for line in body.replace("\r\n", "\n").split("\n"))
+    return BLANK_LINE_RUN.sub("\n\n", "\n".join(lines)).strip("\n")
+
+
+def format_size(size: int) -> str:
+    value, unit = float(size), "B"
+    for larger in LARGER_UNITS:
+        if value < BYTES_PER_UNIT:
+            break
+        value, unit = value / BYTES_PER_UNIT, larger
+    return f"{size} B" if unit == "B" else f"{value:.1f} {unit}"
+
+
+def header_rows(email: Email) -> list[tuple[str, str]]:
+    rows = [
+        ("From", email.sender),
+        ("To", email.to),
+        ("Cc", email.cc),
+        ("Bcc", email.bcc),
+        ("Date", email.date.strftime(DATE_FORMAT).strip() if email.date else None),
+        ("Files", str(len(email.attachments)) if email.attachments else None),
+    ]
+    return [(label, value) for label, value in rows if value]
+
+
+def describe(attachment: Attachment) -> str:
+    if attachment.size is None:
+        return attachment.name
+    return f"{attachment.name}  {DIM}{format_size(attachment.size)}{RESET}"
+
+
+def show(email: Email) -> None:
+    scriptlog.info(f"{BOLD}{email.subject or NO_SUBJECT}{RESET}")
+    for label, value in header_rows(email):
+        print(f"  {DIM}{label:<{LABEL_WIDTH}}{RESET}{value}")
+    for attachment in email.attachments:
+        scriptlog.substep_info(describe(attachment))
+    rule_width = min(shutil.get_terminal_size().columns, RULE_MAX_WIDTH)
+    print(f"{DIM}{'─' * rule_width}{RESET}")
+    print(email.body or f"{DIM}{NO_BODY}{RESET}")
+
+
+def save_attachment(attachment: Any, target: Path) -> bool:
+    name = attachment.getFilename()
+    try:
+        _, saved = attachment.save(customPath=str(target), extractEmbedded=True)
+    except (OSError, extract_msg.exceptions.ExMsgBaseException) as e:
+        scriptlog.substep_error(f"Could not save {name}: {e}")
+        return False
+    if saved is None:
+        scriptlog.substep_error(f"Could not save {name}: unsupported attachment type")
+        return False
+    scriptlog.substep_success(f"Saved {saved}")
+    return True
+
+
+def save_attachments(attachments: Iterable[Any], target: Path) -> int:
+    target.mkdir(parents=True, exist_ok=True)
+    results = [save_attachment(attachment, target) for attachment in attachments]
+    return 0 if all(results) else 1
+
+
+def view(path: Path, attachments_dir: Optional[Path]) -> int:
+    with extract_msg.openMsg(str(path)) as msg:
+        show(read_email(msg))
+        if attachments_dir is None:
+            return 0
+        if not msg.attachments:
+            scriptlog.warn("No attachments to save")
+            return 0
+        print()
+        scriptlog.info(f"Saving attachments to {attachments_dir}")
+        return save_attachments(msg.attachments, attachments_dir)
+
+
+def main(argv: Sequence[str]) -> int:
+    args = parse_args(argv)
+    path = args.file or pick_msg_file()
+    if path is None:
+        return 1
+    if not path.is_file():
+        scriptlog.error(f"No such file: {path}")
+        return 1
+    try:
+        return view(path, args.attachments)
+    except (OSError, extract_msg.exceptions.ExMsgBaseException) as e:
+        scriptlog.error(f"Could not read {path}: {e}")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
