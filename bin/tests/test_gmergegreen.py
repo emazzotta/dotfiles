@@ -351,13 +351,36 @@ def should_list_every_dependency_update_with_what_keeps_it_from_passing_and_offe
                              "Merge individually Open all Open individually Skip")]
 
 
-def should_not_show_a_repository_whose_merge_requests_could_not_be_read(run, repo):
+def should_name_each_repository_whose_merge_requests_could_not_be_read_with_the_server_reason(run, repo):
     repo("repo")
+    repo("other", remote="git@github.com:owner/other.git")
 
     result = run([], gh_list_exit=1)
 
     assert result.returncode == 0
-    assert "502" not in result.stdout + result.stderr
+    assert TERMINAL_ESCAPES.sub("", result.stderr).splitlines() == [
+        "● Could not read the open merge requests of 2 of 2 repositories:",
+        "  · github.com/owner/other: HTTP 502: Bad Gateway",
+        "  · github.com/owner/repo: HTTP 502: Bad Gateway"]
+    assert "Nothing to merge." in result.stdout
+
+
+def should_report_a_missing_client_as_the_reason_a_repository_could_not_be_read(gmergegreen, monkeypatch):
+    monkeypatch.setattr(gmergegreen.shutil, "which", lambda _: None)
+
+    found = gmergegreen.lookup(github_repo(gmergegreen, FakeCli({})))
+
+    assert found.failure == "gh is not installed"
+    assert found.merge_requests == ()
+
+
+def should_report_an_answer_that_is_not_json_as_the_reason_a_repository_could_not_be_read(
+        gmergegreen, monkeypatch):
+    monkeypatch.setattr(gmergegreen.shutil, "which", lambda client: f"/usr/bin/{client}")
+
+    found = gmergegreen.lookup(github_repo(gmergegreen, FakeCli({"pr list": "<html>"})))
+
+    assert found.failure.startswith("unreadable answer from gh: JSONDecodeError(")
 
 
 @pytest.mark.parametrize("answer, merged", [

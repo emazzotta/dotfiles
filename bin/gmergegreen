@@ -266,7 +266,8 @@ class Repo:
 @dataclass(frozen=True)
 class Lookup:
     repo: Repo
-    merge_requests: tuple[MergeRequest, ...]
+    merge_requests: tuple[MergeRequest, ...] = ()
+    failure: str = ""
 
 
 Pending = tuple[Repo, MergeRequest]
@@ -353,19 +354,22 @@ def load_forge_tokens(repos: list[Repo]) -> None:
             os.environ[name] = token
 
 
-def lookup(repo: Repo) -> Lookup | None:
-    if shutil.which(repo.provider.CLIENT) is None:
-        return None
+def lookup(repo: Repo) -> Lookup:
+    client = repo.provider.CLIENT
+    if shutil.which(client) is None:
+        return Lookup(repo, failure=f"{client} is not installed")
     try:
         merge_requests = repo.provider.open_merge_requests()
-    except (CommandFailed, ValueError, LookupError, TypeError):
-        return None
+    except CommandFailed as failure:
+        return Lookup(repo, failure=str(failure))
+    except (ValueError, LookupError, TypeError) as failure:
+        return Lookup(repo, failure=f"unreadable answer from {client}: {failure!r}")
     return Lookup(repo, tuple(request for request in merge_requests if request.dependency_update))
 
 
 def lookup_all(repos: list[Repo]) -> list[Lookup]:
     with ThreadPoolExecutor(PARALLEL_LOOKUPS) as pool:
-        return [found for found in pool.map(lookup, repos) if found and found.merge_requests]
+        return list(pool.map(lookup, repos))
 
 
 def render_row(merge_request: MergeRequest, branch_width: int) -> str:
@@ -387,6 +391,14 @@ def report(lookups: list[Lookup]) -> None:
     for found in lookups:
         print("\n".join(render(found, branch_width)))
     print()
+
+
+def report_failures(failed: list[Lookup], total: int) -> None:
+    if not failed:
+        return
+    error(f"Could not read the open merge requests of {len(failed)} of {total} repositories:")
+    for unread in failed:
+        substep_error(f"{unread.repo.slug}: {unread.failure}")
 
 
 def aligned(rows: Sequence[tuple[str, ...]]) -> list[str]:
@@ -527,7 +539,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                     "the ones you tick. Requests that need a rebase or have a conflict can ask their bot to "
                     "rebase: Renovate through its rebase checkbox, Dependabot through an @dependabot rebase "
                     "comment. Requests the server holds back for another reason, such as a draft or a missing "
-                    "approval, are listed but never merged. Repositories that match a line under [gck] in "
+                    "approval, are listed but never merged. Repositories whose merge requests cannot be read are "
+                    "named with the reason. Repositories that match a line under [gck] in "
                     "~/.config/repos/ignore, read as gck reads it, are skipped.")
     parser.add_argument("dir", nargs="?", type=Path, default=os.environ.get(WORK_DIR_VARIABLE) or None,
                         help=f"a repository, or a directory searched {SCAN_DEPTH} levels deep for them, "
@@ -550,8 +563,10 @@ def main(argv: list[str]) -> int:
     info(f"Reading the open merge requests of {len(repos)} repositories")
     load_forge_tokens(repos)
     lookups = lookup_all(repos)
-    report(lookups)
-    requests = [(found.repo, request) for found in lookups for request in found.merge_requests]
+    found_updates = [found for found in lookups if found.merge_requests]
+    report(found_updates)
+    report_failures([found for found in lookups if found.failure], len(repos))
+    requests = [(found.repo, request) for found in found_updates for request in found.merge_requests]
     offered = [(repo, request) for repo, request in requests if not request.blocker]
     outdated = [(repo, request) for repo, request in requests if request.outdated]
     if not offered and not outdated:
