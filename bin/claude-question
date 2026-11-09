@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""Keep the questions a Claude Code dialog waits on where the web terminal reads them.
+
+As a Claude Code hook (the hook's JSON on stdin), PreToolUse of AskUserQuestion saves
+{"id": <tool use id>, "questions": [...]} to
+${CLAUDE_CONFIG_DIR:-~/.claude}/questions/<session id>.json. Claude Code often writes
+the question's step to its transcript only after the answer, so the web terminal's
+chat reads this file to show the questions as a card while the dialog is open.
+
+The file goes once the dialog closes: PostToolUse or PostToolUseFailure of
+AskUserQuestion, a permission prompt of the conversation's own for another tool, and
+UserPromptSubmit, Stop and SessionEnd. A subagent's permission prompt leaves it, since
+the conversation's own dialog may still be open.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+from typing import Final
+from uuid import UUID
+
+QUESTION_TOOL: Final = "AskUserQuestion"
+FOLDER: Final = "questions"
+TOOL_DONE_EVENTS: Final = frozenset({"PostToolUse", "PostToolUseFailure"})
+TURN_EVENTS: Final = frozenset({"UserPromptSubmit", "Stop", "SessionEnd"})
+USAGE: Final = """Usage: claude-question
+
+A Claude Code hook: reads the hook event on stdin and keeps the open
+AskUserQuestion of the session in ${CLAUDE_CONFIG_DIR:-~/.claude}/questions/,
+where the web terminal reads it.
+
+Options:
+  -h, --help  show this help and exit
+"""
+
+
+def question_file(session: UUID) -> Path:
+    claude_dir = os.environ.get("CLAUDE_CONFIG_DIR") or str(Path.home() / ".claude")
+    return Path(claude_dir) / FOLDER / f"{session}.json"
+
+
+def session_of(event: dict[str, object]) -> UUID | None:
+    try:
+        return UUID(str(event.get("session_id")))
+    except ValueError:
+        return None
+
+
+def opens_dialog(event: dict[str, object]) -> bool:
+    return event.get("hook_event_name") == "PreToolUse" and event.get("tool_name") == QUESTION_TOOL
+
+
+def closes_dialog(event: dict[str, object]) -> bool:
+    name, tool = event.get("hook_event_name"), event.get("tool_name")
+    if name in TOOL_DONE_EVENTS:
+        return tool == QUESTION_TOOL
+    if name == "PermissionRequest":
+        return tool != QUESTION_TOOL and not event.get("agent_id")
+    return name in TURN_EVENTS
+
+
+def asked(event: dict[str, object]) -> dict[str, object]:
+    tool_input = event.get("tool_input")
+    questions = tool_input.get("questions") if isinstance(tool_input, dict) else None
+    return {"id": event.get("tool_use_id") or "", "questions": questions or []}
+
+
+def save(path: Path, content: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=path.parent, prefix=f".{path.name}.", delete=False) as temporary:
+        json.dump(content, temporary)
+    os.replace(temporary.name, path)
+
+
+def handle(event: dict[str, object]) -> None:
+    session = session_of(event)
+    if session is None:
+        return
+    if opens_dialog(event):
+        save(question_file(session), asked(event))
+    elif closes_dialog(event):
+        question_file(session).unlink(missing_ok=True)
+
+
+def main(arguments: list[str]) -> int:
+    if arguments[:1] in (["-h"], ["--help"]):
+        print(USAGE, end="")
+        return 0
+    try:
+        event = json.loads(sys.stdin.read())
+        if isinstance(event, dict):
+            handle(event)
+    except (OSError, ValueError) as error:
+        print(f"claude-question: {error}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

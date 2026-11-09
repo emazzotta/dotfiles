@@ -36,6 +36,14 @@
             "command": "/home/opencode/dotfiles/bin/claude-notify"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-question"
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -48,6 +56,14 @@
           {
             "type": "command",
             "command": "/home/opencode/dotfiles/bin/claude-notify"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-question"
           }
         ]
       }
@@ -70,6 +86,15 @@
             "command": "/home/opencode/.claude/hooks/block-jira-direct-api.sh"
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-question"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -88,6 +113,15 @@
             "type": "command",
             "command": "/home/opencode/dotfiles/bin/claude-notify",
             "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-question"
           }
         ]
       }
@@ -119,6 +153,14 @@
             "command": "/home/opencode/dotfiles/bin/claude-notify"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-question"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -127,6 +169,14 @@
           {
             "type": "command",
             "command": "/home/opencode/dotfiles/bin/claude-notify"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-question"
           }
         ]
       }
@@ -138,6 +188,15 @@
             "type": "command",
             "command": "/home/opencode/dotfiles/bin/claude-notify",
             "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/opencode/dotfiles/bin/claude-question"
           }
         ]
       }
