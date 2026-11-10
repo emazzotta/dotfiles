@@ -90,6 +90,7 @@ brew "ripgrep" # web-terminal chat search and transcript filter on the Mac
 brew "rsync"
 brew "ruby"
 brew "rust"
+brew "sevenzip" # 7zz for pwuncompress: Keka 1.6.8 rewrites non-ASCII passwords to NFD
 brew "sloccount"
 brew "socat"
 brew "sops"
