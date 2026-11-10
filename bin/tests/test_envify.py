@@ -232,6 +232,24 @@ class TestCallerHeaders:
         assert [request.get_header("X-keyguard-session") for request in opened] == ["48f92bcb"] * 3
         assert {request.get_header("X-keyguard-title") for request in opened} == {"Caf%C3%A9%20%E2%80%93%20notes"}
 
+    def should_name_the_tmux_pane_it_runs_in_on_every_server_request(self, envify, opened, helper_prints, monkeypatch):
+        helper_prints('{"session": "", "title": "shell in tmux main:3"}')
+        monkeypatch.setenv("TMUX_PANE", "%6")
+
+        envify._server_get("localhost", "GITLAB_TOKEN")
+        envify.store_param("GITLAB_TOKEN", "value")
+        envify._bridge_call("localhost", "mac-trash", method="POST", data=b"/a\n")
+
+        assert [request.get_header("X-keyguard-pane") for request in opened] == ["%6"] * 3
+
+    def should_name_no_pane_outside_tmux(self, envify, opened, helper_prints, monkeypatch):
+        helper_prints('{"session": "48f92bcb", "title": "t"}')
+        monkeypatch.delenv("TMUX_PANE", raising=False)
+
+        envify._server_get("localhost", "GITLAB_TOKEN")
+
+        assert not opened[0].has_header("X-keyguard-pane")
+
     def should_run_the_helper_once_per_envify_run(self, envify, opened, helper_prints):
         runs = helper_prints('{"session": "48f92bcb", "title": "t"}')
 

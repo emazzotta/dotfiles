@@ -47,6 +47,8 @@ _CALLER_HELPER: Path = Path(__file__).resolve().parent / "claude-caller"
 _CALLER_TIMEOUT: int = 2
 _SESSION_HEADER: str = "X-Keyguard-Session"
 _TITLE_HEADER: str = "X-Keyguard-Title"
+_PANE_HEADER: str = "X-Keyguard-Pane"
+_PANE_ENV: str = "TMUX_PANE"
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +110,9 @@ def _caller_headers() -> dict[str, str]:
     headers = {_SESSION_HEADER: caller["session"]} if "session" in caller else {}
     if "title" in caller:
         headers[_TITLE_HEADER] = urllib.parse.quote(caller["title"], safe="")
+    pane = os.environ.get(_PANE_ENV)
+    if pane:
+        headers[_PANE_HEADER] = pane
     return headers
 
 
