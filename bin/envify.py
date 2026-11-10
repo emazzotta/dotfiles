@@ -30,7 +30,11 @@ _SERVER_PORT: int = int(os.environ.get("PARAM_SERVER_PORT", "7777"))
 _CACHE_TIMEOUT: int = int(os.environ.get("ENVIFY_CACHE_TIMEOUT", "120"))
 _STORE_TIMEOUT: int = 120
 _GLOBAL_ENV_FILE: Path = Path.home() / "dotfiles" / ".env"
+# keyguard-server's own wait for Touch ID (its SUBPROCESS_TIMEOUT). A secret read outlasts it, so the server's
+# answer, approval or timeout, always arrives before envify gives up.
 _TOUCH_ID_WAIT: int = 60
+_SERVER_REPLY_MARGIN: int = 15
+_SECRET_TIMEOUT: int = _TOUCH_ID_WAIT + _SERVER_REPLY_MARGIN
 _LONGEST_BRIDGE_RUN: int = 600
 _BRIDGE_TIMEOUT: int = _TOUCH_ID_WAIT + _LONGEST_BRIDGE_RUN
 _PROMPT_BUSY_POLL: float = 1.0
@@ -112,12 +116,14 @@ def _server_get(host: str, path: str, *, timeout: int | None = None) -> str:
         headers={"X-Keyguard-Source": socket.gethostname(), **_caller_headers()},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=_SECRET_TIMEOUT) as resp:
             return resp.read().decode()
     except urllib.error.HTTPError as e:
         _die(f"server returned {e.code}: {e.read().decode().strip()}")
     except urllib.error.URLError as e:
         _die(f"server unreachable: {e.reason}")
+    except TimeoutError:
+        _die(f"server did not answer within {_SECRET_TIMEOUT} s")
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +225,8 @@ def store_param(key: str, value: str) -> None:
         _die(f"server refused to store {key}: {e.code} {e.read().decode().strip()}")
     except urllib.error.URLError as e:
         _die(f"server unreachable: {e.reason}")
+    except TimeoutError:
+        _die(f"server did not answer within {_STORE_TIMEOUT} s")
 
 
 def read_value(key: str, stream: TextIO) -> str:
@@ -277,6 +285,8 @@ def _bridge_call(host: str, path: str, *, method: str = "GET", data: bytes | Non
             _die_unless_prompt_busy(e, deadline)
         except urllib.error.URLError as e:
             _die(f"bridge unreachable: {e.reason}")
+        except TimeoutError:
+            _die(f"bridge did not answer within {_BRIDGE_TIMEOUT} s")
         time.sleep(_PROMPT_BUSY_POLL)
 
 

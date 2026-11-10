@@ -262,6 +262,40 @@ class TestCallerHeaders:
         assert envify._CALLER_HELPER == WRAPPER.resolve().parent / "claude-caller"
 
 
+class TestTimeouts:
+    def should_wait_longer_for_a_secret_than_the_server_waits_for_touch_id(self, envify, monkeypatch):
+        timeouts = []
+
+        def fake_urlopen(request, timeout):
+            timeouts.append(timeout)
+            return FakeResponse()
+
+        monkeypatch.setattr(envify.urllib.request, "urlopen", fake_urlopen)
+
+        envify._server_get("localhost", "GITLAB_TOKEN")
+
+        assert timeouts[0] > envify._TOUCH_ID_WAIT
+
+    @pytest.mark.parametrize(("call", "said"), [
+        (lambda envify: envify._server_get("localhost", "GITLAB_TOKEN"), "Error: server did not answer within"),
+        (lambda envify: envify.store_param("GITLAB_TOKEN", "value"), "Error: server did not answer within"),
+        (lambda envify: envify._bridge_call("localhost", "echo", method="POST"), "Error: bridge did not answer within"),
+    ])
+    def should_print_an_error_line_instead_of_a_traceback_when_the_answer_times_out(self, envify, monkeypatch, capsys,
+                                                                                    call, said):
+        def timed_out(request, timeout):
+            raise TimeoutError("timed out")
+
+        monkeypatch.setattr(envify.urllib.request, "urlopen", timed_out)
+        monkeypatch.setattr(envify, "_require_host", lambda: "localhost")
+
+        with pytest.raises(SystemExit) as exited:
+            call(envify)
+
+        assert exited.value.code == 1
+        assert said in capsys.readouterr().err
+
+
 class TestSetFlag:
     @pytest.fixture
     def stored(self, envify, monkeypatch):
