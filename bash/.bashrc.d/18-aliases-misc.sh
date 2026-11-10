@@ -94,7 +94,7 @@ alias pwz='source envify PASSWORD_ZIPS && echo -ne "$PASSWORD_ZIPS" | pbcopy'
 ### UPDATES ###
 alias macsoftwareupdate='softwareupdate -i -a'
 # shellcheck disable=SC2139 # expanded now, so zsh-syntax-highlighting can find the script and colour the alias green
-alias webterminalupdate="\"$PRIVATE_PROJECTS/web-terminal/deploy/macos/install.sh\" update"
+alias webterminalupdate="git -C \"$PRIVATE_PROJECTS/web-terminal\" pull && \"$PRIVATE_PROJECTS/web-terminal/deploy/macos/install.sh\" update"
 if [ "$DOTFILES_OS" = "macos" ]; then
     alias update='macsoftwareupdate;bup;npm install -g npm;sdkmanupdate;vimpluginupdate'
 else
