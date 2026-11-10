@@ -30,11 +30,13 @@ _SERVER_PORT: int = int(os.environ.get("PARAM_SERVER_PORT", "7777"))
 _CACHE_TIMEOUT: int = int(os.environ.get("ENVIFY_CACHE_TIMEOUT", "120"))
 _STORE_TIMEOUT: int = 120
 _GLOBAL_ENV_FILE: Path = Path.home() / "dotfiles" / ".env"
-# keyguard-server's own wait for Touch ID (its SUBPROCESS_TIMEOUT). A secret read outlasts it, so the server's
-# answer, approval or timeout, always arrives before envify gives up.
+# keyguard-server's own wait for Touch ID (its SUBPROCESS_TIMEOUT).
 _TOUCH_ID_WAIT: int = 60
+# A secret read races Touch ID against a phone approval asked from 15 s on, for up to 345 s in all
+# (keyguard phone.py). envify outwaits it, so the server's answer always arrives before envify gives up.
+_SERVER_READ_DEADLINE: int = 345
 _SERVER_REPLY_MARGIN: int = 15
-_SECRET_TIMEOUT: int = _TOUCH_ID_WAIT + _SERVER_REPLY_MARGIN
+_SECRET_TIMEOUT: int = _SERVER_READ_DEADLINE + _SERVER_REPLY_MARGIN
 _LONGEST_BRIDGE_RUN: int = 600
 _BRIDGE_TIMEOUT: int = _TOUCH_ID_WAIT + _LONGEST_BRIDGE_RUN
 _PROMPT_BUSY_POLL: float = 1.0

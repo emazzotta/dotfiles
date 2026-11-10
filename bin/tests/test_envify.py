@@ -7,6 +7,8 @@ from types import SimpleNamespace
 import pytest
 
 WRAPPER = Path(__file__).parent.parent / "envify"
+# keyguard-server's read: Touch ID, and from 15 s the phone client's 330 s (keyguard config.py, phone.py).
+KEYGUARD_SERVER_READ_DEADLINE = 15 + 330
 
 
 @pytest.fixture
@@ -263,7 +265,7 @@ class TestCallerHeaders:
 
 
 class TestTimeouts:
-    def should_wait_longer_for_a_secret_than_the_server_waits_for_touch_id(self, envify, monkeypatch):
+    def should_wait_longer_for_a_secret_than_the_server_waits_for_touch_id_and_the_phone(self, envify, monkeypatch):
         timeouts = []
 
         def fake_urlopen(request, timeout):
@@ -274,7 +276,7 @@ class TestTimeouts:
 
         envify._server_get("localhost", "GITLAB_TOKEN")
 
-        assert timeouts[0] > envify._TOUCH_ID_WAIT
+        assert timeouts[0] > KEYGUARD_SERVER_READ_DEADLINE
 
     @pytest.mark.parametrize(("call", "said"), [
         (lambda envify: envify._server_get("localhost", "GITLAB_TOKEN"), "Error: server did not answer within"),

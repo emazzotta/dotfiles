@@ -71,6 +71,7 @@ brew "nsis"
 brew "nvm"
 brew "oh-my-posh" # Shell Theme
 brew "openconnect"
+brew "openssl@3" # keyguard's phone fallback signs with pkeyutl -rawin, which LibreSSL lacks
 brew "openvpn"
 brew "oven-sh/bun/bun"
 brew "pandoc"
