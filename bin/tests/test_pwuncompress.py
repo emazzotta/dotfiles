@@ -4,10 +4,11 @@ import pytest
 
 SEVEN_Z_MOCK = r'''
 name=$(basename "$0")
-accept="${ACCEPT_7Z-*}"
-if [ "$name" = 7zz ]; then
-    accept="${ACCEPT_7ZZ-}"
-fi
+case "$name" in
+    7zz) accept="${ACCEPT_7ZZ-}" ;;
+    keka) shift 2; accept="${ACCEPT_KEKA-}" ;;
+    *) accept="${ACCEPT_7Z-*}" ;;
+esac
 password=""
 for arg in "$@"; do
     case "$arg" in -p*) password="${arg#-p}" ;; esac
@@ -43,15 +44,18 @@ def uncompress(run_bash, tmp_path, workspace):
     work, desk = workspace
 
     def _run(args=None, picker=PICKER_PICKS_FIRST, password=STORED_PASSWORD,
-             accept_7z="*", accept_7zz=None, headers_plain=False):
+             accept_7z="*", accept_7zz=None, accept_keka=None, headers_plain=False):
         env = {
             "DESKDIR": str(desk),
             "SEVEN_Z_LOG": str(tmp_path / "7z.log"),
             "PICKER_LOG": str(tmp_path / "picker.log"),
             "ACCEPT_7Z": accept_7z,
+            "KEKA_CLI": str(tmp_path / "mock_bin" / "keka"),
         }
         if accept_7zz is not None:
             env["ACCEPT_7ZZ"] = accept_7zz
+        if accept_keka is not None:
+            env["ACCEPT_KEKA"] = accept_keka
         if headers_plain:
             env["HEADERS_PLAIN"] = "1"
         return run_bash(
@@ -61,6 +65,7 @@ def uncompress(run_bash, tmp_path, workspace):
             mock_bins={
                 "7z": SEVEN_Z_MOCK,
                 "7zz": SEVEN_Z_MOCK,
+                "keka": SEVEN_Z_MOCK,
                 "envify": f"export PASSWORD_ZIPS='{password}'",
                 "picker": picker,
             },
@@ -159,6 +164,12 @@ class TestPasswordFallback:
 
         assert result.returncode == 0
         assert extractions(tmp_path) == [("7zz", "a.7z", STORED_PASSWORD)]
+
+    def test_should_try_keka_after_7zz_rejects_every_spelling(self, uncompress, tmp_path):
+        result = uncompress(accept_keka=STORED_PASSWORD, accept_7z="")
+
+        assert result.returncode == 0
+        assert extractions(tmp_path) == [("keka", "a.7z", STORED_PASSWORD)]
 
     def test_should_use_the_7z_wrapper_when_7zz_rejects_every_spelling(self, uncompress, tmp_path):
         result = uncompress(password=UMLAUT_PASSWORD, accept_7zz="", accept_7z=UMLAUT_PASSWORD_NFD)

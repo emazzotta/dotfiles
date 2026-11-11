@@ -6,7 +6,7 @@ source envify PASSWORD_ZIPS
 
 EXTRACTION_PATH="${DESKDIR}/data.txt"
 if [[ ! -f "${EXTRACTION_PATH}" ]]; then
-    7z x "${ZIPS_DIR}/data.txt.7z" -o"${DESKDIR}" -p"${PASSWORD_ZIPS}"
+    pwuncompress -o "${DESKDIR}" "${ZIPS_DIR}/data.txt.7z"
 fi
 
 URL=$(cat "${EXTRACTION_PATH}" | tail -n+1 | head -n 1)

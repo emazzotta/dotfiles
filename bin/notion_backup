@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import scriptlog as logger
+from pwvariants import STORED, unique_spellings
 
 
 API_BASE = "https://api.notion.com/v1"
@@ -449,22 +450,26 @@ def purge_legacy_plaintext(backup_dir):
         logger.info("Legacy plaintext state removed; cache will be rebuilt encrypted on this run")
 
 
+def decrypt_cache_archive(archive_path, work_dir):
+    for label, password in unique_spellings(ARCHIVE_PASSWORD):
+        result = subprocess.run(
+            ["7z", "x", f"-o{work_dir}", b"-p" + password, "-y", str(archive_path)],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            if label != STORED:
+                logger.warn(f"Cache archive opened with the {label} spelling of PASSWORD_ZIPS")
+            break
+    return result
+
+
 def extract_cache_archive(archive_path, work_dir):
     cache_dir = work_dir / CACHE_DIR_NAME
     if not archive_path.exists():
         cache_dir.mkdir()
         return cache_dir
     logger.info("Decrypting cache archive...")
-    result = subprocess.run(
-        [
-            "7z", "x",
-            f"-o{work_dir}",
-            f"-p{ARCHIVE_PASSWORD}",
-            "-y",
-            str(archive_path),
-        ],
-        capture_output=True, text=True,
-    )
+    result = decrypt_cache_archive(archive_path, work_dir)
     if result.returncode != 0:
         logger.error(f"Failed to decrypt cache archive: {result.stderr.strip() or result.stdout.strip()}")
         sys.exit(1)

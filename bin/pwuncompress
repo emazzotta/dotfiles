@@ -11,7 +11,7 @@ Usage: $(basename "$0") [-o OUTPUT_DIR] [-h] [archive-file]
 
 Extracts a password-protected 7z archive using \$PASSWORD_ZIPS.
 When the stored password fails, retries other spellings of it (NFD, NFC,
-legacy code pages, lossy ASCII), with 7zz before the 7z wrapper (Keka on the Mac).
+legacy code pages, lossy ASCII) with 7zz, then Keka, then the 7z wrapper.
 
 Options:
   -o OUTPUT_DIR  Extract to this directory (skips destination prompt)
@@ -40,15 +40,29 @@ EOF
 }
 
 readonly HEADER_PROBE_PASSWORD="pwuncompress-header-probe"
+readonly KEKA_CLI="${KEKA_CLI:-/Applications/Keka.app/Contents/MacOS/Keka}"
 
 find_backends() {
-    local backend
     BACKENDS=()
-    for backend in 7zz 7z; do
-        if command -v "$backend" >/dev/null 2>&1; then
-            BACKENDS+=("$backend")
-        fi
-    done
+    if command -v 7zz >/dev/null 2>&1; then
+        BACKENDS+=(7zz)
+    fi
+    if [ -x "$KEKA_CLI" ]; then
+        BACKENDS+=(keka)
+    fi
+    if command -v 7z >/dev/null 2>&1; then
+        BACKENDS+=(7z)
+    fi
+}
+
+run_backend() {
+    local backend="$1"
+    shift
+    if [ "$backend" = keka ]; then
+        "$KEKA_CLI" --cli 7zz "$@"
+    else
+        "$backend" "$@"
+    fi
 }
 
 load_password_spellings() {
@@ -67,7 +81,7 @@ load_password_spellings() {
 }
 
 headers_encrypted() {
-    ! "$1" l -p"$HEADER_PROBE_PASSWORD" "$ARCHIVE" </dev/null >/dev/null 2>&1
+    ! run_backend "$1" l -p"$HEADER_PROBE_PASSWORD" "$ARCHIVE" </dev/null >/dev/null 2>&1
 }
 
 find_spelling_for() {
@@ -76,7 +90,7 @@ find_spelling_for() {
         check=l
     fi
     while [ "$i" -lt "${#SPELLING_VALUES[@]}" ]; do
-        if "$backend" "$check" -p"${SPELLING_VALUES[$i]}" "$ARCHIVE" </dev/null >/dev/null 2>&1; then
+        if run_backend "$backend" "$check" -p"${SPELLING_VALUES[$i]}" "$ARCHIVE" </dev/null >/dev/null 2>&1; then
             echo "$i"
             return 0
         fi
@@ -133,7 +147,8 @@ if [ ! -f "$ARCHIVE" ]; then
     exit 1
 fi
 
-if ! command -v 7zz >/dev/null 2>&1 && ! command -v 7z >/dev/null 2>&1; then
+find_backends
+if [ -z "${BACKENDS[*]:-}" ]; then
     error "No 7-Zip found. Install it with: brew install sevenzip"
     exit 1
 fi
@@ -188,7 +203,6 @@ log "Extracting archive: $ARCHIVE"
 log "Destination: $DEST"
 
 load_password_spellings
-find_backends
 if ! find_match; then
     error "No spelling of PASSWORD_ZIPS opens $ARCHIVE (tried ${#SPELLING_VALUES[@]} spellings with: ${BACKENDS[*]})"
     exit 1
@@ -197,7 +211,7 @@ if [ "$MATCH_INDEX" -gt 0 ]; then
     warn "Stored password failed; opened with its ${SPELLING_LABELS[$MATCH_INDEX]} spelling via $MATCH_BACKEND"
 fi
 
-if "$MATCH_BACKEND" x "$ARCHIVE" -o"$DEST" -p"${SPELLING_VALUES[$MATCH_INDEX]}"; then
+if run_backend "$MATCH_BACKEND" x "$ARCHIVE" -o"$DEST" -p"${SPELLING_VALUES[$MATCH_INDEX]}"; then
     success "Archive extracted successfully"
 else
     error "Extraction failed"
