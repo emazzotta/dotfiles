@@ -4,7 +4,7 @@
   "permissions": {
     "defaultMode": "auto"
   },
-  "model": "fable",
+  "model": "opus",
   "hooks": {
     "SessionStart": [
       {
@@ -247,7 +247,7 @@
       "effortLevel": "xhigh"
     },
     "claude-fable-5-2": {
-      "effortLevel": "xhigh"
+      "effortLevel": "high"
     }
   },
   "tui": "default",
