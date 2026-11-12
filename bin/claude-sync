@@ -3,8 +3,8 @@
 
 Every push also mirrors the tracked files of the opencode workspace tree to the dev box's /workspace,
 minus LEFT_OUT and anything a git filter rewrites, and the installed plugins (PLUGIN_INSTALL) to its
-~/.claude/plugins, and keeps enabledPlugins plus DEVBOX_SETTINGS in step in its ~/.claude/settings.json.
-The Mac is the source of truth; the dev box keeps its own copy of DEVBOX_STATE and its other settings.
+~/.claude/plugins, and copies the Mac's ~/.claude/settings.json into its own, but for DEVBOX_OWNED_KEYS.
+The Mac is the source of truth; the dev box keeps its own copy of DEVBOX_STATE and the settings only it has.
 """
 from __future__ import annotations
 
@@ -48,8 +48,11 @@ PLUGIN_INSTALL = ("installed_plugins.json", "known_marketplaces.json", "marketpl
 MARKETPLACE_REGISTRY = "known_marketplaces.json"
 # Each machine marks the plugin versions its own sessions use; the other side's markers mean nothing.
 PLUGIN_MARKERS = ".in_use/"
-# Owned by claude-sync in the dev box's settings.json, next to enabledPlugins copied from the Mac.
+# Owned by claude-sync in the dev box's settings.json, whatever either side says.
 DEVBOX_SETTINGS = {"syncClaudeAiPlugins": False, "syncClaudeAiSkills": False, "disableClaudeAiConnectors": True}
+# Kept from the dev box's own settings.json: the Mac's hooks run scripts LEFT_OUT never sends,
+# and env holds the box's GIT_SSH_COMMAND.
+DEVBOX_OWNED_KEYS = ("hooks", "env")
 RSYNC_MISSING_SOURCE = 23
 
 
@@ -232,11 +235,13 @@ def mirror_workspace(home: Path, stream: bool) -> int:
         return transfer(home, mirror_transfers(Path(staging)), stream)
 
 
-def stage_marketplaces(source: Path, staging: Path) -> str:
+def without_auto_update(marketplaces: dict) -> dict:
     """The dev box never fetches a marketplace itself: its SSH remotes need a key it does not hold."""
-    registry = json.loads(source.read_text())
-    for marketplace in registry.values():
-        marketplace["autoUpdate"] = False
+    return {name: {**marketplace, "autoUpdate": False} for name, marketplace in marketplaces.items()}
+
+
+def stage_marketplaces(source: Path, staging: Path) -> str:
+    registry = without_auto_update(json.loads(source.read_text()))
     target = staging / "plugins" / source.name
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(registry, indent=2) + "\n")
@@ -266,11 +271,11 @@ def mirror_plugins(home: Path, stream: bool) -> int:
 
 
 def merged_settings(mac: dict, box: dict) -> dict:
-    """The box keeps its own keys; plugins switch on and off as on the Mac, and claude.ai stays out."""
-    merged = {**box, **DEVBOX_SETTINGS}
-    if "enabledPlugins" in mac:
-        merged["enabledPlugins"] = mac["enabledPlugins"]
-    return merged
+    """The Mac's keys win but for DEVBOX_OWNED_KEYS, keys only the box has stay, and claude.ai stays out."""
+    merged = {**box, **{key: value for key, value in mac.items() if key not in DEVBOX_OWNED_KEYS}}
+    if "extraKnownMarketplaces" in merged:
+        merged["extraKnownMarketplaces"] = without_auto_update(merged["extraKnownMarketplaces"])
+    return {**merged, **DEVBOX_SETTINGS}
 
 
 def pull_devbox_settings(home: Path, target: Path) -> bool:

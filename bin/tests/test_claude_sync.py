@@ -128,14 +128,33 @@ DEVBOX_PLUGINS_OWN = {
     "data/leonardo/state": "devbox runtime state\n",
     "cache/leonardo-skills/leonardo/1.16.2/.in_use/2": "devbox session\n",
 }
+MARKETPLACE_SOURCE = {"source": "git", "url": "git@gitlab.example:ai.git"}
 MAC_SETTINGS = {
     "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "stop-bell"}]}]},
+    "env": {"EDITOR": "vim"},
     "theme": "light",
+    "autoCompactWindow": 400000,
     "enabledPlugins": {"leonardo@leonardo-skills": True, "superpowers@claude-plugins-official": False},
+    "extraKnownMarketplaces": {"leonardo-skills": {"source": MARKETPLACE_SOURCE, "autoUpdate": True}},
 }
-BOX_SETTINGS = {"theme": "dark", "tui": "fullscreen", "enabledPlugins": {"old@marketplace": True}}
+BOX_SETTINGS = {
+    "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "box-bell"}]}]},
+    "env": {"GIT_SSH_COMMAND": "keyguard-ssh"},
+    "theme": "dark",
+    "tui": "fullscreen",
+    "enabledPlugins": {"old@marketplace": True},
+}
 SYNC_OFF = {"syncClaudeAiPlugins": False, "syncClaudeAiSkills": False, "disableClaudeAiConnectors": True}
-EXPECTED_BOX = {"theme": "dark", "tui": "fullscreen", "enabledPlugins": MAC_SETTINGS["enabledPlugins"], **SYNC_OFF}
+MAC_SETTINGS_ON_THE_BOX = {
+    "theme": "light",
+    "autoCompactWindow": 400000,
+    "enabledPlugins": MAC_SETTINGS["enabledPlugins"],
+    "extraKnownMarketplaces": {"leonardo-skills": {"source": MARKETPLACE_SOURCE, "autoUpdate": False}},
+    **SYNC_OFF,
+}
+EXPECTED_BOX = {
+    "hooks": BOX_SETTINGS["hooks"], "env": BOX_SETTINGS["env"], "tui": "fullscreen", **MAC_SETTINGS_ON_THE_BOX,
+}
 DEVBOX_OWN = {
     "checkout-gitlab.sh": "devbox\n",
     "projects/app/README": "devbox\n",
@@ -589,11 +608,27 @@ class TestSettingsMerge:
     def merged_settings(self, load_script):
         return load_script("claude-sync").merged_settings
 
-    def should_take_enabled_plugins_from_the_mac_and_keep_the_box_own_keys(self, merged_settings):
+    def should_take_every_mac_key_but_the_box_owned_ones(self, merged_settings):
         assert merged_settings(MAC_SETTINGS, BOX_SETTINGS) == EXPECTED_BOX
 
-    def should_keep_the_box_list_when_the_mac_has_none(self, merged_settings):
+    def should_keep_a_key_only_the_box_has(self, merged_settings):
         assert merged_settings({"theme": "light"}, BOX_SETTINGS)["enabledPlugins"] == BOX_SETTINGS["enabledPlugins"]
+
+    @pytest.mark.parametrize("key", ["hooks", "env"])
+    def should_never_send_a_box_owned_key(self, merged_settings, key):
+        assert key not in merged_settings(MAC_SETTINGS, {})
+
+    def should_keep_marketplaces_from_updating_themselves(self, merged_settings):
+        box = {"extraKnownMarketplaces": {"box-only": {"source": MARKETPLACE_SOURCE, "autoUpdate": True}}}
+
+        merged = merged_settings({}, box)
+
+        assert merged["extraKnownMarketplaces"]["box-only"]["autoUpdate"] is False
+
+    def should_keep_claude_ai_out_whatever_the_mac_says(self, merged_settings):
+        mac = {"syncClaudeAiPlugins": True, "syncClaudeAiSkills": True, "disableClaudeAiConnectors": False}
+
+        assert merged_settings(mac, {}) == SYNC_OFF
 
     def should_change_nothing_once_applied(self, merged_settings):
         assert merged_settings(MAC_SETTINGS, EXPECTED_BOX) == EXPECTED_BOX
@@ -630,7 +665,7 @@ class TestSettingsSync:
         monkeypatch.setattr(script, "SSH_COMMAND", str(fake_ssh))
         return SimpleNamespace(sync=lambda: script.sync_devbox_settings(mac, stream=False), file=box / "settings.json")
 
-    def should_write_the_owned_keys_into_the_box_settings(self, run):
+    def should_write_the_mac_settings_into_the_box_settings(self, run):
         run.file.write_text(json.dumps(BOX_SETTINGS))
 
         assert run.sync() == 0
@@ -638,7 +673,7 @@ class TestSettingsSync:
 
     def should_create_the_box_settings_when_missing(self, run):
         assert run.sync() == 0
-        assert json.loads(run.file.read_text()) == {"enabledPlugins": MAC_SETTINGS["enabledPlugins"], **SYNC_OFF}
+        assert json.loads(run.file.read_text()) == MAC_SETTINGS_ON_THE_BOX
 
     def should_skip_a_box_file_it_cannot_parse(self, run):
         run.file.write_text("{broken")
