@@ -239,6 +239,7 @@
     }
   },
   "effortLevel": "xhigh",
+  "autoCompactWindow": 400000,
   "modelSettings": {
     "claude-opus-5-5": {
       "effortLevel": "xhigh"
