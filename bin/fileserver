@@ -10,6 +10,9 @@ readonly site_url="https://emanuelemazzotta.com"
 # /share and /downloads both reach the same file-server (nginx rewrites /share/
 # onto /downloads/), so old /downloads links stay valid; /share is the one to hand out.
 readonly public_base="${FILESERVER_PUBLIC_BASE:-${site_url}/share}"
+# How long Cloudflare keeps serving a removed file: the homepage's nginx.conf
+# expires /downloads/, /listen/ and /watch/ after this.
+readonly public_cache_ttl="1h"
 
 # When rsync runs us as its remote shell (--rsh "<self> __tunnel__"), tunnel into
 # the sidecar container over kubectl exec instead of ssh. rsync appends the host
@@ -265,7 +268,7 @@ list_files() {
 
 remove_files() {
     [ "$#" -ge 1 ] || usage_error "usage: $(basename "$0") remove <file> [file...]"
-    local report line status name failed=0
+    local report line status name failed=0 removed=0
     # No -t: the report is parsed, and a TTY would append CR to every line.
     # shellcheck disable=SC2016
     report=$(kubectl -n "$namespace" exec "$deployment" -- /bin/sh -c '
@@ -283,11 +286,14 @@ remove_files() {
         status="${line%%:*}"
         name="${line#*:}"
         case "$status" in
-            removed) ok "removed ${name}" ;;
+            removed) ok "removed ${name}"; removed=1 ;;
             missing) warn "not on the server: ${name}" ;;
             *)       fail "could not remove ${name}"; failed=1 ;;
         esac
     done <<< "$report"
+    if [ "$removed" -eq 1 ]; then
+        note "  Cloudflare may serve cached copies for up to ${public_cache_ttl}"
+    fi
     return "$failed"
 }
 

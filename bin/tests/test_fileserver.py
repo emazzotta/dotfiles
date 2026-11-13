@@ -47,6 +47,27 @@ class TestUploadReport:
         assert f"  {SITE}/listen/am%20i%20in.flac" in result.stdout.splitlines()
 
 
+class TestRemoveReport:
+    @pytest.fixture
+    def remove(self, run_cli):
+        def _remove(report):
+            mocks = {"kubectl": f'printf "%s\\n" "{report}"'}
+            return run_cli("fileserver", ["remove", "clip.mp4"], mock_bins=mocks, isolate_path=True)
+        return _remove
+
+    def should_say_how_long_cloudflare_serves_a_removed_file(self, remove):
+        result = remove("removed:clip.mp4")
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == ["✓ removed clip.mp4", "  Cloudflare may serve cached copies for up to 1h"]
+
+    def should_not_mention_the_cache_when_nothing_was_removed(self, remove):
+        result = remove("missing:clip.mp4")
+
+        assert result.stdout == ""
+        assert "not on the server: clip.mp4" in result.stderr
+
+
 class TestPodServiceAccount:
     """On the devbox, kubectl has no kubeconfig and the SSH session lacks the pod's API server variables."""
 
