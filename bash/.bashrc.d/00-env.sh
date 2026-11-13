@@ -120,6 +120,28 @@ else
     export GIT_SSH_COMMAND="keyguard-ssh"
 fi
 
+### TMUX ###
+_drop_inherited_tmux_env() {
+    local socket_and_server server pid
+    socket_and_server="${TMUX%,*}"
+    server="${socket_and_server##*,}"
+    pid=$$
+    while [ "$pid" != "$server" ]; do
+        if [ "$pid" -le 1 ]; then
+            unset TMUX TMUX_PANE
+            return 0
+        fi
+        pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+        if [ -z "$pid" ]; then
+            return 0
+        fi
+    done
+}
+if [ -n "${TMUX:-}" ]; then
+    _drop_inherited_tmux_env
+fi
+unset -f _drop_inherited_tmux_env
+
 ### LOAD .env ###
 # Gitignored, so a fresh clone (the container image) has none.
 if [ -f "$DOTFILESPATH/.env" ]; then
