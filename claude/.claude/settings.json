@@ -239,7 +239,6 @@
     }
   },
   "effortLevel": "xhigh",
-  "autoCompactWindow": 400000,
   "modelSettings": {
     "claude-opus-5-5": {
       "effortLevel": "xhigh"
@@ -251,6 +250,7 @@
       "effortLevel": "high"
     }
   },
+  "autoCompactWindow": 400000,
   "tui": "default",
   "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
