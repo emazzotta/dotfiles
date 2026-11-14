@@ -143,7 +143,7 @@ def process_backup_command_choice(source, target):
         parallel_choice = input(
             "Do you want to use parallel rsync? (y/N): ").strip().lower()
         if parallel_choice == "y" and subdirectories:
-            logger.info(f"\nProceeding with parallel rsync for each subdirectory")
+            logger.info("\nProceeding with parallel rsync for each subdirectory")
             confirm_and_execute_command(
                 source, target, command, "rsync", parallel=True, subdirectories=subdirectories)
         else:

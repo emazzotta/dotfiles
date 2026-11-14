@@ -527,7 +527,7 @@ def main() -> None:
         if result.returncode != 0:
             print(f"Error: opencode import failed: {result.stderr.strip()}", file=sys.stderr)
             sys.exit(1)
-        print(f"Imported into opencode. Resume with: opencode -c", file=sys.stderr)
+        print("Imported into opencode. Resume with: opencode -c", file=sys.stderr)
     elif target == "claude":
         claude_session_id, jsonl_content = session_to_claude_jsonl(session)
         claude_dir = find_claude_sessions_dir()

@@ -5,7 +5,6 @@ import os
 import re
 import subprocess
 import urllib.parse
-from pathlib import Path
 
 import scriptlog as logger
 
