@@ -1,4 +1,7 @@
+import bz2
+import gzip
 import re
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -6,12 +9,75 @@ import pytest
 EXTRACT = Path(__file__).parent.parent / "extract"
 UNZIP_MOCK = 'echo "$*" > "$UNZIP_LOG"'
 PICKER_PICKS_FIRST = "sed -n 1p"
+RAR_MOCK = 'echo "$*" > "$RAR_LOG"'
+NOTES = "remember the milk\n"
+
+
+@pytest.fixture
+def compress(run_cli, tmp_path):
+    work = tmp_path / "work"
+    (work / "project").mkdir(parents=True)
+    (work / "project" / "notes.txt").write_text(NOTES)
+    (work / "notes.txt").write_text(NOTES)
+
+    def _run(*args):
+        return run_cli(
+            "compress", list(args),
+            env_extra={"RAR_LOG": str(tmp_path / "rar.log")},
+            mock_bins={"rar": RAR_MOCK},
+            cwd=work,
+        )
+    _run.work = work
+    _run.rar_log = tmp_path / "rar.log"
+    return _run
 
 
 class TestCompress:
     def test_no_args_exits_nonzero(self, run_bash):
         result = run_bash("compress")
         assert result.returncode != 0
+
+    @pytest.mark.parametrize("flag", ["-h", "--help"])
+    def test_should_show_usage_for_the_help_flag(self, compress, flag):
+        result = compress(flag)
+
+        assert result.returncode == 0
+        assert "Usage:" in result.stdout
+
+    @pytest.mark.parametrize("archive", ["project.tar.gz", "project.tgz", "project.tar.bz2", "project.tbz2", "project.tar"])
+    def test_should_pack_the_folder_named_like_the_archive_into_a_tarball(self, compress, archive):
+        result = compress(archive)
+
+        assert result.returncode == 0, result.stderr
+        with tarfile.open(compress.work / archive) as tarball:
+            assert "project/notes.txt" in tarball.getnames()
+
+    @pytest.mark.parametrize("archive,opener", [("notes.txt.gz", gzip.open), ("notes.txt.bz2", bz2.open)])
+    def test_should_compress_a_named_file_and_keep_the_original(self, compress, archive, opener):
+        result = compress(archive, "notes.txt")
+
+        assert result.returncode == 0, result.stderr
+        with opener(compress.work / archive, "rt") as compressed:
+            assert compressed.read() == NOTES
+        assert (compress.work / "notes.txt").read_text() == NOTES
+
+    def test_should_add_the_named_files_to_a_rar_archive(self, compress):
+        result = compress("backup.rar", "notes.txt", "project")
+
+        assert result.returncode == 0, result.stderr
+        assert compress.rar_log.read_text().strip() == "a backup.rar notes.txt project"
+
+    def test_should_fail_when_the_archiver_fails(self, compress):
+        result = compress("missing.tar.gz")
+
+        assert result.returncode != 0
+        assert "Archive creation failed" in result.stderr
+
+    def test_should_report_an_unknown_extension(self, compress):
+        result = compress("project.xyz")
+
+        assert result.returncode == 1
+        assert "Unknown extension" in result.stderr
 
 
 @pytest.fixture
