@@ -1,15 +1,11 @@
 #!/bin/bash
+set -uo pipefail
 
-test -f "${DOTFILESPATH}/.env" && source "${DOTFILESPATH}/.env"
-[[ -z "${TELEGRAM_FILE_BOT_KEY:-}" ]] && source envify TELEGRAM_FILE_BOT_KEY
+# shellcheck source=telegramlib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/telegramlib.sh"
 
-if test "${3}"; then
-    echo "Sending voice to ${2}..."
-    http --body -f POST "https://api.telegram.org/bot${3}/sendVoice" chat_id=="${2}" voice@"${1}"
-elif test "${2}"; then
-    "${0}" "${1}" "${2}" "${TELEGRAM_FILE_BOT_KEY}"
-elif test "${1}"; then
-    "${0}" "${1}" "75804618" "${TELEGRAM_FILE_BOT_KEY}"
-else
-    echo "usage: $(basename "${0}") <audio_file> [user] [bot key]"
-fi
+telegram_usage_guard "<audio_file> [user] [bot key]" "$@"
+telegram_target "${2:-}" "${3:-}" || exit 1
+
+echo "Sending voice to ${TELEGRAM_CHAT}..."
+http --body -f POST "${TELEGRAM_URL}/sendVoice" chat_id=="${TELEGRAM_CHAT}" voice@"${1}"

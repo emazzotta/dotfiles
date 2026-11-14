@@ -1,10 +1,12 @@
 #!/bin/bash
+set -uo pipefail
 
-test -f "${DOTFILESPATH}/.env" && source "${DOTFILESPATH}/.env"
-[[ -z "${TELEGRAM_FILE_BOT_KEY:-}" ]] && source envify TELEGRAM_FILE_BOT_KEY
+# shellcheck source=telegramlib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/telegramlib.sh"
 
-if test "${1}"; then
-    http --body "https://api.telegram.org/bot${1}/getUpdates"
-else
-    "${0}" "${TELEGRAM_FILE_BOT_KEY}"
-fi
+case "${1:-}" in
+    -h|--help) echo "usage: $(basename "$0") [bot key]"; exit 0 ;;
+esac
+telegram_target "" "${1:-}" || exit 1
+
+http --body "${TELEGRAM_URL}/getUpdates"
