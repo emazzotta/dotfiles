@@ -34,6 +34,7 @@ UNSET_METADATA = ("", "unknown", "N/A")
 TONEMAP_FILTER = ("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
                   "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
 PROBE_FIELDS = "pix_fmt,color_transfer,color_primaries,color_space,height,r_frame_rate"
+PREVIEW_COPYABLE_AUDIO = ("aac",)
 EXIT_USAGE = 2
 EXIT_INTERRUPTED = 130
 
@@ -52,9 +53,10 @@ class SourceInfo:
     space: str = ""
     height: int | None = None
     frame_rate: str = ""
+    audio_codec: str = ""
 
     @classmethod
-    def from_stream(cls, stream: dict) -> "SourceInfo":
+    def from_stream(cls, stream: dict, audio_codec: str = "") -> "SourceInfo":
         height = str(stream.get("height", ""))
         return cls(
             pix_fmt=str(stream.get("pix_fmt", "")),
@@ -63,6 +65,7 @@ class SourceInfo:
             space=str(stream.get("color_space", "")),
             height=int(height) if height.isdigit() else None,
             frame_rate=str(stream.get("r_frame_rate", "")),
+            audio_codec=audio_codec,
         )
 
     @property
@@ -95,6 +98,7 @@ class EncodeSettings:
     copy_audio: bool
     hardware_encoder: str | None
     av1_encoder: str | None
+    preview_compatible: bool
 
 
 def fail(message: str) -> NoReturn:
@@ -199,17 +203,23 @@ def resolve_hardware_encoder(codec: str, preference: str, encoders: set[str]) ->
     return None
 
 
-def probe_source(input_file: Path) -> SourceInfo:
+def probe_stream(input_file: Path, selector: str, fields: str) -> dict:
     result = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", f"stream={PROBE_FIELDS}", "-of", "json", str(input_file)],
+        ["ffprobe", "-v", "error", "-select_streams", selector,
+         "-show_entries", f"stream={fields}", "-of", "json", str(input_file)],
         capture_output=True, text=True,
     )
     try:
         streams = json.loads(result.stdout).get("streams", [])
     except json.JSONDecodeError:
         streams = []
-    return SourceInfo.from_stream(streams[0]) if streams else SourceInfo()
+    return streams[0] if streams else {}
+
+
+def probe_source(input_file: Path) -> SourceInfo:
+    audio = probe_stream(input_file, "a:0", "codec_name")
+    return SourceInfo.from_stream(probe_stream(input_file, "v:0", PROBE_FIELDS),
+                                  audio_codec=str(audio.get("codec_name", "")))
 
 
 def resolve_fps(settings: EncodeSettings, source: SourceInfo) -> str | None:
@@ -257,7 +267,7 @@ def build_color_args(settings: EncodeSettings, source: SourceInfo) -> list[str]:
     if settings.codec == "h264":
         return ["-pix_fmt", "yuv420p"]
     if not (source.is_10bit or source.is_hdr):
-        return []
+        return ["-pix_fmt", "yuv420p"] if settings.preview_compatible else []
     args = ["-pix_fmt", "yuv420p10le"]
     for flag, value in (("-color_primaries", source.primaries),
                         ("-color_trc", source.transfer),
@@ -265,6 +275,13 @@ def build_color_args(settings: EncodeSettings, source: SourceInfo) -> list[str]:
         if value not in UNSET_METADATA:
             args += [flag, value]
     return args
+
+
+def build_audio_args(settings: EncodeSettings, source: SourceInfo) -> list[str]:
+    preview_copyable = settings.preview_compatible and source.audio_codec in PREVIEW_COPYABLE_AUDIO
+    if settings.copy_audio or preview_copyable:
+        return ["-c:a", "copy"]
+    return ["-c:a", "aac", "-b:a", "128k"]
 
 
 def build_command(settings: EncodeSettings, source: SourceInfo,
@@ -275,7 +292,7 @@ def build_command(settings: EncodeSettings, source: SourceInfo,
         command += ["-vf", video_filter]
     command += build_encoder_args(settings)
     command += build_color_args(settings, source)
-    command += ["-c:a", "copy"] if settings.copy_audio else ["-c:a", "aac", "-b:a", "128k"]
+    command += build_audio_args(settings, source)
     return command + ["-movflags", "+faststart", str(output_file)]
 
 
@@ -419,7 +436,8 @@ def add_encoder_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--copy-audio", action="store_true",
                         help="Copy the audio stream instead of re-encoding to AAC 128k.")
     parser.add_argument("--just-preview-compatible", action="store_true",
-                        help="Force h264 8-bit for macOS Quicktime/Preview compatibility.")
+                        help="Software h265 tagged hvc1 with 4:2:0 chroma, which macOS "
+                             "QuickTime/Preview play; copies AAC audio as is.")
 
 
 def add_batch_options(parser: argparse.ArgumentParser) -> None:
@@ -441,7 +459,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if not args.recursive and args.path is None:
         parser.error("a video file is required (pass -r to compress a directory)")
     if args.just_preview_compatible:
-        args.codec = "h264"
+        args.codec = "h265"
         args.hardware = "off"
         args.tonemap = False
     return args
@@ -464,6 +482,7 @@ def build_settings(args: argparse.Namespace, encoders: set[str]) -> EncodeSettin
         hardware_encoder=hardware_encoder,
         av1_encoder=select_av1_encoder(encoders) if args.codec == "av1" and not hardware_encoder
         else None,
+        preview_compatible=args.just_preview_compatible,
     )
 
 

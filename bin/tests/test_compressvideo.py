@@ -12,7 +12,8 @@ class _Completed:
 FFPROBE_MOCK = """cat <<EOF
 {"streams":[{"pix_fmt":"${MOCK_PIX_FMT:-yuv420p}","color_transfer":"${MOCK_TRANSFER:-bt709}",
 "color_primaries":"${MOCK_PRIMARIES:-bt709}","color_space":"${MOCK_SPACE:-bt709}",
-"height":${MOCK_HEIGHT:-1080},"r_frame_rate":"${MOCK_RFR:-60/1}"}]}
+"height":${MOCK_HEIGHT:-1080},"r_frame_rate":"${MOCK_RFR:-60/1}",
+"codec_name":"${MOCK_AUDIO_CODEC:-aac}"}]}
 EOF"""
 
 
@@ -61,7 +62,7 @@ def settings(mod):
         defaults = {
             "codec": "h265", "quality": 28, "preset": "medium", "scale_height": None,
             "fps_target": None, "fps_half": False, "tonemap": False, "copy_audio": False,
-            "hardware_encoder": None, "av1_encoder": None,
+            "hardware_encoder": None, "av1_encoder": None, "preview_compatible": False,
         }
         return mod.EncodeSettings(**{**defaults, **overrides})
     return _make
@@ -379,6 +380,19 @@ class TestBuildColorArgs:
     def should_add_nothing_for_sdr_eight_bit_sources(self, mod, settings):
         assert mod.build_color_args(settings(), mod.SourceInfo(pix_fmt="yuv420p")) == []
 
+    def should_force_four_two_zero_chroma_for_preview_compatibility(self, mod, settings):
+        args = mod.build_color_args(settings(preview_compatible=True),
+                                    mod.SourceInfo(pix_fmt="yuv444p"))
+
+        assert args == ["-pix_fmt", "yuv420p"]
+
+    def should_keep_ten_bit_hdr_for_preview_compatibility(self, mod, settings):
+        source = mod.SourceInfo(pix_fmt="yuv422p10le", transfer="arib-std-b67")
+
+        args = mod.build_color_args(settings(preview_compatible=True), source)
+
+        assert args == ["-pix_fmt", "yuv420p10le", "-color_trc", "arib-std-b67"]
+
     def should_preserve_bit_depth_and_metadata_for_hdr(self, mod, settings):
         source = mod.SourceInfo(pix_fmt="yuv420p10le", transfer="smpte2084",
                                 primaries="bt2020", space="bt2020nc")
@@ -530,8 +544,26 @@ class TestSingleFileDefaults:
         assert result.returncode == 0
         assert "-crf 20" in result.stdout
 
-    def should_force_h264_for_preview_compatibility(self, dry_run):
-        assert "-c:v libx264" in dry_run(["--just-preview-compatible", "-c", "h265"]).stdout
+    def should_encode_software_hevc_tagged_hvc1_for_preview_compatibility(self, dry_run):
+        result = dry_run(["--just-preview-compatible", "-c", "h264"],
+                         mocks=_mocks(encoders="hevc_videotoolbox"))
+
+        assert "-c:v libx265 -preset medium -crf 28 -tag:v hvc1 -pix_fmt yuv420p" in result.stdout
+
+    def should_copy_aac_audio_for_preview_compatibility(self, dry_run):
+        result = dry_run(["--just-preview-compatible"], env_extra={"MOCK_AUDIO_CODEC": "aac"})
+
+        assert "-c:a copy" in result.stdout
+
+    def should_reencode_opus_audio_for_preview_compatibility(self, dry_run):
+        result = dry_run(["--just-preview-compatible"], env_extra={"MOCK_AUDIO_CODEC": "opus"})
+
+        assert "-c:a aac -b:a 128k" in result.stdout
+
+    def should_reencode_aac_audio_without_preview_compatibility(self, dry_run):
+        result = dry_run([], env_extra={"MOCK_AUDIO_CODEC": "aac"})
+
+        assert "-c:a aac -b:a 128k" in result.stdout
 
 
 class TestSingleFileHardware:
