@@ -250,7 +250,7 @@
       "effortLevel": "xhigh"
     }
   },
-  "autoCompactWindow": 400000,
+  "autoCompactWindow": 300000,
   "tui": "default",
   "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
