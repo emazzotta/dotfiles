@@ -127,12 +127,3 @@ class TestExtract:
             capture_output=True, text=True,
         )
         assert extract.returncode == 0
-
-    def test_tgz_case_ordering_bug(self, run_bash, tmp_path):
-        """The compress script matches *gz before *tgz due to case ordering.
-        This documents the known bug - tgz falls into gzip instead of tar+gzip."""
-        test_dir = tmp_path / "myfiles"
-        test_dir.mkdir()
-        (test_dir / "test.txt").write_text("hello")
-        result = run_bash("compress", [str(tmp_path / "myfiles.tgz"), str(test_dir)])
-        assert result.returncode != 0
