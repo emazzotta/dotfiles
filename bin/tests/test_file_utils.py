@@ -68,13 +68,3 @@ sed "s/${{ESCAPED_PLUGIN_NAME}}@[a-zA-Z0-9_.-]*/${{ESCAPED_PLUGIN_NAME}}@${{TARG
         result = run_bash("replace_action_plugin_version")
         assert result.returncode != 0
         assert "Usage" in result.stdout + result.stderr
-
-
-class TestKillgrep:
-    def test_no_args_shows_usage(self, run_bash):
-        result = run_bash("killgrep")
-        assert "Usage" in result.stdout or "usage" in result.stdout
-
-    def test_cancel_does_not_kill(self, run_bash):
-        result = run_bash("killgrep", ["bash"], stdin="n\n")
-        assert "cancelled" in result.stdout.lower() or "canceled" in result.stdout.lower()

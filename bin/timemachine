@@ -60,7 +60,6 @@ class BackupTree:
 @dataclass(frozen=True)
 class Destination:
     name: str
-    kind: str
     identifier: str
     mount_point: Optional[Path]
 
@@ -138,7 +137,6 @@ def build_destination(block: str) -> Optional[Destination]:
     mount_point = fields.get('Mount Point')
     return Destination(
         name=name,
-        kind=fields.get('Kind', 'unknown'),
         identifier=fields.get('ID', ''),
         mount_point=Path(mount_point) if mount_point else None,
     )

@@ -66,44 +66,6 @@ def find_html_files(directory: Path) -> list[Path]:
     return sorted(directory.rglob("*.html"))
 
 
-def has_charset_declaration(content: str) -> bool:
-    if CHARSET_META_PATTERN.search(content):
-        return True
-    if CHARSET_CONTENT_PATTERN.search(content):
-        return True
-    return False
-
-
-def normalize_charset_meta(content: str) -> tuple[str, bool]:
-    changed = False
-
-    def replace_charset_meta(match: re.Match) -> str:
-        nonlocal changed
-        current_charset = match.group(1)
-        if current_charset.upper() != "UTF-8":
-            changed = True
-            return '<meta charset="UTF-8">'
-        return match.group(0)
-
-    content = CHARSET_META_PATTERN.sub(replace_charset_meta, content)
-    return content, changed
-
-
-def normalize_charset_content(content: str) -> tuple[str, bool]:
-    changed = False
-
-    def replace_charset_content(match: re.Match) -> str:
-        nonlocal changed
-        current_charset = match.group(4)
-        if current_charset.upper() != "UTF-8":
-            changed = True
-            return match.group(1) + match.group(2) + match.group(3) + "UTF-8" + match.group(5)
-        return match.group(0)
-
-    content = CHARSET_CONTENT_PATTERN.sub(replace_charset_content, content)
-    return content, changed
-
-
 def add_charset_declaration(content: str) -> str:
     title_match = TITLE_TAG_PATTERN.search(content)
 

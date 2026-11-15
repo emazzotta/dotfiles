@@ -36,7 +36,6 @@ def make_report(mod):
               is_whole_disk=False):
         destination = mod.Destination(
             name="Crucial_4TB_TimeMachine",
-            kind="Local",
             identifier="02CF3786-477C-424D-AD76-5944FB153106",
             mount_point=Path("/Volumes/Crucial_4TB_TimeMachine"),
         )
@@ -106,7 +105,6 @@ class TestParseDestinations:
 
         assert len(destinations) == 1
         assert destinations[0].name == "Crucial_4TB_TimeMachine"
-        assert destinations[0].kind == "Local"
         assert destinations[0].identifier == "02CF3786-477C-424D-AD76-5944FB153106"
         assert destinations[0].mount_point == Path("/Volumes/Crucial_4TB_TimeMachine")
 
@@ -278,7 +276,7 @@ class TestSelectDestination:
         monkeypatch.setattr(mod, "read_destinations",
                             lambda: mod.parse_destinations(TWO_DESTINATIONS))
 
-        assert mod.select_destination("Attic NAS").kind == "Network"
+        assert mod.select_destination("Attic NAS").identifier == "9E1B0C42-1111-2222-3333-444455556666"
 
     def should_reject_an_unknown_destination_name(self, mod, monkeypatch):
         monkeypatch.setattr(mod, "read_destinations",
@@ -506,7 +504,7 @@ class TestCommandPrune:
     @pytest.fixture
     def unmounted_destination(self, mod, monkeypatch):
         destination = mod.Destination(
-            name="Crucial_4TB_TimeMachine", kind="Local",
+            name="Crucial_4TB_TimeMachine",
             identifier="02CF3786-477C-424D-AD76-5944FB153106", mount_point=None)
         monkeypatch.setattr(mod, "run", lambda *args: "BackupNotRunning\n")
         monkeypatch.setattr(mod, "select_destination", lambda name: destination)

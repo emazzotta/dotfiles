@@ -6,46 +6,6 @@ def mod(load_script):
     return load_script("fix-html-charset")
 
 
-class TestHasCharsetDeclaration:
-    @pytest.mark.parametrize("html,expected", [
-        ('<meta charset="UTF-8">', True),
-        ('<meta charset="ISO-8859-1">', True),
-        ('<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">', True),
-        ("<html><head></head></html>", False),
-        ("", False),
-    ])
-    def test_detection(self, mod, html, expected):
-        assert mod.has_charset_declaration(html) is expected
-
-
-class TestNormalizeCharsetMeta:
-    def test_already_utf8(self, mod):
-        html = '<meta charset="UTF-8">'
-        result, changed = mod.normalize_charset_meta(html)
-        assert changed is False
-        assert result == html
-
-    @pytest.mark.parametrize("charset", ["ISO-8859-1", "windows-1252", "us-ascii"])
-    def test_normalizes_to_utf8(self, mod, charset):
-        html = f'<meta charset="{charset}">'
-        result, changed = mod.normalize_charset_meta(html)
-        assert changed is True
-        assert 'charset="UTF-8"' in result
-
-
-class TestNormalizeCharsetContent:
-    def test_already_utf8(self, mod):
-        html = '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">'
-        result, changed = mod.normalize_charset_content(html)
-        assert changed is False
-
-    def test_normalizes_latin1(self, mod):
-        html = '<meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">'
-        result, changed = mod.normalize_charset_content(html)
-        assert changed is True
-        assert "charset=UTF-8" in result
-
-
 class TestAddCharsetDeclaration:
     def test_adds_before_title(self, mod):
         html = "<html><head>\n    <title>Test</title>\n</head></html>"
@@ -94,6 +54,31 @@ class TestFixHtmlCharset:
         html = '<html><head><meta charset="ISO-8859-1"><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1"><title>T</title></head></html>'
         result, changes = mod.fix_html_charset(html)
         assert 'charset="UTF-8"' in result
+
+    @pytest.mark.parametrize("charset", ["windows-1252", "us-ascii"])
+    def test_should_normalize_any_non_utf8_meta_charset(self, mod, charset):
+        html = f'<html><head><meta charset="{charset}"><title>T</title></head></html>'
+
+        result, changes = mod.fix_html_charset(html)
+
+        assert changes == ["normalized charset to UTF-8"]
+        assert '<meta charset="UTF-8">' in result
+
+    def test_should_keep_an_http_equiv_utf8_declaration_untouched(self, mod):
+        html = '<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>T</title></head></html>'
+
+        result, changes = mod.fix_html_charset(html)
+
+        assert changes == []
+        assert result == html
+
+    def test_should_normalize_an_http_equiv_charset_to_utf8(self, mod):
+        html = '<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1"><title>T</title></head></html>'
+
+        result, changes = mod.fix_html_charset(html)
+
+        assert changes == ["normalized charset to UTF-8"]
+        assert '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">' in result
 
 
 class TestProcessFile:

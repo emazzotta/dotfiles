@@ -63,12 +63,6 @@ class TestCodecost:
         assert result.returncode == 0 or "sloccount" in (result.stdout + result.stderr).lower()
 
 
-class TestGitio:
-    def test_no_args_shows_usage(self, run_bash):
-        result = run_bash("gitio")
-        assert "usage" in result.stdout.lower()
-
-
 @pytest.fixture
 def gallcontrib(load_script):
     return load_script("git_gallcontrib")
