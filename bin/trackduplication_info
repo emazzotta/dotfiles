@@ -35,6 +35,18 @@ def generate_report(mp3_details, args, duplicate_groups_count):
     return header + details_content
 
 
+def move_to_destination(source, dest_path):
+    destination = os.path.join(dest_path, os.path.basename(source))
+    if not os.path.exists(destination):
+        shutil.move(source, destination)
+        logger.info(f'Moved {source} to {destination}')
+        return True
+    if os.path.samefile(source, destination):
+        return True
+    logger.error(f'{destination} already exists, keeping every version of {os.path.basename(source)}')
+    return False
+
+
 def handle_duplicates(mp3_details, dest_path):
     for stripped_name, details in mp3_details.items():
         if len(details) > 1:
@@ -56,10 +68,8 @@ def handle_duplicates(mp3_details, dest_path):
         if len(details) > 1:
             details.sort(reverse=True)
             largest_file_path = details[0][1]
-            if dest_path:
-                dest_file_path = os.path.join(dest_path, os.path.basename(largest_file_path))
-                shutil.move(largest_file_path, dest_file_path)
-                logger.info(f'Moved {largest_file_path} to {dest_file_path}')
+            if dest_path and not move_to_destination(largest_file_path, dest_path):
+                continue
             for size, full_path in details[1:]:
                 os.remove(full_path)
                 logger.info(f'Deleted {full_path}')
@@ -83,7 +93,7 @@ def main():
                     full_path = os.path.join(root, file)
                     logger.info(f"Processing {full_path}...")
                     base_name = os.path.basename(full_path)
-                    stripped_name = base_name.rstrip('.mp3')
+                    stripped_name = base_name.removesuffix('.mp3')
                     size = os.path.getsize(full_path)
                     mp3_details[stripped_name].append((size, full_path))
 

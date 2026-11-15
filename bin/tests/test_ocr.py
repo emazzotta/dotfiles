@@ -1,4 +1,5 @@
 import platform
+import sys
 
 import pytest
 
@@ -192,6 +193,72 @@ class TestRuntime:
 
         with pytest.raises(SystemExit, match="Apple silicon"):
             mod.ensure_apple_silicon()
+
+
+class TestMain:
+    @pytest.fixture
+    def run_main(self, mod, monkeypatch):
+        loads = []
+        runtime = []
+
+        def _run(argv, engine=None):
+            monkeypatch.setattr(sys, "argv", ["ocr", *argv])
+            monkeypatch.setattr(mod, "ensure_apple_silicon", lambda: runtime.append("silicon"))
+            monkeypatch.setattr(mod, "ensure_runtime", lambda: runtime.append("runtime"))
+            monkeypatch.setattr(
+                mod.OcrEngine, "load",
+                staticmethod(lambda model_id, max_tokens: loads.append(model_id) or engine),
+            )
+            mod.main()
+
+        _run.loads = loads
+        _run.runtime = runtime
+        return _run
+
+    def test_should_exit_before_the_runtime_and_the_model_when_a_directory_has_no_documents(
+        self, run_main, tmp_path
+    ):
+        (tmp_path / "notes.txt").touch()
+
+        with pytest.raises(SystemExit) as exit_info:
+            run_main(["-i", str(tmp_path)])
+
+        assert exit_info.value.code == 1
+        assert run_main.loads == []
+        assert run_main.runtime == []
+
+    def test_should_create_a_missing_output_directory_and_write_the_markdown_into_it(
+        self, run_main, tmp_path
+    ):
+        scan = tmp_path / "scan.png"
+        scan.touch()
+        out = tmp_path / "new" / "markdown"
+        engine = FakeEngine(["<|det|>text [1,1,2,2]<|/det|>Hello\n"])
+
+        run_main(["-i", str(scan), "-o", str(out)], engine)
+
+        assert (out / "scan.md").read_text(encoding="utf-8") == "Hello\n"
+
+    def test_should_fail_on_an_unusable_output_directory_before_the_model_loads(self, run_main, tmp_path):
+        scan = tmp_path / "scan.png"
+        scan.touch()
+        blocker = tmp_path / "blocker"
+        blocker.write_text("a file, not a directory")
+
+        with pytest.raises(OSError):
+            run_main(["-i", str(scan), "-o", str(blocker)], FakeEngine([]))
+
+        assert run_main.loads == []
+
+    def test_should_not_create_the_output_directory_when_printing_to_stdout(self, run_main, tmp_path):
+        scan = tmp_path / "scan.png"
+        scan.touch()
+        out = tmp_path / "unused"
+        engine = FakeEngine(["<|det|>text [1,1,2,2]<|/det|>Hello\n"])
+
+        run_main(["-i", str(scan), "-o", str(out), "--stdout"], engine)
+
+        assert not out.exists()
 
 
 class TestCli:

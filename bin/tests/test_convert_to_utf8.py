@@ -27,6 +27,18 @@ class TestDetectEncoding:
         f.write_bytes("Ä Ö Ü ß".encode("iso-8859-1"))
         assert converter.detect_encoding(f) in ("iso-8859-1", "windows-1252")
 
+    def test_should_detect_windows_1252_when_the_file_has_curly_quotes_and_a_euro_sign(self, converter, tmp_path):
+        f = tmp_path / "test.html"
+        f.write_bytes("\u201eZitat\u201c \u2013 5 \u20ac".encode("cp1252"))
+
+        assert converter.detect_encoding(f) == "windows-1252"
+
+    def test_should_fall_back_to_latin1_when_the_file_has_a_byte_cp1252_leaves_undefined(self, converter, tmp_path):
+        f = tmp_path / "test.html"
+        f.write_bytes(b"caf\xe9 \x81")
+
+        assert converter.detect_encoding(f) == "iso-8859-1"
+
     def test_binary_file_returns_none(self, converter, tmp_path):
         f = tmp_path / "test.html"
         f.write_bytes(bytes(range(128, 256)) * 10)
@@ -53,6 +65,24 @@ class TestConvertFileEncoding:
         f.write_bytes(original.encode("iso-8859-1"))
         converter.convert_file_encoding(f, "iso-8859-1")
         assert f.read_text(encoding="utf-8") == original
+
+    def test_should_keep_every_character_when_converting_a_windows_1252_file(self, converter, tmp_path):
+        f = tmp_path / "test.html"
+        original = "\u201eZitat\u201c \u2013 5 \u20ac"
+        f.write_bytes(original.encode("cp1252"))
+
+        converter.convert_file_encoding(f, "windows-1252")
+
+        assert f.read_bytes() == original.encode("utf-8")
+
+    @pytest.mark.parametrize("newline", [b"\r\n", b"\n", b"\r"])
+    def test_should_keep_the_line_endings_when_converting(self, converter, tmp_path, newline):
+        f = tmp_path / "test.html"
+        f.write_bytes(b"<p>\xc4rger</p>" + newline + b"<p>\xdcbung</p>" + newline)
+
+        converter.convert_file_encoding(f, "iso-8859-1")
+
+        assert f.read_bytes() == b"<p>\xc3\x84rger</p>" + newline + b"<p>\xc3\x9cbung</p>" + newline
 
     def test_temp_file_cleaned_up(self, converter, tmp_path):
         f = tmp_path / "test.html"
@@ -82,6 +112,32 @@ class TestProcessFile:
         result = dry_converter.process_file(f)
         assert result.status == mod.ConversionStatus.CONVERTED
         assert f.read_bytes() == original_bytes
+
+    def test_should_convert_a_windows_1252_file_without_leaving_control_characters(self, mod, converter, tmp_path):
+        f = tmp_path / "test.html"
+        f.write_bytes("\u201eZitat\u201c \u2013 5 \u20ac".encode("cp1252"))
+
+        result = converter.process_file(f)
+
+        assert result.status == mod.ConversionStatus.CONVERTED
+        assert f.read_text(encoding="utf-8") == "\u201eZitat\u201c \u2013 5 \u20ac"
+
+    def test_should_restore_the_original_bytes_when_the_conversion_fails_midway(self, mod, converter, tmp_path):
+        f = tmp_path / "test.html"
+        original = "Ärger\r\nmit Übung".encode("cp1252")
+        f.write_bytes(original)
+
+        def fail_after_overwriting(file_path, from_encoding):
+            file_path.write_bytes(b"half written")
+            raise OSError("disk full")
+
+        converter.convert_file_encoding = fail_after_overwriting
+
+        result = converter.process_file(f)
+
+        assert result.status == mod.ConversionStatus.FAILED
+        assert f.read_bytes() == original
+        assert not (tmp_path / "test.html.backup").exists()
 
     def test_backup_removed_on_success(self, converter, tmp_path):
         f = tmp_path / "test.html"

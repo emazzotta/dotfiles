@@ -159,3 +159,18 @@ class TestComplete:
             mod.main()
 
         assert capsys.readouterr().out.split() == list(mod.HOSTS)
+
+
+class TestHelpExample:
+    @pytest.mark.parametrize("ping,expected", [("exit 0", "up"), ("exit 1", "down")])
+    def test_should_print_the_state_the_documented_alert_example_promises(
+        self, run_cli, run_bash, tmp_path, ping, expected
+    ):
+        help_text = run_cli("host-resolver", ["--help"]).stdout
+        example = next(line.strip() for line in help_text.splitlines() if "-a -s &&" in line)
+        script = tmp_path / "example.sh"
+        script.write_text(example + "\n")
+
+        result = run_bash(str(script), mock_bins={"dig": "echo 10.0.0.9", "ping": ping, "ping6": ping})
+
+        assert result.stdout.splitlines()[-1] == expected

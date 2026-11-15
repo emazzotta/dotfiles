@@ -1,5 +1,7 @@
-import pytest
+import os
 from types import SimpleNamespace
+
+import pytest
 
 
 def _fake_gum(stdout):
@@ -80,6 +82,22 @@ class TestListInputs:
     def test_should_exit_when_the_path_does_not_exist(self, mod, tmp_path):
         with pytest.raises(SystemExit):
             mod.list_inputs(tmp_path / "nonexistent", mod.AUDIO_EXTS)
+
+    @pytest.mark.parametrize("folder", ["[2020] Album", "[abc]", "Best of *"])
+    def test_should_search_a_directory_whose_name_has_glob_characters(self, mod, tmp_path, folder):
+        album = tmp_path / folder
+        (album / "disc 1").mkdir(parents=True)
+        (album / "disc 1" / "track.mp3").touch()
+
+        assert [path.name for path in mod.list_inputs(album, mod.AUDIO_EXTS)] == ["track.mp3"]
+
+    def test_should_skip_hidden_files_and_folders(self, mod, tmp_path):
+        (tmp_path / ".hidden").mkdir()
+        (tmp_path / ".hidden" / "buried.mp3").touch()
+        (tmp_path / "._resource-fork.mp3").touch()
+        (tmp_path / "song.mp3").touch()
+
+        assert [path.name for path in mod.list_inputs(tmp_path, mod.AUDIO_EXTS)] == ["song.mp3"]
 
 
 class TestCollectInputs:
@@ -268,3 +286,20 @@ class TestResolveInputsOrPick:
 
         with pytest.raises(SystemExit):
             mod.resolve_inputs_or_pick(mod.AUDIO_EXTS, "audio")
+
+
+class TestPickFromWithTheRealPicker:
+    def test_should_leave_the_menu_on_the_terminal_and_read_only_the_choice(
+        self, mod, tmp_path, monkeypatch, create_mock_bin, capfd
+    ):
+        for name in ("a.wav", "b.wav"):
+            (tmp_path / name).touch()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(mod, "can_prompt", lambda: True)
+        gum = create_mock_bin("gum", 'echo "MENU: $*" >&2\necho b.wav')
+        monkeypatch.setenv("PATH", f"{gum.parent}:{os.environ['PATH']}")
+
+        result = mod.pick_from([tmp_path / "a.wav", tmp_path / "b.wav"], "audio")
+
+        assert [path.name for path in result] == ["b.wav"]
+        assert "MENU: choose" in capfd.readouterr().err

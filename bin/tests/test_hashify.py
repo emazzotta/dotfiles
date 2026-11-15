@@ -62,3 +62,18 @@ class TestAlgorithmChoices:
 
         assert result.returncode == 0
         assert hashlib.sha256(b"test").hexdigest() in result.stdout
+
+    def test_should_offer_only_algorithms_that_produce_a_digest_without_a_length(self, run_cli):
+        usage = run_cli("hashify", ["--help"]).stdout
+        choices = re.search(r"-a \{([^}]*)\}", usage).group(1).split(",")
+
+        failures = [name for name in choices if run_cli("hashify", ["-a", name, "test"]).returncode != 0]
+
+        assert failures == []
+
+    @pytest.mark.parametrize("name", ["shake_128", "shake_256"])
+    def test_should_reject_an_algorithm_that_needs_an_output_length(self, run_cli, name):
+        result = run_cli("hashify", ["-a", name, "test"])
+
+        assert result.returncode == 2
+        assert "invalid choice" in result.stderr

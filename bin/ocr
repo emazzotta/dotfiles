@@ -243,10 +243,15 @@ def main() -> None:
     args = parse_args()
     explicit_inputs: Optional[list[Path]] = [Path(p) for p in args.input] if args.input else None
     inputs = medialib.collect_inputs(explicit_inputs, DOCUMENT_EXTENSIONS) if explicit_inputs else None
+    if inputs is not None and not inputs:
+        logger.error("No document files found")
+        sys.exit(1)
     ensure_apple_silicon()
     ensure_runtime()
     if inputs is None:
         inputs = medialib.resolve_inputs_or_pick(DOCUMENT_EXTENSIONS, "document")
+    if args.output_path and not args.stdout:
+        Path(args.output_path).mkdir(parents=True, exist_ok=True)
     progress(f"Loading {args.model} (first run downloads the weights, ~6.7 GB)")
     engine = OcrEngine.load(args.model, args.max_tokens)
     with tempfile.TemporaryDirectory(prefix="ocr_") as work_dir:

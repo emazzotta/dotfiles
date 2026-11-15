@@ -72,7 +72,7 @@ def load_env_via_envify(vars: tuple[str, ...]) -> None:
         text=True,
     )
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or 'envify failed with no output')
+        raise CoverLookupError(result.stderr.strip() or 'envify failed with no output')
     for line in result.stdout.splitlines():
         if '=' in line:
             key, _, value = line.partition('=')
@@ -85,7 +85,7 @@ def ensure_spotify_creds() -> None:
         load_env_via_envify(SPOTIFY_ENV_VARS)
     still_missing = [v for v in SPOTIFY_ENV_VARS if not os.getenv(v)]
     if still_missing:
-        raise RuntimeError(f"Spotify credentials missing after envify: {', '.join(still_missing)}")
+        raise CoverLookupError(f"Spotify credentials missing after envify: {', '.join(still_missing)}")
 
 
 class Tags(Enum):
@@ -106,6 +106,8 @@ class Tags(Enum):
     TRACKTITLE = 'tracktitle'
     YEAR = 'year'
 
+
+MULTILINE_TAGS: Final[frozenset[str]] = frozenset({Tags.LYRICS.value, Tags.COMMENT.value})
 
 STRING_TAGS: Final[frozenset[str]] = frozenset({
     Tags.ALBUM.value, Tags.ALBUMARTIST.value, Tags.ARTIST.value,
@@ -208,7 +210,7 @@ def copy_tag(src, dest):
     logger.info(f"[COPY_TAG] Processing {src} / {dest}")
     source_track_metadata = music_tag.load_file(src)
     destination_track_metadata = music_tag.load_file(dest)
-    copy_metadata(source_track_metadata, destination_track_metadata)
+    copy_metadata(destination_track_metadata, source_track_metadata)
     destination_track_metadata.save()
     print(f"Copied metadata from {src} to {dest}")
 
@@ -226,6 +228,9 @@ def rename_by_tag(src):
         return
 
     filename = compose_filename(source_track_metadata)
+    if filename is None:
+        print(f"Keeping filename [{source_path.name}], artist or title has no ASCII characters")
+        return
     if source_path.stem == filename:
         return
     destination = Path(source_path.parent, f'{filename}{source_path.suffix}')
@@ -264,8 +269,12 @@ def full_tag_optimizer(src):
     rename_by_tag(src)
 
 
-def compose_filename(metadata):
-    return normalize_special_characters(f"{metadata[Tags.ARTIST.value]} - {metadata[Tags.TRACKTITLE.value]}")
+def compose_filename(metadata) -> str | None:
+    artist = normalize_special_characters(f"{metadata[Tags.ARTIST.value]}")
+    title = normalize_special_characters(f"{metadata[Tags.TRACKTITLE.value]}")
+    if not artist.strip() or not title.strip():
+        return None
+    return f"{artist} - {title}"
 
 
 def normalize_special_characters(new_track_name):
@@ -299,6 +308,9 @@ def clean_all_tags(track_metadata):
 
 
 def clean_string(tag_value, tag_name=None):
+    if tag_name in MULTILINE_TAGS:
+        return '\n'.join(clean_string(line) for line in tag_value.split('\n'))
+
     line = tag_value
 
     if tag_name == "artist":
@@ -318,8 +330,8 @@ def clean_string(tag_value, tag_name=None):
         r'\(Original Mix\)',
         r'\(Original Version\)',
         r'\(Original\)',
-        r'Original Mix',
-        r'Original',
+        r'\bOriginal Mix\b',
+        r'\bOriginal\b',
     ]
 
     for pattern in patterns:
@@ -328,7 +340,7 @@ def clean_string(tag_value, tag_name=None):
     line = re.sub(r'-\s*-', '-', line)
 
     line = re.sub(r'\(\s*(\w+\s+)*(mix|version|edit)\s*\)',
-                  lambda match: f"({match.group(1).capitalize().strip() + ' ' + match.group(2).capitalize()})", line)
+                  lambda match: f"({(match.group(1) or '').capitalize().strip() + ' ' + match.group(2).capitalize()})", line)
 
     line = re.sub(r'\(\d+\)', '', line)
 

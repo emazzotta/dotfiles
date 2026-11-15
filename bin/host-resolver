@@ -127,8 +127,8 @@ def main() -> None:
             "  # v6 fallback when unreachable\n"
             "  host-resolver myhost -f ::1 -s\n"
             "\n"
-            "  # exit 1 when unreachable (fell back), useful for scripting\n"
-            "  host-resolver myhost -d 192.168.0.254 -a -s && echo 'up' || echo 'down'\n"
+            "  # exit 1 when reachable, 0 when it fell back, useful for scripting\n"
+            "  host-resolver myhost -d 192.168.0.254 -a -s && echo 'down' || echo 'up'\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

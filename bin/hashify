@@ -52,7 +52,9 @@ examples:
     parser.add_argument(
         '-a', '--algorithm',
         type=str.lower,
-        choices=sorted({name.lower() for name in hashlib.algorithms_available}),
+        choices=sorted(
+            {name.lower() for name in hashlib.algorithms_available if not name.lower().startswith("shake")}
+        ),
         default='sha256',
         help="Hash algorithm to use (default: sha256)"
     )

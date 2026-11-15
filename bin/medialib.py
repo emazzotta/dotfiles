@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
-from glob import glob
+from glob import escape, glob
 from pathlib import Path
 
 import scriptlog as logger
@@ -30,14 +30,24 @@ def format_time(seconds: float) -> str:
     return f"{minutes}m {secs}s"
 
 
+LOSSY_AUDIO_QUALITY_ARGS = {
+    "mp3": ["-b:a", "320k"],
+    "m4a": ["-b:a", "256k"],
+    "aac": ["-b:a", "256k"],
+    "opus": ["-b:a", "128k"],
+    "ogg": ["-q:a", "6"],
+}
+
+
 def list_inputs(path: Path, extensions: list[str]) -> list[Path]:
     if path.is_file():
         return [path]
     if path.is_dir():
         files = []
+        root = escape(str(path))
         for ext in extensions:
-            files.extend(Path(p) for p in glob(str(path / f"**/*.{ext}"), recursive=True))
-            files.extend(Path(p) for p in glob(str(path / f"**/*.{ext.upper()}"), recursive=True))
+            files.extend(Path(p) for p in glob(f"{root}/**/*.{ext}", recursive=True))
+            files.extend(Path(p) for p in glob(f"{root}/**/*.{ext.upper()}", recursive=True))
         return sorted(set(files))
     logger.error(f"Input not found: {path}")
     sys.exit(1)
@@ -64,7 +74,7 @@ def pick_from(candidates: list[Path], label: str) -> list[Path]:
     result = subprocess.run(
         ["gum", "choose", "--header", f"Select {label} input:",
          convert_all, *(path.name for path in candidates)],
-        capture_output=True, text=True,
+        stdout=subprocess.PIPE, text=True,
     )
     chosen = result.stdout.strip()
     if not chosen:

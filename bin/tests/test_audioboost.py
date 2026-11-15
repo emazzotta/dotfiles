@@ -40,6 +40,57 @@ class TestCli:
         assert result.returncode == 0, result.stderr
         assert (work / "one_loud.wav").exists()
 
+class TestQuality:
+    @staticmethod
+    def _recording_ffmpeg(tmp_path):
+        return f'printf "%s\\n" "$@" > "{tmp_path}/ffmpeg_args.txt"\n' + FFMPEG_OK
+
+    @pytest.mark.parametrize("extension,expected", [
+        ("mp3", ["-b:a", "320k"]),
+        ("m4a", ["-b:a", "256k"]),
+        ("aac", ["-b:a", "256k"]),
+        ("opus", ["-b:a", "128k"]),
+        ("ogg", ["-q:a", "6"]),
+    ])
+    def test_should_set_the_quality_of_a_lossy_input_explicitly(self, run_cli, tmp_path, extension, expected):
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / f"voice.{extension}").touch()
+
+        result = run_cli("audioboost", ["-i", str(work / f"voice.{extension}")],
+                         mock_bins={"ffmpeg": self._recording_ffmpeg(tmp_path)}, cwd=work)
+
+        args = (tmp_path / "ffmpeg_args.txt").read_text().split("\n")
+        assert result.returncode == 0, result.stderr
+        assert args[args.index(expected[0]):][:2] == expected
+
+    @pytest.mark.parametrize("extension", ["wav", "flac"])
+    def test_should_add_no_quality_option_for_a_lossless_input(self, run_cli, tmp_path, extension):
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / f"voice.{extension}").touch()
+
+        result = run_cli("audioboost", ["-i", str(work / f"voice.{extension}")],
+                         mock_bins={"ffmpeg": self._recording_ffmpeg(tmp_path)}, cwd=work)
+
+        args = (tmp_path / "ffmpeg_args.txt").read_text().split("\n")
+        assert result.returncode == 0, result.stderr
+        assert not {"-b:a", "-q:a"} & set(args)
+
+
+class TestOriginalSurvival:
+    def test_should_keep_the_original_when_ffmpeg_fails_even_with_delete(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "voice.mp3").write_bytes(b"original")
+
+        result = run_cli("audioboost", ["-i", str(work / "voice.mp3"), "-d"],
+                         mock_bins={"ffmpeg": "exit 1"}, cwd=work)
+
+        assert (work / "voice.mp3").read_bytes() == b"original"
+        assert "Failed: voice.mp3" in result.stderr
+
+
 class TestCwdDefault:
     def test_should_boost_the_sole_audio_file_when_no_input_is_given(self, run_cli, tmp_path):
         work = tmp_path / "work"

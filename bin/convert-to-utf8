@@ -13,7 +13,7 @@ import scriptlog as logger
 BACKUP_SUFFIX: Final = ".backup"
 DEFAULT_TARGET_DIR: Final = "."
 
-ENCODINGS_TO_TRY: Final = ("utf-8", "iso-8859-1", "windows-1252", "us-ascii")
+ENCODINGS_TO_TRY: Final = ("utf-8", "windows-1252", "iso-8859-1")
 
 
 class ConversionStatus(Enum):
@@ -75,7 +75,7 @@ class EncodingConverter:
     def convert_file_encoding(
         self, file_path: Path, from_encoding: str
     ) -> None:
-        content = file_path.read_text(encoding=from_encoding)
+        content = file_path.read_bytes().decode(from_encoding)
 
         if not content and file_path.stat().st_size > 0:
             raise ValueError("File appears non-empty but decoded to empty content")
@@ -83,7 +83,7 @@ class EncodingConverter:
         temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
 
         try:
-            temp_path.write_text(content, encoding="utf-8")
+            temp_path.write_bytes(content.encode("utf-8"))
 
             if not temp_path.exists() or temp_path.stat().st_size == 0:
                 raise ValueError("Temp file is empty or was not created")

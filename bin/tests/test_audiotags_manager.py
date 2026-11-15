@@ -87,6 +87,89 @@ class TestCleanString:
         assert "Club Mix" in result
 
 
+class TestCleanStringRegressions:
+    @pytest.mark.parametrize("input_val,expected", [
+        ("Track (mix)", "Track (Mix)"),
+        ("Track (edit)", "Track (Edit)"),
+        ("Track (version)", "Track (Version)"),
+        ("Track (radio edit)", "Track (Radio Edit)"),
+    ])
+    def test_should_capitalise_a_lowercase_mix_marker_with_or_without_a_leading_word(
+        self, atm, input_val, expected
+    ):
+        assert atm.clean_string(input_val) == expected
+
+    @pytest.mark.parametrize("tag_name", ["lyrics", "comment"])
+    def test_should_keep_the_line_breaks_of_lyrics_and_comments(self, atm, tag_name):
+        text = "First line  \nsecond   line\n\nthird line"
+
+        assert atm.clean_string(text, tag_name=tag_name) == "First line\nsecond line\n\nthird line"
+
+    def test_should_still_clean_each_line_of_lyrics(self, atm):
+        text = "Line one (Original Mix)\nsee https://example.com now\nline , three"
+
+        assert atm.clean_string(text, tag_name="lyrics") == "Line one\nsee now\nline, three"
+
+    def test_should_collapse_line_breaks_in_a_single_line_tag(self, atm):
+        assert atm.clean_string("Track\nname", tag_name="tracktitle") == "Track name"
+
+    @pytest.mark.parametrize("title", ["Originals", "Unoriginal", "Originality"])
+    def test_should_not_cut_original_out_of_a_longer_word(self, atm, title):
+        assert atm.clean_string(title) == title
+
+    def test_should_not_cut_the_word_that_follows_original_in_half(self, atm):
+        assert atm.clean_string("Original Mixtape") == "Mixtape"
+
+
+class TestCopyTag:
+    class FakeTags:
+        def __init__(self, **values):
+            self.values = dict(values)
+            self.saved = False
+
+        def __getitem__(self, key):
+            return self.values.get(key, "")
+
+        def __setitem__(self, key, value):
+            self.values[key] = value
+
+        def save(self):
+            self.saved = True
+
+    def test_should_write_the_source_tags_into_the_destination_file(self, atm, tmp_path):
+        source = tmp_path / "source.mp3"
+        destination = tmp_path / "destination.mp3"
+        source.touch()
+        destination.touch()
+        loaded = {
+            str(source): self.FakeTags(artist="Source Artist", tracktitle="Source Title"),
+            str(destination): self.FakeTags(artist="Old Artist", tracktitle="Old Title"),
+        }
+
+        with patch.object(atm.music_tag, "load_file", side_effect=lambda path: loaded[str(path)]):
+            atm.copy_tag(str(source), str(destination))
+
+        assert loaded[str(destination)].values["artist"] == "Source Artist"
+        assert loaded[str(destination)].values["tracktitle"] == "Source Title"
+        assert loaded[str(destination)].saved is True
+
+    def test_should_leave_the_source_tags_unchanged(self, atm, tmp_path):
+        source = tmp_path / "source.mp3"
+        destination = tmp_path / "destination.mp3"
+        source.touch()
+        destination.touch()
+        loaded = {
+            str(source): self.FakeTags(artist="Source Artist"),
+            str(destination): self.FakeTags(artist="Old Artist"),
+        }
+
+        with patch.object(atm.music_tag, "load_file", side_effect=lambda path: loaded[str(path)]):
+            atm.copy_tag(str(source), str(destination))
+
+        assert loaded[str(source)].values == {"artist": "Source Artist"}
+        assert loaded[str(source)].saved is False
+
+
 class TestRemoveWhereFrom:
     def test_should_pass_filename_as_literal_argv_without_invoking_a_shell(self, atm):
         hostile = "/tracks/x$(id -un > /tmp/pwned)`whoami`.mp3"
@@ -261,6 +344,83 @@ class TestRenameByTag:
 
         assert occupied.read_bytes() == b"existing"
         assert source.read_bytes() == b"new"
+
+
+class TestRenameByTagWithRealNormalisation:
+    class Item:
+        def __init__(self, value):
+            self.first = value
+
+        def __str__(self):
+            return self.first or ""
+
+    @pytest.fixture
+    def rename(self, atm):
+        def _rename(track, artist, title):
+            metadata = MagicMock()
+            metadata.__getitem__.side_effect = lambda key: self.Item(
+                {"artist": artist, "tracktitle": title}.get(key)
+            )
+            with patch.object(atm.music_tag, "load_file", return_value=metadata):
+                atm.rename_by_tag(str(track))
+        return _rename
+
+    @pytest.mark.parametrize("artist,title", [
+        ("\u041a\u0438\u043d\u043e", "\u0413\u0440\u0443\u043f\u043f\u0430 \u043a\u0440\u043e\u0432\u0438"),
+        ("\u5b87\u591a\u7530\u30d2\u30ab\u30ea", "First Love"),
+        ("Hikaru Utada", "\u30d5\u30a1\u30fc\u30b9\u30c8\u30e9\u30d6"),
+    ])
+    def test_should_keep_the_filename_when_artist_or_title_has_no_ascii_characters(
+        self, atm, tmp_path, rename, artist, title
+    ):
+        track = tmp_path / "original.mp3"
+        track.write_bytes(b"audio")
+
+        rename(track, artist, title)
+
+        assert [p.name for p in tmp_path.iterdir()] == ["original.mp3"]
+        assert track.read_bytes() == b"audio"
+
+    def test_should_still_rename_when_accents_reduce_to_ascii(self, atm, tmp_path, rename):
+        track = tmp_path / "original.mp3"
+        track.write_bytes(b"audio")
+
+        rename(track, "Beyonc\u00e9", "Halo")
+
+        assert (tmp_path / "Beyonce - Halo.mp3").read_bytes() == b"audio"
+
+
+class TestEnvifyFailures:
+    @pytest.fixture
+    def no_spotify_creds(self, monkeypatch):
+        monkeypatch.delenv("SPOTIFY_CLIENT_ID", raising=False)
+        monkeypatch.delenv("SPOTIFY_CLIENT_SECRET", raising=False)
+
+    def test_should_raise_a_cover_lookup_error_when_envify_fails(self, atm, no_spotify_creds):
+        failed = SimpleNamespace(returncode=1, stdout="", stderr="keyguard cancelled")
+
+        with patch.object(atm.subprocess, "run", return_value=failed):
+            with pytest.raises(atm.CoverLookupError, match="keyguard cancelled"):
+                atm.load_env_via_envify(atm.SPOTIFY_ENV_VARS)
+
+    def test_should_raise_a_cover_lookup_error_when_envify_leaves_the_credentials_unset(
+        self, atm, no_spotify_creds
+    ):
+        with patch.object(atm, "load_env_via_envify"):
+            with pytest.raises(atm.CoverLookupError, match="SPOTIFY_CLIENT_ID"):
+                atm.ensure_spotify_creds()
+
+    def test_should_fall_back_to_soundcloud_when_envify_fails(
+        self, atm, no_spotify_creds, make_candidate
+    ):
+        failed = SimpleNamespace(returncode=1, stdout="", stderr="keyguard cancelled")
+        soundcloud = [make_candidate(atm.CoverSource.SOUNDCLOUD, "Fred again..", "Delilah")]
+
+        with patch.object(atm.subprocess, "run", return_value=failed), \
+                patch.object(atm, "fetch_soundcloud_candidates", return_value=soundcloud):
+            best = atm.find_best_cover("Fred again..", "Delilah")
+
+        assert best.candidate.source is atm.CoverSource.SOUNDCLOUD
 
 
 class TestNormalizeForMatch:

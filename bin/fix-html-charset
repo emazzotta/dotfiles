@@ -207,7 +207,7 @@ def process_file(file_path: Path, dry_run: bool) -> ProcessingResult:
     logging.debug(f"Processing: {file_path}")
 
     try:
-        original_content = file_path.read_text(encoding="utf-8")
+        original_content = file_path.read_bytes().decode("utf-8")
     except UnicodeDecodeError:
         return ProcessingResult(
             ProcessingStatus.FAILED, "Failed to read as UTF-8"
@@ -233,7 +233,7 @@ def process_file(file_path: Path, dry_run: bool) -> ProcessingResult:
         backup_path = create_backup(file_path)
 
         temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
-        temp_path.write_text(fixed_content, encoding="utf-8")
+        temp_path.write_bytes(fixed_content.encode("utf-8"))
 
         temp_path.replace(file_path)
 

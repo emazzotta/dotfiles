@@ -26,6 +26,7 @@ def boost_one(input_file: Path, volume: float, suffix: str, output_dir: Path | N
         "ffmpeg",
         "-i", str(input_file),
         "-af", f"volume={volume}",
+        *medialib.LOSSY_AUDIO_QUALITY_ARGS.get(input_file.suffix.lstrip(".").lower(), []),
         "-y", str(output_file),
     ]
 

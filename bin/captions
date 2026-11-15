@@ -308,13 +308,18 @@ def ensure_subtitles_filter() -> None:
 
 
 def probe_dimensions(video: Path) -> tuple[int, int]:
+    """Return the size ffmpeg renders after applying the clip's rotation."""
     out = run([
         "ffprobe", "-v", "error", "-select_streams", "v:0",
-        "-show_entries", "stream=width,height",
-        "-of", "csv=s=x:p=0", str(video),
-    ]).stdout.strip()
-    width, height = out.split("x")
-    return int(width), int(height)
+        "-show_entries", "stream=width,height:stream_side_data=rotation",
+        "-of", "json", str(video),
+    ]).stdout
+    stream = json.loads(out)["streams"][0]
+    rotation = next(
+        (data["rotation"] for data in stream.get("side_data_list", []) if "rotation" in data), 0
+    )
+    width, height = int(stream["width"]), int(stream["height"])
+    return (height, width) if rotation % 180 == 90 else (width, height)
 
 
 def extract_audio(video: Path, work: Path) -> Path:

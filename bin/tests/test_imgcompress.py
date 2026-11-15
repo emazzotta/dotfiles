@@ -107,3 +107,91 @@ class TestCwdDefault:
 
         assert result.returncode != 0
         assert not list(work.glob("*_compressed.jpg"))
+
+
+ORIGINAL = "original content, larger than the mock output"
+MAGICK_BY_FOLDER = 'printf "compressed from %s" "$(basename "$(dirname "$1")")" > "${@: -1}"'
+MAGICK_FAILS_ON_ONE = (
+    'case "${@: -1}" in *one*) echo "magick: corrupt header" >&2; exit 1;; esac\n'
+    + MAGICK_OK
+)
+
+
+class TestSafety:
+    def test_should_continue_with_the_next_file_and_exit_non_zero_when_one_conversion_fails(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        for name in ("one.jpg", "two.jpg"):
+            (work / name).write_text(ORIGINAL)
+
+        result = run_cli("imgcompress", ["-i", str(work / "one.jpg"), str(work / "two.jpg")],
+                         mock_bins={"magick": MAGICK_FAILS_ON_ONE}, cwd=work)
+
+        assert result.returncode != 0
+        assert (work / "two_compressed.jpg").exists()
+        assert (work / "one.jpg").read_text() == ORIGINAL
+        assert not list(work.glob("*_tmp_compress*"))
+
+    def test_should_show_what_the_converter_reported_when_it_fails(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "one.jpg").write_text(ORIGINAL)
+
+        result = run_cli("imgcompress", ["-i", str(work / "one.jpg")],
+                         mock_bins={"magick": MAGICK_FAILS_ON_ONE}, cwd=work)
+
+        assert "magick: corrupt header" in result.stderr
+
+    def test_should_replace_the_original_in_place_when_rm_original_has_no_output_path(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "photo.jpg").write_text(ORIGINAL)
+
+        result = run_cli("imgcompress", ["-i", str(work / "photo.jpg"), "--rm-original"],
+                         mock_bins={"magick": MAGICK_OK}, cwd=work)
+
+        assert result.returncode == 0, result.stderr
+        assert (work / "photo.jpg").read_text() == "x"
+        assert sorted(p.name for p in work.iterdir()) == ["photo.jpg"]
+
+    def test_should_leave_the_file_untouched_when_the_output_path_is_its_own_folder_and_nothing_is_removed(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "photo.jpg").write_text(ORIGINAL)
+
+        result = run_cli("imgcompress", ["-i", str(work / "photo.jpg"), "-o", str(work)],
+                         mock_bins={"magick": MAGICK_OK}, cwd=work)
+
+        assert result.returncode == 0, result.stderr
+        assert (work / "photo.jpg").read_text() == ORIGINAL
+
+    def test_should_keep_the_second_original_when_two_inputs_share_a_name_and_one_output_path(self, run_cli, tmp_path):
+        first = tmp_path / "100APPLE"
+        second = tmp_path / "101APPLE"
+        out = tmp_path / "out"
+        for folder in (first, second):
+            folder.mkdir()
+            (folder / "IMG_0001.jpg").write_text(ORIGINAL)
+
+        result = run_cli("imgcompress", ["-i", str(first / "IMG_0001.jpg"), str(second / "IMG_0001.jpg"),
+                                         "-o", str(out), "--rm-original"],
+                         mock_bins={"magick": MAGICK_BY_FOLDER}, cwd=tmp_path)
+
+        assert result.returncode == 0, result.stderr
+        assert (out / "IMG_0001.jpg").read_text() == "compressed from 100APPLE"
+        assert not (first / "IMG_0001.jpg").exists()
+        assert (second / "IMG_0001.jpg").read_text() == ORIGINAL
+
+    def test_should_keep_the_original_when_the_result_cannot_be_moved_to_the_output_path(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "photo.jpg").write_text(ORIGINAL)
+        out = tmp_path / "out"
+        magick_that_removes_the_output_path = f'{MAGICK_OK}\nrmdir "{out}"'
+
+        result = run_cli("imgcompress", ["-i", str(work / "photo.jpg"), "-o", str(out), "--rm-original"],
+                         mock_bins={"magick": magick_that_removes_the_output_path}, cwd=work)
+
+        assert result.returncode != 0
+        assert (work / "photo.jpg").read_text() == ORIGINAL
+        assert not list(work.glob("*_tmp_compress*"))

@@ -1,6 +1,8 @@
+import json
 import math
 import shutil
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -864,6 +866,48 @@ class TestObtainWords:
         assert result == fresh
 
 
+class TestProbeDimensions:
+    @staticmethod
+    def _ffprobe_json(width, height, rotation=None):
+        stream = {"width": width, "height": height}
+        if rotation is not None:
+            stream["side_data_list"] = [{"rotation": rotation}]
+        return json.dumps({"programs": [], "stream_groups": [], "streams": [stream]})
+
+    @pytest.fixture
+    def probe(self, mod, monkeypatch):
+        def _probe(stdout):
+            commands = []
+            monkeypatch.setattr(
+                mod, "run", lambda cmd: commands.append(cmd) or SimpleNamespace(stdout=stdout)
+            )
+            return mod.probe_dimensions(Path("clip.mp4")), commands[0]
+        return _probe
+
+    def should_return_the_stored_size_of_an_unrotated_clip(self, probe):
+        dimensions, _ = probe(self._ffprobe_json(1920, 1080))
+
+        assert dimensions == (1920, 1080)
+
+    @pytest.mark.parametrize("rotation", [90, -90, 270, -270])
+    def should_swap_width_and_height_for_a_quarter_turn(self, probe, rotation):
+        dimensions, _ = probe(self._ffprobe_json(1920, 1080, rotation))
+
+        assert dimensions == (1080, 1920)
+
+    @pytest.mark.parametrize("rotation", [0, 180, -180])
+    def should_keep_the_stored_size_for_a_half_turn_or_none(self, probe, rotation):
+        dimensions, _ = probe(self._ffprobe_json(1920, 1080, rotation))
+
+        assert dimensions == (1920, 1080)
+
+    def should_ask_ffprobe_for_the_rotation_side_data(self, probe):
+        _, command = probe(self._ffprobe_json(1920, 1080))
+
+        assert command[command.index("-show_entries") + 1] == "stream=width,height:stream_side_data=rotation"
+        assert command[command.index("-of") + 1] == "json"
+
+
 @render_integration
 @pytest.mark.slow
 class TestRenderIntegration:
@@ -892,6 +936,21 @@ class TestRenderIntegration:
         video = tmp_path / "in.mp4"
         self._make_video(video)
         assert mod.probe_dimensions(video) == (320, 240)
+
+    @pytest.mark.parametrize("rotation,expected", [(90, (240, 320)), (-90, (240, 320)), (180, (320, 240))])
+    def should_probe_the_displayed_size_of_a_clip_with_rotation_metadata(
+        self, mod, tmp_path, rotation, expected
+    ):
+        upright = tmp_path / "in.mp4"
+        self._make_video(upright)
+        rotated = tmp_path / "rotated.mp4"
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-display_rotation", str(rotation),
+             "-i", str(upright), "-c", "copy", str(rotated)],
+            check=True, capture_output=True,
+        )
+
+        assert mod.probe_dimensions(rotated) == expected
 
     @pytest.mark.parametrize("mode", ["fill", "background"])
     def should_burn_captions_into_a_playable_output(

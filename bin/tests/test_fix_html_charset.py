@@ -123,3 +123,34 @@ class TestProcessFile:
         f.write_bytes(b"\xff\xfe invalid utf8 content")
         result = mod.process_file(f, dry_run=False)
         assert result.status == mod.ProcessingStatus.FAILED
+
+    @pytest.mark.parametrize("newline", [b"\r\n", b"\n"])
+    def test_should_keep_the_line_endings_when_fixing(self, mod, tmp_path, newline):
+        f = tmp_path / "test.html"
+        f.write_bytes(
+            b'<html><head><meta charset="ISO-8859-1">' + newline
+            + b"<title>T</title>" + newline + b"</head></html>" + newline
+        )
+
+        result = mod.process_file(f, dry_run=False)
+
+        assert result.status == mod.ProcessingStatus.FIXED
+        assert f.read_bytes() == (
+            b'<html><head><meta charset="UTF-8">' + newline
+            + b"<title>T</title>" + newline + b"</head></html>" + newline
+        )
+
+    def test_should_keep_the_original_bytes_when_the_replacement_fails(self, mod, tmp_path, monkeypatch):
+        f = tmp_path / "test.html"
+        original = b'<html><head><meta charset="ISO-8859-1">\r\n<title>T</title></head></html>\r\n'
+        f.write_bytes(original)
+
+        def fail_to_replace(self, target):
+            raise OSError("cross-device link")
+
+        monkeypatch.setattr(mod.Path, "replace", fail_to_replace)
+
+        result = mod.process_file(f, dry_run=False)
+
+        assert result.status == mod.ProcessingStatus.FAILED
+        assert f.read_bytes() == original

@@ -26,14 +26,6 @@ AUDIO_CODECS = {
     "wma": "wmav2",
 }
 
-EXTRA_ARGS = {
-    "mp3": ["-b:a", "320k"],
-    "m4a": ["-b:a", "256k"],
-    "aac": ["-b:a", "256k"],
-    "opus": ["-b:a", "128k"],
-    "ogg": ["-q:a", "6"],
-}
-
 
 def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_original: bool, file_num: int, total_files: int) -> Path | None:
     codec = AUDIO_CODECS.get(fmt)
@@ -47,7 +39,7 @@ def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_orig
               "ffmpeg",
               "-i", str(input_file),
               "-c:a", codec,
-          ] + EXTRA_ARGS.get(fmt, []) + ["-y", str(output_file)]
+          ] + medialib.LOSSY_AUDIO_QUALITY_ARGS.get(fmt, []) + ["-y", str(output_file)]
 
     logger.info(f"\n[{file_num}/{total_files}] Converting: {input_file.name} -> {output_file.name}")
     print()

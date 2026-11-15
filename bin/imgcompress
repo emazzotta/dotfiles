@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,10 @@ IMAGE_EXTENSIONS: list[str] = ["jpg", "jpeg", "png", "webp", "tiff", "bmp", "hei
 JPEG_EXTENSIONS: frozenset[str] = frozenset(["jpg", "jpeg"])
 PNG_EXTENSIONS: frozenset[str] = frozenset(["png"])
 WEBP_EXTENSIONS: frozenset[str] = frozenset(["webp"])
+
+
+class CompressionError(Exception):
+    pass
 
 
 def fmt_size(size_bytes: int) -> str:
@@ -49,8 +54,9 @@ def resolve_output_file(input_file: Path, output_path: Path | None, rm_original:
 
 def compress_image(input_file: Path, quality: int, scale: int, output_path: Path | None, rm_original: bool) -> int | None:
     output_file = resolve_output_file(input_file, output_path, rm_original)
+    in_place = rm_original and output_file == input_file
 
-    if not rm_original and output_file.exists():
+    if not in_place and output_file.exists():
         logger.warn(f"Output file '{output_file}' already exists, skipping...")
         return None
 
@@ -58,12 +64,10 @@ def compress_image(input_file: Path, quality: int, scale: int, output_path: Path
 
     tmp_file = input_file.parent / f"{input_file.stem}_tmp_compress{input_file.suffix}"
     command = build_magick_command(input_file, tmp_file, quality, scale)
-    result = subprocess.run(command, capture_output=True)
+    result = subprocess.run(command, capture_output=True, text=True, errors="replace")
     if result.returncode != 0:
-        logger.error(f"Compression failed for '{input_file}'")
-        if tmp_file.exists():
-            tmp_file.unlink()
-        sys.exit(1)
+        tmp_file.unlink(missing_ok=True)
+        raise CompressionError(result.stderr.strip() or f"magick exited with status {result.returncode}")
 
     compressed_size = tmp_file.stat().st_size
 
@@ -72,9 +76,15 @@ def compress_image(input_file: Path, quality: int, scale: int, output_path: Path
         logger.warn(f"'{input_file.name}' skipped (output {fmt_size(compressed_size)} >= original {fmt_size(original_size)})")
         return None
 
-    if rm_original:
+    try:
+        shutil.move(str(tmp_file), str(output_file))
+    except OSError:
+        tmp_file.unlink(missing_ok=True)
+        if not in_place:
+            output_file.unlink(missing_ok=True)
+        raise
+    if rm_original and not in_place:
         input_file.unlink()
-    tmp_file.rename(output_file)
 
     savings = (1 - compressed_size / original_size) * 100
     logger.success(f"'{input_file.name}' {fmt_size(original_size)} -> {fmt_size(compressed_size)} (saved {savings:.1f}%)")
@@ -115,14 +125,22 @@ def main() -> None:
 
     total_saved = 0
     processed = 0
+    failed = 0
 
     for input_file in input_files:
-        saved = compress_image(input_file, args.quality, args.scale, output_path, args.rm_original)
+        try:
+            saved = compress_image(input_file, args.quality, args.scale, output_path, args.rm_original)
+        except (CompressionError, OSError) as error:
+            logger.error(f"'{input_file.name}' failed: {error}")
+            failed += 1
+            continue
         if saved is not None:
             total_saved += saved
             processed += 1
 
-    logger.info(f"Done: {processed} file(s) processed, total saved {fmt_size(total_saved)}")
+    logger.info(f"Done: {processed} file(s) processed, {failed} failed, total saved {fmt_size(total_saved)}")
+    if failed:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

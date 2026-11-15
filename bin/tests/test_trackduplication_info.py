@@ -54,3 +54,71 @@ class TestGenerateReport:
         assert "MP3 File Analysis" in report
         assert "/a" in report
         assert "/b" in report
+
+
+def _album(tmp_path, files):
+    for relative, content in files.items():
+        target = tmp_path / "music" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+    return tmp_path / "music"
+
+
+class TestGrouping:
+    def test_should_not_group_tracks_whose_names_only_share_a_prefix_of_letters_from_mp3(self, run_cli, tmp_path):
+        music = _album(tmp_path, {"a/Camp.mp3": b"1234", "b/Cam.mp3": b"12"})
+
+        result = run_cli("trackduplication_info", [str(music), "-o", str(tmp_path / "out")])
+
+        assert result.returncode == 0, result.stderr
+        assert "0 duplicate groups found." in (tmp_path / "out" / "report.md").read_text()
+
+    def test_should_group_the_same_track_name_found_in_two_folders(self, run_cli, tmp_path):
+        music = _album(tmp_path, {"a/Camp.mp3": b"1234", "b/Camp.mp3": b"12"})
+
+        result = run_cli("trackduplication_info", [str(music), "-o", str(tmp_path / "out")])
+
+        report = (tmp_path / "out" / "report.md").read_text()
+        assert result.returncode == 0, result.stderr
+        assert "1 duplicate groups found." in report
+        assert "## Potential Versions of: Camp\n" in report
+
+
+class TestHandleDuplicates:
+    @pytest.fixture
+    def confirm(self, mod):
+        mod.input = lambda prompt: "yes"
+
+    def test_should_refuse_to_overwrite_a_file_already_in_the_destination(self, mod, confirm, tmp_path):
+        music = _album(tmp_path, {"a/track.mp3": b"large version", "b/track.mp3": b"small"})
+        destination = tmp_path / "dest"
+        destination.mkdir()
+        (destination / "track.mp3").write_bytes(b"existing")
+        group = {"track": [(13, str(music / "a/track.mp3")), (5, str(music / "b/track.mp3"))]}
+
+        mod.handle_duplicates(group, str(destination))
+
+        assert (destination / "track.mp3").read_bytes() == b"existing"
+        assert (music / "a/track.mp3").read_bytes() == b"large version"
+        assert (music / "b/track.mp3").read_bytes() == b"small"
+
+    def test_should_move_the_largest_and_delete_the_rest_when_the_destination_is_free(self, mod, confirm, tmp_path):
+        music = _album(tmp_path, {"a/track.mp3": b"large version", "b/track.mp3": b"small"})
+        destination = tmp_path / "dest"
+        destination.mkdir()
+        group = {"track": [(13, str(music / "a/track.mp3")), (5, str(music / "b/track.mp3"))]}
+
+        mod.handle_duplicates(group, str(destination))
+
+        assert (destination / "track.mp3").read_bytes() == b"large version"
+        assert not (music / "a/track.mp3").exists()
+        assert not (music / "b/track.mp3").exists()
+
+    def test_should_delete_the_smaller_copies_when_the_largest_already_sits_in_the_destination(self, mod, confirm, tmp_path):
+        music = _album(tmp_path, {"dest/track.mp3": b"large version", "b/track.mp3": b"small"})
+        group = {"track": [(13, str(music / "dest/track.mp3")), (5, str(music / "b/track.mp3"))]}
+
+        mod.handle_duplicates(group, str(music / "dest"))
+
+        assert (music / "dest/track.mp3").read_bytes() == b"large version"
+        assert not (music / "b/track.mp3").exists()
