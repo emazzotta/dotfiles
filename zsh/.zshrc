@@ -12,7 +12,6 @@ source "${HOME}/.bashrc"
 
 source "$HOME/.zgen/zgen.zsh"
 load "$DOTFILESPATH/bin/zshaddhistory"
-load "$DOTFILESPATH/autocomplete/zsh/_kubectl"
 load "$DOTFILESPATH/autocomplete/zsh/_bun"
 if ! zgen saved; then
     zgen prezto
@@ -25,4 +24,8 @@ if ! zgen saved; then
     zgen load tarruda/zsh-autosuggestions
     zgen save
     compinit
+fi
+
+if (( $+commands[kubectl] && $+functions[compdef] )); then
+    source <(kubectl completion zsh)
 fi
