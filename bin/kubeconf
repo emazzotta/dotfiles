@@ -1,7 +1,28 @@
 #!/bin/bash
+set -uo pipefail
 
-if test "${1}"; then
-    cp "${KUBE_DIR}/${1}-kubeconfig.yaml" "${KUBE_DIR}/config" && chmod u+x "${KUBE_DIR}/config" && echo "Switched context to ${1}" || echo "Failed to switch context to ${1}"
-else
+usage() {
     echo "usage: $(basename "${0}") <provider name>"
-fi
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help)
+            usage
+            return 0
+            ;;
+        "")
+            usage >&2
+            return 1
+            ;;
+    esac
+
+    local config="${KUBE_DIR}/${1}-kubeconfig.yaml"
+    if [ ! -f "${config}" ]; then
+        echo "Error: kubeconfig not found: ${config}" >&2
+        return 1
+    fi
+    echo "${config}"
+}
+
+main "$@"

@@ -22,7 +22,6 @@ alias gbrun='./gradlew bootRun'
 
 ### KUBERNETES ###
 alias k='kubectl'
-alias kc='kubeconf'
 alias kn='kubens'
 
 ### TMUX ###

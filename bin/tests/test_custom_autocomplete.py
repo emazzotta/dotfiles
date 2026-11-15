@@ -286,12 +286,22 @@ class TestExternalLists:
 
         assert candidates == []
 
-    def should_offer_running_process_names_to_killgrep(self, complete, mock):
+    def should_offer_running_process_names_to_killprocess(self, complete, mock):
         mock("ps", "printf '%s\\n' /usr/sbin/cron bash /Applications/Zoom.app/Contents/MacOS/zoom")
 
-        candidates = complete("_process_names", "killgrep", "")
+        candidates = complete("_process_names", "killprocess", "")
 
         assert candidates == ["bash", "cron", "zoom"]
+
+    def should_offer_the_kubeconfig_names_to_kubeconf(self, complete, tmp_path):
+        kube_dir = tmp_path / "kube"
+        kube_dir.mkdir()
+        for name in ("prod-kubeconfig.yaml", "stage-kubeconfig.yaml", "config"):
+            (kube_dir / name).touch()
+
+        candidates = complete("_kubeconf", "kubeconf", "", env={"KUBE_DIR": str(kube_dir)})
+
+        assert candidates == ["prod", "stage"]
 
     def should_offer_tmux_sessions_to_tma(self, complete, mock):
         mock("tmux", "printf '%s\\n' main work")
@@ -486,9 +496,16 @@ class TestRegistrations:
 
         assert "-o default" not in spec
 
-    @pytest.mark.parametrize("command", ["fileserver", "gunstage", "keyguard", "killgrep",
+    @pytest.mark.parametrize("command", ["fileserver", "gunstage", "keyguard", "killprocess",
                                          "timemachine", "tma"])
     def should_let_bash_quote_names_with_spaces(self, tmp_path, commands, command):
         spec = run_bash(f"complete -p {command}", tmp_path, commands)
 
         assert "-o filenames" in spec
+
+    @pytest.mark.parametrize("command", ["kc", "kubeconf"])
+    def should_complete_the_kubeconfig_names_for_the_kubeconf_commands(self, tmp_path, commands,
+                                                                       command):
+        spec = run_bash(f"complete -p {command}", tmp_path, commands)
+
+        assert "-F _kubeconf" in spec

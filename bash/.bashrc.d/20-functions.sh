@@ -91,6 +91,17 @@ function g {
     cd "$target" || return
 }
 
+# function keyword: kc() would not parse in a shell that still holds the old alias kc
+function kc {
+    case "${1:-}" in
+        -h|--help) kubeconf "$@"; return ;;
+    esac
+    local config
+    config=$(kubeconf "$@") || return
+    export KUBECONFIG="$config"
+    echo "Switched context to $1"
+}
+
 gco() {
     local checkout
     if [ $# -eq 1 ] && checkout=$(_gco_hop_target "$1"); then
