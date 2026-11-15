@@ -120,7 +120,7 @@ class TestCleanStringMixMarkerWords:
     @pytest.mark.parametrize("input_val,expected", [
         ("Track (club dub mix)", "Track (Club Dub Mix)"),
         ("Track (chris lake club mix)", "Track (Chris Lake Club Mix)"),
-        ("Track (CLUB dub edit)", "Track (Club Dub Edit)"),
+        ("Track (CLUB dub edit)", "Track (CLUB Dub Edit)"),
         ("Track (dub version)", "Track (Dub Version)"),
         ("Track (club mix) and (dub edit)", "Track (Club Mix) and (Dub Edit)"),
     ])
@@ -129,13 +129,22 @@ class TestCleanStringMixMarkerWords:
 
     @pytest.mark.parametrize("input_val,expected", [
         ("Track (club mix)", "Track (Club Mix)"),
-        ("Track (CLUB mix)", "Track (Club Mix)"),
+        ("Track (CLUB mix)", "Track (CLUB Mix)"),
         ("Track ( mix )", "Track (Mix)"),
         ("Track (Club Mix)", "Track (Club Mix)"),
         ("Track (live at berghain)", "Track (live at berghain)"),
         ("Track (club mix 2)", "Track (club mix 2)"),
     ])
     def test_should_keep_the_cases_that_already_worked(self, atm, input_val, expected):
+        assert atm.clean_string(input_val) == expected
+
+    @pytest.mark.parametrize("input_val,expected", [
+        ("Track (DJ Dub mix)", "Track (DJ Dub Mix)"),
+        ("Track (DJ dub mix)", "Track (DJ Dub Mix)"),
+        ("Track (MJ Cole edit)", "Track (MJ Cole Edit)"),
+        ("Track (vocal edit)", "Track (Vocal Edit)"),
+    ])
+    def test_should_raise_only_the_first_letter_of_each_word(self, atm, input_val, expected):
         assert atm.clean_string(input_val) == expected
 
 

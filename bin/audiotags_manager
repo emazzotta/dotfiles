@@ -302,7 +302,7 @@ def clean_all_tags(track_metadata):
 
 def capitalise_mix_marker(match: re.Match[str]) -> str:
     words = [*match.group(1).split(), match.group(2)]
-    return f"({' '.join(word.capitalize() for word in words)})"
+    return f"({' '.join(word[:1].upper() + word[1:] for word in words)})"
 
 
 def clean_string(tag_value, tag_name=None):
