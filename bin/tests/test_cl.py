@@ -5,6 +5,7 @@ import signal
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -1069,18 +1070,73 @@ class TestMain:
 
         assert not any("convert-output" in arg or "SESSION_CONVERT" in arg for arg in mock_cl_run[-1])
 
-    def should_never_mount_the_home_folder_for_the_convert_export(self, cl, monkeypatch, mock_cl_run, tmp_path):
+    @pytest.fixture
+    def convert_from_home(self, cl, monkeypatch, mock_cl_run, tmp_path):
         home, project = tmp_path / "home", tmp_path / "project"
         home.mkdir()
         project.mkdir()
         monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(cl, "DESKTOP", home / "Desktop")
         monkeypatch.chdir(home)
         monkeypatch.setattr(sys, "argv", ["cl", "--convert", "-p", str(project)])
+
+        def launch(*desktop_folders):
+            for folder in desktop_folders:
+                (home / folder).mkdir(parents=True)
+            with pytest.raises(SystemExit, match="0"):
+                cl.main()
+            return mock_cl_run[-1]
+
+        return SimpleNamespace(home=home, launch=launch)
+
+    @pytest.mark.parametrize("desktop_folders", [(), ("Desktop",), ("Desktop", "Desktop/Next")],
+                             ids=["no-desktop", "desktop", "desktop-and-next"])
+    def should_never_mount_the_home_folder_for_the_convert_export(self, convert_from_home, desktop_folders):
+        command = convert_from_home.launch(*desktop_folders)
+
+        assert not any(arg.startswith(f"{convert_from_home.home}:") for arg in command)
+
+    def should_export_to_desktop_next_from_the_home_folder_when_it_exists(self, convert_from_home):
+        desktop_next = convert_from_home.home / "Desktop" / "Next"
+
+        command = convert_from_home.launch("Desktop", "Desktop/Next")
+
+        options = self.docker_options(command, "session-convert")
+        assert ("-v", f"{desktop_next}:/workspace/convert-output") in options
+        assert ("-e", "SESSION_CONVERT_OUTPUT=/workspace/convert-output") in options
+        assert ("-e", f"SESSION_CONVERT_HOST_OUTPUT={desktop_next}") in options
+
+    def should_export_to_the_desktop_from_the_home_folder_when_it_has_no_next_folder(self, convert_from_home):
+        desktop = convert_from_home.home / "Desktop"
+
+        command = convert_from_home.launch("Desktop")
+
+        options = self.docker_options(command, "session-convert")
+        assert ("-v", f"{desktop}:/workspace/convert-output") in options
+        assert ("-e", f"SESSION_CONVERT_HOST_OUTPUT={desktop}") in options
+
+    def should_mount_no_export_folder_from_the_home_folder_when_there_is_no_desktop(self, convert_from_home):
+        command = convert_from_home.launch()
+
+        assert not any("convert-output" in arg or "SESSION_CONVERT" in arg for arg in command)
+
+    def should_keep_the_launch_folder_for_the_export_outside_the_home_folder_even_with_a_desktop(
+        self, cl, monkeypatch, mock_cl_run, tmp_path
+    ):
+        home, project = tmp_path / "home", tmp_path / "project"
+        (home / "Desktop" / "Next").mkdir(parents=True)
+        project.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(cl, "DESKTOP", home / "Desktop")
+        monkeypatch.chdir(project)
+        monkeypatch.setattr(sys, "argv", ["cl", "--convert"])
 
         with pytest.raises(SystemExit, match="0"):
             cl.main()
 
-        assert not any(arg.startswith(f"{home}:") for arg in mock_cl_run[-1])
+        options = self.docker_options(mock_cl_run[-1], "session-convert")
+        assert ("-v", f"{project}:/workspace/convert-output") in options
+        assert ("-e", f"SESSION_CONVERT_HOST_OUTPUT={project}") in options
 
     def test_files_outside_cwd_exits(self, cl, monkeypatch, tmp_path):
         pwd = tmp_path / "pwd"

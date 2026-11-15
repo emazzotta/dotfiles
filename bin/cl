@@ -1017,14 +1017,22 @@ def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
     return ["-v", f"{pwd / relative_path}:/workspace/code/{relative_path}"]
 
 
+def desktop_export_dir() -> Path | None:
+    for folder in (DESKTOP / "Next", DESKTOP):
+        if folder.is_dir():
+            return folder
+    return None
+
+
 def build_convert_output_args(pwd: Path) -> list[str]:
-    """session-convert exports into the folder cl ran in, since the container and its /workspace go with the run."""
-    if is_home_dir(pwd):
+    """session-convert exports into the folder cl ran in; from the home folder, which is never mounted, into the Desktop folder."""
+    output = desktop_export_dir() if is_home_dir(pwd) else pwd
+    if output is None:
         return []
     return [
-        "-v", f"{pwd}:{CONVERT_OUTPUT_CONTAINER}",
+        "-v", f"{output}:{CONVERT_OUTPUT_CONTAINER}",
         "-e", f"SESSION_CONVERT_OUTPUT={CONVERT_OUTPUT_CONTAINER}",
-        "-e", f"SESSION_CONVERT_HOST_OUTPUT={pwd}",
+        "-e", f"SESSION_CONVERT_HOST_OUTPUT={output}",
     ]
 
 
