@@ -20,16 +20,17 @@ import tempfile
 import time
 from pathlib import Path
 
+import devbox_ssh
+import session_registry
+
 SYNC_PATHS = ("projects", "file-history", "tasks", "paste-cache")
-SSH_COMMAND = ("ssh -o BatchMode=yes -o ConnectTimeout=5 -o RequestTTY=no"
-               " -o ControlMaster=auto -o ControlPath=~/.ssh/claude-sync-%C -o ControlPersist=60")
+SSH_COMMAND = " ".join(("ssh", *devbox_ssh.SSH_OPTIONS))
 RSYNC_TIMEOUT_SECONDS = 20
 RSYNC_CANDIDATES = ("/opt/homebrew/bin/rsync", "/usr/local/bin/rsync")
 MAX_LOG_BYTES = 1_000_000
 UUID_PATTERN = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
 
 DEFAULT_HOME = "~/.claude"
-DEFAULT_REMOTE = "devbox"
 DEFAULT_REMOTE_HOME = "/home/opencode/.claude"
 DEFAULT_WORKSPACE_REPO = "~/Projects/private/opencode"
 DEFAULT_REMOTE_WORKSPACE = "/workspace"
@@ -61,9 +62,8 @@ def local_home() -> Path:
 
 
 def remote_base() -> str:
-    remote = os.environ.get("CLAUDE_SYNC_REMOTE", DEFAULT_REMOTE)
     home = os.environ.get("CLAUDE_SYNC_REMOTE_HOME", DEFAULT_REMOTE_HOME)
-    return f"{remote}:{home.rstrip('/')}"
+    return f"{devbox_ssh.remote()}:{home.rstrip('/')}"
 
 
 def workspace_repo() -> Path:
@@ -71,9 +71,8 @@ def workspace_repo() -> Path:
 
 
 def remote_workspace() -> str:
-    remote = os.environ.get("CLAUDE_SYNC_REMOTE", DEFAULT_REMOTE)
     path = os.environ.get("CLAUDE_SYNC_REMOTE_WORKSPACE", DEFAULT_REMOTE_WORKSPACE)
-    return f"{remote}:{path.rstrip('/')}"
+    return f"{devbox_ssh.remote()}:{path.rstrip('/')}"
 
 
 def log(home: Path, message: str) -> None:
@@ -87,16 +86,25 @@ def log(home: Path, message: str) -> None:
         pass
 
 
-def find_live_sessions(home: Path) -> list[str]:
-    live = set()
-    for entry in sorted((home / "sessions").glob("*.json")):
+def sessions_in(folder: Path) -> set[str]:
+    """Claude Code's state files, one per running process, each naming the session it shows."""
+    found = set()
+    for entry in sorted(folder.glob("*.json")):
         try:
-            record = json.loads(entry.read_text())
+            session_id = json.loads(entry.read_text()).get("sessionId")
         except (OSError, ValueError):
             continue
-        session_id = record.get("sessionId")
-        if record.get("status") == "running" and isinstance(session_id, str):
-            live.add(session_id)
+        if isinstance(session_id, str):
+            found.add(session_id)
+    return found
+
+
+def find_live_sessions(registry: Path) -> list[str]:
+    """Each running cl gives its Claude a folder of its own and holds its record; a dead run's record nobody holds."""
+    live = set()
+    for _path, record in session_registry.running(registry):
+        if record.claude_sessions is not None:
+            live |= sessions_in(record.claude_sessions)
     return sorted(live)
 
 
@@ -385,7 +393,7 @@ def hold_lock(home: Path):
 
 def wrong_host() -> bool:
     """devbox_key and the tailnet route live on the Mac; in the container the default remote can only fail confusingly."""
-    return Path("/.dockerenv").exists() and "CLAUDE_SYNC_REMOTE" not in os.environ
+    return Path("/.dockerenv").exists() and devbox_ssh.REMOTE_ENV not in os.environ
 
 
 def announce(message: str) -> None:
@@ -420,7 +428,7 @@ def main(argv: list[str]) -> int:
         failures = transfer(home, session_transfers(home, session), args.verbose)
         return report(failures + mirror_to_devbox(home, args.verbose), "pushed session")
 
-    excludes = find_live_sessions(home)
+    excludes = find_live_sessions(session_registry.REGISTRY_DIR)
     failures = 0
     if not args.pull:
         failures += transfer(home, full_transfers(home, pull=False, excludes=excludes), args.verbose)

@@ -1,6 +1,10 @@
+import contextlib
 import fcntl
 import json
+from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
@@ -44,24 +48,54 @@ def rsync_log(tmp_path):
 
 
 @pytest.fixture
-def sync(run_cli, claude_home, rsync_log):
+def state_home(tmp_path):
+    """The script's HOME, under which cl keeps one record per run."""
+    return tmp_path / "home"
+
+
+@pytest.fixture
+def start_run(load_module, state_home):
+    """A cl run as cl leaves it: a record naming the run's own folder, which holds Claude's state file."""
+    registry = load_module("session_registry")
+
+    def _start(session_id, status="busy"):
+        run_dir = state_home / ".local/state/cl/claude-sessions" / uuid4().hex
+        run_dir.mkdir(parents=True)
+        (run_dir / "1.json").write_text(json.dumps({"pid": 1, "sessionId": session_id, "status": status}))
+        record = state_home / ".local/state/cl/sessions" / f"{uuid4()}.json"
+        record.parent.mkdir(parents=True, exist_ok=True)
+        started = datetime.now(timezone.utc)
+        record.write_text(registry.SessionRecord(None, state_home, (), None, started, claude_sessions=run_dir).to_json())
+        return record
+    return _start
+
+
+@contextlib.contextmanager
+def holding(records):
+    """A running cl keeps its record locked; the kernel drops the lock however cl dies."""
+    with contextlib.ExitStack() as stack:
+        for record in records:
+            fcntl.flock(stack.enter_context(record.open("r")), fcntl.LOCK_EX)
+        yield
+
+
+@pytest.fixture
+def sync(run_cli, claude_home, rsync_log, state_home, start_run):
     def _run(args=None, stdin=None, live=(), rsync_exit=0):
-        for pid, sid in enumerate(live, start=1):
-            (claude_home / "sessions" / f"{pid}.json").write_text(
-                json.dumps({"pid": pid, "sessionId": sid, "status": "running"})
+        with holding([start_run(session) for session in live]):
+            return run_cli(
+                "claude-sync",
+                args=args or [],
+                stdin=stdin,
+                env_extra={
+                    "HOME": str(state_home),
+                    "CLAUDE_HOME": str(claude_home),
+                    "CLAUDE_SYNC_REMOTE": "opencode@devbox.example.ts.net",
+                    "CLAUDE_SYNC_REMOTE_HOME": "/home/opencode/.claude",
+                    "RSYNC_LOG": str(rsync_log),
+                },
+                mock_bins={"rsync": f"{CAPTURE}\nexit {rsync_exit}"},
             )
-        return run_cli(
-            "claude-sync",
-            args=args or [],
-            stdin=stdin,
-            env_extra={
-                "CLAUDE_HOME": str(claude_home),
-                "CLAUDE_SYNC_REMOTE": "opencode@devbox.example.ts.net",
-                "CLAUDE_SYNC_REMOTE_HOME": "/home/opencode/.claude",
-                "RSYNC_LOG": str(rsync_log),
-            },
-            mock_bins={"rsync": f"{CAPTURE}\nexit {rsync_exit}"},
-        )
     return _run
 
 
@@ -271,10 +305,21 @@ class TestSafety:
 
         assert all("--exclude=" not in i for i in invocations(rsync_log))
 
-    def should_ignore_a_session_entry_that_is_not_running(self, sync, claude_home, rsync_log):
-        (claude_home / "sessions" / "9.json").write_text(
-            json.dumps({"pid": 9, "sessionId": UUID_B, "status": "exited"})
-        )
+    def should_count_an_idle_session_as_live(self, sync, start_run, rsync_log):
+        with holding([start_run(UUID_A, status="idle")]):
+            sync(["--push"])
+
+        assert f"--exclude={UUID_A}*" in invocations(rsync_log)[0]
+
+    def should_ignore_the_state_file_a_dead_run_left_behind(self, sync, start_run, rsync_log):
+        start_run(UUID_B)
+
+        sync(["--push"])
+
+        assert all(UUID_B not in i for i in invocations(rsync_log))
+
+    def should_ignore_a_state_file_in_the_shared_sessions_folder(self, sync, claude_home, rsync_log):
+        (claude_home / "sessions" / "1.json").write_text(json.dumps({"pid": 1, "sessionId": UUID_B, "status": "busy"}))
 
         sync(["--push"])
 
@@ -287,12 +332,15 @@ class TestFailureIsNeverFatal:
 
         assert result.returncode == 0
 
-    def should_exit_zero_when_the_sessions_dir_is_missing(self, sync, claude_home):
-        for entry in (claude_home / "sessions").iterdir():
-            entry.unlink()
-        (claude_home / "sessions").rmdir()
+    def should_skip_a_state_file_it_cannot_read(self, sync, start_run, rsync_log):
+        record = start_run(UUID_A)
+        (Path(json.loads(record.read_text())["claudeSessions"]) / "1.json").write_text("{not json")
 
-        assert sync(["--push"]).returncode == 0
+        with holding([record]):
+            result = sync(["--push"])
+
+        assert result.returncode == 0
+        assert all("--exclude=" not in i for i in invocations(rsync_log))
 
     def should_skip_silently_when_another_run_holds_the_lock(self, sync, claude_home, rsync_log):
         lock = claude_home / "claude-sync.lock"
@@ -373,6 +421,99 @@ class TestRemoteDefaults:
 
     def should_not_request_a_tty_for_a_binary_transfer(self, script):
         assert "RequestTTY=no" in script.SSH_COMMAND
+
+
+SSH_E = ("ssh -o BatchMode=yes -o ConnectTimeout=5 -o RequestTTY=no"
+         " -o ControlMaster=auto -o ControlPath=~/.ssh/claude-sync-%C -o ControlPersist=60")
+BOX = "devbox:/home/opencode/.claude"
+
+
+class Ran:
+    returncode = 0
+    stdout = ""
+    stderr = ""
+
+
+class TestSshArgv:
+    """claude-move opens the same ssh control master, so none of these commands may drift."""
+
+    @pytest.fixture
+    def script(self, load_script, monkeypatch, claude_home, tmp_path):
+        for name in ("CLAUDE_SYNC_REMOTE", "CLAUDE_SYNC_REMOTE_HOME", "CLAUDE_SYNC_REMOTE_WORKSPACE"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("CLAUDE_HOME", str(claude_home))
+        (claude_home / "plugins" / "cache").mkdir(parents=True)
+        (claude_home / "plugins" / "installed_plugins.json").write_text("{}\n")
+        (claude_home / "settings.json").write_text('{"theme": "light"}\n')
+        script = load_script("claude-sync")
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        monkeypatch.setattr(script, "wrong_host", lambda: False)
+        monkeypatch.setattr(script, "find_live_sessions", lambda *_args: [])
+        monkeypatch.setattr(script, "tempfile",
+                            SimpleNamespace(TemporaryDirectory=lambda: contextlib.nullcontext(str(staging))))
+        return script
+
+    @pytest.fixture
+    def commands(self, script, monkeypatch):
+        calls = []
+        monkeypatch.setattr(script.subprocess, "run", lambda command, **_kwargs: calls.append(command) or Ran())
+
+        def _run(args):
+            script.main(args)
+            return calls
+        return _run
+
+    def should_push_with_the_shared_ssh_options(self, commands, claude_home, tmp_path):
+        staging = tmp_path / "staging"
+
+        sent = commands(["--push"])
+
+        assert sent == [
+            ["rsync", "--relative", "-a", "--update", "--timeout=20", "-e", SSH_E, f"{claude_home}/./projects/",
+             f"{claude_home}/./file-history/", f"{claude_home}/./tasks/", f"{claude_home}/./paste-cache/", f"{BOX}/"],
+            ["rsync", "--relative", "-a", "--delete", "--timeout=20", "-e", SSH_E, "--exclude=.in_use/",
+             f"{claude_home}/./plugins/installed_plugins.json", f"{claude_home}/./plugins/cache/", f"{BOX}/"],
+            ["rsync", "-a", "--delete", "--timeout=20", "-e", SSH_E, f"{BOX}/settings.json", f"{staging}/settings.json"],
+            ["rsync", "-a", "--delete", "--timeout=20", "-e", SSH_E, f"{staging}/settings.json", f"{BOX}/settings.json"],
+        ]
+
+    def should_pull_with_the_shared_ssh_options(self, commands, claude_home):
+        sent = commands(["--pull"])
+
+        assert sent == [
+            ["rsync", "-a", "--update", "--timeout=20", "-e", SSH_E, f"{BOX}/projects", f"{BOX}/file-history",
+             f"{BOX}/tasks", f"{BOX}/paste-cache", f"{claude_home}/"],
+        ]
+
+    def should_push_one_session_with_the_shared_ssh_options(self, commands, claude_home, tmp_path):
+        staging = tmp_path / "staging"
+
+        sent = commands(["--session", UUID_A])
+
+        assert sent == [
+            ["rsync", "--relative", "-a", "--update", "--timeout=20", "-e", SSH_E,
+             f"{claude_home}/./projects/-workspace/{UUID_A}.jsonl", f"{claude_home}/./paste-cache/", f"{BOX}/"],
+            ["rsync", "--relative", "-a", "--delete", "--timeout=20", "-e", SSH_E, "--exclude=.in_use/",
+             f"{claude_home}/./plugins/installed_plugins.json", f"{claude_home}/./plugins/cache/", f"{BOX}/"],
+            ["rsync", "-a", "--delete", "--timeout=20", "-e", SSH_E, f"{BOX}/settings.json", f"{staging}/settings.json"],
+            ["rsync", "-a", "--delete", "--timeout=20", "-e", SSH_E, f"{staging}/settings.json", f"{BOX}/settings.json"],
+        ]
+
+    def should_mirror_the_workspace_with_the_shared_ssh_options(self, script, tmp_path):
+        staging = tmp_path / "staging"
+        (staging / "CLAUDE.md").write_text("instructions\n")
+        excludes = [f"--exclude=/{pattern}" for pattern in script.LEFT_OUT + script.DEVBOX_STATE]
+
+        sent = script.mirror_transfers(staging)
+
+        assert sent == [["rsync", "--relative", "-a", "--delete", "--timeout=20", "-e", SSH_E, *excludes,
+                         f"{staging}/./CLAUDE.md", "devbox:/workspace/"]]
+
+    def should_take_a_remote_from_the_environment_as_a_sign_of_the_right_host(self, load_script, monkeypatch):
+        monkeypatch.setenv("CLAUDE_SYNC_REMOTE", "opencode@box.example")
+
+        assert load_script("claude-sync").wrong_host() is False
 
 
 class TestVisibility:

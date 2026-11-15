@@ -28,6 +28,7 @@ from pathlib import Path, PurePosixPath
 from typing import Final
 from uuid import UUID
 
+import devbox_ssh
 import scriptlog
 import session_move
 import session_registry
@@ -39,12 +40,7 @@ CLAUDE_NOTIFY: Final = BIN / "claude-notify"
 PICKER: Final = BIN / "picker"
 LOG: Final = Path.home() / ".claude" / "claude-move.log"
 TRANSCRIPTS: Final = Path.home() / ".claude" / "projects" / "-workspace"
-DEFAULT_REMOTE: Final = "devbox"
 REMOTE_SCRIPT: Final = "/home/opencode/dotfiles/bin/claude-move"
-SSH_OPTIONS: Final = (
-    "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "RequestTTY=no",
-    "-o", "ControlMaster=auto", "-o", "ControlPath=~/.ssh/claude-sync-%C", "-o", "ControlPersist=60",
-)
 TOOL_DIRS: Final = ("/opt/homebrew/bin", "/usr/local/bin", str(Path.home() / ".docker" / "bin"))
 BOX_TMUX_SESSION: Final = session_registry.FALLBACK_TMUX_SESSION
 BOX_WORKSPACE: Final = Path("/workspace")
@@ -192,7 +188,7 @@ class Box:
 
     def call(self, args: Sequence[str], stdin: bytes = b"") -> subprocess.CompletedProcess[bytes]:
         command = shlex.join([REMOTE_SCRIPT, "box", *args])
-        return subprocess.run(["ssh", *SSH_OPTIONS, self.host, command], input=stdin, capture_output=True,
+        return subprocess.run(["ssh", *devbox_ssh.SSH_OPTIONS, self.host, command], input=stdin, capture_output=True,
                               timeout=COMMAND_TIMEOUT.total_seconds())
 
     def checked(self, args: Sequence[str], stdin: bytes = b"") -> bytes:
@@ -205,7 +201,7 @@ class Box:
     def push(self, top: Path, sha: str, checkout: str, ref: str) -> None:
         """Straight into the box's checkout, never through GitHub or GitLab."""
         session_move.git(top, "push", "-q", f"{self.host}:{checkout}", f"{sha}:{ref}",
-                         env={"GIT_SSH_COMMAND": shlex.join(["ssh", *SSH_OPTIONS])})
+                         env={"GIT_SSH_COMMAND": shlex.join(["ssh", *devbox_ssh.SSH_OPTIONS])})
 
 
 def mounted(mounts: Sequence[session_registry.Mount]) -> tuple[list[MountedRepo], list[str]]:
@@ -361,7 +357,7 @@ def detach(session: UUID) -> int:
 
 def run(args: argparse.Namespace) -> int:
     session = pick(args.session)
-    box = Box(os.environ.get("CLAUDE_SYNC_REMOTE", DEFAULT_REMOTE))
+    box = Box(devbox_ssh.remote())
     preparation = prepare(session, box)
     if args.dry_run:
         show(preparation)

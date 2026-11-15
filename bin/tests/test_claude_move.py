@@ -597,3 +597,48 @@ def should_refuse_the_mac_half_anywhere_but_on_a_mac(run_cli):
 
     assert result.returncode == 2
     assert "runs on the Mac" in result.stderr
+
+
+SSH_ARGV = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "RequestTTY=no", "-o", "ControlMaster=auto",
+            "-o", "ControlPath=~/.ssh/claude-sync-%C", "-o", "ControlPersist=60"]
+
+
+class TestSshArgv:
+    """claude-sync opens the same control master, so these options must not drift."""
+
+    def should_call_the_box_half_over_the_shared_ssh_options(self, cli, monkeypatch):
+        calls = []
+        monkeypatch.setattr(cli.subprocess, "run", lambda command, **_kwargs: calls.append(command))
+
+        cli.Box("devbox").call(["scratchpad", str(SESSION)], b"tar")
+
+        assert calls == [[*SSH_ARGV, "devbox", f"/home/opencode/dotfiles/bin/claude-move box scratchpad {SESSION}"]]
+
+    def should_push_a_snapshot_over_the_shared_ssh_options(self, cli, monkeypatch, tmp_path):
+        pushes = []
+        monkeypatch.setattr(cli.session_move, "git",
+                            lambda directory, *args, env=None: pushes.append((directory, args, env)))
+
+        cli.Box("devbox").push(tmp_path, "c0ffee", "/home/opencode/Projects/private/foo", "refs/moves/x/0")
+
+        assert pushes == [(tmp_path, ("push", "-q", "devbox:/home/opencode/Projects/private/foo", "c0ffee:refs/moves/x/0"),
+                           {"GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o ConnectTimeout=5 -o RequestTTY=no"
+                                               " -o ControlMaster=auto -o 'ControlPath=~/.ssh/claude-sync-%C'"
+                                               " -o ControlPersist=60"})]
+
+    @pytest.mark.parametrize("remote, expected", [(None, "devbox"), ("opencode@box.example", "opencode@box.example")],
+                             ids=["default", "from-environment"])
+    def should_reach_the_box_named_by_claude_sync_remote(self, cli, registry, monkeypatch, tmp_path, remote, expected):
+        if remote is None:
+            monkeypatch.delenv("CLAUDE_SYNC_REMOTE", raising=False)
+        else:
+            monkeypatch.setenv("CLAUDE_SYNC_REMOTE", remote)
+        record = registry.SessionRecord(SESSION, tmp_path, (), "work", MOVED_AT, tmux_pane="%7")
+        hosts = []
+        monkeypatch.setattr(cli, "pick", lambda _wanted: cli.LiveSession(tmp_path / "live.json", record))
+        monkeypatch.setattr(cli, "prepare", lambda _session, box: hosts.append(box.host))
+        monkeypatch.setattr(cli, "show", lambda _preparation: None)
+
+        cli.run(SimpleNamespace(session=SESSION, dry_run=True))
+
+        assert hosts == [expected]
