@@ -79,7 +79,7 @@
         ]
       },
       {
-        "matcher": "Bash|WebFetch",
+        "matcher": "Bash|Monitor|WebFetch",
         "hooks": [
           {
             "type": "command",
