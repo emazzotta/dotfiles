@@ -329,16 +329,20 @@ class TestExternalLists:
         assert candidates == ["disk4s1", "disk4s2"]
 
 
+def write_ssh_config(home):
+    ssh = home / ".ssh"
+    (ssh / "config.d").mkdir(parents=True)
+    (ssh / "config").write_text("Include ~/.ssh/config.d/*.conf\n"
+                                "Host dev devserver\n  HostName 10.0.0.1\nHost 10.0.0.*\n")
+    (ssh / "config.d" / "extra.conf").write_text("Host nas\n")
+
+
 class TestDockerScripts:
     @pytest.fixture(autouse=True)
     def containers(self, mock, home):
         mock("docker", "printf '%s\\n' web db")
         mock("docker-exec", 'echo "Usage: docker-exec [-s SERVER] [-c CONTAINER] [CONTAINER]"')
-        ssh = home / ".ssh"
-        (ssh / "config.d").mkdir(parents=True)
-        (ssh / "config").write_text("Include ~/.ssh/config.d/*.conf\n"
-                                    "Host dev devserver\n  HostName 10.0.0.1\nHost 10.0.0.*\n")
-        (ssh / "config.d" / "extra.conf").write_text("Host nas\n")
+        write_ssh_config(home)
 
     def should_offer_running_containers_as_the_first_word(self, complete):
         candidates = complete("_docker_script", "docker-exec", "")
@@ -369,6 +373,30 @@ class TestDockerScripts:
         candidates = complete("_docker_script", "docker-exec", "-")
 
         assert sorted(candidates) == ["-c", "-s"]
+
+
+class TestDockerCp:
+    @pytest.fixture(autouse=True)
+    def containers(self, mock, home):
+        mock("docker", "printf '%s\\n' web db")
+        mock("docker-cp", f'exec "{BIN_DIR / "docker-cp"}" "$@"')
+        write_ssh_config(home)
+
+    def should_offer_the_flags_the_help_lists(self, complete):
+        candidates = complete("_dcp", "docker-cp", "-")
+
+        assert sorted(candidates) == ["--force", "--help", "--no-clobber", "--server", "-c", "-f", "-h", "-n", "-s"]
+
+    @pytest.mark.parametrize("flag", ["-s", "--server"])
+    def should_offer_the_ssh_hosts_after_the_server_flag(self, complete, flag):
+        candidates = complete("_dcp", "docker-cp", flag, "")
+
+        assert candidates == ["dev", "devserver", "nas"]
+
+    def should_offer_the_running_containers_after_the_container_flag(self, complete):
+        candidates = complete("_dcp", "docker-cp", "-c", "")
+
+        assert sorted(candidates) == ["db", "web"]
 
 
 class TestFileserver:
@@ -431,6 +459,13 @@ class TestRegistrations:
 
         assert registered
         assert [name for name in registered if not os.access(BIN_DIR / name, os.X_OK)] == []
+
+    def should_register_the_repo_completion_only_for_commands_that_exist(self, tmp_path, commands):
+        specs = run_bash("complete -p", tmp_path, commands).splitlines()
+
+        registered = sorted(spec.split()[-1] for spec in specs if " -F _repo " in spec)
+
+        assert registered == ["g", "repo"]
 
     def should_leave_the_native_sudo_completion_alone(self, tmp_path, commands):
         specs = run_bash("complete -p", tmp_path, commands).splitlines()

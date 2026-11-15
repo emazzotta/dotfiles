@@ -9,7 +9,6 @@ Personal dotfiles for macOS, also mounted into a Linux dev container. **This rep
 | Caller | `python3` resolves to |
 |---|---|
 | Interactive shell | homebrew / active venv - current |
-| `cron/` (its PATH has no `/opt/homebrew/bin`) | `/usr/bin/python3` on Apple Silicon - **macOS ships 3.9** |
 | `bin/tests` with `isolate_path=True` | `/usr/bin/python3` - that fixture *replaces* PATH, so the active venv is gone |
 
 So Python in `bin/` targets **3.9**, whatever you happen to run locally:

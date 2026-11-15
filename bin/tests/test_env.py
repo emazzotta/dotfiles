@@ -7,6 +7,8 @@ import pytest
 from bin.tests.conftest import BIN_DIR, requires_tool
 
 ENV_FILE = BIN_DIR.parent / "bash" / ".bashrc.d" / "00-env.sh"
+ZSHRC = BIN_DIR.parent / "zsh" / ".zshrc"
+BASH_PROFILE = BIN_DIR.parent / "bash" / ".bash_profile"
 SHELLS = {"bash": ["bash", "--norc"], "zsh": ["zsh", "-f"]}
 PANE = "%171"
 UNRELATED_PROCESS_SECONDS = "60"
@@ -75,3 +77,80 @@ class TestEnv:
                                     TMUX=tmux_value(unrelated_server), TMUX_PANE=PANE)
 
         assert tmux_vars == [tmux_value(unrelated_server), PANE]
+
+
+class TestStartupFilePath:
+    @pytest.fixture
+    def home(self, tmp_path):
+        directory = tmp_path / "home"
+        directory.mkdir()
+        (directory / ".bashrc").write_text(f'. "{ENV_FILE}"\n')
+        return directory
+
+    def path_entries(self, command, home):
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
+        result = subprocess.run(command, capture_output=True, text=True, env=env)
+        return result.stdout.split()
+
+    @requires_tool("zsh")
+    def should_keep_the_custom_bin_dir_ahead_of_the_yarn_dirs_in_zsh(self, home):
+        command = [shutil.which("zsh"), "-f", "-c",
+                   f'source "{ZSHRC}" 2>/dev/null; print -rl -- ${{(s.:.)PATH}}']
+
+        entries = self.path_entries(command, home)
+
+        assert entries.index(f"{home}/dotfiles/bin") < entries.index(f"{home}/.yarn/bin")
+
+    def should_add_the_docker_bin_dir_only_once_in_a_login_shell(self, home):
+        command = [shutil.which("bash"), "--norc", "-c",
+                   f'. "{BASH_PROFILE}"; echo "$PATH" | tr : "\\n"']
+
+        entries = self.path_entries(command, home)
+
+        assert [entry for entry in entries if entry.endswith("/.docker/bin")] == [f"{home}/.docker/bin"]
+
+
+class TestCmakeMakeProgram:
+    @pytest.fixture
+    def tools(self, tmp_path):
+        directory = tmp_path / "tools"
+        directory.mkdir()
+        return directory
+
+    @pytest.fixture
+    def which_calls(self, tools, tmp_path):
+        log = tmp_path / "which.log"
+        which = tools / "which"
+        which.write_text(f'#!/bin/bash\necho "$*" >> "{log}"\n')
+        which.chmod(0o755)
+        return log
+
+    @pytest.fixture
+    def exported(self, shell, tools, tmp_path):
+        script = (f'OSTYPE=darwin24\n. "{ENV_FILE}"\n'
+                  '/bin/sh -c \'printf "%s" "${CMAKE_MAKE_PROGRAM-unset}"\'')
+
+        def _exported():
+            result = subprocess.run([*shell, "-c", script], capture_output=True, text=True,
+                                    env={"HOME": str(tmp_path), "PATH": str(tools)})
+            assert result.returncode == 0, result.stderr
+            return result.stdout
+        return _exported
+
+    def should_stay_unset_without_ninja(self, exported):
+        assert exported() == "unset"
+
+    def should_export_the_path_of_ninja(self, exported, tools):
+        ninja = tools / "ninja"
+        ninja.write_text("#!/bin/bash\n")
+        ninja.chmod(0o755)
+
+        assert exported() == str(ninja)
+
+    def should_not_start_which(self, exported, which_calls, tools):
+        (tools / "ninja").write_text("#!/bin/bash\n")
+        (tools / "ninja").chmod(0o755)
+
+        exported()
+
+        assert not which_calls.exists()

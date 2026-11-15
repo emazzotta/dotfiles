@@ -54,7 +54,7 @@ alias isotoutf='iconv -f iso-8859-1 -t utf-8'
 alias bom='echo -ne "\xEF\xBB\xBF"'
 
 ### FORMATTING ###
-alias autoc='find . -iname *.h -o -iname *.c -o -iname *.cpp | xargs clang-format -style=file -i'
+alias autoc='find . -iname "*.h" -o -iname "*.c" -o -iname "*.cpp" | xargs clang-format -style=file -i'
 
 ### SHORTCUTS ###
 alias claude='cl'
@@ -82,7 +82,6 @@ alias crl='crontab -l'
 alias cronlist='crontab -l'
 
 ### YARN / NODE ###
-alias y='yarn'
 alias wscat='npx wscat'
 
 ### DOWNLOADS / ARCHIVES ###

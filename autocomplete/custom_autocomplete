@@ -382,13 +382,17 @@ _dcp()
   prev="${COMP_WORDS[COMP_CWORD-1]}"
   realword="$(_dcp_realword)"
 
+  case "$prev" in
+    -s|--server) _reply_matching < <(_ssh_config_hosts); return 0 ;;
+  esac
+
   if [[ "$prev" == "-c" ]]; then
     COMPREPLY=($(compgen -W "$(_dcp_running_containers)" -- "$cur"))
     return 0
   fi
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=($(compgen -W "-c -f --force -n --no-clobber -h --help" -- "$cur"))
+    _complete_help docker-cp
     return 0
   fi
 
@@ -795,7 +799,7 @@ complete -o nospace -F _agrep agrep
 complete -o nospace -F _kubeconf kubeconf
 complete -o nospace -F _bundleid bundleid
 complete -o nospace -F _ef ef
-complete -o nospace -F _repo g repo c
+complete -o nospace -F _repo g repo
 complete -o default -F _cl cl
 complete -o default -F _captions captions
 complete -o default -F _ags ags

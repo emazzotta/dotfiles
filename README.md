@@ -6,12 +6,9 @@ This is a collection of my dotfiles.
 
 ## Install
 
+The repository must live at `~/dotfiles`: the shell startup files and `PATH` read it from there. A fresh Mac needs the Xcode command line tools for `git` (`xcode-select --install`).
+
 ```bash
-cd ${HOME}/Desktop && \
-  curl -fSsL https://github.com/emazzotta/dotfiles/archive/master.zip > master.zip && \
-  unzip master.zip && \
-  rm -rf master.zip && \
-  mv dotfiles-master dotfiles && \
-  cd dotfiles && \
-  ./setup
+git clone https://github.com/emazzotta/dotfiles.git "${HOME}/dotfiles" && \
+  "${HOME}/dotfiles/setup"
 ```

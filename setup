@@ -3,6 +3,7 @@
 set -e
 
 cd "$(dirname "$0")"
+export DOTFILESPATH="$PWD"
 
 echo() { printf "\n\033[36m%s\033[0m\n" "$*"; }
 
@@ -24,7 +25,8 @@ run_if_exists() {
 run_command_if_file_exists() {
     local file="$1"
     shift
-    [[ -e "$file" ]] && "$@"
+    [[ -e "$file" ]] || return 0
+    "$@"
 }
 
 OS="$(uname -s)"
@@ -33,7 +35,7 @@ IS_MAC=false
 
 if $IS_MAC; then
   sudo -v
-  while true; do sudo -n true; sleep 60; kill -0 "$" || exit; done 2>/dev/null &
+  while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
 
   echo "Installing core tools"
   sudo xcode-select --install 2>/dev/null || true
@@ -47,8 +49,11 @@ if $IS_MAC; then
   run_command_if_file_exists "./brew/Brewfile" brew bundle --file=./brew/Brewfile
   run_command_if_file_exists "./brew/mixed-in-key.rb" brew install --cask ./brew/mixed-in-key.rb
   run_command_if_file_exists "/Applications/KeeWeb.app" sudo chown -R root /Applications/KeeWeb.app
-  [[ ! -f "$HOME/.ssh/id_rsa.pub" ]] && run_command_if_file_exists "$HOME/.ssh/id_rsa" ssh-keygen -y -f $HOME/.ssh/id_rsa > $HOME/.ssh/id_rsa.pub
-  [[ ! -f "$DOTFILESPATH/maven/.m2/settings.xml" ]] && envify SIGNING_PASSWORD NEXUS_PASSWORD && envsubst < "$DOTFILESPATH/maven/.m2/settings.template.xml" > "$DOTFILESPATH/maven/.m2/settings.xml"
+  if [[ ! -f "$HOME/.ssh/id_rsa.pub" && -e "$HOME/.ssh/id_rsa" ]]; then
+    ssh-keygen -y -f "$HOME/.ssh/id_rsa" > "$HOME/.ssh/id_rsa.pub"
+  fi
+  # shellcheck source=/dev/null
+  [[ ! -f "$DOTFILESPATH/maven/.m2/settings.xml" ]] && source "$DOTFILESPATH/bin/envify" SIGNING_PASSWORD NEXUS_PASSWORD REPOSILITE_TOKEN && envsubst < "$DOTFILESPATH/maven/.m2/settings.template.xml" > "$DOTFILESPATH/maven/.m2/settings.xml"
 
   echo "Applying settings"
   run_if_exists ./.macos
@@ -60,7 +65,7 @@ if $IS_MAC; then
   sudo ln -sf /opt/homebrew/bin/pip3 /usr/local/bin/pip
   sudo ln -sf /opt/homebrew/bin/pip3 /usr/local/bin/pip3
 
-  run_command_if_file_exists "$HOME/Projects/private/dotfiles" ln -sf "$HOME/Projects/private/dotfiles" "$HOME/dotfiles"
+  run_command_if_file_exists "$HOME/Projects/private/dotfiles" ln -sfn "$HOME/Projects/private/dotfiles" "$HOME/dotfiles"
 else
   ln -sf /usr/bin/python3 /usr/local/bin/python
 fi

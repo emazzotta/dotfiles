@@ -43,7 +43,10 @@ if [ "$DOTFILES_OS" = "macos" ]; then
     export GCC_VERSION="15"
     export CC="/opt/homebrew/bin/gcc-$GCC_VERSION"
     export CXX="/opt/homebrew/bin/g++-$GCC_VERSION"
-    export CMAKE_MAKE_PROGRAM="$(which ninja)"
+    if command -v ninja >/dev/null 2>&1; then
+        CMAKE_MAKE_PROGRAM="$(command -v ninja)"
+        export CMAKE_MAKE_PROGRAM
+    fi
 else
     export CC="gcc"
     export CXX="g++"
@@ -70,7 +73,6 @@ export PRIVATECOMMITSDIR="$PRIVATE_PROJECTS/private-commits"
 export RECOMMENDED_READINGS="$MARKDOWNDIR/recommended_readings.md"
 export VENV_PATH="$HOME/.venv"
 export VENV_PYTHON_3="$VENV_PATH/python-3-venv"
-export VIM_PLUGINS_DIR="$HOME/.vim_runtime/my_plugins"
 export VIM_RUNTIME_DIR="$HOME/.vim_runtime"
 
 ### EDITOR ###
@@ -111,7 +113,6 @@ export KEYGUARD_SECRETS_FILE="$DOCUMENTDIR/Keepass/keyguard.enc"
 export KEYGUARD_STORE_URL="https://unlock.asymptote-bass.ts.net"
 export SDKMAN_DIR="$HOME/.sdkman"
 if [ "$DOTFILES_OS" = "macos" ]; then
-    export BREW_CASK_IGNORELIST="mixed-in-key\\|my-cask-to-pin"
     export HOMEBREW_CASK_OPTS="--appdir=/Applications"
     export HOMEBREW_NO_ASK=1
     export POSH_THEMES_PATH="/opt/homebrew/opt/oh-my-posh/themes"

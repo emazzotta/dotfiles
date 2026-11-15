@@ -27,7 +27,7 @@ EOF
                 for f in "$rcd"/[0-9]*.sh; do
                     [ -r "$f" ] || continue
                     printf '\n\033[1;36m=== %s ===\033[0m\n' "$(basename "$f")"
-                    grep -E '^(alias |export |[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(\))' "$f"
+                    grep -E '^(alias |export |function |[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(\))' "$f"
                 done
             } | less -FRX
             return 0
@@ -67,7 +67,7 @@ EOF
             local esc
             esc=$(printf '%s' "$name" | sed 's/[][\.*^$+?(){}|/]/\\&/g')
             local hit
-            hit=$(grep -HnE "^(alias ${esc}=|export ${esc}=|${esc}[[:space:]]*\(\))" \
+            hit=$(grep -HnE "^(alias ${esc}=|export ${esc}=|function[[:space:]]+${esc}([[:space:]]|\(|\$)|${esc}[[:space:]]*\(\))" \
                 "$rcd"/[0-9]*.sh 2>/dev/null | head -1)
             if [ -z "$hit" ]; then
                 printf 'no definition for: %s\n' "$name" >&2

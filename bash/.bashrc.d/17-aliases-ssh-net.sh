@@ -18,4 +18,6 @@ alias spub='find $HOME/.ssh/ -name "id_*.pub" | while read file;do echo "$file:"
 alias killgpg='killall ssh-agent gpg-agent;gpgconf --kill all'
 
 ### NET ###
-alias ping='prettyping --nolegend'
+if command -v prettyping >/dev/null 2>&1; then
+    alias ping='prettyping --nolegend'
+fi

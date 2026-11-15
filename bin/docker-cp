@@ -12,6 +12,14 @@ Usage: $(basename "$0") [-s SERVER] [-c CONTAINER] [-f|-n] SRC [SRC...] DEST
 
 Copy files between the host and a running Docker container.
 
+Options:
+  -s, --server SERVER   use the docker daemon on SERVER, reached via ssh
+                        (the name must resolve through ~/.ssh/config or DNS)
+  -c CONTAINER          container name or id that ':/path' refers to
+  -f, --force           overwrite an existing target without asking
+  -n, --no-clobber      skip a target that exists (default: ask)
+  -h, --help            show this help
+
 Use a leading colon on the container side to refer to the auto/selected
 container: ':/path/in/container'. Or pass an explicit 'name:/path' form
 to bypass selection (same as raw 'docker cp'). A container id works
@@ -26,14 +34,6 @@ Globs:
   In zsh, quote them so the host shell doesn't try to match locally:
       $(basename "$0") ':/tmp/claude*' .
   Host-side globs are expanded by your shell before invocation.
-
-Overwrite handling:
-  Default is to ask before overwriting an existing target.
-    -f, --force        overwrite without asking
-    -n, --no-clobber   skip if target exists
-
-With -s/--server, the docker daemon on that host (resolved via ssh) is
-used. The server name must resolve through ~/.ssh/config or DNS.
 
 Examples:
   $(basename "$0") ./local.txt :/tmp/                     # host -> container

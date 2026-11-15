@@ -1,6 +1,5 @@
 #!/bin/bash
 ### COMPOSE / CORE ###
-alias dc='docker-compose'
 alias dps='docker ps'
 alias dexe='docker-exec'
 alias din='docker-inspect'

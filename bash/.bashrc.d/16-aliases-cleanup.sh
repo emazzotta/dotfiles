@@ -7,10 +7,10 @@ alias find_duplicate='find . -type f -maxdepth 4 -exec basename {} \; | sort -rn
 ### PROJECT TRASH ###
 alias jc='find . -name "build" -or -name "out" -or -name "generated" | xargs -I {} rm -rf {}'
 alias rm_node_modules='find "$(pwd)" -type d -name "node_modules" -exec rm -rf {} \;'
-alias rmpy="find . -type f -name '*.pyc' -o -name '.cache' -o -name 'target' -o -name '.coverage' -o -name '__pycache__' -delete"
+alias rmpy="find . \( -name '*.pyc' -o -name '.cache' -o -name 'target' -o -name '.coverage' -o -name '__pycache__' \) -prune -exec rm -rf {} +"
 alias rmlog="find . -type f -name '*.log' -delete"
 alias rmds="find . -type f -name '.DS_Store*' -delete"
-alias rmwin="find . -type f -name 'Thumbs.db' -or -name 'desktop.ini' -or -name '$RECYCLE.BIN' -delete"
+alias rmwin="find . \( -name 'Thumbs.db' -o -name 'desktop.ini' -o -name '\$RECYCLE.BIN' \) -prune -exec rm -rf {} +"
 alias rmzero='find . -size 0 | xargs rm'
 alias rr='rm -rf'
 

@@ -3,10 +3,10 @@ name: test
 on:
   push:
     branches: [master]
-    paths: ["bin/**", "python/**", ".github/workflows/test.yml"]
+    paths: ["bin/**", "python/**", "bash/**", "autocomplete/**", "zsh/.zshrc", "git/.global_gitignore", "pytest.ini", ".github/workflows/test.yml"]
   pull_request:
     branches: [master]
-    paths: ["bin/**", "python/**", ".github/workflows/test.yml"]
+    paths: ["bin/**", "python/**", "bash/**", "autocomplete/**", "zsh/.zshrc", "git/.global_gitignore", "pytest.ini", ".github/workflows/test.yml"]
 
 jobs:
   test:

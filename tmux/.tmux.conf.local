@@ -274,7 +274,6 @@ bind -n M-Down select-pane -D
 set -g base-index 1
 set -g set-titles on
 set -g display-time 400
-set -s escape-time 10
 set -g default-terminal screen-256color
 set -g status-keys vi
 set -g history-limit 10000
