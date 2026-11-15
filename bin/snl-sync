@@ -17,7 +17,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Final, Iterator, Optional, Protocol
 
-from envify import load_env, store_param
+from envify import EnvifyError, load_env_via_shell, store_param
 import scriptlog as logger
 
 try:
@@ -374,9 +374,16 @@ def require_package(module: Any, name: str) -> None:
         raise SyncError(f"python package '{name}' missing: uv pip install {name}")
 
 
+def load_env_via_envify(keys: tuple[str, ...]) -> None:
+    try:
+        load_env_via_shell(keys)
+    except EnvifyError as error:
+        raise SyncError(str(error).strip() or "envify failed with no output") from error
+
+
 def login() -> int:
     require_package(TelegramClient, "telethon")
-    load_env(TELEGRAM_APP_VARS)
+    load_env_via_envify(TELEGRAM_APP_VARS)
     store_param(TELEGRAM_SESSION_VAR, asyncio.run(_interactive_login()))
     logger.success(f"{TELEGRAM_SESSION_VAR} stored in keyguard")
     return 0
@@ -398,11 +405,11 @@ def _telegram_client(session: Any) -> Any:
 
 def _load_credentials(dry_run: bool) -> None:
     if dry_run:
-        load_env(SPOTIFY_VARS)
+        load_env_via_envify(SPOTIFY_VARS)
         return
     require_package(TelegramClient, "telethon")
     require_package(music_tag, "music_tag")
-    load_env(SPOTIFY_VARS + TELEGRAM_VARS)
+    load_env_via_envify(SPOTIFY_VARS + TELEGRAM_VARS)
 
 
 def sync(args: argparse.Namespace) -> int:

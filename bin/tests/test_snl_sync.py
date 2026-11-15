@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import os
 import re
 import struct
 import urllib.error
@@ -12,6 +13,7 @@ import pytest
 SCRIPT = "snl-sync"
 ANSI_CODE = re.compile(r"\x1b\[[0-9;]*m")
 BOT_USERNAME_LITERAL = re.compile(r'"[A-Za-z0-9]+[Bb]ot"')
+ENVIFY_REFUSES = "printf 'keyguard cancelled\\n' >&2\nreturn 1\n"
 FLAC_MAGIC = b"fLaC"
 LAST_STREAMINFO_BLOCK = bytes([0x80])
 STEREO_44K_16BIT = (44100 << 44) | (1 << 41) | (15 << 36)
@@ -58,6 +60,10 @@ def write_flac(path, artists, title):
     tags["artist"] = list(artists)
     tags["title"] = title
     tags.save()
+
+
+def refuse_network(*args, **kwargs):
+    raise OSError("network is off in tests")
 
 
 def make_track(snl, track_id="abc", name="Song", artists=("A", "B")):
@@ -499,7 +505,7 @@ class FakeTelegramClient:
 @pytest.fixture
 def cli(snl, tmp_path, monkeypatch):
     loaded = []
-    monkeypatch.setattr(snl, "load_env", lambda keys: loaded.append(keys))
+    monkeypatch.setattr(snl, "load_env_via_shell", lambda keys: loaded.append(keys))
     monkeypatch.setattr(snl, "mint_user_token", lambda *args, **kwargs: "tok")
     monkeypatch.setattr(snl, "SpotifyClient", FakeSpotify)
     monkeypatch.setattr(snl, "TelegramClient", FakeTelegramClient)
@@ -736,3 +742,46 @@ class TestCli:
         assert stored == [("TELEGRAM_SESSION", "SESSION-STRING")]
         assert FakeTelegramClient.started == [(123, "x")]
         assert cli.loaded == [cli.snl.TELEGRAM_APP_VARS]
+
+    @pytest.mark.parametrize("args", [("--dry-run",), (), ("--login",)], ids=["dry-run", "sync", "login"])
+    def should_exit_one_with_the_envify_message_when_the_credentials_do_not_load(
+        self, cli, monkeypatch, capsys, args
+    ):
+        def refuse(keys):
+            raise cli.snl.EnvifyError("keyguard cancelled\n")
+
+        monkeypatch.setattr(cli.snl, "load_env_via_shell", refuse)
+
+        code = cli.run(*args)
+
+        err = capsys.readouterr().err
+        assert code == 1
+        assert "keyguard cancelled" in err
+        assert "Traceback" not in err
+
+    def should_say_so_when_envify_fails_without_a_message(self, cli, monkeypatch, capsys):
+        def refuse(keys):
+            raise cli.snl.EnvifyError("")
+
+        monkeypatch.setattr(cli.snl, "load_env_via_shell", refuse)
+
+        code = cli.run("--dry-run")
+
+        assert code == 1
+        assert "envify failed with no output" in capsys.readouterr().err
+
+    def should_exit_one_without_a_traceback_when_the_envify_on_the_path_refuses(
+        self, snl, tmp_path, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(snl.urllib.request, "urlopen", refuse_network)
+        stand_in = tmp_path / "stand_in" / "envify"
+        stand_in.parent.mkdir()
+        stand_in.write_text(ENVIFY_REFUSES)
+        monkeypatch.setenv("PATH", f"{stand_in.parent}{os.pathsep}{os.environ['PATH']}")
+
+        code = snl.main(["--dry-run", "--state", str(tmp_path / "state.json")])
+
+        err = capsys.readouterr().err
+        assert code == 1
+        assert "keyguard cancelled" in err
+        assert "Traceback" not in err
