@@ -10,7 +10,34 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 
 source leonardo_account
-source envify PRIMARY_EMAIL
+
+ask_primary_email() {
+    local not_supplied="PRIMARY_EMAIL is not set and keyguard did not supply it."
+    local profile_hint="add this line to your shell profile (~/.zshrc):"
+
+    if [ ! -t 0 ]; then
+        echo "Error: $not_supplied" >&2
+        echo "To set it, $profile_hint export PRIMARY_EMAIL=you@example.com" >&2
+        exit 1
+    fi
+
+    printf '%s●%s %s\n' "$YELLOW" "$RESET" "$not_supplied" >&2
+    read -r -p "Enter PRIMARY_EMAIL (your personal Tailscale login): " PRIMARY_EMAIL || true
+    if [ -z "$PRIMARY_EMAIL" ]; then
+        echo "Error: No email address entered." >&2
+        exit 1
+    fi
+    printf '%s●%s To keep it, %s export PRIMARY_EMAIL=%q\n' "$YELLOW" "$RESET" "$profile_hint" "$PRIMARY_EMAIL" >&2
+}
+
+load_primary_email() {
+    if [ -z "${PRIMARY_EMAIL:-}" ]; then
+        source envify PRIMARY_EMAIL || true
+    fi
+    if [ -z "${PRIMARY_EMAIL:-}" ]; then
+        ask_primary_email
+    fi
+}
 
 STATUS_HOST="updates.leonardo.local"
 TIMEOUT_IN_MS=350
@@ -33,6 +60,11 @@ mount_k_drive_on_network_up() {
 
 disconnect() {
     local disconnected=false
+
+    # Only the Tailscale account check below needs the address, so a connect never asks for it.
+    if command -v tailscale > /dev/null 2>&1; then
+        load_primary_email
+    fi
 
     leonardo_drive --unmount
 
