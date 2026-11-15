@@ -1037,6 +1037,51 @@ class TestMain:
         with pytest.raises(SystemExit, match="2"):
             cl.main()
 
+    @staticmethod
+    def docker_options(cmd, entrypoint):
+        """The flag and value pairs docker compose run gets before the service name."""
+        options = cmd[:cmd.index(entrypoint) - 1]
+        return set(zip(options, options[1:]))
+
+    def should_hand_the_convert_export_the_launch_folder_and_its_mac_path(self, cl, monkeypatch, mock_cl_run,
+                                                                          tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        monkeypatch.chdir(project)
+        monkeypatch.setattr(sys, "argv", ["cl", "--convert"])
+
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+
+        options = self.docker_options(mock_cl_run[-1], "session-convert")
+        assert ("-v", f"{project}:/workspace/convert-output") in options
+        assert ("-e", "SESSION_CONVERT_OUTPUT=/workspace/convert-output") in options
+        assert ("-e", f"SESSION_CONVERT_HOST_OUTPUT={project}") in options
+
+    def should_mount_no_export_folder_for_anything_but_convert(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        monkeypatch.chdir(project)
+        monkeypatch.setattr(sys, "argv", ["cl"])
+
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+
+        assert not any("convert-output" in arg or "SESSION_CONVERT" in arg for arg in mock_cl_run[-1])
+
+    def should_never_mount_the_home_folder_for_the_convert_export(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        home, project = tmp_path / "home", tmp_path / "project"
+        home.mkdir()
+        project.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(home)
+        monkeypatch.setattr(sys, "argv", ["cl", "--convert", "-p", str(project)])
+
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+
+        assert not any(arg.startswith(f"{home}:") for arg in mock_cl_run[-1])
+
     def test_files_outside_cwd_exits(self, cl, monkeypatch, tmp_path):
         pwd = tmp_path / "pwd"
         pwd.mkdir()

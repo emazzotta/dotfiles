@@ -1,7 +1,9 @@
 import json
 import sqlite3
 from contextlib import closing
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,6 +13,8 @@ CREATE TABLE message (id TEXT, session_id TEXT, time_created INTEGER, data TEXT)
 CREATE TABLE part (id TEXT, message_id TEXT, time_created INTEGER, data TEXT);
 """
 DEFAULT_DATABASE = Path(".local") / "share" / "opencode" / "opencode.db"
+NOW = 1_000_000_000
+DAY = 86_400
 
 
 @pytest.fixture
@@ -62,6 +66,17 @@ class TestOpencodeSessions:
         assert [(m.role, m.text) for m in session.messages] == [("user", "hello")]
 
 
+class TestSessionLine:
+    @pytest.mark.parametrize("age, shown", [(30, "just now"), (2 * DAY, "2d ago"), (400 * DAY, "1y ago")])
+    def test_should_show_the_age_the_session_pickers_show(self, convert, monkeypatch, age, shown):
+        monkeypatch.setattr(convert.session_picker, "time", SimpleNamespace(time=lambda: NOW))
+        session = convert.Session("abc", "Some work", datetime.fromtimestamp(NOW - age))
+
+        line = convert.format_session_line(session)
+
+        assert line.rsplit(None, 1)[0].endswith(shown)
+
+
 class TestRunAsScript:
     def test_should_export_an_opencode_session_to_markdown_in_the_current_directory(
             self, run_cli, database, tmp_path):
@@ -75,3 +90,18 @@ class TestRunAsScript:
         exported = (workdir / "session-older.md").read_text().splitlines()
         assert [exported[0], exported[1], *exported[4:7]] == ["# Session: Older work", "Source ID: older",
                                                                "## User", "", "hello"]
+
+    def test_should_export_into_the_folder_cl_mounted_and_name_it_as_the_mac_sees_it(
+            self, run_cli, database, tmp_path):
+        workdir, mounted = tmp_path / "work", tmp_path / "mounted"
+        workdir.mkdir()
+        mounted.mkdir()
+        env = {"OPENCODE_DB": str(database), "HOME": str(tmp_path), "SESSION_CONVERT_OUTPUT": str(mounted),
+               "SESSION_CONVERT_HOST_OUTPUT": "/Users/someone/project"}
+
+        result = run_cli("session-convert", env_extra=env, mock_bins={"gum": "exit 1"}, stdin="4\n2\n", cwd=workdir)
+
+        assert result.returncode == 0, result.stderr
+        assert (mounted / "session-older.md").read_text().startswith("# Session: Older work\n")
+        assert not (workdir / "session-older.md").exists()
+        assert "Written to /Users/someone/project/session-older.md" in result.stderr

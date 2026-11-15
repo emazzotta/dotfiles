@@ -315,6 +315,7 @@ SESSION_REGISTRY = session_registry.REGISTRY_DIR
 CLAUDE_RUN_DIRS = SESSION_REGISTRY.parent / "claude-sessions"
 CONVERSATION_LOG = SESSION_REGISTRY.parent / "conversations.tsv"
 CONTAINER_CLAUDE_SESSIONS = "/home/opencode/.claude/sessions"
+CONVERT_OUTPUT_CONTAINER = "/workspace/convert-output"
 MAC_INBOX = Path.home() / "devbox-mac-inbox"
 MAC_INBOX_CONTAINER = "/home/opencode/devbox-mac-inbox"
 SESSION_CHOOSING_FLAGS = ("--session-id", "--resume", "-r", "--continue", "-c")
@@ -1016,6 +1017,17 @@ def single_file_volume_args(file_path: str, pwd: Path) -> list[str]:
     return ["-v", f"{pwd / relative_path}:/workspace/code/{relative_path}"]
 
 
+def build_convert_output_args(pwd: Path) -> list[str]:
+    """session-convert exports into the folder cl ran in, since the container and its /workspace go with the run."""
+    if is_home_dir(pwd):
+        return []
+    return [
+        "-v", f"{pwd}:{CONVERT_OUTPUT_CONTAINER}",
+        "-e", f"SESSION_CONVERT_OUTPUT={CONVERT_OUTPUT_CONTAINER}",
+        "-e", f"SESSION_CONVERT_HOST_OUTPUT={pwd}",
+    ]
+
+
 def devbox_reachable() -> bool:
     return load_host_resolver().try_host(DEVBOX_HOST, DEVBOX_REACHABLE_TIMEOUT_MS, silent=True) is not None
 
@@ -1286,6 +1298,7 @@ def main() -> None:
         *dotfiles_volume_args,
         *volume_args,
         "-v", f"{run_dir}:{CONTAINER_CLAUDE_SESSIONS}",
+        *(build_convert_output_args(pwd) if args.convert else []),
         "opencode",
         entrypoint,
         *plugin_args,

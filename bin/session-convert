@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -15,6 +16,16 @@ from typing import Final
 import session_picker
 
 OPENCODE_DB_PATH: Final = session_picker.opencode_db_path()
+OUTPUT_ENV: Final = "SESSION_CONVERT_OUTPUT"
+HOST_OUTPUT_ENV: Final = "SESSION_CONVERT_HOST_OUTPUT"
+
+
+def markdown_paths(name: str) -> tuple[Path, Path]:
+    """Where the export lands and the path to print for it: cl names the folder it mounted and its path on the Mac."""
+    output = os.environ.get(OUTPUT_ENV)
+    if not output:
+        return Path(name), Path(name)
+    return Path(output) / name, Path(os.environ.get(HOST_OUTPUT_ENV, output)) / name
 
 
 def find_claude_sessions_dir() -> Path | None:
@@ -59,23 +70,6 @@ class Session:
     title: str
     updated: datetime
     messages: list[Message] = field(default_factory=list)
-
-
-def relative_time(dt: datetime) -> str:
-    diff = datetime.now() - dt
-    seconds = int(diff.total_seconds())
-    if seconds < 60:
-        return "just now"
-    if seconds < 3600:
-        return f"{seconds // 60}m ago"
-    if seconds < 86400:
-        return f"{seconds // 3600}h ago"
-    days = seconds // 86400
-    if days == 1:
-        return "yesterday"
-    if days < 30:
-        return f"{days}d ago"
-    return f"{days // 30}mo ago"
 
 
 # --- Claude session parsing ---
@@ -460,7 +454,7 @@ def choose(header: str, options: list[str]) -> str | None:
 
 def format_session_line(s: Session) -> str:
     title = s.title if len(s.title) <= 50 else s.title[:47] + "..."
-    return f"{title:<52s} {relative_time(s.updated):<12s} {s.id}"
+    return f"{title:<52s} {session_picker.format_ago(int(s.updated.timestamp())):<12s} {s.id}"
 
 
 def pick_session(sessions: list[Session], header: str) -> Session | None:
@@ -511,9 +505,9 @@ def main() -> None:
 
     if target == "markdown":
         output = session_to_markdown(session)
-        out_path = Path(f"session-{session.id[:12]}.md")
+        out_path, shown_path = markdown_paths(f"session-{session.id[:12]}.md")
         out_path.write_text(output)
-        print(f"Written to {out_path}", file=sys.stderr)
+        print(f"Written to {shown_path}", file=sys.stderr)
     elif target == "opencode":
         data = markdown_to_opencode_import(session)
         out_path = Path(f"session-{session.id[:12]}.json")
