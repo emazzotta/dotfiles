@@ -1,4 +1,10 @@
 #!/bin/bash
 
-gac "${@}"
+git add --all || exit
+
+# A message with nothing staged leaves no commit to make, so only the commits
+# that are already there get pushed. Without a message gac amends.
+if [ $# -eq 0 ] || ! git diff --cached --quiet; then
+    gac "${@}" || exit
+fi
 gp
