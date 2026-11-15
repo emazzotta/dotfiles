@@ -19,7 +19,7 @@ echo -e "\n=== MX Records ==="
 dig $DOMAIN MX +short
 
 echo -e "\n=== SPF Record ==="
-dig $DOMAIN TXT +short | grep spf
+dig $DOMAIN TXT +short | grep spf || true
 
 echo -e "\n=== DKIM Record ==="
 dig default._domainkey.$DOMAIN TXT +short

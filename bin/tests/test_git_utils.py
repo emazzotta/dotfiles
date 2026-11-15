@@ -5,20 +5,42 @@ import pytest
 
 
 class TestGac:
-    def test_no_args_runs_amend(self, run_bash, tmp_path):
-        result = run_bash("gac", mock_bins={
-            "git": 'echo "git $@"',
-            "first_capitalize": 'echo "$1"',
-        })
-        combined = result.stdout + result.stderr
-        assert "git" in combined.lower() or result.returncode == 0
+    @pytest.fixture
+    def gac(self, run_bash, tmp_path):
+        calls = tmp_path / "git.calls"
 
-    def test_with_message(self, run_bash):
-        result = run_bash("gac", ["test message"], mock_bins={
-            "git": 'echo "git $@"',
-            "first_capitalize": 'echo "$@"',
-        })
-        assert result.returncode == 0
+        def _run(*args):
+            result = run_bash("gac", list(args), env_extra={"GIT_CALLS": str(calls)}, mock_bins={
+                "git": 'echo "$*" >> "$GIT_CALLS"',
+                "first_capitalize": 'echo "Capitalized: $1"',
+            })
+            _run.calls = calls.read_text().splitlines() if calls.exists() else []
+            return result
+        return _run
+
+    def test_no_args_runs_amend(self, gac):
+        result = gac()
+
+        assert result.returncode == 0, result.stderr
+        assert gac.calls == ["add --all", "commit --amend"]
+
+    def test_empty_message_runs_amend(self, gac):
+        result = gac("")
+
+        assert result.returncode == 0, result.stderr
+        assert gac.calls == ["add --all", "commit --amend"]
+
+    def test_with_message(self, gac):
+        result = gac("test message")
+
+        assert result.returncode == 0, result.stderr
+        assert gac.calls == ["add --all", "commit -m Capitalized: test message"]
+
+    def test_should_pass_the_options_before_the_message_to_commit(self, gac):
+        result = gac("--no-verify", "test message")
+
+        assert result.returncode == 0, result.stderr
+        assert gac.calls == ["add --all", "commit --no-verify -m Capitalized: test message"]
 
 
 class TestNocontrib:

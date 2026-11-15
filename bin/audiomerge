@@ -78,6 +78,7 @@ fi
 TEMP_FILE="$(mktemp)"
 TEMP_DIR="$(mktemp -d)"
 
+index=0
 for file in "$@"; do
     if [ ! -f "$file" ]; then
         error "File '$file' not found."
@@ -85,7 +86,8 @@ for file in "$@"; do
         rm -rf "$TEMP_DIR"
         exit 1
     fi
-    standardized_file="${TEMP_DIR}/standardized_$(basename "$file").wav"
+    index=$((index + 1))
+    standardized_file="${TEMP_DIR}/standardized_${index}.wav"
     ffmpeg -y -i "$file" -ar 44100 -ac 2 -acodec pcm_s16le "$standardized_file"
     echo "file '$standardized_file'" >> "$TEMP_FILE"
 done

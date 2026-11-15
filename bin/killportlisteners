@@ -3,7 +3,7 @@
 PORTS=(8000 8001 8080 8800 8088 3000 3001)
 
 for port in "${PORTS[@]}"; do
-  pids=$(lsof -t -i:$port)
+  pids=$(lsof -t -iTCP:"$port" -sTCP:LISTEN)
 
   if [ -n "$pids" ]; then
     echo "Killing processes listening on port $port"

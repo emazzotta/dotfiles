@@ -67,7 +67,10 @@ unlock_repo() {
     fi
 
     load_key
-    git -C "$repo_dir" crypt unlock "$KEY_FILE" "$@"
+    local rc=0
+    git -C "$repo_dir" crypt unlock "$KEY_FILE" "$@" || rc=$?
+    /bin/rm -f "$KEY_FILE"
+    return "$rc"
 }
 
 run_git_crypt() {
@@ -117,7 +120,9 @@ main() {
                 failed=$((failed + 1))
             fi
         done <<< "$repos"
-        [ "$failed" -gt 0 ] && exit 1
+        if [ "$failed" -gt 0 ]; then
+            exit 1
+        fi
     fi
 }
 

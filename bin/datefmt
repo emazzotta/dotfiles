@@ -1,7 +1,11 @@
 #!/bin/bash
 
 if test "${1}"; then
-    date -r "${1}" "+%Y-%m-%d %H:%M:%S"
+    if date -j > /dev/null 2>&1; then
+        date -r "${1}" "+%Y-%m-%d %H:%M:%S"
+    else
+        date -d "@${1}" "+%Y-%m-%d %H:%M:%S"
+    fi
 else
     echo "usage: $(basename "${0}") <timestamp>"
 fi

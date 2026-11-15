@@ -2,8 +2,12 @@
 
 git add --all
 
-parameters="${@:1:$#-1}"
-commit_message="${@: -1}"
+parameters=""
+commit_message=""
+if [ $# -gt 0 ]; then
+    parameters="${@:1:$#-1}"
+    commit_message="${@: -1}"
+fi
 
 [[ -z "$commit_message" ]] && git commit --amend ${parameters} && exit
 git commit ${parameters} -m "$(first_capitalize "${commit_message}")"

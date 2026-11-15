@@ -1,4 +1,6 @@
+import os
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -199,3 +201,56 @@ def should_warn_about_repositories_without_remote_access_after_the_failed_pulls(
 
     assert "offline" not in plain(result.stdout)
     assert plain(result.stderr).endswith("● No remote access:\n  · offline\n")
+
+
+def rebase_in_progress(git, repo):
+    git_dir = Path(git(repo, "rev-parse", "--absolute-git-dir"))
+    return (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists()
+
+
+def should_abort_a_conflicting_pull_of_another_branch_and_return_to_the_checked_out_branch(
+        gupallin, clone, workspace, git, tmp_path):
+    project = clone("project")
+    git(project, "checkout", "-q", "main")
+    commit_file(git, project, "conflict.txt", "local\n", "Local main")
+    git(project, "checkout", "-q", "feature")
+    commit_file(git, tmp_path / "seed", "conflict.txt", "remote\n", "Remote main")
+    git(tmp_path / "seed", "push", "origin", "main")
+
+    output = plain(gupallin(workspace).stdout)
+
+    assert git(project, "rev-parse", "--abbrev-ref", "HEAD") == "feature"
+    assert not rebase_in_progress(git, project)
+    assert "main" in output and "pull failed" in output
+
+
+def should_abort_a_conflicting_pull_of_the_checked_out_branch(gupallin, clone, workspace, git, tmp_path):
+    project = clone("project")
+    git(project, "checkout", "-q", "feature")
+    commit_file(git, project, "conflict.txt", "local\n", "Local feature")
+    commit_file(git, tmp_path / "seed", "conflict.txt", "remote\n", "Remote feature")
+    git(tmp_path / "seed", "push", "origin", "main:feature", "--force")
+
+    output = plain(gupallin(workspace).stdout)
+
+    assert git(project, "rev-parse", "--abbrev-ref", "HEAD") == "feature"
+    assert not rebase_in_progress(git, project)
+    assert "feature" in output and "pull failed" in output
+
+
+def should_not_abort_a_rebase_the_user_has_in_progress(gupallin, clone, workspace, git, git_env, tmp_path):
+    project = clone("project")
+    git(project, "checkout", "-q", "-b", "topic")
+    commit_file(git, project, "conflict.txt", "topic\n", "Topic")
+    git(project, "checkout", "-q", "main")
+    commit_file(git, project, "conflict.txt", "local\n", "Local main")
+    git(project, "checkout", "-q", "topic")
+    subprocess.run(["git", "-C", str(project), "rebase", "main"], capture_output=True, env={**os.environ, **git_env})
+    (project / "conflict.txt").write_text("resolved\n")
+    git(project, "add", "conflict.txt")
+    commit_file(git, tmp_path / "seed", "other.txt", "remote\n", "Remote main")
+    git(tmp_path / "seed", "push", "origin", "main")
+
+    gupallin(workspace)
+
+    assert rebase_in_progress(git, project)

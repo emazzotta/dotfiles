@@ -46,7 +46,7 @@ case "${archive}" in
     *.exe) 7z x "${archive}" ;;
     *.msi) 7z x "${archive}" ;;
     *.pkg) 7z x "${archive}" ;;
-    *.deb) w x "${archive}" ;;
+    *.deb) ar x "${archive}" ;;
     *.rpm) rpm2cpio "${archive}" | cpio -idmv ;;
     *.dmg) 7z x "${archive}" ;;
     *.iso) 7z x "${archive}" ;;

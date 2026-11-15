@@ -47,12 +47,30 @@ rebase_mode() {
     esac
 }
 
+rebase_in_progress() {
+    local git_dir
+    git_dir=$(git -C "$1" rev-parse --absolute-git-dir) || return 1
+    [ -d "${git_dir}/rebase-merge" ] || [ -d "${git_dir}/rebase-apply" ]
+}
+
+pull_or_record_failure() {
+    local branch="$1" dir="$2" rebase_was_running=false
+    if rebase_in_progress "${dir}"; then
+        rebase_was_running=true
+    fi
+    git -C "${dir}" pull --quiet --rebase="$(rebase_mode "${branch}")" &>/dev/null && return 0
+    if [ "${rebase_was_running}" = false ]; then
+        git -C "${dir}" rebase --abort &>/dev/null || true
+    fi
+    record_failed_pull "${branch}"
+}
+
 pull_branch() {
     local branch="$1" dir="$2"
     [ -n "${dir}" ] || return 0
     if git -C "${dir}" rev-parse --verify "origin/${branch}" &>/dev/null; then
         git -C "${dir}" checkout "${branch}" &>/dev/null || return 0
-        git -C "${dir}" pull --quiet --rebase="$(rebase_mode "${branch}")" &>/dev/null || record_failed_pull "${branch}"
+        pull_or_record_failure "${branch}" "${dir}"
         git -C "${dir}" checkout --quiet - &>/dev/null || true
     fi
 }
@@ -110,7 +128,7 @@ update_repo() {
     pull_branches_by_regex "${CUSTOM_RELEASE_PATTERN}" "${dir}"
     branch_name=$(git -C "${dir}" symbolic-ref -q --short HEAD) || branch_name=""
     if [ -n "${branch_name}" ] && [ "${branch_name}" != "master" ] && [ "${branch_name}" != "main" ]; then
-        git -C "${dir}" pull --quiet --rebase="$(rebase_mode "${branch_name}")" &>/dev/null || record_failed_pull "${branch_name}"
+        pull_or_record_failure "${branch_name}" "${dir}"
     fi
     if [ -s "${repo_failures_file}" ]; then
         render_failed_pulls "${dir}" >> "${failed_pulls_file}"

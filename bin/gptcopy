@@ -2,20 +2,21 @@
 
 set -e
 
+nl=$'\n'
 output=""
-while IFS= read -r -d '' file; do 
-    if [ -f "$file" ]; then 
-        output+="\`\`\`\n"
-        output+="# $file\n"
-        output+=$(cat "$file") 
-        output+="\n\`\`\`\n\n"
+while IFS= read -r -d '' file; do
+    if [ -f "$file" ]; then
+        output+="\`\`\`${nl}"
+        output+="# ${file}${nl}"
+        output+=$(cat "$file")
+        output+="${nl}\`\`\`${nl}${nl}"
     fi
 done < <(find . -type f -print0)
-echo -e "$output"
+printf '%s\n' "$output"
 
 read -p "Do you want to copy this to the clipboard? (Y/n) " answer
 if ! [[ $answer = n || $answer = N ]]; then
-    echo -e "$output" | pbcopy
+    printf '%s\n' "$output" | pbcopy
     echo "Content copied to clipboard."
 else
     echo "Content not copied."

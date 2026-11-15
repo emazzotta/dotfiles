@@ -7,8 +7,11 @@ if [ "$1" == "" ]; then
     exit 1
 fi
 
-# Finding the processes
-processes=$(pgrep -fl "$1")
+# pgrep -f also matches this script's own command line, so list through a file and drop its PID and its parent's
+matches_file=$(mktemp)
+trap 'rm -f "$matches_file"' EXIT
+pgrep -fl "$1" > "$matches_file" || true
+processes=$(awk -v self="$$" -v parent="$PPID" '$1 != self && $1 != parent' "$matches_file")
 
 if [ "$processes" == "" ]; then
     echo "No processes found with substring '$1'"
@@ -24,7 +27,7 @@ echo    # (optional) move to a new line
 if [[ $REPLY =~ ^[Yy]$ ]]
 then
     # Killing the processes
-    pkill -f "$1"
+    echo "$processes" | awk '{print $1}' | xargs kill
     echo "Processes killed."
 else
     echo "Operation cancelled."

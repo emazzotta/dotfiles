@@ -147,6 +147,19 @@ class TestExtract:
         assert result.returncode != 0
         assert "not a valid file" in result.stderr
 
+    def test_should_unpack_a_deb_with_ar(self, run_bash, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "tool.deb").touch()
+        calls = tmp_path / "calls.log"
+        record = 'echo "$(basename "$0") $*" >> "$CALLS_LOG"'
+
+        result = run_bash("extract", ["tool.deb"], env_extra={"CALLS_LOG": str(calls)},
+                          mock_bins={"ar": record, "w": record}, isolate_path=True, cwd=work)
+
+        assert result.returncode == 0, result.stderr
+        assert calls.read_text().splitlines() == ["ar x tool.deb"]
+
     @pytest.mark.parametrize("flag", ["-h", "--help"])
     def test_should_show_usage_for_the_help_flag(self, extract, flag):
         result = extract([flag])

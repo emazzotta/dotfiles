@@ -4,50 +4,64 @@ set -e
 
 # Check if the required number of arguments are passed
 if [ "$#" -ne 3 ]; then
-    echo "Usage: $(basename $0) <branch_name> <older_commit_x> <recent_commit_y>"
+    echo "Usage: $(basename "$0") <branch_name> <older_commit_x> <recent_commit_y>"
     echo "Squashes all commits from older_commit_x (inclusive) to recent_commit_y (inclusive)."
     exit 1
 fi
 
 BRANCH_NAME=$1
-COMMIT_X=$2
-COMMIT_Y=$3
 
-# Check if temp_squash_branch exists and delete it if it does
-if git show-ref --verify --quiet refs/heads/temp_squash_branch; then
-  git branch -D temp_squash_branch
+fail() {
+    echo "$*" >&2
+    exit 1
+}
+
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    fail "Working tree has uncommitted changes."
 fi
+git rev-parse --verify --quiet "refs/heads/${BRANCH_NAME}" > /dev/null || fail "Branch '${BRANCH_NAME}' not found."
 
 # Checkout to the branch specified
-git checkout $BRANCH_NAME
+git checkout "$BRANCH_NAME"
+
+# Delete a leftover temp_squash_branch, but refuse when it holds commits the branch lacks
+if git show-ref --verify --quiet refs/heads/temp_squash_branch; then
+  git branch -d temp_squash_branch
+fi
+
+# Resolve both commits now: a relative name such as HEAD~2 means something else once HEAD moves
+COMMIT_X=$(git rev-parse --verify "$2^{commit}")
+COMMIT_Y=$(git rev-parse --verify "$3^{commit}")
+
+COMMIT_BEFORE_X=$(git rev-parse --verify --quiet "${COMMIT_X}~1") || fail "Commit X has no parent to squash onto."
+git merge-base --is-ancestor "$COMMIT_Y" "$BRANCH_NAME" || fail "Commit Y is not in branch '${BRANCH_NAME}'."
+git merge-base --is-ancestor "$COMMIT_X" "$COMMIT_Y" || fail "Commit X is not an ancestor of commit Y."
+if [ -n "$(git rev-list --merges "${COMMIT_BEFORE_X}..${COMMIT_Y}")" ]; then
+    fail "The range contains a merge commit, which a squash would flatten."
+fi
 
 # Create a temporary branch from COMMIT_Y
-git checkout -b temp_squash_branch $COMMIT_Y
-
-# Get the commit before COMMIT_X to start squashing from COMMIT_X itself
-COMMIT_BEFORE_X=$(git rev-parse $COMMIT_X~1)
+git checkout -b temp_squash_branch "$COMMIT_Y"
 
 # Get the number of commits between COMMIT_BEFORE_X and COMMIT_Y
-NUM_COMMITS=$(git rev-list --count $COMMIT_BEFORE_X..$COMMIT_Y)
+NUM_COMMITS=$(git rev-list --count "$COMMIT_BEFORE_X..$COMMIT_Y")
 
 # Squash the commits using the method from your script
 # Start squashing from the second commit in the range
-GIT_SEQUENCE_EDITOR="sed -i -re '2,${NUM_COMMITS}s/^pick/squash/'" git rebase -i $COMMIT_BEFORE_X
+GIT_SEQUENCE_EDITOR="sed -i -re '2,${NUM_COMMITS}s/^pick/squash/'" git rebase -i "$COMMIT_BEFORE_X"
 
-# Switch back to the original branch
-git checkout $BRANCH_NAME
-
-# Use git merge to combine the changes, retaining commits after COMMIT_Y up to HEAD
-git merge temp_squash_branch
+# Replay the commits after COMMIT_Y onto the squashed commit, so the branch holds the squash and not a merge
+if ! git rebase --rebase-merges --onto temp_squash_branch "$COMMIT_Y" "$BRANCH_NAME"; then
+    fail "Replaying the commits after Y stopped. Resolve and run 'git rebase --continue', or run 'git rebase --abort' to restore '${BRANCH_NAME}'. temp_squash_branch holds the squashed commit."
+fi
 
 # Delete the temporary branch
-git branch -D temp_squash_branch
+git branch -d temp_squash_branch
 
 # Ask the user if they want to push the changes
 read -p "Do you want to push the changes? (y/N): " response
 if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
-    git push origin $BRANCH_NAME
+    git push origin "$BRANCH_NAME"
 else
     echo "Changes not pushed. You can push them manually whenever you're ready."
 fi
-
