@@ -40,13 +40,6 @@ has_git_access() {
     has_remote_access "$(convert_git_url_to_http "$remote_url")"
 }
 
-rebase_mode() {
-    case "$1" in
-        main|master) echo true ;;
-        *) echo merges ;;
-    esac
-}
-
 rebase_in_progress() {
     local git_dir
     git_dir=$(git -C "$1" rev-parse --absolute-git-dir) || return 1
@@ -58,7 +51,7 @@ pull_or_record_failure() {
     if rebase_in_progress "${dir}"; then
         rebase_was_running=true
     fi
-    git -C "${dir}" pull --quiet --rebase="$(rebase_mode "${branch}")" &>/dev/null && return 0
+    git -C "${dir}" pull --quiet --rebase="$(rh_rebase_mode "${branch}")" &>/dev/null && return 0
     if [ "${rebase_was_running}" = false ]; then
         git -C "${dir}" rebase --abort &>/dev/null || true
     fi
@@ -87,33 +80,11 @@ pull_branches_by_regex() {
           done || true
 }
 
-repo_link() {
-    local dir="$1"
-    local path label
-    path=$(git -C "${dir}" rev-parse --show-toplevel)
-    label="${dir#"${root_dir%/}"/}"
-    if [ "${dir}" = "${root_dir}" ]; then
-        label="${path##*/}"
-    fi
-    hyperlink "file://${path}" "${YELLOW}${label}${RESET}"
-}
-
-longest_name() {
-    local width=0
-    local name
-    while IFS= read -r name; do
-        if [ "${#name}" -gt "${width}" ]; then
-            width=${#name}
-        fi
-    done
-    printf '%s' "${width}"
-}
-
 render_failed_pulls() {
     local dir="$1"
     local width branch
-    width=$(longest_name < "${repo_failures_file}")
-    printf '%s\n' "$(repo_link "${dir}")"
+    width=$(rh_longest_name < "${repo_failures_file}")
+    printf '%s\n' "$(rh_repo_link "${dir}" "${root_dir}")"
     while IFS= read -r branch; do
         printf '  %s%*s  %s\n' "${branch}" "$((width - ${#branch}))" '' "${BOLD}${RED}pull failed${RESET}"
     done < "${repo_failures_file}"
@@ -143,45 +114,18 @@ update_repos() {
         if has_git_access "${dir}"; then
             update_repo "${dir}"
         else
-            printf '%s\n' "$(repo_link "${dir}")" >> "${unreachable_file}"
+            printf '%s\n' "$(rh_repo_link "${dir}" "${root_dir}")" >> "${unreachable_file}"
         fi
     done
 }
 
-print_warnings() {
-    local heading="$1"
-    local file="$2"
-    if [ ! -s "${file}" ]; then
-        return 0
-    fi
-    echo
-    error "${heading}"
-    local warning
-    while IFS= read -r warning; do
-        substep_error "${warning}"
-    done < "${file}"
-}
-
-spin() {
-    local spinners='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    local i=0
-    while kill -0 "${UPDATE_PID}" 2>/dev/null; do
-        local current
-        current=$(cat "${status_file}" 2>/dev/null || echo "")
-        printf "\033[2K\r  ${YELLOW}%s${RESET}  %s" "${spinners:$((i % 10)):1}" "${current}" >&2
-        sleep 0.1
-        i=$((i + 1))
-    done
-    printf "\r%-100s\r" "" >&2
-}
-
 update_repos &
 UPDATE_PID=$!
-spin
+rh_spin "${UPDATE_PID}" "${status_file}"
 wait "${UPDATE_PID}" || true
 
 cat "${failed_pulls_file}"
-print_warnings "No remote access:" "${unreachable_file}"
+rh_print_warnings "No remote access:" "${unreachable_file}"
 
 echo
 success "Done."

@@ -1,6 +1,21 @@
+import re
+
 import pytest
 
 from bin.tests.conftest import WORKTREES, branches, commit_file, move_to_other_mount, ship_by_squash_merge
+
+GIT_STAND_IN = r'''
+printf '%s\n' "$*" >> "${GIT_CALLS}"
+case "$*" in
+    *"rev-parse --is-inside-git-dir") echo "${STAND_IN_INSIDE_GIT_DIR}" ;;
+    "rev-parse --absolute-git-dir") echo /stand-in/worktree-git-dir ;;
+    "rev-parse --path-format=absolute --git-common-dir") echo /stand-in/common-git-dir ;;
+    "symbolic-ref -q HEAD") echo "refs/heads/${STAND_IN_BRANCH}" ;;
+    "wt path "*) echo /stand-in/checkout ;;
+    *"symbolic-ref -q --short HEAD") [ -n "${STAND_IN_BRANCH}" ] && echo "${STAND_IN_BRANCH}" ;;
+    *" pull "*) exit "${STAND_IN_PULL_STATUS}" ;;
+esac
+'''
 
 
 @pytest.fixture
@@ -159,3 +174,52 @@ class TestComplete:
         result = gup(project, "--complete", "origin")
 
         assert result.stdout.split() == ["feature", "main"]
+
+
+@pytest.fixture
+def stand_in_gup(run_bash, tmp_path):
+    def _gup(branch, *args, inside_git_dir=False, pull_status=0):
+        calls_file = tmp_path / "git-calls"
+        result = run_bash("gup", list(args), mock_bins={"git": GIT_STAND_IN}, cwd=tmp_path, env_extra={
+            "GIT_CALLS": str(calls_file), "STAND_IN_BRANCH": branch, "STAND_IN_PULL_STATUS": str(pull_status),
+            "STAND_IN_INSIDE_GIT_DIR": "true" if inside_git_dir else "false"})
+        return result, [re.sub(r"^-C \S+ ", "", call) for call in calls_file.read_text().splitlines()]
+    return _gup
+
+
+class TestRebaseMode:
+    @pytest.mark.parametrize("branch", ["main", "master"])
+    def should_rebase_the_default_branches_without_keeping_merges(self, stand_in_gup, branch):
+        result, calls = stand_in_gup(branch)
+
+        assert result.returncode == 0, result.stderr
+        assert calls == ["rev-parse --is-inside-git-dir", "symbolic-ref -q --short HEAD",
+                         "pull --rebase=true --autostash", "wt rm --merged"]
+
+    @pytest.mark.parametrize("branch", ["feature", "mainline", "release/main", "master-old", ""])
+    def should_keep_merges_when_rebasing_any_other_branch_or_a_detached_head(self, stand_in_gup, branch):
+        result, calls = stand_in_gup(branch)
+
+        assert result.returncode == 0, result.stderr
+        assert "pull --rebase=merges --autostash" in calls
+        assert not [call for call in calls if call.startswith("pull --rebase=true")]
+
+    def should_hand_the_pull_arguments_to_git_after_the_autostash_flag(self, stand_in_gup):
+        _, calls = stand_in_gup("feature", "origin", "release")
+
+        assert "pull --rebase=merges --autostash origin release" in calls
+
+    def should_skip_the_cleanup_and_return_the_status_of_a_failed_pull(self, stand_in_gup):
+        result, calls = stand_in_gup("main", pull_status=3)
+
+        assert result.returncode == 3
+        assert calls[-1] == "pull --rebase=true --autostash"
+
+    def should_pick_the_mode_of_the_checkout_branch_inside_a_worktree_git_dir(self, stand_in_gup):
+        result, calls = stand_in_gup("main", inside_git_dir=True)
+
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == "gup: updating /stand-in/checkout\n"
+        assert calls == ["rev-parse --is-inside-git-dir", "rev-parse --absolute-git-dir",
+                         "rev-parse --path-format=absolute --git-common-dir", "symbolic-ref -q HEAD", "wt path main",
+                         "symbolic-ref -q --short HEAD", "pull --rebase=true --autostash", "wt rm --merged"]

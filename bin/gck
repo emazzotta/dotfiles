@@ -144,20 +144,6 @@ add_warning() {
     printf '%s\n' "${message}" >> "${file}"
 }
 
-print_warnings() {
-    local heading="${1}"
-    local file="${2}"
-    if [ ! -s "${file}" ]; then
-        return 0
-    fi
-    echo
-    error "${heading}"
-    local warning
-    while IFS= read -r warning; do
-        substep_error "${warning}"
-    done < "${file}"
-}
-
 fetch_error_reason() {
     local fallback="${1}"
     PYTHONPATH="${CUSTOM_BIN_DIR}" python3 -c \
@@ -521,17 +507,6 @@ render_repo_details() {
     fi
 }
 
-repo_link() {
-    local dir="${1}"
-    local path label
-    path=$(git -C "${dir}" rev-parse --show-toplevel)
-    label="${dir#"${scan_dir%/}"/}"
-    if [ "${dir}" = "${scan_dir}" ]; then
-        label="${path##*/}"
-    fi
-    hyperlink "file://${path}" "${YELLOW}${label}${RESET}"
-}
-
 repo_actions() {
     local dir="${1}"
     local branch="${2}"
@@ -547,7 +522,7 @@ render_repo_header() {
     local branch="${2}"
     local actions="${3}"
     local header
-    header=$(repo_link "${dir}")
+    header=$(rh_repo_link "${dir}" "${scan_dir}")
     load_ci_state "${branch}"
     if [ -n "${branch}" ]; then
         header="${header}  ${branch}"
@@ -610,17 +585,6 @@ render_rows() {
     done <<< "${branches}"
 }
 
-longest_name() {
-    local width=0
-    local name
-    while IFS= read -r name; do
-        if [ "${#name}" -gt "${width}" ]; then
-            width=${#name}
-        fi
-    done
-    printf '%s' "${width}"
-}
-
 local_branch_names() {
     git -C "${1}" for-each-ref --sort=-committerdate --format='%(refname:short)' refs/heads/ \
         | grep -Ev '^(main|master)$' || true
@@ -677,7 +641,7 @@ render_repo() {
     if [ -n "${actions}" ]; then
         needs_action=true
     fi
-    width=$(printf '%s\n' "${local_branches}" "${remote_branches}" | longest_name)
+    width=$(printf '%s\n' "${local_branches}" "${remote_branches}" | rh_longest_name)
     render_rows render_local_branch "${local_branches}" "${dir}" "${default_ref}" "${width}" > "${rows_file}"
     render_rows render_remote_branch "${remote_branches}" "${dir}" "${default_ref}" "${width}" >> "${rows_file}"
     render_repo_header "${dir}" "${header_branch}" "${actions}"
@@ -731,28 +695,15 @@ scan_repos() {
     done
 }
 
-spin() {
-    local spinners='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    local i=0
-    while kill -0 "${SCAN_PID}" 2>/dev/null; do
-        local current
-        current=$(cat "${status_file}" 2>/dev/null || echo "")
-        printf "\033[2K\r  ${YELLOW}%s${RESET}  %s" "${spinners:$((i % 10)):1}" "${current}" >&2
-        sleep 0.1
-        i=$((i + 1))
-    done
-    printf "\r%-100s\r" "" >&2
-}
-
 scan_repos &
 SCAN_PID=$!
-spin
+rh_spin "${SCAN_PID}" "${status_file}"
 wait "${SCAN_PID}"
 
 cat "${action_file}" "${info_file}"
 
-print_warnings "No pull request links, falling back to branch links:" "${pull_request_warnings_file}"
-print_warnings "No CI status:" "${ci_warnings_file}"
+rh_print_warnings "No pull request links, falling back to branch links:" "${pull_request_warnings_file}"
+rh_print_warnings "No CI status:" "${ci_warnings_file}"
 
 echo
 success "Done."

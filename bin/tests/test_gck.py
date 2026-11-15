@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import unicodedata
 from pathlib import Path
@@ -34,6 +35,12 @@ case "$*" in
     *) echo '[]' ;;
 esac
 '''
+SLOW_GLAB_MOCK = 'case "$*" in "mr list"*) sleep 1.6 ;; esac\n' + GLAB_MOCK
+UTF8_LOCALE = {"LC_ALL": "en_US.UTF-8" if sys.platform == "darwin" else "C.UTF-8"}
+SPINNER_GLYPHS = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+# subprocess text mode turns each \r the spinner prints into \n
+SPINNER_FRAME = re.compile(r"\x1b\[2K\n  \x1b\[33m(\S)\x1b\[0m  ([^\x1b\n]*)")
+SPINNER_CLEAR = "\n" + " " * 100 + "\n"
 GLAB_FAILING_WITH_BANNER = r'''
 printf '          \n   ERROR  \n          \n  the token for "gitlab.example.com" is missing from the operating system  \n  keyring.  \n\n' >&2
 exit 1
@@ -126,7 +133,7 @@ def aged_branch(git, now):
 
 @pytest.fixture
 def run_gck(run_bash, tmp_path, git_env, now):
-    def _run_gck(*args, forge_token="", forge_token_exit=0, forge_token_stderr="", glab=GLAB_MOCK):
+    def _run_gck(*args, forge_token="", forge_token_exit=0, forge_token_stderr="", glab=GLAB_MOCK, extra_env=None):
         forge_token_mock = (f'printf "%s\\n" "$*" >> "{tmp_path / "forge-token-calls"}"\n'
                             f'[ -z "{forge_token_stderr}" ] || printf "%s\\n" "{forge_token_stderr}" >&2\n'
                             f'echo "{forge_token}"\nexit {forge_token_exit}')
@@ -134,7 +141,8 @@ def run_gck(run_bash, tmp_path, git_env, now):
                         mock_bins={"glab": glab, "date": f"echo {now}", "keyguard-forge-token": forge_token_mock},
                         env_extra={**git_env, "CUSTOM_BIN_DIR": str(BIN_DIR), "HOME": str(tmp_path / "home"),
                                    "GLAB_CALLS": str(tmp_path / "glab-calls"),
-                                   "GLAB_TOKENS": str(tmp_path / "glab-tokens"), "GITLAB_TOKEN": ""})
+                                   "GLAB_TOKENS": str(tmp_path / "glab-tokens"), "GITLAB_TOKEN": "",
+                                   **(extra_env or {})})
     return _run_gck
 
 
@@ -475,3 +483,107 @@ def should_show_the_uncommitted_files_of_a_repository_without_commits_and_skip_a
 
     assert re.search(r"^fresh  main  ✎1$", output, re.MULTILINE), output
     assert "empty" not in output
+
+
+def link(path, label):
+    return f"\x1b]8;;file://{Path(path).resolve()}\x1b\\\x1b[33m{label}\x1b[0m\x1b]8;;\x1b\\"
+
+
+def after_spinner(stderr):
+    return stderr.partition(SPINNER_CLEAR)[2]
+
+
+def should_pad_every_branch_name_to_the_longest_one_of_the_repository(gck, unpushed_workspace, git):
+    git(unpushed_workspace / "project", "branch", "a-much-longer-branch-name", "main")
+
+    output = gck(unpushed_workspace)
+
+    header, *rows, blank, done = output.splitlines()
+    assert header == "project  main ✓  ✎1"
+    assert (blank, done) == ("", "● Done.")
+    assert sorted(rows) == sorted([
+        f"  {LOCAL} 💤 a-much-longer-branch-name   now",
+        f"  {LOCAL} ✗  feature                     now  ↓2    ↑1  tests",
+        f"  {LOCAL} 💤 merged                      now        ↑1 gone from origin",
+        f"  {LOCAL} 💤 rewritten                   now        ↑1 diverged",
+        f"  {LOCAL} 💤 spike                       now        ↑1 not on origin",
+        f"  {REMOTE_ONLY} ●  remote-only                 now        running"])
+
+
+def should_not_pad_a_repository_without_branch_rows(gck, workspace, git):
+    git(workspace, "init", "-q", str(workspace / "fresh"))
+    (workspace / "fresh" / "draft.txt").write_text("idea\n")
+
+    output = gck(workspace)
+
+    assert "fresh  main  ✎1\n" in output
+
+
+def should_pad_branch_names_shorter_than_the_longest_one_of_a_repository_without_remote(gck, tmp_path, git):
+    repo = tmp_path / "short" / "repo"
+    git(tmp_path, "init", "-q", str(repo))
+    git(repo, "commit", "--allow-empty", "-m", "Start")
+    git(repo, "branch", "ab")
+    git(repo, "branch", "c")
+
+    output = gck(tmp_path / "short", "--fast")
+
+    assert sorted(output.splitlines()[1:-2]) == [f"  {LOCAL}    ab   now        ↑1 not on origin",
+                                                 f"  {LOCAL}    c    now        ↑1 not on origin"]
+
+
+@pytest.mark.parametrize("suffix", ["", "/"])
+def should_name_a_nested_repository_by_its_path_whether_or_not_the_scanned_directory_ends_in_a_slash(
+        run_gck, workspace, git, tmp_path, suffix):
+    second = workspace / "group" / "second"
+    git(tmp_path, "clone", "-q", str(tmp_path / "origin.git"), str(second))
+    (second / "draft.txt").write_text("idea\n")
+
+    stdout = run_gck(f"{workspace}{suffix}", "--fast").stdout
+
+    assert f"{link(second, 'group/second')}  main  \x1b[1m\x1b[31m✎1\x1b[0m\n" in stdout
+    assert f"{link(workspace / 'project', 'project')}  main" not in stdout
+
+
+def should_name_the_scanned_repository_after_its_directory_even_when_the_path_ends_in_a_slash(run_gck, workspace):
+    project = workspace / "project"
+
+    stdout = run_gck(f"{project}/", "--fast").stdout
+
+    assert f"\x1b]8;;file://{project.resolve()}\x1b\\\x1b[33mproject\x1b[0m" in stdout
+    assert TERMINAL_ESCAPES.sub("", stdout).startswith("project  main")
+
+
+def should_list_each_warning_under_its_heading_on_stderr_after_the_spinner(run_gck, workspace):
+    result = run_gck(str(workspace), glab=GLAB_FAILING_WITH_BANNER)
+
+    reason = ('gitlab.example.com/group/project: the token for "gitlab.example.com" is missing from the '
+              "operating system keyring.")
+    assert after_spinner(result.stderr) == (
+        "\x1b[1m\x1b[31m●\x1b[0m No pull request links, falling back to branch links:\n"
+        f"  \x1b[1m\x1b[31m·\x1b[0m {reason}\n"
+        "\x1b[1m\x1b[31m●\x1b[0m No CI status:\n"
+        f"  \x1b[1m\x1b[31m·\x1b[0m {reason}\n")
+    assert TERMINAL_ESCAPES.sub("", result.stdout).endswith("\n\n\n● Done.\n")
+
+
+def should_print_no_warning_block_and_no_extra_blank_line_when_nothing_went_wrong(run_gck, workspace):
+    result = run_gck(str(workspace))
+
+    assert after_spinner(result.stderr) == ""
+    assert TERMINAL_ESCAPES.sub("", result.stdout) == (
+        "project  main ✓\n"
+        f"  {LOCAL} ✗  feature       now  ↓2    tests\n"
+        f"  {REMOTE_ONLY} ●  remote-only   now        running\n"
+        "\n● Done.\n")
+
+
+def should_draw_a_spinner_frame_every_tenth_of_a_second_with_the_repository_being_scanned(run_gck, workspace):
+    result = run_gck(str(workspace), glab=SLOW_GLAB_MOCK, extra_env=UTF8_LOCALE)
+
+    frames = SPINNER_FRAME.findall(result.stderr)
+    assert len(frames) > len(SPINNER_GLYPHS)
+    assert [glyph for glyph, _ in frames] == [SPINNER_GLYPHS[i % 10] for i in range(len(frames))]
+    assert frames[-1][1] == str(workspace / "project")
+    assert result.stderr.rindex(SPINNER_CLEAR) > result.stderr.rindex(frames[-1][1])
+    assert "\x1b[2K" not in result.stdout

@@ -1,6 +1,9 @@
 #!/bin/bash
 set -uo pipefail
 
+# shellcheck source=repolib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/repolib.sh"
+
 show_usage() {
     cat <<EOF
 Usage: gup [<git pull args>]
@@ -24,18 +27,11 @@ inside_worktree_git_dir() {
         [ "$(git rev-parse --absolute-git-dir)" != "$(git rev-parse --path-format=absolute --git-common-dir)" ]
 }
 
-rebase_mode() {
-    case "$1" in
-        main|master) echo true ;;
-        *) echo merges ;;
-    esac
-}
-
 update_checkout() {
     local checkout="$1" branch
     shift
     branch=$(git -C "$checkout" symbolic-ref -q --short HEAD)
-    git -C "$checkout" pull --rebase="$(rebase_mode "$branch")" --autostash "$@" || return
+    git -C "$checkout" pull --rebase="$(rh_rebase_mode "$branch")" --autostash "$@" || return
     git -C "$checkout" wt rm --merged
 }
 
