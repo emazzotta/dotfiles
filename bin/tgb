@@ -16,7 +16,7 @@ if test "${1}"; then
         echo "Creating in ${directory}..."
         say -v "${voice}" "${audio_content}" -o ${filename}
         lame -m m "${filename}.aiff" "${filename}.mp3"
-        tgv "${filename}.mp3" ${@}
+        tgv "${filename}.mp3" "$@"
     else
         echo -e "${COLOR_RED}Aborting...${COLOR_RESET}"
     fi

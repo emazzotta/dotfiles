@@ -10,4 +10,4 @@ devrun() {
   ssh -q devserver "$command" 2>/dev/null
 }
 
-devrun $@
+devrun "$@"

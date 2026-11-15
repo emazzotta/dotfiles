@@ -85,7 +85,9 @@ find_matching_files() {
         fi
     done < <(find . -maxdepth 7 -type f -path "*/$relative_path" -print0 2>/dev/null)
 
-    printf '%s\n' "${matching_files[@]}"
+    if [ ${#matching_files[@]} -gt 0 ]; then
+        printf '%s\n' "${matching_files[@]}"
+    fi
 }
 
 sync_files() {
@@ -98,7 +100,7 @@ sync_files() {
     log "Source: $source"
     echo
 
-    local -a target_files
+    local -a target_files=()
     while IFS= read -r line; do
         target_files+=("$line")
     done < <(find_matching_files "$relative_path" "$source")
@@ -114,10 +116,10 @@ sync_files() {
     for target in "${target_files[@]}"; do
         if cp "$source" "$target"; then
             log "Updated: $target"
-            ((updated_count++))
+            updated_count=$((updated_count + 1))
         else
             error "Failed to update: $target"
-            ((failed_count++))
+            failed_count=$((failed_count + 1))
         fi
     done
 

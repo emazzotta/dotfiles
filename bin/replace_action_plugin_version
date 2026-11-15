@@ -11,16 +11,15 @@ PLUGIN_NAME=$1
 TARGET_VERSION=$2
 ESCAPED_PLUGIN_NAME=$(echo "$PLUGIN_NAME" | sed 's/\//\\\//g')
 
-FILES=$(find "$(pwd)" -type f -path "*/.github/workflows/*" -name "*.yml" -maxdepth 5)
-
-for file in $FILES; do
-    # Check if the file contains the plugin name with a version different from TARGET_VERSION
-    if grep -q "${ESCAPED_PLUGIN_NAME}@[a-zA-Z0-9_.-]*" "$file" && ! grep -q "${ESCAPED_PLUGIN_NAME}@${TARGET_VERSION}" "$file"; then
-        # Perform the replacement
-        sed -i '' "s/${ESCAPED_PLUGIN_NAME}@[a-zA-Z0-9_.-]*/${ESCAPED_PLUGIN_NAME}@${TARGET_VERSION}/g" "$file"
-        echo "Updated $file"
+while IFS= read -r -d '' file; do
+    if grep -q "${ESCAPED_PLUGIN_NAME}@" "$file"; then
+        sed -i.bak "s/${ESCAPED_PLUGIN_NAME}@[a-zA-Z0-9_.-]*/${ESCAPED_PLUGIN_NAME}@${TARGET_VERSION}/g" "$file"
+        if ! cmp -s "$file" "$file.bak"; then
+            echo "Updated $file"
+        fi
+        rm -f "$file.bak"
     fi
-done
+done < <(find "$(pwd)" -maxdepth 5 -type f -path "*/.github/workflows/*" -name "*.yml" -print0)
 
 echo "Replacement process completed."
 

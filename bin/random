@@ -4,4 +4,8 @@ max_value=100
 if test "${1}"; then
     max_value=${1}
 fi
-echo "scale=max;$(od -An -N1 -i /dev/random)%$max_value" | bc -l
+if ! [[ "${max_value}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "usage: $(basename "${0}") [maximum: a positive integer, default 100]" >&2
+    exit 1
+fi
+echo $(($(od -An -N4 -tu4 /dev/random) % max_value))

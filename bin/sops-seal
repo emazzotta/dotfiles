@@ -12,7 +12,9 @@ dst="${2:?usage: sops-seal <plaintext-source> <encrypted-target>}"
 mkdir -p "$(dirname "$dst")"
 
 tmp="$(dirname "$dst")/.sops-seal-$$.enc.yaml"
-trap 'rm -f "$tmp"' EXIT
+sealed="$(dirname "$dst")/.sops-seal-$$.sealed"
+trap 'rm -f "$tmp" "$sealed"' EXIT
 cp "$src" "$tmp"
-sops --encrypt "$tmp" > "$dst"
+sops --encrypt "$tmp" > "$sealed"
+mv "$sealed" "$dst"
 echo "sealed: $dst"

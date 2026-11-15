@@ -26,14 +26,8 @@ check_wildcard_match() {
     local hostname="$1"
     local pattern="$2"
 
-    if [[ "$pattern" == "*."* ]]; then
-        local domain="${pattern#*.}"
-        local host_suffix="${hostname##*.}"
-        local remaining="${hostname%.$host_suffix}"
-
-        if [[ "$remaining.$host_suffix" == *".$domain" ]] || [[ "$hostname" == *".$domain" ]]; then
-            return 0
-        fi
+    if [[ "$pattern" == "*."* ]] && [ -n "${hostname%%.*}" ] && [ "${hostname#*.}" = "${pattern#*.}" ]; then
+        return 0
     fi
 
     if [[ "$hostname" == "$pattern" ]]; then
@@ -41,6 +35,24 @@ check_wildcard_match() {
     fi
 
     return 1
+}
+
+min_key_bits() {
+    case "$1" in
+        *rsa* | *RSA* | *dsa* | *DSA*) echo 2048 ;;
+        *) echo 256 ;;
+    esac
+}
+
+run_with_timeout() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then
+        gtimeout "$@"
+    else
+        shift
+        "$@"
+    fi
 }
 
 echo -e "${BLUE}================================================${NC}"
@@ -57,11 +69,10 @@ fi
 echo -e "${GREEN}✓ Successfully connected to ${HOST}:${PORT}${NC}"
 
 print_section "Retrieving Certificate"
-CERT_OUTPUT=$(echo | openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" 2>/dev/null)
-echo "$CERT_OUTPUT" | openssl x509 -noout -text 2>/dev/null > /tmp/cert_full.txt
-echo "$CERT_OUTPUT" | openssl x509 2>/dev/null > /tmp/cert.pem
+CERT_OUTPUT=$(echo | openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" 2>/dev/null || true)
+echo "$CERT_OUTPUT" | openssl x509 -noout -text 2>/dev/null > /tmp/cert_full.txt || true
 
-if [ $? -eq 0 ]; then
+if echo "$CERT_OUTPUT" | openssl x509 2>/dev/null > /tmp/cert.pem; then
     echo -e "${GREEN}✓ Certificate retrieved successfully${NC}"
 else
     echo -e "${RED}✗ Failed to retrieve certificate${NC}"
@@ -204,10 +215,13 @@ echo "$PUBKEY_INFO"
 KEY_SIZE=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep "Public-Key:" | grep -o "[0-9]*")
 echo "Key Size: ${KEY_SIZE} bits"
 
-if [ "$KEY_SIZE" -lt 2048 ]; then
-    echo -e "${RED}✗ Key size is weak (< 2048 bits)${NC}"
-elif [ "$KEY_SIZE" -ge 2048 ] && [ "$KEY_SIZE" -lt 4096 ]; then
-    echo -e "${GREEN}✓ Key size is adequate (2048+ bits)${NC}"
+KEY_ALGO=$(echo "$PUBKEY_INFO" | head -n1)
+MIN_KEY_BITS=$(min_key_bits "$KEY_ALGO")
+
+if [ "$KEY_SIZE" -lt "$MIN_KEY_BITS" ]; then
+    echo -e "${RED}✗ Key size is weak (< ${MIN_KEY_BITS} bits)${NC}"
+elif [ "$KEY_SIZE" -lt 4096 ]; then
+    echo -e "${GREEN}✓ Key size is adequate (${MIN_KEY_BITS}+ bits)${NC}"
 else
     echo -e "${GREEN}✓ Key size is strong (4096+ bits)${NC}"
 fi
@@ -226,7 +240,7 @@ print_section "TLS Protocol Support"
 echo "Testing supported TLS versions..."
 
 for version in ssl3 tls1 tls1_1 tls1_2 tls1_3; do
-    PROTO_TEST=$(timeout 5 openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" -$version </dev/null 2>&1 || true)
+    PROTO_TEST=$(run_with_timeout 5 openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" -$version </dev/null 2>&1 || true)
 
     if echo "$PROTO_TEST" | grep -q "Protocol.*TLS"; then
         PROTO_VERSION=$(echo "$PROTO_TEST" | grep "Protocol" | awk '{print $2}')
@@ -267,7 +281,7 @@ echo -e "\nBasic Constraints:"
 openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A1 "X509v3 Basic Constraints" | tail -n1 | sed 's/^[[:space:]]*//'
 
 print_section "Certificate Authority Information"
-AIA=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A5 "Authority Information Access")
+AIA=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A5 "Authority Information Access" || true)
 if [ -n "$AIA" ]; then
     echo "$AIA" | sed 's/^[[:space:]]*//'
 else
@@ -287,7 +301,7 @@ else
 fi
 
 print_section "Certificate Transparency (CT) Logs"
-SCT=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A20 "CT Precertificate SCTs")
+SCT=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A20 "CT Precertificate SCTs" || true)
 if [ -n "$SCT" ]; then
     echo -e "${GREEN}✓ Certificate includes CT log entries${NC}"
     SCT_COUNT=$(echo "$SCT" | grep -c "Signed Certificate Timestamp:" || echo 0)
@@ -334,18 +348,18 @@ if [ "$CHAIN_VALID" = false ]; then
     CRITICAL=$((CRITICAL + 1))
 fi
 
-if timeout 5 openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" -tls1 </dev/null 2>&1 | grep -q "Protocol.*TLSv1\.0"; then
+if run_with_timeout 5 openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" -tls1 </dev/null 2>&1 | grep -q "Protocol.*TLSv1\.0"; then
     echo -e "${YELLOW}⚠ WARNING: TLSv1.0 supported (should be disabled)${NC}"
     WARNINGS=$((WARNINGS + 1))
 fi
 
-if timeout 5 openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" -tls1_1 </dev/null 2>&1 | grep -q "Protocol.*TLSv1\.1"; then
+if run_with_timeout 5 openssl s_client -connect "${HOST}:${PORT}" -servername "$HOST" -tls1_1 </dev/null 2>&1 | grep -q "Protocol.*TLSv1\.1"; then
     echo -e "${YELLOW}⚠ WARNING: TLSv1.1 supported (should be disabled)${NC}"
     WARNINGS=$((WARNINGS + 1))
 fi
 
-if [ "$KEY_SIZE" -lt 2048 ]; then
-    echo -e "${RED}✗ CRITICAL: Weak key size (< 2048 bits)${NC}"
+if [ "$KEY_SIZE" -lt "$MIN_KEY_BITS" ]; then
+    echo -e "${RED}✗ CRITICAL: Weak key size (< ${MIN_KEY_BITS} bits)${NC}"
     CRITICAL=$((CRITICAL + 1))
 fi
 

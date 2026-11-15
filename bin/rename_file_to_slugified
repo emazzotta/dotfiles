@@ -3,7 +3,18 @@
 set -e
 
 if test "${1}"; then
-    mv "${1}" "$(echo "${1}" | sed -e 's/[^[:alnum:]]/_/g' | tr -s '_')"
+    path="${1}"
+    base="${path##*/}"
+    stem="${base%.*}"
+    extension="${base#"${stem}"}"
+    slug="$(printf '%s\n' "${stem}" | sed -e 's/[^[:alnum:]]/_/g' | tr -s '_')"
+    case "${path}" in
+        */*) target="${path%/*}/${slug}${extension}" ;;
+        *) target="${slug}${extension}" ;;
+    esac
+    if [ "${path}" != "${target}" ]; then
+        mv -- "${path}" "${target}"
+    fi
 else
     echo "usage: $(basename "${0}") <param>"
 fi

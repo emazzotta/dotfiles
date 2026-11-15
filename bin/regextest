@@ -3,7 +3,7 @@
 if test "${1}"; then
     PATTERN="${1}"
     while read line; do
-        echo "${line}" | [[ "${line}" =~ ${PATTERN} ]] && echo -ne "FOUND\t\t" || echo -ne "NOT FOUND\t"
+        [[ "${line}" =~ ${PATTERN} ]] && echo -ne "FOUND\t\t" || echo -ne "NOT FOUND\t"
         echo "${line}"
 done <<< "bla
 dsf.sdf

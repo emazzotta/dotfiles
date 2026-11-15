@@ -15,8 +15,11 @@ if ! [[ "$speed_up_factor" =~ ^[0-9]+([.][0-9]+)?$ ]] || (( $(echo "$speed_up_fa
     exit 1
 fi
 
-output_video="sped_up_$input_video"
-has_audio=$(ffmpeg -i "$input_video" 2>&1 | grep -c "Audio:")
+case "$input_video" in
+    */*) output_video="${input_video%/*}/sped_up_${input_video##*/}" ;;
+    *) output_video="sped_up_$input_video" ;;
+esac
+has_audio=$(ffmpeg -i "$input_video" 2>&1 | grep -c "Audio:" || true)
 
 if (( $(echo "$speed_up_factor > 2.0" | bc -l) )); then
     atempo_count=$(echo "l($speed_up_factor)/l(2)" | bc -l)

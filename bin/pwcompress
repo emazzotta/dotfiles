@@ -69,11 +69,36 @@ if [ -z "$PASSWORD" ]; then
     PASSWORD="$PASSWORD_ZIPS"
 fi
 
-if [ "$#" -eq 1 ]; then
-    ARCHIVE_NAME="${1%.*}.7z"
-else
-    ARCHIVE_NAME="$(basename "$(dirname "$1")").7z"
-fi
+archive_name() {
+    local input="${1%/}"
+    local dir base stem
+
+    case "$input" in
+        . | .. | */. | */..) input="$(cd "$input" && pwd -P)" ;;
+    esac
+    dir="$(dirname "$input")"
+    base="$(basename "$input")"
+
+    if [ "$#" -gt 1 ]; then
+        if [ "$dir" = "." ]; then
+            dir="$PWD"
+        fi
+        echo "$(basename "$dir").7z"
+        return
+    fi
+
+    stem="${base%.*}"
+    if [ -z "$stem" ]; then
+        stem="$base"
+    fi
+    if [ "$dir" = "." ]; then
+        echo "$stem.7z"
+    else
+        echo "${dir%/}/$stem.7z"
+    fi
+}
+
+ARCHIVE_NAME="$(archive_name "$@")"
 
 log "Archive creation in progress, please wait... (compression level $COMPRESSION_LEVEL)"
 7z a -mx="$COMPRESSION_LEVEL" -p"$PASSWORD" -mhe=on "$ARCHIVE_NAME" "$@"

@@ -1,9 +1,8 @@
 #!/bin/bash
 
-for dir in $(find . -maxdepth 3 -mindepth 1); do
-    if [ -e "${dir}/.git" ]; then
-        if [ $(git -C ${dir} log | grep Emanuele | wc -l) -eq 0 ]; then
-            echo "No git contributions in: ${dir}"
-        fi
+while IFS= read -r -d '' git_entry; do
+    dir="${git_entry%/.git}"
+    if [ "$(git -C "${dir}" log | grep -c Emanuele)" -eq 0 ]; then
+        echo "No git contributions in: ${dir}"
     fi
-done
+done < <(find . -mindepth 2 -maxdepth 4 -name .git -prune -print0)
