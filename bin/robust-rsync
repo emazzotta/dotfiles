@@ -37,6 +37,7 @@ class SyncConfig:
     timeout: int
     bwlimit: Optional[int]
     verbose: bool
+    delete: bool = False
 
 
 class RsyncCommandBuilder:
@@ -53,8 +54,10 @@ class RsyncCommandBuilder:
             "-e",
             "ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o ConnectTimeout=30 -o BatchMode=yes",
             "--compress",
-            "--delete-after",
         ]
+
+        if self.config.delete:
+            cmd.append("--delete-after")
 
         if self.config.use_sudo:
             cmd.extend(["--rsync-path=sudo rsync"])
@@ -183,6 +186,9 @@ examples:
   Limit bandwidth to 5MB/s:
     %(prog)s --remote user@server:/opt/data --bwlimit 5000
 
+  Mirror, deleting files at the destination that are not at the source:
+    %(prog)s --remote user@server:/opt/data/ --local /backup --delete
+
 features:
   - Automatic retry with exponential backoff
   - Resume interrupted transfers
@@ -209,6 +215,12 @@ features:
         "--push",
         action="store_true",
         help="Push local to remote (default: pull remote to local)"
+    )
+
+    parser.add_argument(
+        "--delete",
+        action="store_true",
+        help="Delete files at the destination that are not at the source, after the transfer (default: nothing is deleted)"
     )
 
     parser.add_argument(
@@ -298,6 +310,7 @@ def main() -> int:
         timeout=args.timeout,
         bwlimit=args.bwlimit,
         verbose=args.verbose,
+        delete=args.delete,
     )
 
     rsync = RobustRsync(config)

@@ -73,6 +73,16 @@ class TestRsyncCommandBuilder:
         cmd = mod.RsyncCommandBuilder(make_config(timeout=120)).build()
         assert "--timeout=120" in cmd
 
+    def test_should_not_delete_at_the_destination_by_default(self, mod, make_config):
+        cmd = mod.RsyncCommandBuilder(make_config()).build()
+
+        assert not any(arg.startswith("--delete") for arg in cmd)
+
+    def test_should_delete_after_the_transfer_when_delete_is_requested(self, mod, make_config):
+        cmd = mod.RsyncCommandBuilder(make_config(delete=True)).build()
+
+        assert "--delete-after" in cmd
+
 
 class TestRetryStrategy:
     def test_initial_wait(self, mod):
@@ -134,3 +144,45 @@ class TestValidateConfig:
     def test_nonexistent_dir(self, mod, tmp_path):
         args = type("A", (), {"local": tmp_path / "nope", "retries": 5, "timeout": 300, "bwlimit": None})()
         assert "does not exist" in mod.validate_config(args)
+
+
+RSYNC_ARGV_RECORDER = 'printf "%s\\n" "$@" >> "$ARGV_LOG"'
+
+
+@pytest.fixture
+def sync(run_cli, tmp_path):
+    local = tmp_path / "local"
+    local.mkdir()
+    argv_log = tmp_path / "rsync-argv"
+    argv_log.touch()
+
+    def _sync(*flags):
+        return run_cli(
+            "robust-rsync",
+            ["--remote", "user@host:/data/", "--local", str(local), *flags],
+            env_extra={"ARGV_LOG": str(argv_log)},
+            mock_bins={"rsync": RSYNC_ARGV_RECORDER},
+        )
+    _sync.rsync_argv = lambda: argv_log.read_text().splitlines()
+    return _sync
+
+
+class TestDeleteFlag:
+    def test_should_delete_nothing_at_the_destination_without_the_flag(self, sync):
+        result = sync()
+
+        assert result.returncode == 0, result.stderr
+        assert sync.rsync_argv() != []
+        assert not any(arg.startswith("--delete") for arg in sync.rsync_argv())
+
+    def test_should_pass_delete_after_to_rsync_when_the_flag_is_given(self, sync):
+        result = sync("--delete")
+
+        assert result.returncode == 0, result.stderr
+        assert "--delete-after" in sync.rsync_argv()
+
+    def test_should_describe_the_delete_flag_in_the_help_text(self, run_cli):
+        result = run_cli("robust-rsync", ["--help"])
+
+        assert result.returncode == 0, result.stderr
+        assert "--delete" in result.stdout
