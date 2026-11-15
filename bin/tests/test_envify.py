@@ -1,5 +1,6 @@
 import io
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -238,6 +239,36 @@ class TestDevboxShim:
                                 env={**os.environ, "ENVIFY_DEVBOX_SHIM": str(devbox_shim)})
 
         assert (result.returncode, result.stdout, result.stderr) == (3, "listed:--list\n", "")
+
+
+class TestInstalledOutsideTheDotfiles:
+    @pytest.fixture
+    def installed(self, tmp_path, devbox_shim):
+        folder = tmp_path / "local-bin"
+        folder.mkdir()
+        shutil.copy(WRAPPER, folder / "envify")
+        (folder / "envify.py").write_text('print("export ENVIFY_TEST_TOKEN=fr0m-sibling")\n')
+
+        def _source(dotfiles):
+            chain = 'source envify ENVIFY_TEST_TOKEN && echo "loaded:$ENVIFY_TEST_TOKEN"'
+            env = {**os.environ, "PATH": f"{folder}:{os.environ['PATH']}", "HOME": str(tmp_path / "home"),
+                   "DOTFILESPATH": str(dotfiles), "ENVIFY_DEVBOX_SHIM": str(devbox_shim)}
+            return subprocess.run(["bash", "-c", chain], capture_output=True, text=True, env=env)
+        return _source
+
+    def should_use_the_client_next_to_it_when_the_dotfiles_are_not_there(self, installed, tmp_path):
+        result = installed(tmp_path / "missing")
+
+        assert (result.returncode, result.stdout) == (0, "loaded:fr0m-sibling\n")
+
+    def should_prefer_the_client_in_the_dotfiles(self, installed, tmp_path):
+        client = tmp_path / "dotfiles" / "bin" / "envify.py"
+        client.parent.mkdir(parents=True)
+        client.write_text('print("export ENVIFY_TEST_TOKEN=fr0m-dotfiles")\n')
+
+        result = installed(tmp_path / "dotfiles")
+
+        assert (result.returncode, result.stdout) == (0, "loaded:fr0m-dotfiles\n")
 
 
 class TestStoreParam:

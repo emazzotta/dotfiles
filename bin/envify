@@ -11,6 +11,10 @@ fi
 unset _ENVIFY_SHIM
 
 _ENVIFY_PY="${DOTFILESPATH:-$HOME/dotfiles}/bin/envify.py"
+# leonardo_utils_installer puts envify.py next to this file on a Mac without the dotfiles.
+if [ ! -r "$_ENVIFY_PY" ] && [ -n "${BASH_SOURCE[0]:-}" ]; then
+    _ENVIFY_PY="$(dirname "${BASH_SOURCE[0]}")/envify.py"
+fi
 
 if [ $# -eq 0 ]; then
     return 0 2>/dev/null || exit 0

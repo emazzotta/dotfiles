@@ -9,6 +9,8 @@ set -euo pipefail
 
 readonly BASE_URL="https://raw.githubusercontent.com/emazzotta/dotfiles/refs/heads/master/bin"
 readonly SCRIPTS=(
+    "envify"
+    "envify.py"
     "host-resolver"
     "showip"
     "leonardo_account"
@@ -58,6 +60,8 @@ Arguments:
   INSTALL_DIR    Directory to install/uninstall scripts (default: ${DEFAULT_INSTALL_DIR})
 
 Scripts installed:
+  - envify
+  - envify.py
   - host-resolver
   - showip
   - leonardo_account
