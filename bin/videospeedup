@@ -39,12 +39,12 @@ if (( $(echo "$final_atempo != 1.0" | bc -l) )); then
 fi
 
 if [ "$has_audio" -gt 0 ]; then
-    ffmpeg_command="ffmpeg -i \"$input_video\" -filter_complex \"[0:v]setpts=PTS/${speed_up_factor}[v];[0:a]$atempo_filter[a]\" -map \"[v]\" -map \"[a]\" \"$output_video\""
+    ffmpeg_args=(-i "$input_video" -filter_complex "[0:v]setpts=PTS/${speed_up_factor}[v];[0:a]${atempo_filter}[a]" -map "[v]" -map "[a]" "$output_video")
 else
-    ffmpeg_command="ffmpeg -i \"$input_video\" -filter:v \"setpts=PTS/${speed_up_factor}\" -an \"$output_video\""
+    ffmpeg_args=(-i "$input_video" -filter:v "setpts=PTS/${speed_up_factor}" -an "$output_video")
 fi
 
-eval $ffmpeg_command || { echo "ffmpeg command failed" >&2; exit 1; }
+ffmpeg "${ffmpeg_args[@]}" || { echo "ffmpeg command failed" >&2; exit 1; }
 
 echo "Video successfully sped up by factor of $speed_up_factor."
 echo "Output video: $output_video"
