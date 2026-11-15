@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
-import time
+from functools import partial
 from pathlib import Path
-import sys
 
 import medialib
 from medialib import OutputNaming
-import scriptlog as logger
 
 
 
@@ -17,7 +14,7 @@ DEFAULT_SUFFIX = "_boosted"
 DEFAULT_VOLUME = 2.0
 
 
-def boost_one(input_file: Path, volume: float, suffix: str, output_dir: Path | None, delete_original: bool, file_num: int, total_files: int) -> Path | None:
+def plan_boost(input_file: Path, output_dir: Path | None, volume: float, suffix: str) -> medialib.FfmpegJob:
     output_file = medialib.resolve_output_path(
         input_file, output_dir,
         OutputNaming(extension=input_file.suffix, name_suffix=suffix, conflict_suffix=suffix))
@@ -29,23 +26,7 @@ def boost_one(input_file: Path, volume: float, suffix: str, output_dir: Path | N
         *medialib.LOSSY_AUDIO_QUALITY_ARGS.get(input_file.suffix.lstrip(".").lower(), []),
         "-y", str(output_file),
     ]
-
-    logger.info(f"\n[{file_num}/{total_files}] Boosting: {input_file.name} -> {output_file.name}")
-    print()
-
-    start_time = time.time()
-    try:
-        subprocess.run(cmd, check=True)
-        elapsed = time.time() - start_time
-        print()
-        logger.success(f"Boosted in {medialib.format_time(elapsed)}: {input_file.name} -> {output_file.name}")
-        if delete_original:
-            input_file.unlink(missing_ok=True)
-        return output_file
-    except subprocess.CalledProcessError:
-        print()
-        logger.error(f"Failed: {input_file.name}")
-        return None
+    return medialib.FfmpegJob(cmd, output_file)
 
 
 def main():
@@ -57,34 +38,10 @@ def main():
     p.add_argument("-s", "--suffix", default=DEFAULT_SUFFIX, help="Suffix to append before extension (default: _boosted)")
     args = p.parse_args()
 
-    out_dir = Path(args.output_path).expanduser().resolve() if args.output_path else None
-    if out_dir:
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-    if args.input:
-        sources = [Path(i).expanduser().resolve() for i in args.input]
-        inputs = medialib.collect_inputs(sources, medialib.AUDIO_EXTS)
-    else:
-        inputs = medialib.resolve_inputs_or_pick(medialib.AUDIO_EXTS, "audio")
-    if not inputs:
-        logger.error("No audio files found")
-        sys.exit(1)
-
-    logger.info(f"Found {len(inputs)} audio file(s) to boost at {args.volume}x volume")
-
-    results = []
-    failed = 0
-    batch_start_time = time.time()
-    for idx, f in enumerate(inputs, 1):
-        result = boost_one(f, args.volume, args.suffix, out_dir, args.delete, idx, len(inputs))
-        if result:
-            results.append(result)
-        else:
-            failed += 1
-
-    batch_elapsed = time.time() - batch_start_time
-    print()
-    logger.info(f"Summary: {len(results)} succeeded, {failed} failed, {len(inputs)} total in {medialib.format_time(batch_elapsed)}")
+    spec = medialib.BatchSpec(
+        media=medialib.AUDIO, task=f"boost at {args.volume}x volume", doing="Boosting", done="Boosted",
+        plan=partial(plan_boost, volume=args.volume, suffix=args.suffix))
+    medialib.run_batch(spec, args.input, args.output_path, args.delete)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,11 @@
-"""Input collection, output naming and duration formatting shared by the media and image scripts."""
+"""Input collection, output naming, duration formatting and the ffmpeg batch flow shared by the media and image scripts."""
 from __future__ import annotations
 
 import shutil
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from glob import escape, glob
 from pathlib import Path
@@ -20,6 +22,31 @@ class OutputNaming:
     extension: str
     name_suffix: str = ""
     conflict_suffix: str = "_converted"
+
+
+@dataclass(frozen=True)
+class MediaKind:
+    label: str
+    extensions: list[str]
+
+
+AUDIO = MediaKind("audio", AUDIO_EXTS)
+VIDEO = MediaKind("video", VIDEO_EXTS)
+
+
+@dataclass(frozen=True)
+class FfmpegJob:
+    cmd: list[str]
+    output_file: Path
+
+
+@dataclass(frozen=True)
+class BatchSpec:
+    media: MediaKind
+    task: str
+    doing: str
+    done: str
+    plan: Callable[[Path, Path | None], FfmpegJob | None]
 
 
 def format_time(seconds: float) -> str:
@@ -123,3 +150,66 @@ def resolve_output_path(input_file: Path, output_dir: Path | None, naming: Outpu
         if not candidate.exists():
             return candidate
         counter = "_2" if not counter else f"_{int(counter[1:]) + 1}"
+
+
+def prepare_output_dir(output_path: str | None) -> Path | None:
+    if not output_path:
+        return None
+    output_dir = Path(output_path).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir
+
+
+def gather_inputs(media: MediaKind, input_args: list[str] | None) -> list[Path]:
+    if input_args:
+        sources = [Path(arg).expanduser().resolve() for arg in input_args]
+        inputs = collect_inputs(sources, media.extensions)
+    else:
+        inputs = resolve_inputs_or_pick(media.extensions, media.label)
+    if not inputs:
+        logger.error(f"No {media.label} files found")
+        sys.exit(1)
+    return inputs
+
+
+def process_file(spec: BatchSpec, input_file: Path, output_dir: Path | None,
+                 delete_original: bool, progress: str) -> bool:
+    job = spec.plan(input_file, output_dir)
+    if job is None:
+        return False
+    names = f"{input_file.name} -> {job.output_file.name}"
+    logger.info(f"\n{progress} {spec.doing}: {names}")
+    print()
+
+    start_time = time.time()
+    try:
+        subprocess.run(job.cmd, check=True)
+        elapsed = time.time() - start_time
+        print()
+        logger.success(f"{spec.done} in {format_time(elapsed)}: {names}")
+        if delete_original:
+            input_file.unlink(missing_ok=True)
+        return True
+    except subprocess.CalledProcessError:
+        print()
+        logger.error(f"Failed: {input_file.name}")
+        return False
+
+
+def run_batch(spec: BatchSpec, input_args: list[str] | None, output_path: str | None,
+              delete_original: bool) -> None:
+    output_dir = prepare_output_dir(output_path)
+    inputs = gather_inputs(spec.media, input_args)
+    total = len(inputs)
+    logger.info(f"Found {total} {spec.media.label} file(s) to {spec.task}")
+
+    succeeded = 0
+    batch_start_time = time.time()
+    for number, input_file in enumerate(inputs, 1):
+        if process_file(spec, input_file, output_dir, delete_original, f"[{number}/{total}]"):
+            succeeded += 1
+
+    batch_elapsed = time.time() - batch_start_time
+    print()
+    logger.info(f"Summary: {succeeded} succeeded, {total - succeeded} failed, "
+                f"{total} total in {format_time(batch_elapsed)}")

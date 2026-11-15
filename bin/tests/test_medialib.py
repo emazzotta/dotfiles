@@ -1,13 +1,33 @@
 import os
+import re
+import signal
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
 
+FFMPEG_OK = 'touch "${@: -1}"'
+FFMPEG_FAILS_ON_MARKED = 'case "$*" in *zzfail*) exit 1;; esac\n' + FFMPEG_OK
+FFMPEG_LEAVES_PARTIAL_AND_FAILS = 'touch "${@: -1}"\nexit 1'
+FFMPEG_WRITES_NEW = 'printf new > "${@: -1}"'
+FFMPEG_INTERRUPTED_ON_MARKED = (
+    'for last; do :; done\n'
+    'case "$last" in *zzstop*) printf partial > "$last"; kill -INT "$PPID"; exec sleep 10;; esac\n'
+    'touch "$last"'
+)
+GUM_MARKER = 'echo called >> "$MARKER"'
+SIGINT_IGNORED = signal.getsignal(signal.SIGINT) == signal.SIG_IGN
+
+BULLETS = {
+    "\033[1m\033[34m\u25cf\033[0m": "[info]",
+    "\033[1m\033[32m\u25cf\033[0m": "[ok]",
+    "\033[1m\033[31m\u25cf\033[0m": "[err]",
+}
+DURATION = re.compile(r"\d+m \d+s|\d+\.\ds")
+
 
 def _fake_gum(stdout):
     return lambda *args, **kwargs: SimpleNamespace(stdout=stdout, returncode=0)
-
-
 
 
 @pytest.fixture
@@ -303,3 +323,294 @@ class TestPickFromWithTheRealPicker:
 
         assert [path.name for path in result] == ["b.wav"]
         assert "MENU: choose" in capfd.readouterr().err
+
+
+@dataclass(frozen=True)
+class Script:
+    name: str
+    options: tuple
+    kind: str
+    input_ext: str
+    task: str
+    doing: str
+    done: str
+    output: str
+    conflict_output: str
+    conflict_hint: str
+
+
+SCRIPTS = [
+    Script("audiotox", ("-f", "mp3"), "audio", "wav", "convert", "Converting", "Converted",
+           "{stem}.mp3", "{stem}_converted.mp3", "_converted"),
+    Script("videotox", ("-f", "mp4"), "video", "mov", "convert", "Converting", "Converted",
+           "{stem}.mp4", "{stem}_converted.mp4", "_converted"),
+    Script("audioboost", (), "audio", "wav", "boost at 2.0x volume", "Boosting", "Boosted",
+           "{stem}_boosted.wav", "{stem}_boosted_2.wav", "_boosted"),
+]
+
+
+def _readable(text, work):
+    for bullet, tag in BULLETS.items():
+        text = text.replace(bullet, tag)
+    return DURATION.sub("<T>", text.replace(str(work.resolve()), "<work>"))
+
+
+def _expected_stdout(script, stems, failed=()):
+    total = len(stems)
+    text = f"[info] Found {total} {script.kind} file(s) to {script.task}\n"
+    for number, stem in enumerate(stems, 1):
+        source = f"{stem}.{script.input_ext}"
+        output = script.output.format(stem=stem)
+        text += f"[info] \n[{number}/{total}] {script.doing}: {source} -> {output}\n\n\n"
+        if stem not in failed:
+            text += f"[ok] {script.done} in <T>: {source} -> {output}\n"
+    return text + (f"\n[info] Summary: {total - len(failed)} succeeded, "
+                   f"{len(failed)} failed, {total} total in <T>\n")
+
+
+def _overwrite_prompt(script, output):
+    return (f"File exists: <work>/{output}\nOverwrite? [y/N/a] "
+            f"(N=add {script.conflict_hint}, a=abort): ")
+
+
+@pytest.fixture(params=SCRIPTS, ids=lambda script: script.name)
+def script(request):
+    return request.param
+
+
+@pytest.fixture
+def work(tmp_path):
+    folder = tmp_path / "work"
+    folder.mkdir()
+    return folder
+
+
+@pytest.fixture
+def batch(run_cli, script, work):
+    def _run(stems, *options, ffmpeg=FFMPEG_OK, stdin=None):
+        inputs = []
+        for stem in stems:
+            source = work / f"{stem}.{script.input_ext}"
+            source.touch()
+            inputs.append(str(source))
+        return run_cli(script.name, [*script.options, *options, "-i", *inputs],
+                       mock_bins={"ffmpeg": ffmpeg}, stdin=stdin, cwd=work)
+    return _run
+
+
+def _listing(folder):
+    return sorted(path.name for path in folder.iterdir())
+
+
+class TestBatchFlowOfTheScripts:
+    def test_should_convert_one_file_and_report_it(self, script, work, batch):
+        result = batch(["one"])
+
+        assert result.returncode == 0
+        assert _readable(result.stdout, work) == _expected_stdout(script, ["one"])
+        assert result.stderr == ""
+        assert _listing(work) == sorted([f"one.{script.input_ext}", script.output.format(stem="one")])
+
+    def test_should_print_the_exact_report_of_one_file(self, script, work, batch):
+        result = batch(["one"])
+
+        output = script.output.format(stem="one")
+        assert _readable(result.stdout, work) == (
+            f"[info] Found 1 {script.kind} file(s) to {script.task}\n"
+            "[info] \n"
+            f"[1/1] {script.doing}: one.{script.input_ext} -> {output}\n"
+            "\n"
+            "\n"
+            f"[ok] {script.done} in <T>: one.{script.input_ext} -> {output}\n"
+            "\n"
+            "[info] Summary: 1 succeeded, 0 failed, 1 total in <T>\n"
+        )
+
+    def test_should_convert_several_files_in_the_order_given(self, script, work, batch):
+        stems = ["three", "one", "two"]
+
+        result = batch(stems)
+
+        assert result.returncode == 0
+        assert _readable(result.stdout, work) == _expected_stdout(script, stems)
+        assert result.stderr == ""
+        assert _listing(work) == sorted(
+            [f"{stem}.{script.input_ext}" for stem in stems]
+            + [script.output.format(stem=stem) for stem in stems])
+
+    def test_should_go_on_and_count_the_failure_when_one_file_fails_among_good_ones(self, script, work, batch):
+        stems = ["one", "zzfail", "three"]
+
+        result = batch(stems, ffmpeg=FFMPEG_FAILS_ON_MARKED)
+
+        assert result.returncode == 0
+        assert _readable(result.stdout, work) == _expected_stdout(script, stems, failed=["zzfail"])
+        assert _readable(result.stderr, work) == f"[err] Failed: zzfail.{script.input_ext}\n"
+        assert _listing(work) == sorted(
+            [f"{stem}.{script.input_ext}" for stem in stems]
+            + [script.output.format(stem=stem) for stem in ("one", "three")])
+
+    def test_should_exit_zero_and_report_every_failure_when_all_files_fail(self, script, work, batch):
+        stems = ["zzfail1", "zzfail2"]
+
+        result = batch(stems, ffmpeg=FFMPEG_FAILS_ON_MARKED)
+
+        assert result.returncode == 0
+        assert _readable(result.stdout, work) == _expected_stdout(script, stems, failed=stems)
+        assert result.stderr.count("Failed: ") == 2
+
+    def test_should_leave_the_partial_output_when_ffmpeg_fails_after_writing(self, script, work, batch):
+        result = batch(["one"], ffmpeg=FFMPEG_LEAVES_PARTIAL_AND_FAILS)
+
+        assert result.returncode == 0
+        assert (work / script.output.format(stem="one")).exists()
+        assert f"Failed: one.{script.input_ext}" in result.stderr
+
+    def test_should_delete_the_original_only_when_its_conversion_succeeded(self, script, work, batch):
+        stems = ["one", "zzfail"]
+
+        result = batch(stems, "-d", ffmpeg=FFMPEG_FAILS_ON_MARKED)
+
+        assert result.returncode == 0
+        assert _listing(work) == sorted(
+            [f"zzfail.{script.input_ext}", script.output.format(stem="one")])
+
+    def test_should_keep_every_original_without_the_delete_option(self, script, work, batch):
+        result = batch(["one", "two"])
+
+        assert result.returncode == 0
+        assert (work / f"one.{script.input_ext}").exists()
+        assert (work / f"two.{script.input_ext}").exists()
+
+    def test_should_create_the_output_directory_and_write_into_it(self, script, work, batch):
+        out_dir = work / "made" / "deeper"
+
+        result = batch(["one"], "-o", str(out_dir))
+
+        assert result.returncode == 0
+        assert _listing(out_dir) == [script.output.format(stem="one")]
+        assert _listing(work) == sorted(["made", f"one.{script.input_ext}"])
+
+    def test_should_create_the_output_directory_even_when_no_input_is_found(self, script, work, run_cli):
+        empty = work / "empty"
+        empty.mkdir()
+        out_dir = work / "made"
+
+        result = run_cli(script.name, [*script.options, "-o", str(out_dir), "-i", str(empty)],
+                         mock_bins={"ffmpeg": FFMPEG_OK}, cwd=work)
+
+        assert result.returncode == 1
+        assert out_dir.is_dir()
+        assert result.stdout == ""
+        assert _readable(result.stderr, work) == f"[err] No {script.kind} files found\n"
+
+    def test_should_report_a_missing_input_and_exit_one(self, script, work, run_cli):
+        result = run_cli(script.name, [*script.options, "-i", str(work / "ghost.wav")],
+                         mock_bins={"ffmpeg": FFMPEG_OK}, cwd=work)
+
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert _readable(result.stderr, work) == "[err] Input not found: <work>/ghost.wav\n"
+
+    def test_should_say_no_files_were_found_when_the_current_directory_has_none(self, script, work, run_cli):
+        (work / "notes.txt").touch()
+
+        result = run_cli(script.name, list(script.options), mock_bins={"ffmpeg": FFMPEG_OK}, cwd=work)
+
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert _readable(result.stderr, work) == (
+            f"[err] No {script.kind} files in <work>\n")
+
+    def test_should_not_start_the_picker_when_several_files_match_and_no_terminal_exists(
+        self, script, work, run_cli, tmp_path
+    ):
+        for stem in ("one", "two"):
+            (work / f"{stem}.{script.input_ext}").touch()
+        marker = tmp_path / "gum_calls"
+
+        result = run_cli(script.name, list(script.options),
+                         mock_bins={"ffmpeg": FFMPEG_OK, "gum": GUM_MARKER},
+                         env_extra={"MARKER": str(marker)}, cwd=work)
+
+        assert result.returncode == 1
+        assert not marker.exists()
+        assert _readable(result.stderr, work) == (
+            f"[err] Several {script.kind} files here; pass -i to choose\n")
+
+    @pytest.mark.skipif(SIGINT_IGNORED, reason="SIGINT is ignored here, so no KeyboardInterrupt can be raised")
+    def test_should_stop_on_an_interrupt_without_summary_and_leave_the_partial_output(self, script, work, batch):
+        stems = ["one", "zzstop", "three"]
+
+        result = batch(stems, ffmpeg=FFMPEG_INTERRUPTED_ON_MARKED)
+
+        assert result.returncode == -signal.SIGINT
+        assert "KeyboardInterrupt" in result.stderr
+        assert "Summary" not in result.stdout
+        assert f"{script.done} in" in result.stdout
+        assert (work / script.output.format(stem="one")).exists()
+        assert (work / script.output.format(stem="zzstop")).read_text() == "partial"
+        assert not (work / script.output.format(stem="three")).exists()
+        assert (work / f"zzstop.{script.input_ext}").exists()
+
+
+class TestOverwriteHandlingOfTheScripts:
+    @staticmethod
+    def _existing_output(script, work, stem="one"):
+        existing = work / script.output.format(stem=stem)
+        existing.write_text("old")
+        return existing
+
+    def test_should_overwrite_the_existing_output_when_the_answer_is_yes(self, script, work, batch):
+        existing = self._existing_output(script, work)
+
+        result = batch(["one"], ffmpeg=FFMPEG_WRITES_NEW, stdin="y\n")
+
+        assert result.returncode == 0
+        assert existing.read_text() == "new"
+        assert _readable(result.stdout, work) == (
+            f"[info] Found 1 {script.kind} file(s) to {script.task}\n"
+            + _overwrite_prompt(script, existing.name)
+            + _expected_stdout(script, ["one"]).split("\n", 1)[1])
+
+    def test_should_write_beside_the_existing_output_when_the_answer_is_no(self, script, work, batch):
+        existing = self._existing_output(script, work)
+
+        result = batch(["one"], ffmpeg=FFMPEG_WRITES_NEW, stdin="n\n")
+
+        assert result.returncode == 0
+        assert existing.read_text() == "old"
+        assert (work / script.conflict_output.format(stem="one")).read_text() == "new"
+        assert f"-> {script.conflict_output.format(stem='one')}\n" in result.stdout
+
+    def test_should_treat_any_other_answer_as_no(self, script, work, batch):
+        existing = self._existing_output(script, work)
+
+        result = batch(["one"], ffmpeg=FFMPEG_WRITES_NEW, stdin="maybe\n")
+
+        assert result.returncode == 0
+        assert existing.read_text() == "old"
+        assert (work / script.conflict_output.format(stem="one")).read_text() == "new"
+
+    def test_should_abort_the_whole_run_when_the_answer_is_abort(self, script, work, batch):
+        existing = self._existing_output(script, work, stem="two")
+
+        result = batch(["one", "two", "three"], ffmpeg=FFMPEG_WRITES_NEW, stdin="a\n")
+
+        assert result.returncode == 1
+        assert _readable(result.stderr, work) == "[err] Aborted\n"
+        assert "Summary" not in result.stdout
+        assert existing.read_text() == "old"
+        assert (work / script.output.format(stem="one")).read_text() == "new"
+        assert not (work / script.output.format(stem="three")).exists()
+        assert not (work / script.conflict_output.format(stem="two")).exists()
+
+    def test_should_fail_with_a_traceback_when_the_prompt_gets_no_answer(self, script, work, batch):
+        existing = self._existing_output(script, work)
+
+        result = batch(["one"], ffmpeg=FFMPEG_WRITES_NEW, stdin="")
+
+        assert result.returncode == 1
+        assert "EOFError" in result.stderr
+        assert existing.read_text() == "old"
+        assert "Summary" not in result.stdout

@@ -113,3 +113,53 @@ class TestCwdDefault:
 
         assert result.returncode != 0
         assert not list(work.glob("*_boosted.wav"))
+
+
+class TestFfmpegCommand:
+    @staticmethod
+    def _recording_ffmpeg(tmp_path):
+        return f'printf "%s\\n" "$@" > "{tmp_path}/ffmpeg_args.txt"\n' + FFMPEG_OK
+
+    def test_should_pass_the_default_volume_filter_to_ffmpeg(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        source = work / "voice.wav"
+        source.touch()
+
+        result = run_cli("audioboost", ["-i", str(source)],
+                         mock_bins={"ffmpeg": self._recording_ffmpeg(tmp_path)}, cwd=work)
+
+        args = (tmp_path / "ffmpeg_args.txt").read_text().splitlines()
+        assert result.returncode == 0, result.stderr
+        assert args == ["-i", str(source.resolve()), "-af", "volume=2.0", "-y",
+                        str(work.resolve() / "voice_boosted.wav")]
+
+    def test_should_pass_the_given_volume_and_name_it_in_the_report(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        source = work / "voice.wav"
+        source.touch()
+
+        result = run_cli("audioboost", ["-v", "1.5", "-s", "_loud", "-i", str(source)],
+                         mock_bins={"ffmpeg": self._recording_ffmpeg(tmp_path)}, cwd=work)
+
+        args = (tmp_path / "ffmpeg_args.txt").read_text().splitlines()
+        assert result.returncode == 0, result.stderr
+        assert args == ["-i", str(source.resolve()), "-af", "volume=1.5", "-y",
+                        str(work.resolve() / "voice_loud.wav")]
+        assert "Found 1 audio file(s) to boost at 1.5x volume" in result.stdout
+        assert "Boosting: voice.wav -> voice_loud.wav" in result.stdout
+
+    def test_should_keep_an_uppercase_extension_and_match_its_quality_case_insensitively(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        source = work / "voice.MP3"
+        source.touch()
+
+        result = run_cli("audioboost", ["-i", str(source)],
+                         mock_bins={"ffmpeg": self._recording_ffmpeg(tmp_path)}, cwd=work)
+
+        args = (tmp_path / "ffmpeg_args.txt").read_text().splitlines()
+        assert result.returncode == 0, result.stderr
+        assert args == ["-i", str(source.resolve()), "-af", "volume=2.0", "-b:a", "320k", "-y",
+                        str(work.resolve() / "voice_boosted.MP3")]

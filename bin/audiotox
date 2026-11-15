@@ -2,10 +2,8 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
-import time
+from functools import partial
 from pathlib import Path
-import sys
 
 import medialib
 from medialib import OutputNaming
@@ -27,7 +25,7 @@ AUDIO_CODECS = {
 }
 
 
-def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_original: bool, file_num: int, total_files: int) -> Path | None:
+def plan_conversion(input_file: Path, output_dir: Path | None, fmt: str) -> medialib.FfmpegJob | None:
     codec = AUDIO_CODECS.get(fmt)
     if not codec:
         logger.error(f"Unsupported format: {fmt}")
@@ -40,23 +38,7 @@ def convert_one(input_file: Path, fmt: str, output_dir: Path | None, delete_orig
               "-i", str(input_file),
               "-c:a", codec,
           ] + medialib.LOSSY_AUDIO_QUALITY_ARGS.get(fmt, []) + ["-y", str(output_file)]
-
-    logger.info(f"\n[{file_num}/{total_files}] Converting: {input_file.name} -> {output_file.name}")
-    print()
-
-    start_time = time.time()
-    try:
-        subprocess.run(cmd, check=True)
-        elapsed = time.time() - start_time
-        print()
-        logger.success(f"Converted in {medialib.format_time(elapsed)}: {input_file.name} -> {output_file.name}")
-        if delete_original:
-            input_file.unlink(missing_ok=True)
-        return output_file
-    except subprocess.CalledProcessError:
-        print()
-        logger.error(f"Failed: {input_file.name}")
-        return None
+    return medialib.FfmpegJob(cmd, output_file)
 
 
 def main():
@@ -68,34 +50,10 @@ def main():
     p.add_argument("-d", "--delete", action="store_true", help="Delete original after conversion")
     args = p.parse_args()
 
-    out_dir = Path(args.output_path).expanduser().resolve() if args.output_path else None
-    if out_dir:
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-    if args.input:
-        sources = [Path(i).expanduser().resolve() for i in args.input]
-        inputs = medialib.collect_inputs(sources, medialib.AUDIO_EXTS)
-    else:
-        inputs = medialib.resolve_inputs_or_pick(medialib.AUDIO_EXTS, "audio")
-    if not inputs:
-        logger.error("No audio files found")
-        sys.exit(1)
-
-    logger.info(f"Found {len(inputs)} audio file(s) to convert")
-
-    results = []
-    failed = 0
-    batch_start_time = time.time()
-    for idx, f in enumerate(inputs, 1):
-        result = convert_one(f, args.fmt, out_dir, args.delete, idx, len(inputs))
-        if result:
-            results.append(result)
-        else:
-            failed += 1
-
-    batch_elapsed = time.time() - batch_start_time
-    print()
-    logger.info(f"Summary: {len(results)} succeeded, {failed} failed, {len(inputs)} total in {medialib.format_time(batch_elapsed)}")
+    spec = medialib.BatchSpec(
+        media=medialib.AUDIO, task="convert", doing="Converting", done="Converted",
+        plan=partial(plan_conversion, fmt=args.fmt))
+    medialib.run_batch(spec, args.input, args.output_path, args.delete)
 
 
 if __name__ == "__main__":

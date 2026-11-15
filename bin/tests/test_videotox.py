@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 FFMPEG_OK = 'touch "${@: -1}"'
@@ -67,3 +69,88 @@ class TestCwdDefault:
 
         assert result.returncode != 0
         assert not list(work.glob("*.mp4"))
+
+
+class TestFfmpegCommand:
+    @staticmethod
+    def _recording_ffmpeg(tmp_path):
+        return f'printf "%s\\n" "$@" > "{tmp_path}/ffmpeg_args.txt"\n' + FFMPEG_OK
+
+    @pytest.mark.parametrize("fmt,codec_args", [
+        ("mp4", ["-c:v", "libx264", "-c:a", "aac", "-crf", "23", "-movflags", "+faststart"]),
+        ("m4v", ["-c:v", "libx264", "-c:a", "aac", "-crf", "23", "-movflags", "+faststart"]),
+        ("mov", ["-c:v", "libx264", "-c:a", "aac", "-crf", "23", "-movflags", "+faststart"]),
+        ("mkv", ["-c:v", "libx264", "-c:a", "aac", "-crf", "23"]),
+        ("avi", ["-c:v", "libx264", "-c:a", "mp3", "-crf", "23"]),
+        ("webm", ["-c:v", "libvpx-vp9", "-c:a", "libopus", "-crf", "23", "-b:v", "0"]),
+        ("mpg", ["-c:v", "mpeg2video", "-c:a", "mp2", "-crf", "23"]),
+        ("mpeg", ["-c:v", "mpeg2video", "-c:a", "mp2", "-crf", "23"]),
+    ])
+    def test_should_pass_the_codecs_and_extra_options_of_the_format_to_ffmpeg(
+        self, run_cli, tmp_path, fmt, codec_args
+    ):
+        work = tmp_path / "work"
+        work.mkdir()
+        source = work / "clip.wmv"
+        source.touch()
+
+        result = run_cli("videotox", ["-f", fmt, "-i", str(source)],
+                         mock_bins={"ffmpeg": self._recording_ffmpeg(tmp_path)}, cwd=work)
+
+        args = (tmp_path / "ffmpeg_args.txt").read_text().splitlines()
+        assert result.returncode == 0, result.stderr
+        assert args == ["-i", str(source.resolve()), *codec_args, "-y", str(work.resolve() / f"clip.{fmt}")]
+
+    def test_should_pass_the_given_quality_as_crf(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        source = work / "clip.wmv"
+        source.touch()
+
+        result = run_cli("videotox", ["-f", "mkv", "-q", "30", "-i", str(source)],
+                         mock_bins={"ffmpeg": self._recording_ffmpeg(tmp_path)}, cwd=work)
+
+        args = (tmp_path / "ffmpeg_args.txt").read_text().splitlines()
+        assert result.returncode == 0, result.stderr
+        assert args[args.index("-crf"):][:2] == ["-crf", "30"]
+
+    def test_should_default_to_mp4_and_name_the_conversion_in_the_report(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "clip.mov").touch()
+
+        result = run_cli("videotox", ["-i", str(work / "clip.mov")],
+                         mock_bins={"ffmpeg": FFMPEG_OK}, cwd=work)
+
+        assert result.returncode == 0, result.stderr
+        assert (work / "clip.mp4").exists()
+        assert "Converting: clip.mov -> clip.mp4" in result.stdout
+
+    def test_should_reject_a_format_outside_the_table(self, run_cli, tmp_path):
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "clip.mov").touch()
+
+        result = run_cli("videotox", ["-f", "xyz", "-i", str(work / "clip.mov")],
+                         mock_bins={"ffmpeg": FFMPEG_OK}, cwd=work)
+
+        assert result.returncode == 2
+        assert "invalid choice: 'xyz'" in result.stderr
+
+
+class TestUnsupportedFormat:
+    def test_should_report_the_format_and_count_the_file_as_failed_when_it_has_no_codec(
+        self, mod, tmp_path, monkeypatch, capsys
+    ):
+        source = tmp_path / "clip.mov"
+        source.touch()
+        mod.FORMAT_CODECS["mp4"] = (None, None)
+        monkeypatch.setattr(sys, "argv", ["videotox", "-f", "mp4", "-i", str(source)])
+
+        mod.main()
+
+        captured = capsys.readouterr()
+        assert "Unsupported format: mp4" in captured.err
+        assert "Summary: 0 succeeded, 1 failed, 1 total" in captured.out
+        assert "Failed:" not in captured.err
+        assert sorted(path.name for path in tmp_path.iterdir()) == ["clip.mov"]
