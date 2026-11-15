@@ -5,6 +5,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -75,17 +76,23 @@ def tmux_server(registry_module, monkeypatch):
 def private_tmux(tmp_path, monkeypatch):
     """A server of its own whose windows run cat, so a typed command is echoed, never run.
 
-    tmux picks the socket in $TMUX over TMUX_TMPDIR: drop it, or the tests drive the caller's server.
+    A stand-in names the socket on every tmux call, the registry's own included, so none can reach the
+    caller's server. The socket stays out of tmp_path: under a long --basetemp its path passes the
+    limit of a socket address (104 bytes on macOS, 108 on Linux), and tmux fails with "File name too long".
     """
-    socket_dir = tmp_path / "tmux"
-    socket_dir.mkdir()
-    monkeypatch.setenv("TMUX_TMPDIR", str(socket_dir))
+    socket_dir = Path(tempfile.mkdtemp(prefix="tmux-"))
+    stand_in = tmp_path / "tmux-bin" / "tmux"
+    stand_in.parent.mkdir()
+    stand_in.write_text(f'#!/bin/sh\nexec {shlex.quote(shutil.which("tmux"))} -S {shlex.quote(str(socket_dir / "server"))} "$@"\n')
+    stand_in.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{stand_in.parent}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.delenv("TMUX", raising=False)
     monkeypatch.delenv("TMUX_PANE", raising=False)
     subprocess.run(["tmux", "-f", os.devnull, "new-session", "-d", "-s", "work", "cat"], check=True)
     subprocess.run(["tmux", "set", "-g", "default-command", "cat"], check=True)
     yield
     subprocess.run(["tmux", "kill-server"], capture_output=True, check=False)
+    shutil.rmtree(socket_dir, ignore_errors=True)
 
 
 def write_process_file(directory: Path, pid: int, session_id: UUID, started: datetime, domain: str = POD_DOMAIN):

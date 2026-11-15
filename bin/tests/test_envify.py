@@ -48,6 +48,10 @@ def http_error(envify, code):
     return envify.urllib.error.HTTPError("http://localhost", code, "error", {}, io.BytesIO(b"denied"))
 
 
+class Python39SocketTimeout(OSError):
+    """socket.timeout before 3.10, which a read timeout raises unwrapped: an OSError, but no TimeoutError."""
+
+
 def raise_or_return(answer):
     if isinstance(answer, Exception):
         raise answer
@@ -296,18 +300,22 @@ class TestTimeouts:
 
         assert timeouts[0] > KEYGUARD_SERVER_READ_DEADLINE
 
+    @pytest.mark.parametrize("failure", [TimeoutError, Python39SocketTimeout],
+                             ids=["timeout-error", "python39-socket-timeout"])
     @pytest.mark.parametrize(("call", "said"), [
         (lambda envify: envify._server_get("localhost", "GITLAB_TOKEN"), "Error: server did not answer within"),
         (lambda envify: envify.store_param("GITLAB_TOKEN", "value"), "Error: server did not answer within"),
         (lambda envify: envify._bridge_call("localhost", "echo", method="POST"), "Error: bridge did not answer within"),
     ])
     def should_print_an_error_line_instead_of_a_traceback_when_the_answer_times_out(self, envify, monkeypatch, capsys,
-                                                                                    call, said):
+                                                                                    call, said, failure):
         def timed_out(request, timeout):
-            raise TimeoutError("timed out")
+            raise failure("timed out")
 
         monkeypatch.setattr(envify.urllib.request, "urlopen", timed_out)
         monkeypatch.setattr(envify, "_require_host", lambda: "localhost")
+        monkeypatch.setattr(envify, "_caller", lambda: {})
+        monkeypatch.setattr(envify, "socket", SimpleNamespace(timeout=Python39SocketTimeout, gethostname=lambda: "mac"))
 
         with pytest.raises(SystemExit) as exited:
             call(envify)

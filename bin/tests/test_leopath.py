@@ -33,6 +33,12 @@ TEST_CASES = [
         "K:\\Daten\\Bereich_Informatik\\PROJEKTE\\2_Leonardo\\43_Leonardo 24\\8_Tests\\Testfälle\\vollständiger Invaliditätsfall.leon",
         id="complex_path_with_special_chars",
     ),
+    pytest.param("K:\\Buchhaltung\\Lohndaten.xlsx",
+                 "K:\\Daten\\Buchhaltung\\Lohndaten.xlsx", id="k_drive_file_name_ending_in_daten"),
+    pytest.param("K:\\Kundendaten\\Vertrag.pdf",
+                 "K:\\Daten\\Kundendaten\\Vertrag.pdf", id="k_drive_folder_name_ending_in_daten"),
+    pytest.param("K:\\Daten\\Kundendaten\\Vertrag.pdf",
+                 "K:\\Daten\\Kundendaten\\Vertrag.pdf", id="daten_folder_holding_a_name_ending_in_daten"),
 ]
 
 DYNAMIC_HOME_CASES = [
@@ -44,6 +50,7 @@ INVALID_CASES = [
     pytest.param("C:\\random\\path\\without\\target", id="no_daten_no_k_no_ip"),
     pytest.param("/usr/local/bin/something", id="unix_path_without_daten"),
     pytest.param("\\\\other.server\\share\\file.txt", id="different_server_without_daten"),
+    pytest.param("C:\\Buchhaltung\\Lohndaten.xlsx", id="name_ending_in_daten_off_the_k_drive"),
 ]
 
 

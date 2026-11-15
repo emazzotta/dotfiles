@@ -11,6 +11,7 @@ import scriptlog as logger
 
 FILE_PROTOCOL_PREFIX = 'file://'
 HOME_DATEN = os.path.join(os.path.expanduser("~"), "Daten")
+DATEN_COMPONENT = re.compile(r'(?:^|\\)(Daten(?:\\.*)?)$', re.IGNORECASE)
 
 
 def is_file_url(path: str) -> bool:
@@ -33,12 +34,11 @@ def remove_leading_slashes(path: str) -> str:
 
 
 def has_daten(path: str) -> bool:
-    return bool(re.search(r'Daten', path, re.IGNORECASE))
+    return DATEN_COMPONENT.search(path) is not None
 
 
 def extract_from_daten(path: str) -> str:
-    match = re.search(r'Daten(?:\\.*)?$', path, re.IGNORECASE)
-    daten_part = match.group(0)
+    daten_part = DATEN_COMPONENT.search(path).group(1)
     daten_part = re.sub(r'^Daten', 'Daten', daten_part, count=1, flags=re.IGNORECASE)
     return f'K:\\{daten_part}'
 

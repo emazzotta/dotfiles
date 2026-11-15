@@ -60,6 +60,7 @@ TRANSCRIPT_ATTEMPTS: Final = 5
 TRANSCRIPT_RETRY: Final = timedelta(seconds=3)
 TRANSCRIPT_PENDING_EXIT: Final = 75
 SCRATCHPAD_TAR: Final = 'cd /tmp && exec tar -cf - claude-*/-workspace/"$1"/scratchpad'
+MOVE_FAILURES: Final = (MoveError, OSError, subprocess.SubprocessError, ValueError)
 
 Sleep = Callable[[float], None]
 
@@ -291,7 +292,7 @@ def move(preparation: Preparation, box: Box, tools: tuple[str, str | None], now:
     try:
         plan = carry(preparation, box, archive)
         prompt = hand_over(box, plan, sync, sleep)
-    except MoveError as error:
+    except MOVE_FAILURES as error:
         session = preparation.session.id
         raise MoveError(f"{error}. The session has ended here and its work on this Mac is untouched,"
                         f" so cl -r {session} resumes it") from error
@@ -347,7 +348,9 @@ def notify(session: UUID, text: str) -> None:
 
 def detach(session: UUID) -> int:
     """The bridge waits for its command, and the session that asked is mid-turn until that returns."""
-    pick(session)
+    if not pick(session).record.tmux_pane:
+        raise MoveError(f"{session} is not a session cl runs on this Mac right now:"
+                        " it runs outside tmux, so nothing can type /exit into it")
     LOG.parent.mkdir(parents=True, exist_ok=True)
     with LOG.open("a") as log:
         subprocess.Popen([sys.executable, str(Path(__file__).resolve()), str(session), "--notify"],
@@ -402,7 +405,7 @@ def mac_main(argv: Sequence[str]) -> int:
         if args.stdin:
             return detach(read_session(sys.stdin.read()))
         return run(args)
-    except MoveError as error:
+    except MOVE_FAILURES as error:
         scriptlog.error(str(error))
         if args.notify and args.session:
             notify(args.session, f"claude-move failed: {error}")

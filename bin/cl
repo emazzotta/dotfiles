@@ -518,16 +518,20 @@ def _denied_mount(stderr_text: str, optional_paths: list[Path]) -> Path | None:
 def _retry_without_denied_mount(
     command: list[str], stderr_text: str, optional_paths: list[Path], container_name: str,
 ) -> int | None:
-    """Rerun without an auto-mounted folder docker refused, so one of them cannot kill the session."""
+    """Rerun without each auto-mounted folder docker refused, so none of them can kill the session."""
+    returncode = None
     denied = _denied_mount(stderr_text, optional_paths)
-    if denied is None:
-        return None
-    _warn(
-        f"{_display_path(denied)} not mounted, Docker has no access to it",
-        "Allow it under System Settings › Privacy & Security › Files and Folders › Docker",
-    )
-    _remove_container(container_name)
-    return _run_capturing_stderr(_drop_mount(command, denied), optional_paths)[0]
+    while denied is not None:
+        _warn(
+            f"{_display_path(denied)} not mounted, Docker has no access to it",
+            "Allow it under System Settings › Privacy & Security › Files and Folders › Docker",
+        )
+        _remove_container(container_name)
+        command = _drop_mount(command, denied)
+        optional_paths = [path for path in optional_paths if path != denied]
+        returncode, stderr_text = _run_capturing_stderr(command, optional_paths)
+        denied = _denied_mount(stderr_text, optional_paths) if returncode else None
+    return returncode
 
 
 def _mount_always_available(
@@ -1172,7 +1176,7 @@ def main() -> None:
     pwd = Path.cwd()
 
     parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n | -s] [-r [SESSION]] [-a] [CLAUDE_ARGS...]")
-    parser.add_argument("-f", "--file", dest="files", action="extend", nargs="+", default=[], metavar="FILE")
+    parser.add_argument("-f", "--file", dest="files", action="append", default=[], metavar="FILE")
     parser.add_argument(
         "-p", "--path",
         dest="paths", action="append", type=parse_path, default=[], metavar="PATH",
@@ -1268,7 +1272,7 @@ def main() -> None:
         _profile(f"{Path(container_path).name} mount")
     container_name = f"opencode-{int(time())}"
     run_dir = claude_run_dir()
-    sync_transcripts(args.resume is not None)
+    sync_transcripts(args.resume is not None or args.all_projects)
     _profile("transcript sync")
     invocation = build_entrypoint_invocation(args, claude_args, pwd)
     entrypoint, plugin_args, entrypoint_args = invocation

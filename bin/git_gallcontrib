@@ -18,6 +18,7 @@ from typing import Dict, Iterator, List, Optional, Sequence, Set, TextIO, Tuple
 GIT_DIR_NAME = ".git"
 FIELD_SEPARATOR = "\t"
 LOG_COMMAND = ["git", "log", "--all", f"--format=%aN{FIELD_SEPARATOR}%aE", "--", "."]
+COMMON_DIR_COMMAND = ["git", "rev-parse", "--git-common-dir"]
 INITIAL_MAX_LENGTH = 1
 MIN_FULL_NAME_TOKENS = 2
 NON_WORD = re.compile(r"[^0-9a-z]+")
@@ -134,9 +135,26 @@ def count_commits(repository: Path) -> "Counter[Identity]":
     return tallies
 
 
+def common_git_dir(repository: Path) -> Path:
+    result = subprocess.run(COMMON_DIR_COMMAND, cwd=str(repository), capture_output=True, text=True)
+    if result.returncode != 0:
+        return repository.resolve()
+    return (repository / result.stdout.strip()).resolve()
+
+
+def distinct_repositories(paths: Iterator[Path]) -> Iterator[Path]:
+    """A linked worktree shares its main checkout's history, which must count once."""
+    seen: Set[Path] = set()
+    for path in paths:
+        common = common_git_dir(path)
+        if common not in seen:
+            seen.add(common)
+            yield path
+
+
 def scan_repositories(root: Path) -> List[Repository]:
     scanned = []
-    for path in discover_repositories(root):
+    for path in distinct_repositories(discover_repositories(root)):
         relative = os.path.relpath(str(path), str(root))
         name = root.resolve().name if relative == os.curdir else relative
         scanned.append(Repository(name, count_commits(path)))

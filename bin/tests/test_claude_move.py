@@ -508,6 +508,68 @@ def should_refuse_a_session_outside_tmux_before_touching_anything(cli, registry,
         cli.prepare(FakeSession([], record), local_box)
 
 
+def should_say_how_to_resume_when_the_hand_over_times_out(cli, create_mock_bin, tmp_path, monkeypatch):
+    keys = tmp_path / "tmux-keys"
+    tmux = create_mock_bin("tmux", f'echo "$*" >> "{keys}"')
+    transcripts = tmp_path / "mac-transcripts"
+    transcripts.mkdir()
+    (transcripts / f"{SESSION}.jsonl").write_bytes(TRANSCRIPT)
+    monkeypatch.setattr(cli, "TRANSCRIPTS", transcripts)
+    session = FakeSession(["idle"] * 3, ended=lambda: keys.is_file() and "Enter" in keys.read_text())
+    preparation = cli.Preparation(session, "%7", [], [], [])
+
+    def sync(_session):
+        raise subprocess.TimeoutExpired(["claude-sync"], 120)
+
+    with pytest.raises(cli.MoveError, match=f"cl -r {SESSION} resumes it"):
+        cli.move(preparation, SimpleNamespace(), (str(tmux), None), now=False, sync=sync, sleep=lambda _s: None)
+
+
+@pytest.mark.parametrize("failure", [
+    subprocess.TimeoutExpired(["ssh", "devbox"], 120),
+    subprocess.CalledProcessError(1, ["tmux", "send-keys"]),
+], ids=["timeout", "tmux-failed"])
+def should_report_and_notify_a_failure_that_is_not_a_move_error(cli, monkeypatch, failure):
+    def fail(_args):
+        raise failure
+    sent = []
+    monkeypatch.setattr(cli.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(cli, "run", fail)
+    monkeypatch.setattr(cli, "notify", lambda session, text: sent.append((session, text)))
+
+    assert cli.mac_main([str(SESSION), "--notify"]) == 1
+    assert sent == [(SESSION, f"claude-move failed: {failure}")]
+
+
+@pytest.fixture
+def detached(cli, registry, tmp_path, monkeypatch):
+    launched = []
+    monkeypatch.setattr(cli, "LOG", tmp_path / "claude-move.log")
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda command, **_kwargs: launched.append(command))
+
+    def _detached(pane):
+        record = registry.SessionRecord(SESSION, tmp_path, (), "work", MOVED_AT, tmux_pane=pane)
+        monkeypatch.setattr(cli, "running_sessions", lambda: [cli.LiveSession(tmp_path / "live.json", record)])
+        return launched
+    return _detached
+
+
+def should_detach_a_move_of_a_session_in_tmux(cli, detached):
+    launched = detached("%7")
+
+    assert cli.detach(SESSION) == 0
+    assert launched[0][-2:] == [str(SESSION), "--notify"]
+
+
+def should_refuse_to_detach_a_move_of_a_session_outside_tmux(cli, detached):
+    launched = detached(None)
+
+    with pytest.raises(cli.MoveError, match="is not a session cl runs on this Mac right now"):
+        cli.detach(SESSION)
+
+    assert launched == []
+
+
 def should_locate_checkouts_for_the_mac(run_cli, world):
     request = json.dumps([{"name": "foo", "origin": str(world.origin)}, {"name": "bar", "origin": "git@x:y/bar.git"}])
 

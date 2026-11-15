@@ -316,10 +316,20 @@ class TestSingleSession:
         assert f"{UUID_A}.jsonl" in synced
         assert f"file-history/{UUID_A}/" in synced
 
+    def should_push_the_session_directory_with_its_subagents_and_tool_results(self, sync, claude_home, rsync_log):
+        session_dir = claude_home / "projects/-workspace" / UUID_A
+        (session_dir / "subagents").mkdir(parents=True)
+        (session_dir / "tool-results").mkdir()
+
+        sync(["--session", UUID_A])
+
+        assert f"{claude_home}/./projects/-workspace/{UUID_A}/ " in invocations(rsync_log)[0]
+
     def should_skip_session_dirs_that_do_not_exist(self, sync, rsync_log):
         sync(["--session", UUID_A])
 
         assert all(f"tasks/{UUID_A}" not in i for i in invocations(rsync_log))
+        assert all(f"-workspace/{UUID_A}/" not in i for i in invocations(rsync_log))
 
     def should_push_a_named_session_even_while_it_is_live(self, sync, rsync_log):
         sync(["--session", UUID_A], live=[UUID_A])

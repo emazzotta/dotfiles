@@ -1069,6 +1069,28 @@ class TestMain:
         cmd = mock_cl_run[-1]
         assert f"{pwd}:/workspace/code/myproject" in cmd
 
+    def should_hand_a_prompt_after_a_file_to_claude(self, cl, monkeypatch, mock_cl_run, tmp_path):
+        pwd = tmp_path / "myproject"
+        pwd.mkdir()
+        (pwd / "pom.xml").write_text("<project/>")
+        monkeypatch.chdir(pwd)
+        monkeypatch.setattr(sys, "argv", ["cl", "-f", "pom.xml", "fix the build"])
+
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+
+        assert mock_cl_run[-1][-1] == "fix the build"
+
+    def should_pull_transcripts_before_the_picker_that_all_opens(self, cl, monkeypatch, mock_cl_run):
+        resuming = []
+        monkeypatch.setattr(cl, "sync_transcripts", resuming.append)
+        monkeypatch.setattr(sys, "argv", ["cl", "-a"])
+
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+
+        assert resuming == [True]
+
     def should_launch_claude_without_effort_or_a_question_when_no_prompt_is_given(self, cl, monkeypatch, mock_cl_run):
         monkeypatch.setattr(sys, "argv", ["cl"])
         with pytest.raises(SystemExit, match="0"):
@@ -1483,6 +1505,34 @@ class TestDeniedMountRetry:
         assert f"{downloads}:/workspace/code/Downloads" in attempts[0]
         assert not any(str(downloads) in arg for arg in attempts[1])
         assert removed == [attempts[0][attempts[0].index("--name") + 1]]
+
+    def should_restart_without_each_refused_folder_in_turn(self, cl, monkeypatch, tmp_path):
+        refused = {"DESKTOP": tmp_path / "Desktop", "DOWNLOADS": tmp_path / "Downloads"}
+        for constant, folder in refused.items():
+            folder.mkdir()
+            monkeypatch.setattr(cl, constant, folder)
+        for absent in ("LEONARDO_COMMONS", "LEONARDO_AI", "KEYGUARD"):
+            monkeypatch.setattr(cl, absent, tmp_path / "nonexistent")
+        monkeypatch.setattr(cl, "_remove_container", lambda _name: None)
+        refusals = [self.DAEMON_ERROR.replace("/Users/emanuelemazzotta/Downloads", str(f)) for f in refused.values()]
+        results = [(1, refusal) for refusal in refusals] + [(0, "")]
+        attempts = []
+
+        def fake_run(command, optional_paths):
+            attempts.append(command)
+            return results[len(attempts) - 1]
+
+        monkeypatch.setattr(cl, "_run_capturing_stderr", fake_run)
+        pwd = tmp_path / "myproject"
+        pwd.mkdir()
+        monkeypatch.chdir(pwd)
+        monkeypatch.setattr(sys, "argv", ["cl"])
+
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+
+        assert len(attempts) == len(refused) + 1
+        assert not any(str(folder) in arg for folder in refused.values() for arg in attempts[-1])
 
     def should_relay_stderr_while_capturing_it(self, cl, capfd):
         returncode, captured = cl._run_capturing_stderr(["sh", "-c", "echo boom >&2; exit 7"], [])

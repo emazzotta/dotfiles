@@ -217,6 +217,7 @@ mkdir -p dist && echo built > dist/index.html''',
     def _run(args, cwd=None, env=None):
         result = run_cli("demo", args, mock_bins=mocks, isolate_path=True, cwd=cwd or tmp_path, env_extra={
             "HOME": str(tmp_path),
+            "TMPDIR": str(tmp_path),
             "KUBECONFIG": str(tmp_path / "no-kubeconfig"),
             "DEMO_SERVICE_ACCOUNT_TOKEN": str(tmp_path / "no-token"),
             "DEMO_CONTAINER_MARKER": str(tmp_path / "no-dockerenv"),

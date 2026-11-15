@@ -129,7 +129,7 @@ def _server_get(host: str, path: str, *, timeout: int | None = None) -> str:
         _die(f"server returned {e.code}: {e.read().decode().strip()}")
     except urllib.error.URLError as e:
         _die(f"server unreachable: {e.reason}")
-    except TimeoutError:
+    except (TimeoutError, socket.timeout):
         _die(f"server did not answer within {_SECRET_TIMEOUT} s")
 
 
@@ -232,7 +232,7 @@ def store_param(key: str, value: str) -> None:
         _die(f"server refused to store {key}: {e.code} {e.read().decode().strip()}")
     except urllib.error.URLError as e:
         _die(f"server unreachable: {e.reason}")
-    except TimeoutError:
+    except (TimeoutError, socket.timeout):
         _die(f"server did not answer within {_STORE_TIMEOUT} s")
 
 
@@ -292,7 +292,7 @@ def _bridge_call(host: str, path: str, *, method: str = "GET", data: bytes | Non
             _die_unless_prompt_busy(e, deadline)
         except urllib.error.URLError as e:
             _die(f"bridge unreachable: {e.reason}")
-        except TimeoutError:
+        except (TimeoutError, socket.timeout):
             _die(f"bridge did not answer within {_BRIDGE_TIMEOUT} s")
         time.sleep(_PROMPT_BUSY_POLL)
 

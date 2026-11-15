@@ -137,7 +137,9 @@ def full_transfers(home: Path, pull: bool, excludes: list[str]) -> list[list[str
 
 
 def session_transfers(home: Path, session: str) -> list[list[str]]:
-    sources = [str(path) for path in sorted((home / "projects").glob(f"*/{session}.jsonl"))]
+    projects = home / "projects"
+    sources = [str(path) for path in sorted(projects.glob(f"*/{session}.jsonl"))]
+    sources += [f"{path}/" for path in sorted(projects.glob(f"*/{session}")) if path.is_dir()]
     for name in ("file-history", "tasks"):
         if (home / name / session).is_dir():
             sources.append(f"{home / name / session}/")
