@@ -13,6 +13,10 @@ import pytest
 BIN_DIR = Path(__file__).parent.parent
 IS_DARWIN = platform.system() == "Darwin"
 
+# envify.py reads the keyguard bridge port from here: a script under test that loads a
+# secret without a stand-in must fail, never reach the real bridge.
+os.environ["PARAM_SERVER_PORT"] = "1"
+
 
 @pytest.fixture
 def load_script(monkeypatch):

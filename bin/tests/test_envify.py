@@ -520,14 +520,17 @@ class TestBridge:
     def should_call_an_endpoint_in_one_request_without_a_token(self, envify, opened):
         envify.call_bridge_endpoint("mac-trash", b"/a\n")
 
-        assert [request.full_url for request in opened] == ["http://localhost:7777/_bridge/mac-trash"]
+        assert [request.full_url for request in opened] == [f"http://localhost:{envify._SERVER_PORT}/_bridge/mac-trash"]
         assert not opened[0].has_header("Authorization")
 
     @pytest.mark.parametrize("include_private, path", [(False, "list"), (True, "list?all=1")])
     def should_ask_for_private_endpoints_only_with_all(self, envify, opened, include_private, path):
         envify.list_bridge_endpoints(include_private=include_private)
 
-        assert opened[0].full_url == f"http://localhost:7777/_bridge/{path}"
+        assert opened[0].full_url == f"http://localhost:{envify._SERVER_PORT}/_bridge/{path}"
+
+    def should_point_at_no_real_bridge_while_the_tests_run(self, envify):
+        assert envify._SERVER_PORT == 1
 
     def should_wait_while_another_bridge_prompt_is_open(self, envify, monkeypatch):
         answers = [http_error(envify, 429), FakeResponse()]
