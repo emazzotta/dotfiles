@@ -1,22 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[0;33m'
-readonly RESET='\033[0m'
-
-log() {
-    echo -e "${GREEN}[INFO]${RESET} $*"
-}
-
-error() {
-    echo -e "${RED}[ERROR]${RESET} $*" >&2
-}
-
-warn() {
-    echo -e "${YELLOW}[WARN]${RESET} $*"
-}
+# shellcheck source=shelllog.sh
+source "$(dirname "${BASH_SOURCE[0]}")/shelllog.sh"
 
 show_usage() {
     cat << EOF

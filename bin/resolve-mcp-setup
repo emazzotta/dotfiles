@@ -17,10 +17,9 @@ readonly SERVE_PORT=49633
 readonly SCRIPT_API="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
 readonly SCRIPT_LIB="/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
 
-GREEN='\033[0;32m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; RESET='\033[0m'
-log()  { printf "${GREEN}==>${RESET} %s\n" "$*"; }
-warn() { printf "${YELLOW}[!]${RESET} %s\n" "$*"; }
-fail() { printf "${RED}ERROR:${RESET} %s\n" "$*" >&2; exit 1; }
+# shellcheck source=shelllog.sh
+source "$(dirname "${BASH_SOURCE[0]}")/shelllog.sh"
+fail() { error "$*"; exit 1; }
 
 show_usage() {
     cat <<EOF
