@@ -82,6 +82,65 @@ class TestLoadEnv:
         assert resolved == []
 
 
+class TestLoadEnvViaShell:
+    KEYS = ("ENVIFY_TEST_A", "ENVIFY_TEST_B")
+
+    @pytest.fixture
+    def shim(self, tmp_path, devbox_shim, monkeypatch):
+        monkeypatch.setenv("PATH", f"{WRAPPER.parent}{os.pathsep}{os.environ['PATH']}")
+        monkeypatch.setenv("DOTFILESPATH", str(tmp_path))
+        monkeypatch.setenv("ENVIFY_DEVBOX_SHIM", str(devbox_shim))
+        for name in (*self.KEYS, "ENVIFY_TEST_OTHER"):
+            monkeypatch.setenv(name, "")
+            monkeypatch.delenv(name)
+        return devbox_shim
+
+    def should_load_the_values_the_devbox_shim_exports(self, envify, shim):
+        shim.write_text('for name in "$@"; do export "$name=shim-$name"; done\n')
+
+        envify.load_env_via_shell(self.KEYS)
+
+        assert (os.environ["ENVIFY_TEST_A"], os.environ["ENVIFY_TEST_B"]) == ("shim-ENVIFY_TEST_A", "shim-ENVIFY_TEST_B")
+
+    def should_pass_every_key_on_in_order(self, envify, shim, tmp_path):
+        asked = tmp_path / "asked"
+        shim.write_text(f'printf "%s\\n" "$@" > "{asked}"\n')
+
+        envify.load_env_via_shell(self.KEYS)
+
+        assert asked.read_text().split() == ["ENVIFY_TEST_A", "ENVIFY_TEST_B"]
+
+    def should_keep_spaces_and_equals_signs_in_a_value(self, envify, shim):
+        shim.write_text('export ENVIFY_TEST_A="se cr=et==" ENVIFY_TEST_B=plain\n')
+
+        envify.load_env_via_shell(self.KEYS)
+
+        assert (os.environ["ENVIFY_TEST_A"], os.environ["ENVIFY_TEST_B"]) == ("se cr=et==", "plain")
+
+    def should_copy_nothing_but_the_requested_keys(self, envify, shim):
+        shim.write_text('echo ENVIFY_TEST_OTHER=leaked\nexport ENVIFY_TEST_A=1 ENVIFY_TEST_B=2\n')
+
+        envify.load_env_via_shell(self.KEYS)
+
+        assert "ENVIFY_TEST_OTHER" not in os.environ
+
+    def should_raise_with_the_raw_stderr_when_envify_fails(self, envify, shim):
+        shim.write_text("echo 'keyguard cancelled' >&2\nreturn 1\n")
+
+        with pytest.raises(envify.EnvifyError) as raised:
+            envify.load_env_via_shell(self.KEYS)
+
+        assert str(raised.value) == "keyguard cancelled\n"
+
+    def should_raise_with_an_empty_message_when_envify_fails_silently(self, envify, shim):
+        shim.write_text("return 1\n")
+
+        with pytest.raises(envify.EnvifyError) as raised:
+            envify.load_env_via_shell(self.KEYS)
+
+        assert str(raised.value) == ""
+
+
 class TestGuiSession:
     @pytest.fixture
     def launchd(self, envify, monkeypatch):

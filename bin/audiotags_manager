@@ -22,6 +22,8 @@ import music_tag
 import requests
 from PIL import UnidentifiedImageError
 
+from envify import EnvifyError, load_env_via_shell
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
@@ -59,25 +61,16 @@ MATCH_NOISE_PATTERN: Final[re.Pattern[str]] = re.compile(
     r'original\s+(?:mix|version)|extended\s+(?:mix|version)|radio\s+edit|'
     r'remastered|remaster|teaser|snippet|preview)\b'
 )
+ORIGINAL_LABEL: Final = r'Original(?:\s+(?:Mix|Version))?'
 FEATURING_TOKEN_PATTERN: Final[re.Pattern[str]] = re.compile(r'\b(?:feat|ft|featuring)\b\.?')
 NON_ALPHANUMERIC_PATTERN: Final[re.Pattern[str]] = re.compile(r'[^a-z0-9]+')
 
 
 def load_env_via_envify(vars: tuple[str, ...]) -> None:
-    vars_str = ' '.join(vars)
-    echo_cmds = ' && '.join(f'echo "{v}=${{{v}}}"' for v in vars)
-    result = subprocess.run(
-        ['bash', '-c', f'source envify {vars_str} && {echo_cmds}'],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise CoverLookupError(result.stderr.strip() or 'envify failed with no output')
-    for line in result.stdout.splitlines():
-        if '=' in line:
-            key, _, value = line.partition('=')
-            if key in vars:
-                os.environ[key] = value
+    try:
+        load_env_via_shell(vars)
+    except EnvifyError as error:
+        raise CoverLookupError(str(error).strip() or 'envify failed with no output') from error
 
 
 def ensure_spotify_creds() -> None:
@@ -307,6 +300,11 @@ def clean_all_tags(track_metadata):
             logger.warning(f"Error processing tag {tag}: {str(e)}")
 
 
+def capitalise_mix_marker(match: re.Match[str]) -> str:
+    words = [*match.group(1).split(), match.group(2)]
+    return f"({' '.join(word.capitalize() for word in words)})"
+
+
 def clean_string(tag_value, tag_name=None):
     if tag_name in MULTILINE_TAGS:
         return '\n'.join(clean_string(line) for line in tag_value.split('\n'))
@@ -327,11 +325,9 @@ def clean_string(tag_value, tag_name=None):
         r'\(Extended Mix\)',
         r'\(Extended Version\)',
         r'\(Extended\)',
-        r'\(Original Mix\)',
-        r'\(Original Version\)',
-        r'\(Original\)',
-        r'\bOriginal Mix\b',
-        r'\bOriginal\b',
+        rf'\(\s*{ORIGINAL_LABEL}\s*\)',
+        rf'\[\s*{ORIGINAL_LABEL}\s*\]',
+        r'\s+-\s+Original Mix\s*$',
     ]
 
     for pattern in patterns:
@@ -339,8 +335,7 @@ def clean_string(tag_value, tag_name=None):
 
     line = re.sub(r'-\s*-', '-', line)
 
-    line = re.sub(r'\(\s*(\w+\s+)*(mix|version|edit)\s*\)',
-                  lambda match: f"({(match.group(1) or '').capitalize().strip() + ' ' + match.group(2).capitalize()})", line)
+    line = re.sub(r'\(\s*((?:\w+\s+)*)(mix|version|edit)\s*\)', capitalise_mix_marker, line)
 
     line = re.sub(r'\(\d+\)', '', line)
 

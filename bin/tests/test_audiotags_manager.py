@@ -77,11 +77,6 @@ class TestCleanString:
         result = atm.clean_string("Title1/Title2")
         assert "/" not in result or "Title1" in result
 
-    def test_removes_original_mix_standalone(self, atm):
-        result = atm.clean_string("Track Original Mix")
-        assert "Original Mix" not in result
-        assert "Track" in result
-
     def test_preserves_named_mixes(self, atm):
         result = atm.clean_string("Track (Club Mix)")
         assert "Club Mix" in result
@@ -118,7 +113,66 @@ class TestCleanStringRegressions:
         assert atm.clean_string(title) == title
 
     def test_should_not_cut_the_word_that_follows_original_in_half(self, atm):
-        assert atm.clean_string("Original Mixtape") == "Mixtape"
+        assert atm.clean_string("Original Mixtape") == "Original Mixtape"
+
+
+class TestCleanStringMixMarkerWords:
+    @pytest.mark.parametrize("input_val,expected", [
+        ("Track (club dub mix)", "Track (Club Dub Mix)"),
+        ("Track (chris lake club mix)", "Track (Chris Lake Club Mix)"),
+        ("Track (CLUB dub edit)", "Track (Club Dub Edit)"),
+        ("Track (dub version)", "Track (Dub Version)"),
+        ("Track (club mix) and (dub edit)", "Track (Club Mix) and (Dub Edit)"),
+    ])
+    def test_should_keep_and_capitalise_every_word_before_the_marker(self, atm, input_val, expected):
+        assert atm.clean_string(input_val) == expected
+
+    @pytest.mark.parametrize("input_val,expected", [
+        ("Track (club mix)", "Track (Club Mix)"),
+        ("Track (CLUB mix)", "Track (Club Mix)"),
+        ("Track ( mix )", "Track (Mix)"),
+        ("Track (Club Mix)", "Track (Club Mix)"),
+        ("Track (live at berghain)", "Track (live at berghain)"),
+        ("Track (club mix 2)", "Track (club mix 2)"),
+    ])
+    def test_should_keep_the_cases_that_already_worked(self, atm, input_val, expected):
+        assert atm.clean_string(input_val) == expected
+
+
+class TestCleanStringOriginalLabel:
+    @pytest.mark.parametrize("input_val,expected", [
+        ("Original Sin", "Original Sin"),
+        ("The Original", "The Original"),
+        ("Original Mixtape", "Original Mixtape"),
+        ("Track (Original Remix)", "Track (Original Remix)"),
+        ("Original Sin (Original Mix)", "Original Sin"),
+        ("Original Sin - Original Mix", "Original Sin"),
+    ])
+    def test_should_keep_original_when_it_is_part_of_the_title(self, atm, input_val, expected):
+        assert atm.clean_string(input_val) == expected
+
+    @pytest.mark.parametrize("input_val", [
+        "Track [Original Mix]",
+        "Track [Original Version]",
+        "Track [Original]",
+        "Track [original mix]",
+        "Track - Original Mix",
+        "Track - original mix",
+        "Track - ORIGINAL MIX",
+    ])
+    def test_should_remove_the_label_from_a_bracket_and_from_a_trailing_dash_suffix(self, atm, input_val):
+        assert atm.clean_string(input_val) == "Track"
+
+    @pytest.mark.parametrize("input_val", [
+        "Track (original mix)",
+        "Track (ORIGINAL MIX)",
+        "Track (original version)",
+        "Track (ORIGINAL VERSION)",
+        "Track (original)",
+        "Track (ORIGINAL)",
+    ])
+    def test_should_remove_the_parenthesised_label_in_any_case(self, atm, input_val):
+        assert atm.clean_string(input_val) == "Track"
 
 
 class TestCopyTag:
@@ -421,6 +475,98 @@ class TestEnvifyFailures:
             best = atm.find_best_cover("Fred again..", "Delilah")
 
         assert best.candidate.source is atm.CoverSource.SOUNDCLOUD
+
+
+ENVIFY_STAND_IN = """\
+printf '%s\\n' "$@" >> "$ENVIFY_CALLS"
+echo ENVIFY_EXTRA=leaked
+if [ -n "${ENVIFY_FAIL+x}" ]; then
+    printf '%s' "$ENVIFY_FAIL" >&2
+    return 1
+fi
+for name in "$@"; do
+    given="ENVIFY_STANDIN_$name"
+    if [ -z "${!name}" ] && [ -n "${!given}" ]; then
+        export "$name=${!given}"
+    fi
+done
+"""
+
+
+class TestEnvifyLoading:
+    @pytest.fixture
+    def asked_of_envify(self, tmp_path, monkeypatch):
+        stand_in = tmp_path / "stand_in" / "envify"
+        stand_in.parent.mkdir()
+        stand_in.write_text(ENVIFY_STAND_IN)
+        calls = tmp_path / "envify_calls"
+        monkeypatch.setenv("PATH", f"{stand_in.parent}{os.pathsep}{os.environ['PATH']}")
+        monkeypatch.setenv("ENVIFY_CALLS", str(calls))
+        for name in ("ENVIFY_EXTRA", "SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET"):
+            monkeypatch.setenv(name, "")
+            monkeypatch.delenv(name)
+        return lambda: calls.read_text().split() if calls.exists() else []
+
+    def test_should_ask_envify_for_both_credentials_and_keep_their_values_intact(
+        self, atm, asked_of_envify, monkeypatch
+    ):
+        monkeypatch.setenv("ENVIFY_STANDIN_SPOTIFY_CLIENT_ID", "id-123")
+        monkeypatch.setenv("ENVIFY_STANDIN_SPOTIFY_CLIENT_SECRET", "se cr=et==")
+
+        atm.ensure_spotify_creds()
+
+        assert asked_of_envify() == ["SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET"]
+        assert (os.environ["SPOTIFY_CLIENT_ID"], os.environ["SPOTIFY_CLIENT_SECRET"]) == ("id-123", "se cr=et==")
+
+    def test_should_not_ask_envify_when_both_credentials_are_set(self, atm, asked_of_envify, monkeypatch):
+        monkeypatch.setenv("SPOTIFY_CLIENT_ID", "kept-id")
+        monkeypatch.setenv("SPOTIFY_CLIENT_SECRET", "kept-secret")
+
+        atm.ensure_spotify_creds()
+
+        assert asked_of_envify() == []
+
+    def test_should_ask_for_both_names_and_keep_the_one_already_set(self, atm, asked_of_envify, monkeypatch):
+        monkeypatch.setenv("SPOTIFY_CLIENT_ID", "kept-id")
+        monkeypatch.setenv("ENVIFY_STANDIN_SPOTIFY_CLIENT_ID", "other-id")
+        monkeypatch.setenv("ENVIFY_STANDIN_SPOTIFY_CLIENT_SECRET", "fresh-secret")
+
+        atm.ensure_spotify_creds()
+
+        assert asked_of_envify() == ["SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET"]
+        assert (os.environ["SPOTIFY_CLIENT_ID"], os.environ["SPOTIFY_CLIENT_SECRET"]) == ("kept-id", "fresh-secret")
+
+    def test_should_copy_nothing_but_the_requested_names_into_the_environment(
+        self, atm, asked_of_envify, monkeypatch
+    ):
+        monkeypatch.setenv("ENVIFY_STANDIN_SPOTIFY_CLIENT_ID", "id-123")
+        monkeypatch.setenv("ENVIFY_STANDIN_SPOTIFY_CLIENT_SECRET", "secret")
+
+        atm.ensure_spotify_creds()
+
+        assert "ENVIFY_EXTRA" not in os.environ
+
+    def test_should_name_the_credential_envify_did_not_provide(self, atm, asked_of_envify, monkeypatch):
+        monkeypatch.setenv("ENVIFY_STANDIN_SPOTIFY_CLIENT_ID", "id-123")
+
+        with pytest.raises(atm.CoverLookupError) as raised:
+            atm.ensure_spotify_creds()
+
+        assert str(raised.value) == "Spotify credentials missing after envify: SPOTIFY_CLIENT_SECRET"
+
+    @pytest.mark.parametrize("stderr,message", [
+        ("keyguard cancelled\n", "keyguard cancelled"),
+        ("", "envify failed with no output"),
+    ])
+    def test_should_raise_the_stripped_stderr_when_envify_fails(
+        self, atm, asked_of_envify, monkeypatch, stderr, message
+    ):
+        monkeypatch.setenv("ENVIFY_FAIL", stderr)
+
+        with pytest.raises(atm.CoverLookupError) as raised:
+            atm.ensure_spotify_creds()
+
+        assert str(raised.value) == message
 
 
 class TestNormalizeForMatch:

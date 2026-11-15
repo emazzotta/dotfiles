@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import shutil
 import sys
 import time
@@ -63,6 +64,103 @@ def test_should_exit_when_no_spelling_opens_the_cache(notion_backup, seven_zip, 
 
     with pytest.raises(SystemExit):
         notion_backup.extract_cache_archive(archive, work_dir)
+
+
+ENVIFY_STAND_IN = """\
+printf '%s\\n' "$@" >> "$ENVIFY_CALLS"
+echo ENVIFY_EXTRA=leaked
+if [ -n "${ENVIFY_FAIL+x}" ]; then
+    printf '%s' "$ENVIFY_FAIL" >&2
+    return 1
+fi
+for name in "$@"; do
+    given="ENVIFY_STANDIN_$name"
+    if [ -z "${!name}" ] && [ -n "${!given}" ]; then
+        export "$name=${!given}"
+    fi
+done
+"""
+
+
+@pytest.fixture
+def asked_of_envify(tmp_path, monkeypatch):
+    stand_in = tmp_path / "stand_in" / "envify"
+    stand_in.parent.mkdir()
+    stand_in.write_text(ENVIFY_STAND_IN)
+    calls = tmp_path / "envify_calls"
+    monkeypatch.setenv("PATH", f"{stand_in.parent}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("ENVIFY_CALLS", str(calls))
+    for name in ("ENVIFY_EXTRA", "NOTION_API_KEY", "PASSWORD_ZIPS"):
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
+    return lambda: calls.read_text().split() if calls.exists() else []
+
+
+@pytest.fixture
+def logged_errors(notion_backup, monkeypatch):
+    errors = []
+    monkeypatch.setattr(notion_backup.logger, "error", errors.append)
+    return errors
+
+
+def test_should_ask_envify_for_both_secrets_and_keep_their_values_intact(notion_backup, asked_of_envify, monkeypatch):
+    monkeypatch.setenv("ENVIFY_STANDIN_NOTION_API_KEY", "secret_key=with equals==")
+    monkeypatch.setenv("ENVIFY_STANDIN_PASSWORD_ZIPS", "zip pass")
+
+    notion_backup.load_env()
+
+    assert asked_of_envify() == ["NOTION_API_KEY", "PASSWORD_ZIPS"]
+    assert (notion_backup.NOTION_API_KEY, notion_backup.ARCHIVE_PASSWORD) == ("secret_key=with equals==", "zip pass")
+    assert (os.environ["NOTION_API_KEY"], os.environ["PASSWORD_ZIPS"]) == ("secret_key=with equals==", "zip pass")
+
+
+def test_should_copy_nothing_but_the_two_secrets_into_the_environment(notion_backup, asked_of_envify, monkeypatch):
+    monkeypatch.setenv("ENVIFY_STANDIN_NOTION_API_KEY", "key")
+    monkeypatch.setenv("ENVIFY_STANDIN_PASSWORD_ZIPS", "zip")
+
+    notion_backup.load_env()
+
+    assert "ENVIFY_EXTRA" not in os.environ
+
+
+def test_should_keep_a_secret_that_is_already_in_the_environment(notion_backup, asked_of_envify, monkeypatch):
+    monkeypatch.setenv("NOTION_API_KEY", "kept-key")
+    monkeypatch.setenv("ENVIFY_STANDIN_NOTION_API_KEY", "other-key")
+    monkeypatch.setenv("ENVIFY_STANDIN_PASSWORD_ZIPS", "zip")
+
+    notion_backup.load_env()
+
+    assert asked_of_envify() == ["NOTION_API_KEY", "PASSWORD_ZIPS"]
+    assert notion_backup.NOTION_API_KEY == "kept-key"
+
+
+@pytest.mark.parametrize("stderr", ["keyguard cancelled\n", ""])
+def test_should_log_the_raw_stderr_and_exit_when_envify_fails(
+    notion_backup, asked_of_envify, logged_errors, monkeypatch, stderr
+):
+    monkeypatch.setenv("ENVIFY_FAIL", stderr)
+
+    with pytest.raises(SystemExit) as raised:
+        notion_backup.load_env()
+
+    assert raised.value.code == 1
+    assert logged_errors == [f"Failed to load credentials via envify: {stderr}"]
+
+
+@pytest.mark.parametrize("provided,missing", [
+    ("PASSWORD_ZIPS", "NOTION_API_KEY"),
+    ("NOTION_API_KEY", "PASSWORD_ZIPS"),
+])
+def test_should_exit_naming_the_secret_envify_did_not_provide(
+    notion_backup, asked_of_envify, logged_errors, monkeypatch, provided, missing
+):
+    monkeypatch.setenv(f"ENVIFY_STANDIN_{provided}", "value")
+
+    with pytest.raises(SystemExit) as raised:
+        notion_backup.load_env()
+
+    assert raised.value.code == 1
+    assert logged_errors == [f"{missing} not set"]
 
 
 def notion_page(page_id, title):

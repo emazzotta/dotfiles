@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import scriptlog as logger
+from envify import EnvifyError, load_env_via_shell
 from pwvariants import STORED, unique_spellings
 
 
@@ -385,17 +386,11 @@ def sanitize_filename(name):
 
 
 def load_env():
-    result = subprocess.run(
-        ["bash", "-c", "source envify NOTION_API_KEY PASSWORD_ZIPS && env"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        logger.error(f"Failed to load credentials via envify: {result.stderr}")
+    try:
+        load_env_via_shell(("NOTION_API_KEY", "PASSWORD_ZIPS"))
+    except EnvifyError as error:
+        logger.error(f"Failed to load credentials via envify: {error}")
         sys.exit(1)
-    for line in result.stdout.splitlines():
-        key, _, value = line.partition("=")
-        if key in ("NOTION_API_KEY", "PASSWORD_ZIPS"):
-            os.environ[key] = value
 
     global NOTION_API_KEY, ARCHIVE_PASSWORD
     NOTION_API_KEY = os.environ.get("NOTION_API_KEY", "")
