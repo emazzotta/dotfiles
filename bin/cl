@@ -1024,6 +1024,11 @@ def desktop_export_dir() -> Path | None:
     return None
 
 
+def converts_from_home_to_desktop(args: argparse.Namespace, pwd: Path) -> bool:
+    """session-convert needs no project folder, so a plain convert from the home folder mounts none and exports to the Desktop."""
+    return args.convert and not args.files and not args.paths and is_home_dir(pwd) and desktop_export_dir() is not None
+
+
 def build_convert_output_args(pwd: Path) -> list[str]:
     """session-convert exports into the folder cl ran in; from the home folder, which is never mounted, into the Desktop folder."""
     output = desktop_export_dir() if is_home_dir(pwd) else pwd
@@ -1265,7 +1270,8 @@ def main() -> None:
     warn_if_offline()
     _profile("internet check")
 
-    lock_targets = args.paths or [pwd]
+    without_project = converts_from_home_to_desktop(args, pwd)
+    lock_targets = [] if without_project else args.paths or [pwd]
     locked_roots = _lock_git_crypt_roots(lock_targets)
     _profile("git-crypt lock (targets)")
 
@@ -1275,7 +1281,10 @@ def main() -> None:
             run([str(sync_script)], cwd=OPENCODE_ROOT)
         _profile("sync-local-models")
 
-    volume_args = build_volume_args(args.files, args.paths, pwd, git_ignore_mount=args.git_ignore_mount, ignores=ignores)
+    volume_args = (
+        [] if without_project
+        else build_volume_args(args.files, args.paths, pwd, git_ignore_mount=args.git_ignore_mount, ignores=ignores)
+    )
     _profile("build_volume_args")
     dotfiles_volume_args = build_dotfiles_volume_args()
     _profile("build_dotfiles_volume_args")
