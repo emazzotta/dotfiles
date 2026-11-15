@@ -12,6 +12,7 @@ CODE_SERVER_USER_DIR="${HOME}/.local/share/code-server/User"
 ZSH_THEME_DIR="${HOME}/.zprezto/modules/prompt/functions"
 VIM_PLUGINS_TARGET="${HOME}/.vim_runtime/my_plugins"
 RESOLVER_DIR="/etc/resolver"
+SDKMAN_CONFIG="${HOME}/.sdkman/etc/config"
 
 # Everything in MACOS_ONLY_PACKAGES needs a Mac, needs root, or collides with a
 # bind mount in the opencode container (claude). ssh and git are in there for a
@@ -107,6 +108,14 @@ stow_code_server_settings() {
         printf 'stowsetup: %s keeps its own settings, files are in the way\n' "$CODE_SERVER_USER_DIR" >&2
 }
 
+# The sdkman installer writes this file as a regular file, which stow reports as
+# a conflict and aborts on.
+move_sdkman_config_aside() {
+    if [ -f "$SDKMAN_CONFIG" ] && [ ! -L "$SDKMAN_CONFIG" ]; then
+        /bin/mv "$SDKMAN_CONFIG" "$SDKMAN_CONFIG.pre-stow"
+    fi
+}
+
 main() {
     local minimal=false
 
@@ -135,6 +144,7 @@ main() {
 
     mkdir -p "$VS_CODE_DIR"
     sudo mkdir -p "$RESOLVER_DIR"
+    move_sdkman_config_aside
     stow_packages "$HOME" "${MACOS_ONLY_PACKAGES[@]}"
     stow_packages "$VS_CODE_DIR" vscode
     sudo stow -d "$DIR" -t "$RESOLVER_DIR" dns-resolver
