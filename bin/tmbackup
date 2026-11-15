@@ -32,7 +32,14 @@ rsync ${RSYNC_PARAMS} --rsh="$(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT}
 $(which kubectl) exec -n ${NAMESPACE} ${DEPLOYMENT} -- rm -r ${SERVER_BACKUP_DIR}
 
 echo "SET session_replication_role = 'replica';" | cat - "${LOCAL_BACKUP_PATH}" > temp && echo "SET session_replication_role = 'origin';" >> temp && mv -f temp "${LOCAL_BACKUP_PATH}"
-tmbackupverify "${LOCAL_BACKUP_PATH}"
+# A rejected dump gets a name the prune below does not count, so it cannot push
+# a good backup out on the next run.
+verify_failed() {
+    mv -f "${LOCAL_BACKUP_PATH}" "${LOCAL_BACKUP_PATH}.rejected"
+    echo "Backup verification FAILED, dump kept as ${LOCAL_BACKUP_PATH}.rejected" >&2
+    exit 1
+}
+tmbackupverify "${LOCAL_BACKUP_PATH}" || verify_failed
 echo "Backup SUCCESS (${LOCAL_BACKUP_PATH})"
-cd "${BACKUP_DIR}" && ls -1t | grep sql | tail -n +3 | xargs rm
+cd "${BACKUP_DIR}" && ls -1t | grep '\.sql$' | tail -n +3 | xargs rm
 echo

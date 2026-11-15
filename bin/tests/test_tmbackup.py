@@ -12,7 +12,9 @@ RSYNC_MOCK = """echo "rsync" >> "$CALLS"
 remote="${@: -2:1}"
 printf 'COPY public.cars\\n' > "${@: -1}/$(basename "$remote")"
 """
-VERIFY_MOCK = 'echo "tmbackupverify $1" >> "$CALLS"'
+VERIFY_MOCK = """echo "tmbackupverify $1" >> "$CALLS"
+exit ${VERIFY_STATUS:-0}"""
+OLD_BACKUPS = {"a.sql", "b.sql", "c.sql", "d.sql"}
 KEPT_BACKUPS = 2
 
 
@@ -72,3 +74,22 @@ class TestTmbackup:
 
         assert result.returncode == 0, result.stderr
         assert "Backup SUCCESS" in result.stdout
+
+    def test_should_fail_and_keep_every_old_backup_when_the_verify_rejects_the_dump(self, tmbackup):
+        result = tmbackup(VERIFY_STATUS="1")
+
+        assert result.returncode == 1
+        assert "verification FAILED" in result.stderr
+        assert "Backup SUCCESS" not in result.stdout
+        kept = {path.name for path in tmbackup.backups.iterdir()}
+        assert {name for name in kept if name.endswith(".sql")} == OLD_BACKUPS
+        assert len({name for name in kept if name.endswith(".sql.rejected")}) == 1
+
+    def test_should_not_count_a_rejected_dump_among_the_backups_to_keep(self, tmbackup):
+        tmbackup(VERIFY_STATUS="1")
+
+        result = tmbackup()
+
+        assert result.returncode == 0, result.stderr
+        assert len(list(tmbackup.backups.glob("*.sql"))) == KEPT_BACKUPS
+        assert len(list(tmbackup.backups.glob("*.sql.rejected"))) == 1
