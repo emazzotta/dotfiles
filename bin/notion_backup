@@ -22,6 +22,7 @@ from pwvariants import STORED, unique_spellings
 API_BASE = "https://api.notion.com/v1"
 API_VERSION = "2022-06-28"
 RATE_LIMIT_DELAY = 0.35
+REQUEST_TIMEOUT_SECONDS = 60
 NOTION_API_KEY = ""
 ARCHIVE_PASSWORD = ""
 INDEX_FILENAME = ".notion_page_index.json"
@@ -55,6 +56,10 @@ figcaption { color: #666; font-size: 0.9em; }
 hr { border: none; border-top: 1px solid #ddd; margin: 1.5rem 0; }"""
 
 
+class NotionApiError(Exception):
+    pass
+
+
 def api_request(method, endpoint, body=None, retries=3):
     url = f"{API_BASE}/{endpoint}"
     headers = {
@@ -67,7 +72,7 @@ def api_request(method, endpoint, body=None, retries=3):
             req = urllib.request.Request(url, method=method, headers=headers)
             if body:
                 req.data = json.dumps(body).encode()
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
                 time.sleep(RATE_LIMIT_DELAY)
                 return json.loads(resp.read())
         except urllib.error.HTTPError as e:
@@ -82,15 +87,13 @@ def api_request(method, endpoint, body=None, retries=3):
                     body_text = e.read().decode()[:200]
                 except Exception:
                     pass
-                logger.error(f"API error {e.code} for {endpoint}: {body_text}")
-                return None
+                raise NotionApiError(f"API error {e.code} for {endpoint}: {body_text}") from e
             time.sleep(1)
         except Exception as e:
             if attempt == retries - 1:
-                logger.error(f"Request failed for {endpoint}: {e}")
-                return None
+                raise NotionApiError(f"Request failed for {endpoint}: {e}") from e
             time.sleep(1)
-    return None
+    raise NotionApiError(f"Rate limited on every attempt for {endpoint}")
 
 
 def fetch_block_children(block_id):
@@ -101,8 +104,6 @@ def fetch_block_children(block_id):
         if cursor:
             endpoint += f"&start_cursor={cursor}"
         result = api_request("GET", endpoint)
-        if not result:
-            break
         children.extend(result.get("results", []))
         if not result.get("has_more"):
             break
@@ -128,8 +129,6 @@ def discover_pages_via_search():
         if cursor:
             body["start_cursor"] = cursor
         result = api_request("POST", "search", body)
-        if not result:
-            break
         for page in result.get("results", []):
             title = extract_page_title(page)
             pages.append({
@@ -541,6 +540,8 @@ def main():
     parser.add_argument("--depth", type=int, default=5, help="Max block nesting depth to fetch (default: 5, 0=top-level only)")
     parser.add_argument("--keep-empty-untitled", action="store_true", help="Keep pages titled 'Untitled' even when they have no content")
     args = parser.parse_args()
+    if args.max_copies < 1:
+        parser.error("max_copies must be at least 1")
 
     backup_dir = Path(args.backup_dir)
     if not backup_dir.is_dir():
@@ -560,13 +561,16 @@ def main():
     success = False
     try:
         verify_encryption_paths(work_dir, backup_dir)
-        run_backup(args, backup_dir, work_dir, run_timestamp)
+        failed = run_backup(args, backup_dir, work_dir, run_timestamp)
         success = True
     finally:
         if success:
             shutil.rmtree(work_dir, ignore_errors=True)
         else:
             logger.error(f"Backup failed - work dir preserved at {work_dir}")
+    if failed:
+        logger.error(f"{failed} pages failed to export; they keep their cached copy and are fetched again next run")
+        sys.exit(1)
 
 
 def run_backup(args, backup_dir, work_dir, run_timestamp):
@@ -575,16 +579,19 @@ def run_backup(args, backup_dir, work_dir, run_timestamp):
 
     prev_index = load_page_index(str(cache_dir))
     prev_edit_times = {}
-    if prev_index and not args.full:
+    if prev_index:
         prev_edit_times = {p["id"]: p.get("last_edited", "") for p in prev_index}
 
     logger.info("Fetching page index from Notion...")
-    pages = discover_pages_via_search()
+    try:
+        pages = discover_pages_via_search()
+    except NotionApiError as e:
+        logger.error(f"Page search incomplete, cache left untouched: {e}")
+        sys.exit(1)
     if not pages:
         logger.error("No pages found - check API key and integration access")
         sys.exit(1)
 
-    save_page_index(str(cache_dir), pages)
     logger.success(f"Found {len(pages)} pages")
 
     page_titles = {p["id"]: p["title"] for p in pages}
@@ -616,7 +623,7 @@ def run_backup(args, backup_dir, work_dir, run_timestamp):
     else:
         logger.info("No pages changed since last backup")
 
-    failed = 0
+    failed_ids = set()
     skipped_empty = 0
     skipped_ids = set()
     for idx, page in enumerate(changed, 1):
@@ -655,7 +662,13 @@ def run_backup(args, backup_dir, work_dir, run_timestamp):
             (cache_dir / f"{safe_name}.html").write_text(page_html, encoding="utf-8")
         except Exception as e:
             logger.warn(f"Failed to export '{title}': {e}")
-            failed += 1
+            failed_ids.add(pid)
+
+    failed = len(failed_ids)
+    save_page_index(str(cache_dir), [
+        {**page, "last_edited": prev_edit_times.get(page["id"], "")} if page["id"] in failed_ids else page
+        for page in pages
+    ])
 
     kept_names = {
         sname for pid, sname in name_map.items() if pid not in skipped_ids
@@ -695,6 +708,7 @@ def run_backup(args, backup_dir, work_dir, run_timestamp):
 
     enforce_retention(str(backup_dir), args.max_copies)
     logger.success("Backup complete")
+    return failed
 
 
 if __name__ == "__main__":

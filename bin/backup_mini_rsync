@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
 import os
+import re
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from os import listdir
-from os.path import join, basename, isdir
+from os.path import join, basename, isdir, relpath
 import scriptlog as logger
 
 
@@ -55,6 +57,22 @@ RSYNC_FLAGS = [
     *(flatten(["--exclude", f"{folder}/"] for folder in EXCLUDE_FOLDERS))
 ]
 
+RSYNC_WILDCARD = re.compile(r"[*?\[]")
+RSYNC_PATTERN_SPECIAL = re.compile(r"([*?\[\\])")
+
+
+def rsync_literal(name):
+    if not RSYNC_WILDCARD.search(name):
+        return name
+    return RSYNC_PATTERN_SPECIAL.sub(r"\\\1", name)
+
+
+def split_directory_excludes(subdirectories, source_base):
+    return flatten(
+        ["--exclude", f"/{rsync_literal(relpath(subdir, source_base))}/"]
+        for subdir in subdirectories
+    )
+
 
 def get_drive_space(path):
     statvfs = os.statvfs(path)
@@ -100,7 +118,11 @@ def confirm_and_execute_command(source, target, command, tool_name, parallel=Fal
 
     if parallel and subdirectories:
         logger.info("\nStarting parallel rsync processes...")
-        parallel_rsync(subdirectories, source, target, tool_name)
+        failed = parallel_rsync(subdirectories, source, target, tool_name)
+        if failed:
+            for path in failed:
+                logger.error(f"{tool_name} failed for {path}")
+            sys.exit(1)
         logger.success("All rsync processes completed.")
         return
     else:
@@ -113,16 +135,23 @@ def confirm_and_execute_command(source, target, command, tool_name, parallel=Fal
 
 
 def parallel_rsync(subdirectories, source_base, target_base, tool_name):
+    def run_rsync(command):
+        logger.info(f"\n{tool_name} Command: {' '.join(command)}\n\n")
+        return subprocess.run(command).returncode
+
     def rsync_dir(subdir):
         source_path = join(source_base, subdir)
         target_path = join(target_base, subdir.replace(
             source_base, f"{target_base}/"))
-        command = ["rsync"] + RSYNC_FLAGS + [f"{source_path}/", target_path]
-        logger.info(f"\n{tool_name} Command: {' '.join(command)}\n\n")
-        subprocess.run(command)
+        return run_rsync(["rsync"] + RSYNC_FLAGS + [f"{source_path}/", target_path])
+
+    # Runs first: rsync creates only the last path component, so Backup/ must exist before Backup/<dir>/.
+    root_command = ["rsync"] + RSYNC_FLAGS + split_directory_excludes(subdirectories, source_base) + [source_base, target_base]
+    failed = [] if run_rsync(root_command) == 0 else [source_base]
 
     with ThreadPoolExecutor(max_workers=len(subdirectories)) as executor:
-        executor.map(rsync_dir, subdirectories)
+        return_codes = list(executor.map(rsync_dir, subdirectories))
+    return failed + [subdir for subdir, code in zip(subdirectories, return_codes) if code != 0]
 
 
 def process_backup_command_choice(source, target):

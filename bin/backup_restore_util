@@ -13,6 +13,8 @@ from typing import Optional
 
 from scriptlog import error, info, success, warn
 
+TOTAL_SPACE_BYTES = re.compile(r'Total Space:.*?\((\d+) Bytes\)')
+
 
 class DmgFormat(Enum):
     COMPRESSED = "UDZO"
@@ -177,7 +179,7 @@ def format_bytes(bytes_count: int) -> str:
         return f"{gb:.1f} GB"
 
 
-def backup_disk(disk_input: str, img_path: Optional[str]) -> None:
+def backup_disk(disk_input: str, img_path: Optional[str], force: bool = False) -> None:
     info("==> [Backup Mode] selected")
     print()
 
@@ -191,6 +193,11 @@ def backup_disk(disk_input: str, img_path: Optional[str]) -> None:
     if not img_path:
         img_path = str(Path.home() / "Desktop" / "backup.img")
         info(f"Using default output path: {img_path}")
+
+    if Path(img_path).exists() and not force:
+        error(f"Output file already exists: {img_path}")
+        error("Pass --force to overwrite it")
+        sys.exit(1)
 
     disk_size = find_disk_size(disk)
 
@@ -357,10 +364,9 @@ def find_volume_size(volume: str) -> str:
                 )
                 if result.returncode == 0:
                     for line in result.stdout.splitlines():
-                        if 'Total Space' in line:
-                            parts = line.split()
-                            if parts:
-                                return parts[-1]
+                        match = TOTAL_SPACE_BYTES.search(line)
+                        if match:
+                            return match.group(1)
             except Exception:
                 pass
 
@@ -685,6 +691,7 @@ Examples:
   backup_restore_util backup disk2 /path/to/backup.img
   backup_restore_util backup /Volumes/FLIPPER_SD
   backup_restore_util backup /Volumes/FLIPPER_SD flipper.img
+  backup_restore_util backup disk2 /path/to/backup.img --force
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -696,6 +703,11 @@ Examples:
         'output_image',
         nargs='?',
         help='Output IMG file path (default: ~/Desktop/backup.img)'
+    )
+    backup_parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Overwrite the output IMG file if it already exists'
     )
 
     restore_parser = subparsers.add_parser(
@@ -790,7 +802,7 @@ def main() -> None:
 
     if args.command == 'backup':
         check_dependencies()
-        backup_disk(args.disk_or_volume, args.output_image)
+        backup_disk(args.disk_or_volume, args.output_image, args.force)
     elif args.command == 'restore':
         check_dependencies()
         restore_disk(args.disk_or_volume, args.input_image)

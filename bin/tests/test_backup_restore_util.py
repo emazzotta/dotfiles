@@ -1,3 +1,5 @@
+import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -5,6 +7,22 @@ import pytest
 @pytest.fixture
 def mod(load_script):
     return load_script("backup_restore_util")
+
+
+@pytest.fixture
+def recorded_commands(mod, monkeypatch):
+    commands = []
+
+    def run(command, **_):
+        commands.append(command)
+        return SimpleNamespace(returncode=1, stdout="", stderr="")
+    monkeypatch.setattr(mod.subprocess, "run", run)
+    monkeypatch.setattr(mod.shutil, "which", lambda name: f"/usr/bin/{name}")
+    return commands
+
+
+def dd_commands(commands):
+    return [command for command in commands if "dd" in command]
 
 
 class TestDmgFormat:
@@ -149,3 +167,52 @@ class TestCli:
                          isolate_path=True, stdin="")
 
         assert "Traceback" not in result.stderr
+
+
+class TestBackupOverwrite:
+    def should_refuse_to_overwrite_an_existing_image(self, mod, recorded_commands, monkeypatch, tmp_path):
+        image = tmp_path / "backup.img"
+        image.write_text("first backup")
+        monkeypatch.setattr(sys, "argv", ["backup_restore_util", "backup", "disk2", str(image)])
+
+        with pytest.raises(SystemExit) as exit_:
+            mod.main()
+
+        assert exit_.value.code == 1
+        assert dd_commands(recorded_commands) == []
+        assert image.read_text() == "first backup"
+
+    def should_overwrite_an_existing_image_when_forced(self, mod, recorded_commands, monkeypatch, tmp_path):
+        image = tmp_path / "backup.img"
+        image.write_text("first backup")
+        monkeypatch.setattr(sys, "argv", ["backup_restore_util", "backup", "disk2", str(image), "--force"])
+
+        mod.main()
+
+        assert dd_commands(recorded_commands) == [
+            ["sudo", "dd", "if=/dev/rdisk2", f"of={image}", "bs=4m", "status=progress"]]
+
+
+DF_SOURCE = ("Filesystem 512-blocks Used Available Capacity Mounted on\n"
+             "/dev/disk4s1 62309376 0 62309376 0% /Volumes/SD\n")
+DF_ONE_GIGABYTE_FREE = ("Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+                        "/dev/disk1s1 100000000 99000000 1000000 99% /\n")
+
+
+class TestCheckDiskSpace:
+    @pytest.mark.parametrize("total_space_line", [
+        "   Volume Total Space:        31.9 GB (31902400512 Bytes) (exactly 62309376 512-Byte-Units)",
+        "   Container Total Space:     31.9 GB (31902400512 Bytes) (exactly 62309376 512-Byte-Units)",
+    ], ids=["volume", "container"])
+    def should_refuse_when_the_volume_is_larger_than_the_free_space(self, mod, monkeypatch, total_space_line):
+        outputs = {
+            ("df", "/Volumes/SD"): DF_SOURCE,
+            ("diskutil", "info", "/dev/disk4s1"): f"   Device Node:  /dev/disk4s1\n{total_space_line}\n",
+            ("df", "-k", "."): DF_ONE_GIGABYTE_FREE,
+        }
+        monkeypatch.setattr(mod.subprocess, "run", lambda command, **_: SimpleNamespace(
+            returncode=0, stdout=outputs.get(tuple(command), ""), stderr=""))
+
+        enough_space = mod.check_disk_space("/Volumes/SD", mod.DmgFormat.COMPRESSED)
+
+        assert enough_space is False
