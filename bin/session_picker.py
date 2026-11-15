@@ -1,6 +1,6 @@
-"""TSV cache, display formatting and fzf plumbing for session pickers.
+"""TSV cache, display formatting and fzf plumbing for session pickers, and the opencode database path.
 
-Shared by claude-resume and opencode-resume. Ranking lives in session_search.
+Shared by claude-resume, opencode-resume and session-convert. Ranking lives in session_search.
 
 fzf runs with --disabled: matching and ordering are ours, so a `change`
 binding re-runs the ranked search on every keystroke and reloads the list.
@@ -9,6 +9,7 @@ That is what lets phrase matches float to the top as the query is typed.
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 import time
@@ -82,6 +83,10 @@ def _untab(text: str) -> str:
 
 def flatten(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
+
+
+def opencode_db_path() -> Path:
+    return Path(os.environ.get("OPENCODE_DB", Path.home() / ".local/share/opencode/opencode.db"))
 
 
 def format_ago(epoch_seconds: int) -> str:

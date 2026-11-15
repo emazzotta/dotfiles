@@ -37,7 +37,7 @@ except ImportError:
     import session_picker
     import session_search
 
-DB_PATH: Final = Path(os.environ.get("OPENCODE_DB", Path.home() / ".local/share/opencode/opencode.db"))
+DB_PATH: Final = session_picker.opencode_db_path()
 CACHE_PATH: Final = Path.home() / ".cache" / "opencode-resume-index.tsv"
 CACHE_HEADER: Final = "#opencode-resume-index v2"
 MS_PER_SECOND: Final = 1000

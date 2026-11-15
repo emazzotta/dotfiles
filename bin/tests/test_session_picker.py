@@ -62,6 +62,19 @@ class TestFormatAgo:
         assert picker.format_ago(NOW - seconds_ago) == expected
 
 
+class TestOpencodeDbPath:
+    def test_should_read_the_path_from_the_environment(self, picker, monkeypatch, tmp_path):
+        monkeypatch.setenv("OPENCODE_DB", str(tmp_path / "custom.db"))
+
+        assert picker.opencode_db_path() == tmp_path / "custom.db"
+
+    def test_should_default_to_the_user_data_directory(self, picker, monkeypatch, tmp_path):
+        monkeypatch.delenv("OPENCODE_DB", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        assert picker.opencode_db_path() == tmp_path / ".local" / "share" / "opencode" / "opencode.db"
+
+
 class TestFormatDisplay:
     def test_should_pad_title_to_a_fixed_width(self, picker):
         display = picker.format_display("short", NOW)

@@ -13,9 +13,8 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 from typing import Final, Union
-from urllib.parse import quote
 
-from branch_ci import GITHUB_PASSING_CONCLUSIONS, CommandFailed, Run, run_command
+from branch_ci import GITHUB_PASSING_CONCLUSIONS, CommandFailed, GitHubClient, GitLabClient, provider_for, run_command
 from repolib import PRUNE_SECTION, ignore_entries, is_ignored
 from scriptlog import (
     BLUE,
@@ -39,7 +38,6 @@ WORK_DIR_VARIABLE: Final = "WDIR"
 PARALLEL_LOOKUPS: Final = 8
 PAGE_SIZE: Final = 100
 IGNORE_SECTION: Final = "gck"
-GITHUB_HOST: Final = "github.com"
 GITHUB_PULL_REQUEST_FIELDS: Final = "number,title,url,headRefName,headRefOid,body,mergeStateStatus,statusCheckRollup"
 GITHUB_MERGE_PERMISSIONS: Final = frozenset({"ADMIN", "MAINTAIN", "WRITE"})
 GITHUB_PENDING_STATES: Final = frozenset({"PENDING", "EXPECTED"})
@@ -171,19 +169,7 @@ def github_pipeline(checks: list[dict]) -> Pipeline:
                 Pipeline.PASSED)
 
 
-class GitLab:
-    CLIENT = "glab"
-
-    def __init__(self, run: Run, host: str, project: str):
-        self.run = run
-        self.host = host
-        self.project = project
-
-    def _api(self, endpoint: str, *options: str) -> str:
-        project_path = quote(self.project, safe="")
-        return self.run([self.CLIENT, "api", "--hostname", self.host, *options,
-                         f"projects/{project_path}/{endpoint}"])
-
+class GitLab(GitLabClient):
     def open_merge_requests(self) -> list[MergeRequest]:
         listed = json.loads(self._api(f"merge_requests?state=opened&per_page={PAGE_SIZE}"))
         detailed = [json.loads(self._api(f"merge_requests/{merge_request['iid']}")) for merge_request in listed]
@@ -212,16 +198,7 @@ class GitLab:
                             GITLAB_MERGE_STATES.blocker(state, pipeline), state in GITLAB_MERGE_STATES.outdated)
 
 
-class GitHub:
-    CLIENT = "gh"
-
-    def __init__(self, run: Run, repo: str):
-        self.run = run
-        self.repo = repo
-
-    def _gh(self, *args: str) -> str:
-        return self.run([self.CLIENT, *args, "--repo", self.repo])
-
+class GitHub(GitHubClient):
     def open_merge_requests(self) -> list[MergeRequest]:
         pull_requests = json.loads(self._gh("pr", "list", "--state", "open", "--limit", str(PAGE_SIZE),
                                             "--json", GITHUB_PULL_REQUEST_FIELDS))
@@ -280,13 +257,6 @@ class Action:
     pick_header: str = ""
 
 
-def provider_for(slug: str, run: Run) -> Provider:
-    host, _, path = slug.partition("/")
-    if host == GITHUB_HOST:
-        return GitHub(run, path)
-    return GitLab(run, host, path)
-
-
 def remote_slug(url: str) -> str:
     remote = url.strip().removesuffix(".git")
     if "://" in remote:
@@ -340,7 +310,7 @@ def repos_under(root: Path) -> list[Repo]:
         slug = remote_slug(origin_url(path))
         if slug and slug not in repos:
             label = path.name if path == root else str(path.relative_to(root))
-            repos[slug] = Repo(label, slug, provider_for(slug, run_command))
+            repos[slug] = Repo(label, slug, provider_for(slug, run_command, GitLab, GitHub))
     return list(repos.values())
 
 

@@ -53,6 +53,19 @@ def ids_of(output):
     return [line.split("\t")[1] for line in output.splitlines()]
 
 
+class TestDatabasePath:
+    def test_should_read_the_path_from_the_environment(self, resume, db):
+        assert resume.DB_PATH == db
+
+    def test_should_default_to_the_user_data_directory(self, load_script, monkeypatch, tmp_path):
+        monkeypatch.delenv("OPENCODE_DB", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        module = load_script("opencode-resume")
+
+        assert module.DB_PATH == tmp_path / ".local" / "share" / "opencode" / "opencode.db"
+
+
 class TestIndexing:
     def test_should_index_every_session_from_the_database(self, resume):
         assert {s.sid for s in resume.build_sessions()} == {"adjacent", "scattered", "unrelated"}

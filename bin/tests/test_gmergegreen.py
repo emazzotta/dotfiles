@@ -598,3 +598,23 @@ def should_hand_gh_the_token_keyguard_supplies_after_asking_once_per_host(run, r
 
     assert calls("forge-token") == ["github.com"]
     assert set((tmp_path / "gh-tokens").read_text().splitlines()) == {"from-keyguard"}
+
+
+def should_read_the_merge_requests_of_a_gitlab_remote_through_glab_on_its_host(run_cli, repo, tmp_path, git_env):
+    repo("repo", remote=GITLAB_REMOTE)
+    (tmp_path / "merge-request.json").write_text(json.dumps(gitlab_merge_request(7)))
+    glab = (f'printf \'%s\\n\' "$*" >> "{tmp_path}/glab-calls"\n'
+            f'case "$*" in\n'
+            f'    *"merge_requests?state=opened"*) echo \'[{{"iid": 7}}]\' ;;\n'
+            f'    *) cat "{tmp_path}/merge-request.json" ;;\n'
+            f'esac\n')
+
+    result = run_cli("gmergegreen", [str(tmp_path / "scan")],
+                     mock_bins={"glab": glab, "gum": "echo Skip", "keyguard-forge-token": "true"},
+                     env_extra={**git_env, "HOME": str(tmp_path / "home")})
+
+    assert result.returncode == 0, result.stderr
+    assert listing(result) == ["  ✓  renovate/dependency-7"]
+    assert (tmp_path / "glab-calls").read_text().splitlines() == [
+        f"api --hostname gitlab.example.com {GITLAB_PROJECT_PATH}/merge_requests?state=opened&per_page=100",
+        f"api --hostname gitlab.example.com {GITLAB_PROJECT_PATH}/merge_requests/7"]

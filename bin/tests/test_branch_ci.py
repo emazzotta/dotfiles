@@ -4,6 +4,7 @@ import sys
 import pytest
 
 GITLAB_SLUG = "gitlab.example.com/group/project"
+GITHUB_SLUG = "github.com/owner/repo"
 PIPELINE_URL = "https://gitlab.example.com/group/project/-/pipelines/{}"
 SUREFIRE_FAILURE = "[ERROR] Failed to execute goal maven-surefire-plugin:test: There are test failures.\n"
 COMPILE_FAILURE = ("[ERROR] Failed to execute goal maven-compiler-plugin:compile: Compilation failure\n"
@@ -302,6 +303,28 @@ def should_print_a_tab_separated_line_per_branch_from_a_single_request(run_cli, 
     assert (result.returncode, result.stderr) == (0, "")
     assert result.stdout == "main\tsuccess\t\thttps://gitlab.example.com/p/1\nnever-built\tnone\t\t\n"
     assert len(glab_calls()) == 1
+
+
+def should_ask_glab_on_the_host_of_the_slug_for_its_whole_project_path(run_cli, tmp_path, glab_calls):
+    run_cli("branch_ci.py", ["gitlab.example.com/group/sub/project"], stdin="main\n",
+            mock_bins={"glab": GLAB_ANSWERING}, env_extra={"HOME": str(tmp_path)})
+
+    assert glab_calls() == ["api --hostname gitlab.example.com "
+                            "projects/group%2Fsub%2Fproject/pipelines?scope=branches&per_page=100"]
+
+
+def should_ask_gh_for_the_runs_of_the_repository_a_github_slug_names(run_cli, tmp_path):
+    runs = json.dumps([github_run(1, "abc", branch="main")])
+    gh = f'printf \'%s\\n\' "$*" >> "$HOME/gh-calls"\necho \'{runs}\'\n'
+
+    result = run_cli("branch_ci.py", [GITHUB_SLUG], stdin="main\n", mock_bins={"gh": gh},
+                     env_extra={"HOME": str(tmp_path)})
+
+    assert (result.returncode, result.stderr) == (0, "")
+    assert result.stdout == "main\tsuccess\t\thttps://github.com/owner/repo/actions/runs/1\n"
+    assert (tmp_path / "gh-calls").read_text().splitlines() == [
+        "run list --limit 100 --json databaseId,headBranch,headSha,status,conclusion,url,updatedAt "
+        "--repo owner/repo"]
 
 
 @pytest.mark.parametrize("glab, warning", [

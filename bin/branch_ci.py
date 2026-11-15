@@ -18,6 +18,7 @@ CACHE_DIR: Final = Path.home() / ".cache" / "gck" / "ci"
 COMMAND_TIMEOUT_SECONDS: Final = 30
 PARALLEL_LOOKUPS: Final = 8
 GITLAB_PAGE_SIZE: Final = 100
+GITHUB_HOST: Final = "github.com"
 GITHUB_RUNS_PAGE_SIZE: Final = 100
 GITHUB_RUNS_PER_BRANCH: Final = 20
 GITHUB_RUN_FIELDS: Final = "databaseId,headBranch,headSha,status,conclusion,url,updatedAt"
@@ -79,7 +80,7 @@ def classify_job(failure_reason: str, job_name: str, read_log: Callable[[], str]
     return classify_log(read_log(), job_name)
 
 
-class GitLab:
+class GitLabClient:
     CLIENT = "glab"
 
     def __init__(self, run: Run, host: str, project: str):
@@ -87,10 +88,24 @@ class GitLab:
         self.host = host
         self.project = project
 
-    def _api(self, endpoint: str) -> str:
+    def _api(self, endpoint: str, *options: str) -> str:
         project_path = quote(self.project, safe="")
-        return self.run([self.CLIENT, "api", "--hostname", self.host, f"projects/{project_path}/{endpoint}"])
+        return self.run([self.CLIENT, "api", "--hostname", self.host, *options,
+                         f"projects/{project_path}/{endpoint}"])
 
+
+class GitHubClient:
+    CLIENT = "gh"
+
+    def __init__(self, run: Run, repo: str):
+        self.run = run
+        self.repo = repo
+
+    def _gh(self, *args: str) -> str:
+        return self.run([self.CLIENT, *args, "--repo", self.repo])
+
+
+class GitLab(GitLabClient):
     def recent_pipelines(self) -> tuple[dict[str, Pipeline], bool]:
         pipelines = json.loads(self._api(f"pipelines?scope=branches&per_page={GITLAB_PAGE_SIZE}"))
         oldest_first = sorted(pipelines, key=lambda pipeline: pipeline["id"])
@@ -118,16 +133,7 @@ class GitLab:
         return Pipeline(pipeline["status"], pipeline["web_url"], failed_ids, cache_key)
 
 
-class GitHub:
-    CLIENT = "gh"
-
-    def __init__(self, run: Run, repo: str):
-        self.run = run
-        self.repo = repo
-
-    def _gh(self, *args: str) -> str:
-        return self.run([self.CLIENT, *args, "--repo", self.repo])
-
+class GitHub(GitHubClient):
     def recent_pipelines(self) -> tuple[dict[str, Pipeline], bool]:
         runs = json.loads(self._gh("run", "list", "--limit", str(GITHUB_RUNS_PAGE_SIZE), "--json", GITHUB_RUN_FIELDS))
         runs_by_branch: dict[str, list[dict]] = {}
@@ -256,11 +262,11 @@ def unwrap(lines: Iterable[str]) -> str:
     return message
 
 
-def provider_for(slug: str, run: Run) -> Provider:
+def provider_for(slug: str, run: Run, gitlab: Callable[[Run, str, str], T], github: Callable[[Run, str], T]) -> T:
     host, _, path = slug.partition("/")
-    if host == "github.com":
-        return GitHub(run, path)
-    return GitLab(run, host, path)
+    if host == GITHUB_HOST:
+        return github(run, path)
+    return gitlab(run, host, path)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -272,7 +278,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str]) -> int:
-    provider = provider_for(parse_args(argv).slug, run_command)
+    provider = provider_for(parse_args(argv).slug, run_command, GitLab, GitHub)
     if shutil.which(provider.CLIENT) is None:
         print(f"{provider.CLIENT} is not installed", file=sys.stderr)
         return 0
