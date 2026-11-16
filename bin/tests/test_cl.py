@@ -2249,6 +2249,17 @@ class TestRestoreFlag:
         assert not fake_popen.launched
 
 
+class TestInterruptedFlag:
+    def test_should_print_how_many_sessions_restore_would_reopen_instead_of_launching(self, cl, monkeypatch, capsys, fake_popen):
+        monkeypatch.setattr(cl.session_registry.Registry, "count_interrupted", lambda _registry: 3)
+        monkeypatch.setattr(sys, "argv", ["cl", "--interrupted"])
+
+        with pytest.raises(SystemExit) as exit_info:
+            cl.main()
+
+        assert (exit_info.value.code, capsys.readouterr().out, fake_popen.launched) == (0, "3\n", [])
+
+
 class TestInterruptedSessionsHint:
     @pytest.mark.parametrize(("count", "hint"), [
         (0, None),

@@ -1246,11 +1246,18 @@ def main() -> None:
         "--restore", action="store_true", default=False,
         help="reopen every claude session a restart or crash interrupted, each in a tmux window of its own",
     )
+    parser.add_argument(
+        "--interrupted", action="store_true", default=False,
+        help="print how many sessions --restore would reopen",
+    )
 
     args, claude_args = parser.parse_known_args()
 
     if args.restore:
         sys.exit(_session_registry().restore())
+    if args.interrupted:
+        print(_session_registry().count_interrupted())
+        sys.exit(0)
     note_interrupted_sessions()
     resumed = resolve_session_id(args.resume, args.opencode)
     if resumed and not args.opencode:
