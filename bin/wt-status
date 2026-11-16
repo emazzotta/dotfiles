@@ -1,0 +1,84 @@
+#!/bin/bash
+set -uo pipefail
+
+readonly STATE_OPTION='@wt_state'
+readonly LABEL_OPTION='@wt_label'
+
+show_usage() {
+    cat <<EOF
+Usage: wt-status <command> [words]
+
+Tells the web terminal what the program in this tmux pane does, through the pane options
+${STATE_OPTION} and ${LABEL_OPTION}. Its window's dot, title, inbox row and notifications follow.
+
+Commands:
+  {busy,idle,waiting,clear,run}
+    busy [words]               the program works
+    idle [words]               the program finished
+    waiting [words]            the program waits for you
+    clear                      report nothing
+    run <words> -- <command>   busy while the command runs, then idle, with the exit code when it fails
+EOF
+}
+
+fail_usage() {
+    echo "wt-status: $1" >&2
+    show_usage >&2
+    exit 2
+}
+
+require_pane() {
+    if [ -z "${TMUX_PANE:-}" ]; then
+        echo "wt-status: not in a tmux pane (TMUX_PANE is unset)" >&2
+        exit 1
+    fi
+}
+
+report() {
+    local state="$1" words="${2:-}"
+    tmux set-option -p -t "$TMUX_PANE" "$LABEL_OPTION" "$words" </dev/null &&
+        tmux set-option -p -t "$TMUX_PANE" "$STATE_OPTION" "$state" </dev/null
+}
+
+clear_report() {
+    tmux set-option -p -u -t "$TMUX_PANE" "$STATE_OPTION" </dev/null &&
+        tmux set-option -p -u -t "$TMUX_PANE" "$LABEL_OPTION" </dev/null
+}
+
+run_reported() {
+    [ $# -ge 1 ] || fail_usage "run needs words and a command"
+    local words="$1" code
+    shift
+    if [ "${1:-}" = "--" ]; then
+        shift
+    fi
+    [ $# -ge 1 ] || fail_usage "run needs a command after its words"
+    if [ -z "${TMUX_PANE:-}" ]; then
+        exec "$@"
+    fi
+    trap : INT
+    report busy "$words"
+    "$@"
+    code=$?
+    if [ "$code" -eq 0 ]; then
+        report idle "$words"
+    else
+        report idle "${words:+$words }failed ($code)"
+    fi
+    exit "$code"
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help) show_usage ;;
+        busy|idle|waiting) require_pane; report "$1" "${2:-}" ;;
+        clear) require_pane; clear_report ;;
+        run) shift; run_reported "$@" ;;
+        '') fail_usage "missing command" ;;
+        *) fail_usage "unknown command: $1" ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
