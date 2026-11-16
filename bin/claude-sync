@@ -3,7 +3,8 @@
 
 Every push also mirrors the tracked files of the opencode workspace tree to the dev box's /workspace,
 minus LEFT_OUT and anything a git filter rewrites, and the installed plugins (PLUGIN_INSTALL) to its
-~/.claude/plugins, and copies the Mac's ~/.claude/settings.json into its own, but for DEVBOX_OWNED_KEYS.
+~/.claude/plugins, and copies the Mac's ~/.claude/settings.json into its own, but for DEVBOX_OWNED_KEYS
+and the env variables the box sets itself.
 The Mac is the source of truth; the dev box keeps its own copy of DEVBOX_STATE and the settings only it has.
 """
 from __future__ import annotations
@@ -51,9 +52,10 @@ MARKETPLACE_REGISTRY = "known_marketplaces.json"
 PLUGIN_MARKERS = ".in_use/"
 # Owned by claude-sync in the dev box's settings.json, whatever either side says.
 DEVBOX_SETTINGS = {"syncClaudeAiPlugins": False, "syncClaudeAiSkills": False, "disableClaudeAiConnectors": True}
-# Kept from the dev box's own settings.json: the Mac's hooks run scripts LEFT_OUT never sends,
-# and env holds the box's GIT_SSH_COMMAND.
-DEVBOX_OWNED_KEYS = ("hooks", "env")
+# Kept from the dev box's own settings.json: the Mac's hooks run scripts LEFT_OUT never sends.
+DEVBOX_OWNED_KEYS = ("hooks",)
+# Merged per variable: the Mac's reach the box, and one the box sets wins (its GIT_SSH_COMMAND).
+ENV_KEY = "env"
 RSYNC_MISSING_SOURCE = 23
 
 
@@ -281,8 +283,12 @@ def mirror_plugins(home: Path, stream: bool) -> int:
 
 
 def merged_settings(mac: dict, box: dict) -> dict:
-    """The Mac's keys win but for DEVBOX_OWNED_KEYS, keys only the box has stay, and claude.ai stays out."""
+    """The Mac's keys win but for DEVBOX_OWNED_KEYS and the box's env variables, keys only the box has stay,
+    and claude.ai stays out."""
     merged = {**box, **{key: value for key, value in mac.items() if key not in DEVBOX_OWNED_KEYS}}
+    env = {**mac.get(ENV_KEY, {}), **box.get(ENV_KEY, {})}
+    if env:
+        merged[ENV_KEY] = env
     if "extraKnownMarketplaces" in merged:
         merged["extraKnownMarketplaces"] = without_auto_update(merged["extraKnownMarketplaces"])
     return {**merged, **DEVBOX_SETTINGS}

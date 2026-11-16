@@ -180,6 +180,7 @@ BOX_SETTINGS = {
 }
 SYNC_OFF = {"syncClaudeAiPlugins": False, "syncClaudeAiSkills": False, "disableClaudeAiConnectors": True}
 MAC_SETTINGS_ON_THE_BOX = {
+    "env": MAC_SETTINGS["env"],
     "theme": "light",
     "autoCompactWindow": 400000,
     "enabledPlugins": MAC_SETTINGS["enabledPlugins"],
@@ -187,7 +188,8 @@ MAC_SETTINGS_ON_THE_BOX = {
     **SYNC_OFF,
 }
 EXPECTED_BOX = {
-    "hooks": BOX_SETTINGS["hooks"], "env": BOX_SETTINGS["env"], "tui": "fullscreen", **MAC_SETTINGS_ON_THE_BOX,
+    "hooks": BOX_SETTINGS["hooks"], "tui": "fullscreen", **MAC_SETTINGS_ON_THE_BOX,
+    "env": {**MAC_SETTINGS["env"], **BOX_SETTINGS["env"]},
 }
 DEVBOX_OWN = {
     "checkout-gitlab.sh": "devbox\n",
@@ -765,9 +767,20 @@ class TestSettingsMerge:
     def should_keep_a_key_only_the_box_has(self, merged_settings):
         assert merged_settings({"theme": "light"}, BOX_SETTINGS)["enabledPlugins"] == BOX_SETTINGS["enabledPlugins"]
 
-    @pytest.mark.parametrize("key", ["hooks", "env"])
-    def should_never_send_a_box_owned_key(self, merged_settings, key):
-        assert key not in merged_settings(MAC_SETTINGS, {})
+    def should_never_send_the_mac_hooks(self, merged_settings):
+        assert "hooks" not in merged_settings(MAC_SETTINGS, {})
+
+    def should_send_a_mac_env_variable_the_box_lacks(self, merged_settings):
+        mac = {"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"}}
+
+        merged = merged_settings(mac, BOX_SETTINGS)
+
+        assert merged["env"] == {"GIT_SSH_COMMAND": "keyguard-ssh", "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"}
+
+    def should_keep_an_env_variable_the_box_sets(self, merged_settings):
+        mac = {"env": {"GIT_SSH_COMMAND": "ssh"}}
+
+        assert merged_settings(mac, BOX_SETTINGS)["env"] == BOX_SETTINGS["env"]
 
     def should_keep_marketplaces_from_updating_themselves(self, merged_settings):
         box = {"extraKnownMarketplaces": {"box-only": {"source": MARKETPLACE_SOURCE, "autoUpdate": True}}}
