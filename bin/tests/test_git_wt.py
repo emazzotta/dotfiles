@@ -22,6 +22,17 @@ def finish_upstream(git, project, worktree, branch):
     fetch(git, project)
 
 
+def push_straight_to_main(git, project, worktree):
+    commit_file(git, worktree, "feature.txt", "done")
+    git(worktree, "push", "origin", "HEAD:main")
+    fetch(git, project)
+
+
+def move_main_on(git, project):
+    commit_file(git, project, "other.txt", "elsewhere", "Other work")
+    git(project, "push", "origin", "main")
+
+
 SUBMODULE = "lib"
 ALLOW_FILE_TRANSPORT = ("-c", "protocol.file.allow=always")
 
@@ -297,6 +308,27 @@ class TestRmMerged:
         assert not path.exists()
         assert "feature" not in branches(git, project)
 
+    def should_remove_a_branch_pushed_straight_to_main_without_an_upstream(
+            self, wt, added, git, project):
+        path = added("feature")
+        push_straight_to_main(git, project, path)
+
+        result = wt("rm", "--merged")
+
+        assert result.returncode == 0, result.stderr
+        assert not path.exists()
+        assert "feature" not in branches(git, project)
+
+    def should_keep_a_new_branch_after_main_moves_on(self, wt, added, git, project):
+        path = added("feature")
+        move_main_on(git, project)
+
+        result = wt("rm", "--merged")
+
+        assert result.returncode == 0, result.stderr
+        assert path.exists()
+        assert "feature" in branches(git, project)
+
     def should_keep_a_new_branch_that_has_no_commits_yet(self, wt, added, git, project):
         path = added("feature")
 
@@ -459,6 +491,36 @@ class TestSweep:
 
         assert f"removed {path} (merged)" in result.stdout
         assert "feature" in branches(git, project)
+
+    def should_remove_a_clean_worktree_whose_branch_was_pushed_straight_to_main(
+            self, wt, added, git, project):
+        path = added("feature")
+        push_straight_to_main(git, project, path)
+
+        result = wt("sweep")
+
+        assert f"removed {path} (merged)" in result.stdout
+        assert "feature" in branches(git, project)
+
+    def should_keep_a_new_worktree_after_main_moves_on(self, wt, added, git, project):
+        path = added("feature")
+        move_main_on(git, project)
+
+        result = wt("sweep")
+
+        assert result.stdout == ""
+        assert path.exists()
+
+    def should_keep_a_worktree_fast_forwarded_to_main_without_commits_of_its_own(
+            self, wt, added, git, project):
+        path = added("feature")
+        move_main_on(git, project)
+        git(path, "merge", "--ff-only", "origin/main")
+
+        result = wt("sweep")
+
+        assert result.stdout == ""
+        assert path.exists()
 
     def should_keep_a_worktree_whose_branch_was_never_pushed(self, wt, added, git, project):
         path = added("feature")
