@@ -134,15 +134,21 @@ class TestSessionRecord:
         assert json.loads(record.to_json())["container"] == {"name": "opencode-1787254728", "docker": "/usr/local/bin/docker"}
         assert registry_module.SessionRecord.from_json(record.to_json()) == record
 
+    def test_should_keep_what_the_picker_lists_through_json(self, registry_module, make_record):
+        record = make_record(session_id=None, picker=registry_module.Picker(Path("/workspace"), False, "deploy"))
+
+        assert json.loads(record.to_json())["picker"] == {"folder": "/workspace", "allProjects": False, "search": "deploy"}
+        assert registry_module.SessionRecord.from_json(record.to_json()) == record
+
     def test_should_read_a_record_written_before_the_pane_was_kept(self, registry_module, make_record):
         old = json.loads(make_record().to_json())
-        for key in ("tmuxPane", "pid", "mounts", "claudeSessions", "agent", "container"):
+        for key in ("tmuxPane", "pid", "mounts", "claudeSessions", "agent", "container", "picker"):
             del old[key]
 
         record = registry_module.SessionRecord.from_json(json.dumps(old))
 
         assert (record.tmux_pane, record.pid, record.mounts, record.claude_sessions) == (None, None, (), None)
-        assert (record.agent, record.container) == (registry_module.Agent.CLAUDE, None)
+        assert (record.agent, record.container, record.picker) == (registry_module.Agent.CLAUDE, None, None)
 
     def test_should_quote_the_resume_command_for_the_shell(self, make_record):
         record = make_record(cl_args=("-p", "/tmp/my project", "--model", "opus"))

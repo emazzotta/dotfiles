@@ -2129,7 +2129,9 @@ class TestOrphanGuardEndToEnd:
 
 
 def cl_namespace(**overrides):
-    defaults = dict(files=[], paths=[], excludes=[], no_skip=False, skip=False, git_ignore_mount=False)
+    defaults = dict(
+        files=[], paths=[], excludes=[], no_skip=False, skip=False, git_ignore_mount=False, resume=None, all_projects=False,
+    )
     return argparse.Namespace(**(defaults | overrides))
 
 
@@ -2194,9 +2196,34 @@ class TestBuildSessionRecord:
         assert (record.mounts, record.claude_sessions) == (mounts, tmp_path / "run")
 
     def test_should_leave_the_session_open_until_the_picker_chose_one(self, cl, tmp_path):
-        record = cl.build_session_record(cl_namespace(), [], ("claude-resume", [], ["deploy"]), tmp_path)
+        record = cl.build_session_record(cl_namespace(resume="deploy"), [], ("claude-resume", [], ["deploy"]), tmp_path)
 
         assert record.session_id is None
+
+    def test_should_record_what_the_picker_lists_in_the_folder_it_runs_in(self, cl, tmp_path, monkeypatch):
+        monkeypatch.setattr(cl, "CONTAINER_WORKSPACE", tmp_path / "missing")
+        args = cl_namespace(resume="deploy", all_projects=True)
+
+        record = cl.build_session_record(args, [], ("claude-resume", [], ["deploy", "-a"]), tmp_path)
+
+        assert record.picker == cl.session_registry.Picker(tmp_path, True, "deploy")
+
+    def test_should_record_the_container_workspace_as_the_folder_of_a_picker_in_a_container(self, cl, tmp_path):
+        container = cl.session_registry.Container("opencode-1", Path("/usr/local/bin/docker"))
+
+        record = cl.build_session_record(cl_namespace(resume=""), [], ("claude-resume", [], []), tmp_path, container=container)
+
+        assert record.picker == cl.session_registry.Picker(cl.CONTAINER_WORKSPACE, False, "")
+
+    def test_should_record_that_the_opencode_picker_lists_every_folder(self, cl, tmp_path):
+        record = cl.build_session_record(cl_namespace(resume=""), [], ("opencode-resume", [], ["--"]), tmp_path)
+
+        assert (record.picker.all_projects, record.picker.search) == (True, "")
+
+    def test_should_record_no_picker_for_a_run_that_starts_its_agent_at_once(self, cl, tmp_path):
+        record = cl.build_session_record(cl_namespace(), [], ("claude", [], []), tmp_path)
+
+        assert record.picker is None
 
 
 class TestMountsOf:

@@ -329,6 +329,7 @@ DOTFILES_CRUFT_PATTERNS = (
 CLAUDE_ENTRYPOINTS = ("claude", "claude-route")
 TRACKED_ENTRYPOINTS = (*CLAUDE_ENTRYPOINTS, "claude-resume")
 OPENCODE_ENTRYPOINTS = ("opencode", "opencode-resume")
+PICKER_ENTRYPOINTS = ("claude-resume", "opencode-resume")
 OPENCODE_SERVER_ARGS = ("--port", "0")
 ROUTE_OVERRIDING_FLAGS = ("--model", "--effort", "--print")
 CLAUDE_VALUE_FLAGS = (
@@ -847,6 +848,19 @@ def restore_args(args: argparse.Namespace, claude_args: list[str]) -> list[str]:
     ]
 
 
+def run_folder(pwd: Path, container: session_registry.Container | None) -> Path:
+    """Where the tool runs: compose starts the container in CONTAINER_WORKSPACE, and run_in_place moves there when it exists."""
+    return CONTAINER_WORKSPACE if container is not None or CONTAINER_WORKSPACE.is_dir() else pwd
+
+
+def picker_of(args: argparse.Namespace, entrypoint: str, folder: Path) -> session_registry.Picker | None:
+    """claude-resume lists the folder's sessions unless -a asks for all; opencode-resume lists every folder's."""
+    if entrypoint not in PICKER_ENTRYPOINTS:
+        return None
+    every_folder = args.all_projects or entrypoint == "opencode-resume"
+    return session_registry.Picker(folder, every_folder, args.resume or "")
+
+
 def build_session_record(
     args: argparse.Namespace, claude_args: list[str], invocation: tuple[str, list[str], list[str]], pwd: Path,
     mounts: tuple[session_registry.Mount, ...] = (), claude_sessions: Path | None = None,
@@ -870,6 +884,7 @@ def build_session_record(
         claude_sessions=claude_sessions,
         agent=agent,
         container=container,
+        picker=picker_of(args, entrypoint, run_folder(pwd, container)),
     )
 
 

@@ -65,8 +65,24 @@ class Container:
 
 
 @dataclass(frozen=True)
+class Picker:
+    """What cl's resume picker lists while it waits for a pick, so web-terminal can offer the same conversations."""
+
+    folder: Path
+    all_projects: bool
+    search: str
+
+    def to_dict(self) -> dict[str, str | bool]:
+        return {"folder": str(self.folder), "allProjects": self.all_projects, "search": self.search}
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> Picker | None:
+        return cls(Path(data["folder"]), data["allProjects"], data["search"]) if data else None
+
+
+@dataclass(frozen=True)
 class SessionRecord:
-    """One cl run. tmux_pane, pid, agent, container, mounts and claude_sessions let web-terminal find what a pane runs."""
+    """One cl run. tmux_pane, pid, agent, container, mounts, claude_sessions and picker let web-terminal find what a pane runs."""
 
     session_id: UUID | None
     cwd: Path
@@ -79,6 +95,7 @@ class SessionRecord:
     claude_sessions: Path | None = None
     agent: Agent = Agent.CLAUDE
     container: Container | None = None
+    picker: Picker | None = None
 
     def to_json(self) -> str:
         return json.dumps({
@@ -93,6 +110,7 @@ class SessionRecord:
             "claudeSessions": str(self.claude_sessions) if self.claude_sessions else None,
             "agent": self.agent.value,
             "container": self.container.to_dict() if self.container else None,
+            "picker": self.picker.to_dict() if self.picker else None,
         })
 
     @classmethod
@@ -111,6 +129,7 @@ class SessionRecord:
             claude_sessions=Path(claude_sessions) if claude_sessions else None,
             agent=Agent(data.get("agent", Agent.CLAUDE.value)),
             container=Container.from_dict(data.get("container")),
+            picker=Picker.from_dict(data.get("picker")),
         )
 
     def resume_command(self) -> str:
