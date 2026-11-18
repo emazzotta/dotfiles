@@ -262,28 +262,18 @@ def _install_exit_guard(session: session_registry.Session, container_name: str |
         signal.signal(number, finish_and_exit)
 
 
-DOCKER_PROBE_TIMEOUT_SECONDS = 5
-
-
-def _docker_answers() -> bool:
-    try:
-        probe = run(
-            ["docker", "version", "--format", "{{.Server.Version}}"],
-            capture_output=True, check=False, timeout=DOCKER_PROBE_TIMEOUT_SECONDS,
-        )
-    except (OSError, SubprocessError):
-        return False
-    return probe.returncode == 0
+COMPOSE_DOCKER_FAILED = 125
 
 
 def _ending_signal(returncode: int) -> int | None:
-    """The signal that ended the container's session, counting a Docker that went away as a kill.
+    """The signal that ended the container's session, counting Docker cutting compose off as a kill.
 
-    Docker Desktop quitting cuts compose off before the container's exit status
-    arrives, and compose exits 125 as for any daemon error; only a daemon that no
-    longer answers tells that apart from a session that failed on its own.
+    Docker Desktop quitting or restarting cuts compose off before the container's exit
+    status arrives, and compose exits 125 as for any daemon error. A restarting daemon
+    can still answer, so asking it cannot tell this from a failed launch; a failed
+    launch leaves no transcript, and restore skips its record.
     """
-    if returncode and not _docker_answers():
+    if returncode == COMPOSE_DOCKER_FAILED:
         return signal.SIGKILL
     return session_registry.signal_of(returncode)
 
