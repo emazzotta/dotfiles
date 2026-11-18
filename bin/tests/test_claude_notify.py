@@ -24,6 +24,7 @@ def notify(load_script, tmp_path, monkeypatch):
     monkeypatch.setattr(module, "DEVBOX_TOKEN_FILE", tmp_path / "no-token")
     monkeypatch.setattr(module, "IS_MAC", False)
     monkeypatch.setattr(module.socket, "gethostname", lambda: "f635a28c3a2e")
+    monkeypatch.setenv("CLAUDE_PROJECTS", str(tmp_path / "projects"))
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
     monkeypatch.delenv("TMUX_PANE", raising=False)
     return module
@@ -92,8 +93,26 @@ class TestFinishedPing:
         _hook(notify, "Stop", last_assistant_message="Emanuele, done. Details follow.", background_tasks=[])
 
         assert notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None) == 0
-        assert delivered == [{"session": str(SESSION), "container": "f635a28c3a2e", "text": "Done.",
+        assert delivered == [{"session": str(SESSION), "container": "f635a28c3a2e", "title": None, "text": "Done.",
                               "kind": "finished"}]
+
+    def should_name_the_session_by_its_title(self, notify, spawned, delivered, tmp_path):
+        transcript = tmp_path / "projects" / "-workspace" / f"{SESSION}.jsonl"
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text(json.dumps({"type": "ai-title", "aiTitle": "Telegram alert layout"}) + "\n")
+        _hook(notify, "Stop", last_assistant_message="Done.")
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
+
+        assert [body["title"] for body in delivered] == ["Telegram alert layout"]
+
+    def should_send_no_title_when_the_lookup_fails(self, notify, spawned, delivered, monkeypatch, tmp_path):
+        monkeypatch.setattr(notify, "CALLER", tmp_path / "missing-claude-caller")
+        _hook(notify, "Stop", last_assistant_message="Done.")
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
+
+        assert [body["title"] for body in delivered] == [None]
 
     def should_wait_ten_minutes_in_short_polls_before_sending(self, notify, spawned, delivered):
         _hook(notify, "Stop", last_assistant_message="Done.")
