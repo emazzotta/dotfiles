@@ -92,7 +92,8 @@ class TestFinishedPing:
         _hook(notify, "Stop", last_assistant_message="Emanuele, done. Details follow.", background_tasks=[])
 
         assert notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None) == 0
-        assert delivered == [{"session": str(SESSION), "container": "f635a28c3a2e", "text": "Done."}]
+        assert delivered == [{"session": str(SESSION), "container": "f635a28c3a2e", "text": "Done.",
+                              "kind": "finished"}]
 
     def should_wait_ten_minutes_in_short_polls_before_sending(self, notify, spawned, delivered):
         _hook(notify, "Stop", last_assistant_message="Done.")
@@ -236,6 +237,13 @@ class TestPromptPing:
               message="Claude Code needs your approval for the plan")
 
         assert _texts_after_fire(notify, spawned, delivered) == ["Has a plan ready for your approval."]
+
+    def should_send_the_ping_as_a_prompt(self, notify, spawned, delivered):
+        _ask(notify)
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
+
+        assert [body["kind"] for body in delivered] == ["prompt"]
 
     def should_wait_ten_minutes_in_short_polls_before_sending(self, notify, spawned, delivered):
         _ask(notify)

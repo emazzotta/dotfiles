@@ -33,6 +33,7 @@ import urllib.request
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Final
 from uuid import UUID
@@ -62,7 +63,7 @@ USAGE: Final = """Usage: claude-notify [send | fire SESSION TOKEN]
 Without arguments, a Claude Code hook: reads the hook event on stdin and arms
 or cancels a Telegram ping through the unlock service.
 
-  send                read a notice ({"session", "container", "text"}) on stdin and
+  send                read a notice ({"session", "container", "text", "kind"}) on stdin and
                       deliver it; the keyguard bridge endpoint runs this on the Mac
   fire SESSION TOKEN  internal: wait 10 minutes, then send the session's pending ping
                       if TOKEN still holds it and the session's tmux pane went unseen
@@ -109,8 +110,13 @@ def container_label() -> str | None:
     return None if IS_MAC else socket.gethostname().split(".")[0]
 
 
-def notice(session: UUID, text: str) -> dict:
-    return {"session": str(session), "container": container_label(), "text": text}
+class PingKind(Enum):
+    FINISHED = "finished"
+    PROMPT = "prompt"
+
+
+def notice(session: UUID, text: str, kind: PingKind) -> dict:
+    return {"session": str(session), "container": container_label(), "text": text, "kind": kind.value}
 
 
 def state_file(session: UUID, kind: str) -> Path:
@@ -146,9 +152,10 @@ def spawn(arguments: Sequence[str]) -> None:
                      start_new_session=True)
 
 
-def arm(session: UUID, text: str, prompt: dict | None = None) -> None:
+def arm(session: UUID, text: str, kind: PingKind, prompt: dict | None = None) -> None:
     token = secrets.token_hex(8)
-    write_state(state_file(session, "pending"), json.dumps({"token": token, "text": text, "prompt": prompt}))
+    pending = {"token": token, "text": text, "kind": kind.value, "prompt": prompt}
+    write_state(state_file(session, "pending"), json.dumps(pending))
     spawn(["fire", str(session), token])
 
 
@@ -160,7 +167,7 @@ def on_stop(session: UUID, event: dict) -> None:
     if background_work_pending(event):
         take_state(state_file(session, "pending"))
         return
-    arm(session, first_sentence(event.get("last_assistant_message") or ""))
+    arm(session, first_sentence(event.get("last_assistant_message") or ""), PingKind.FINISHED)
 
 
 def on_permission_request(session: UUID, event: dict) -> None:
@@ -172,7 +179,8 @@ def on_notification(session: UUID, event: dict) -> None:
     if event.get("notification_type") != "permission_prompt":
         return
     noted = json.loads(take_state(state_file(session, "prompt")) or "{}")
-    arm(session, noted.get("text") or event.get("message") or "Needs your input.", noted.get("prompt"))
+    text = noted.get("text") or event.get("message") or "Needs your input."
+    arm(session, text, PingKind.PROMPT, noted.get("prompt"))
 
 
 def on_tool_done(session: UUID, event: dict) -> None:
@@ -239,15 +247,15 @@ def seen_since(pane: str, armed: datetime, clients: Iterable[TmuxClient]) -> boo
     return any(client.pane == pane and client.used_since(armed) for client in clients)
 
 
-def pending_text(session: UUID, token: str) -> str | None:
+def armed_ping(session: UUID, token: str) -> dict | None:
     pending = read_pending(session)
-    return pending["text"] if pending is not None and pending.get("token") == token else None
+    return pending if pending is not None and pending.get("token") == token else None
 
 
 def wait_unseen(session: UUID, token: str, sleep: Callable[[float], None], seen: Callable[[], bool]) -> bool:
     for _ in range(PING_DELAY // SEEN_POLL):
         sleep(SEEN_POLL.total_seconds())
-        if pending_text(session, token) is None or seen():
+        if armed_ping(session, token) is None or seen():
             return False
     return True
 
@@ -257,11 +265,11 @@ def fire(session: UUID, token: str, sleep: Callable[[float], None] = time.sleep,
     armed = datetime.now(timezone.utc).replace(microsecond=0)
     pane = os.environ.get("TMUX_PANE")
     unseen = wait_unseen(session, token, sleep, lambda: pane is not None and seen_since(pane, armed, clients()))
-    text = pending_text(session, token)
-    if text is None:
+    ping = armed_ping(session, token)
+    if ping is None:
         return 0
     take_state(state_file(session, "pending"))
-    return deliver(json.dumps(notice(session, text))) if unseen else 0
+    return deliver(json.dumps(notice(session, ping["text"], PingKind(ping["kind"])))) if unseen else 0
 
 
 def post_to_store(body: str, bearer: str | None) -> int:
