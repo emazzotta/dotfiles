@@ -38,6 +38,8 @@ from pathlib import Path
 from typing import Final
 from uuid import UUID
 
+import session_title
+
 PING_DELAY: Final = timedelta(minutes=10)
 SEEN_POLL: Final = timedelta(seconds=5)
 TMUX_TIMEOUT: Final = timedelta(seconds=2)
@@ -49,8 +51,6 @@ STATE_DIR: Final = Path.home() / ".cache" / "claude-notify"
 DEFAULT_STORE_URL: Final = "https://unlock.asymptote-bass.ts.net"
 DEVBOX_TOKEN_FILE: Final = Path("/etc/devbox-unlock/request-token")
 BRIDGE_ENDPOINT: Final = "claude-notify"
-CALLER: Final = Path(__file__).resolve().with_name("claude-caller")
-CALLER_TIMEOUT: Final = timedelta(seconds=5)
 IS_MAC: Final = sys.platform == "darwin"
 UNATTENDED_ENTRYPOINT_PREFIX: Final = "sdk"
 WAKING_TASK_TYPES_EXEMPT: Final = frozenset({"shell"})
@@ -117,19 +117,8 @@ class PingKind(Enum):
     PROMPT = "prompt"
 
 
-def session_title(session: UUID) -> str | None:
-    environment = {**os.environ, "CLAUDE_CODE_SESSION_ID": str(session)}
-    try:
-        result = subprocess.run([str(CALLER)], env=environment, capture_output=True, text=True,
-                                timeout=CALLER_TIMEOUT.total_seconds(), check=False)
-        title = json.loads(result.stdout).get("title")
-    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
-        return None
-    return title if isinstance(title, str) and title else None
-
-
 def notice(session: UUID, text: str, kind: PingKind) -> dict:
-    return {"session": str(session), "container": container_label(), "title": session_title(session), "text": text,
+    return {"session": str(session), "container": container_label(), "title": session_title.find(session) or None, "text": text,
             "kind": kind.value}
 
 

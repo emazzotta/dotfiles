@@ -546,8 +546,8 @@ def should_ping_with_the_title_of_the_moved_session(cli, relayed, tmp_path):
                                                "title": "Telegram alert layout", "text": "Moved"}
 
 
-def should_ping_without_a_title_when_the_lookup_fails(cli, relayed, tmp_path, monkeypatch):
-    monkeypatch.setattr(cli, "CALLER", tmp_path / "missing-claude-caller")
+def should_ping_without_a_title_when_the_transcript_cannot_be_read(cli, relayed, tmp_path):
+    (tmp_path / "projects" / "-workspace" / f"{SESSION}.jsonl").mkdir(parents=True)
 
     cli.notify(SESSION, "Moved")
 

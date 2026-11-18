@@ -106,8 +106,8 @@ class TestFinishedPing:
 
         assert [body["title"] for body in delivered] == ["Telegram alert layout"]
 
-    def should_send_no_title_when_the_lookup_fails(self, notify, spawned, delivered, monkeypatch, tmp_path):
-        monkeypatch.setattr(notify, "CALLER", tmp_path / "missing-claude-caller")
+    def should_send_no_title_when_the_transcript_cannot_be_read(self, notify, spawned, delivered, tmp_path):
+        (tmp_path / "projects" / "-workspace" / f"{SESSION}.jsonl").mkdir(parents=True)
         _hook(notify, "Stop", last_assistant_message="Done.")
 
         notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
