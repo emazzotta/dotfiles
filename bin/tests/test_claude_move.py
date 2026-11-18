@@ -525,6 +525,35 @@ def should_say_how_to_resume_when_the_hand_over_times_out(cli, create_mock_bin, 
         cli.move(preparation, SimpleNamespace(), (str(tmux), None), now=False, sync=sync, sleep=lambda _s: None)
 
 
+@pytest.fixture
+def relayed(cli, tmp_path, monkeypatch):
+    relay = tmp_path / "claude-notify"
+    relay.write_text('#!/bin/sh\ncat > "$0.body"\n')
+    relay.chmod(0o755)
+    monkeypatch.setattr(cli, "CLAUDE_NOTIFY", relay)
+    monkeypatch.setenv("CLAUDE_PROJECTS", str(tmp_path / "projects"))
+    return tmp_path / "claude-notify.body"
+
+
+def should_ping_with_the_title_of_the_moved_session(cli, relayed, tmp_path):
+    transcript = tmp_path / "projects" / "-workspace" / f"{SESSION}.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text(json.dumps({"type": "ai-title", "aiTitle": "Telegram alert layout"}) + "\n")
+
+    cli.notify(SESSION, "Moved")
+
+    assert json.loads(relayed.read_text()) == {"session": str(SESSION), "container": None,
+                                               "title": "Telegram alert layout", "text": "Moved"}
+
+
+def should_ping_without_a_title_when_the_lookup_fails(cli, relayed, tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "CALLER", tmp_path / "missing-claude-caller")
+
+    cli.notify(SESSION, "Moved")
+
+    assert json.loads(relayed.read_text())["title"] is None
+
+
 @pytest.mark.parametrize("failure", [
     subprocess.TimeoutExpired(["ssh", "devbox"], 120),
     subprocess.CalledProcessError(1, ["tmux", "send-keys"]),

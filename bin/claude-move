@@ -37,6 +37,7 @@ from session_move import BoxPaths, Lease, MountedRepo, MoveError, MovePlan, Tran
 BIN: Final = Path(__file__).resolve().parent
 CLAUDE_SYNC: Final = BIN / "claude-sync"
 CLAUDE_NOTIFY: Final = BIN / "claude-notify"
+CALLER: Final = BIN / "claude-caller"
 PICKER: Final = BIN / "picker"
 LOG: Final = Path.home() / ".claude" / "claude-move.log"
 TRANSCRIPTS: Final = Path.home() / ".claude" / "projects" / "-workspace"
@@ -334,9 +335,20 @@ def show(preparation: Preparation) -> None:
         scriptlog.substep_info(f"{container}: not on the devbox")
 
 
+def session_title(session: UUID) -> str | None:
+    environment = {**os.environ, "CLAUDE_CODE_SESSION_ID": str(session)}
+    try:
+        result = subprocess.run([str(CALLER)], env=environment, capture_output=True, text=True,
+                                timeout=COMMAND_TIMEOUT.total_seconds(), check=False)
+        title = json.loads(result.stdout).get("title")
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+        return None
+    return title if isinstance(title, str) and title else None
+
+
 def notify(session: UUID, text: str) -> None:
     """A move started from the phone through /move has nobody watching this Mac's terminal."""
-    payload = json.dumps({"session": str(session), "container": None, "text": text})
+    payload = json.dumps({"session": str(session), "container": None, "title": session_title(session), "text": text})
     with contextlib.suppress(OSError, subprocess.SubprocessError):
         subprocess.run([str(CLAUDE_NOTIFY), "send"], input=payload, text=True, capture_output=True,
                        timeout=COMMAND_TIMEOUT.total_seconds())
