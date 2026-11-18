@@ -141,6 +141,7 @@ print_alias_help() {
 readonly bridge_staging="${FILESERVER_BRIDGE_STAGING:-/workspace/code/Desktop/.fileserver-staging}"
 readonly bridge_url="http://host.docker.internal:7777/_bridge/fileserver"
 readonly service_account_token="${FILESERVER_SERVICE_ACCOUNT_TOKEN:-/var/run/secrets/kubernetes.io/serviceaccount/token}"
+readonly default_kubeconfig="${HOME}/.kube/personal-infra.yaml"
 
 bridge_call() {
     printf '%s\n' "$@" | curl -sS --fail-with-body -X POST --data-binary @- "$bridge_url"
@@ -337,11 +338,9 @@ download_files() {
 # shared staging dir. Only the four allowlisted subcommands run - anything else
 # is rejected, so the bridge cannot drive arbitrary commands.
 serve_bridge() {
-    # launchd runs the keyguard server with a minimal env - no PATH to Homebrew
-    # and none of the shell-rc exports, so kubectl would default to localhost:8080.
-    # Restore the bits the native path needs.
+    # launchd runs the keyguard server with a minimal env, without Homebrew on PATH.
     export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH}"
-    [ -n "${KUBECONFIG:-}" ] || export KUBECONFIG="${HOME}/.kube/personal-infra.yaml"
+    use_default_kubeconfig
     local staging="${FILESERVER_BRIDGE_STAGING:-${HOME}/Desktop/.fileserver-staging}"
     local args=() line
     while IFS= read -r line; do args+=("$line"); done
@@ -376,6 +375,15 @@ serve_bridge() {
             ( cd "$staging" && download_files "${rest[@]}" )
             ;;
     esac
+}
+
+# Shells that launchd (the keyguard bridge) or sshd (web-terminal's Share) start on the
+# Mac read none of the shell-rc exports, so kubectl would read ~/.kube/config or
+# default to localhost:8080. Take the kubeconfig the interactive shells export.
+use_default_kubeconfig() {
+    if [ -z "${KUBECONFIG:-}" ] && [ -f "$default_kubeconfig" ]; then
+        export KUBECONFIG="$default_kubeconfig"
+    fi
 }
 
 has_kubeconfig() {
@@ -418,6 +426,7 @@ main() {
         return $?
     fi
 
+    use_default_kubeconfig
     use_pod_service_account
     case "$sub" in
         list)     list_files ;;

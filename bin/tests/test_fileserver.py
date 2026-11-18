@@ -68,6 +68,37 @@ class TestRemoveReport:
         assert "not on the server: clip.mp4" in result.stderr
 
 
+class TestDefaultKubeconfig:
+    """A shell that sshd starts on the Mac (web-terminal's Share) reads none of the shell-rc exports."""
+
+    @pytest.fixture
+    def list_files(self, run_cli, tmp_path):
+        def _list(kubeconfig="", default_exists=True):
+            if default_exists:
+                (tmp_path / ".kube").mkdir()
+                (tmp_path / ".kube" / "personal-infra.yaml").write_text("apiVersion: v1\n")
+            env = {"HOME": str(tmp_path), "KUBECONFIG": kubeconfig,
+                   "FILESERVER_SERVICE_ACCOUNT_TOKEN": str(tmp_path / "no-token")}
+            mocks = {"kubectl": 'echo "kubeconfig=${KUBECONFIG:-none}"'}
+            return run_cli("fileserver", ["list"], mock_bins=mocks, isolate_path=True, env_extra=env)
+        return _list
+
+    def should_take_the_personal_infra_kubeconfig_when_none_is_set(self, list_files, tmp_path):
+        result = list_files()
+
+        assert f"kubeconfig={tmp_path}/.kube/personal-infra.yaml" in result.stdout
+
+    def should_keep_a_kubeconfig_the_caller_set(self, list_files):
+        result = list_files(kubeconfig="/elsewhere/config")
+
+        assert "kubeconfig=/elsewhere/config" in result.stdout
+
+    def should_leave_kubeconfig_unset_without_the_personal_infra_file(self, list_files):
+        result = list_files(default_exists=False)
+
+        assert "kubeconfig=none" in result.stdout
+
+
 class TestPodServiceAccount:
     """On the devbox, kubectl has no kubeconfig and the SSH session lacks the pod's API server variables."""
 
