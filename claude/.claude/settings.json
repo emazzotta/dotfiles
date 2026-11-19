@@ -1,13 +1,13 @@
 {
   "cleanupPeriodDays": 365,
   "skillListingBudgetFraction": 0.025,
-  "permissions": {
-    "defaultMode": "auto"
-  },
-  "model": "opus",
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
   },
+  "permissions": {
+    "defaultMode": "auto"
+  },
+  "model": "opus[1m]",
   "hooks": {
     "SessionStart": [
       {
