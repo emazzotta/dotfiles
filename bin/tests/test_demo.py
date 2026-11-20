@@ -10,6 +10,15 @@ import pytest
 
 CTL = "-- bun /app/ctl.ts"
 TOKEN = "ghp_demo_token_123"
+PASSWORD = "demo-login-secret-42"
+PASSWORD_NAME = "PERLA_ADMIN_DEMO_PASSWORD"
+POD_PARTS = {
+    "volume": "/data",
+    "init": ["cp", "-R", "/app/content", "/data/content"],
+    "sidecars": {"admin": ["bun", "src/admin/server.ts"]},
+    "password_hashes": {"TONI_HASH": PASSWORD_NAME, "MARIKA_HASH": PASSWORD_NAME},
+    "ready": "/",
+}
 
 BUN_SERVER = """\
 FROM --platform=$BUILDPLATFORM oven/bun:1.4.4-alpine AS build
@@ -144,6 +153,64 @@ class TestWorkload:
         assert container["securityContext"]["capabilities"] == {"drop": ["ALL"], "add": ["NET_BIND_SERVICE"]}
         assert service["spec"]["ports"] == [{"name": "http", "port": 8000, "targetPort": 8000}]
 
+    def should_run_one_container_on_a_scratch_tmp_without_demo_json(self, demo_module):
+        deployment, _ = demo_module.workload("shop", "img:1", 8000)["items"]
+        pod = deployment["spec"]["template"]["spec"]
+
+        assert "initContainers" not in pod
+        assert [container["name"] for container in pod["containers"]] == ["demo"]
+        assert "env" not in pod["containers"][0]
+        assert pod["containers"][0]["readinessProbe"] == {"tcpSocket": {"port": 8000}, "periodSeconds": 2}
+        assert pod["volumes"] == [{"name": "tmp", "emptyDir": {}}]
+
+    def should_add_the_init_sidecars_volume_logins_and_probe_demo_json_asks_for(self, demo_module):
+        config = demo_module.DemoConfig(
+            volume="/data", init=("cp", "-R", "/app/content", "/data/content"),
+            sidecars=(("admin", ("bun", "src/admin/server.ts")),), password_hashes=(("TONI_HASH", "PW"),), ready="/")
+
+        deployment, _ = demo_module.workload("perla", "img:1", 8080, config, {"TONI_HASH": "$2b$10$x"})["items"]
+
+        pod = deployment["spec"]["template"]["spec"]
+        main, admin = pod["containers"]
+        (init,) = pod["initContainers"]
+        assert (init["image"], init["command"]) == ("img:1", ["cp", "-R", "/app/content", "/data/content"])
+        assert (admin["name"], admin["image"], admin["command"]) == ("admin", "img:1", ["bun", "src/admin/server.ts"])
+        assert "command" not in main
+        assert {"name": "data", "emptyDir": {}} in pod["volumes"]
+        assert all({"name": "data", "mountPath": "/data"} in each["volumeMounts"] for each in (main, admin, init))
+        assert main["env"] == admin["env"] == [{"name": "TONI_HASH", "value": "$2b$10$x"}]
+        assert main["readinessProbe"] == {"httpGet": {"path": "/", "port": 8080}, "periodSeconds": 2}
+        assert all(each["securityContext"]["allowPrivilegeEscalation"] is False for each in (main, admin, init))
+
+
+class TestConfig:
+    def should_read_every_key_of_demo_json(self, demo_module, tmp_path):
+        config = demo_module.load_config(project(tmp_path, {"demo.json": json.dumps(POD_PARTS)}))
+
+        assert config == demo_module.DemoConfig(
+            volume="/data", init=("cp", "-R", "/app/content", "/data/content"),
+            sidecars=(("admin", ("bun", "src/admin/server.ts")),),
+            password_hashes=(("TONI_HASH", PASSWORD_NAME), ("MARIKA_HASH", PASSWORD_NAME)), ready="/")
+        assert config.password_names == (PASSWORD_NAME,)
+
+    def should_default_to_a_plain_pod_without_demo_json(self, demo_module, tmp_path):
+        assert demo_module.load_config(tmp_path) == demo_module.DemoConfig()
+
+    @pytest.mark.parametrize("text,message", [
+        ('{"sidecar": {}}', "unknown key sidecar"),
+        ('{"init": "cp -R a b"}', "init must be a command"),
+        ('{"init": []}', "init must be a command"),
+        ('{"sidecars": {"admin": "bun x.ts"}}', "sidecars must be an object"),
+        ('{"volume": ""}', "volume must be a path"),
+        ('{"password_hashes": ["TONI_HASH"]}', "password_hashes must be an object"),
+        ('{"password_hashes": {"TONI_HASH": "X; rm -rf ~"}}', "password_hashes must be an object"),
+        ('["/data"]', "must be an object"),
+        ("{volume: /data}", "not JSON"),
+    ])
+    def should_reject_a_demo_json_it_cannot_follow(self, demo_module, tmp_path, text, message):
+        with pytest.raises(demo_module.DemoError, match=message):
+            demo_module.load_config(project(tmp_path, {"demo.json": text}))
+
 
 @pytest.fixture
 def github_api():
@@ -210,6 +277,7 @@ case "$1" in
 esac''',
         "bun": f'''
 echo "bun $*" >> "{files['bun']}"
+if [ "$1" = -e ]; then printf 'bcrypt-of-%s-chars' "${{#DEMO_HASH_INPUT}}"; exit 0; fi
 mkdir -p dist && echo built > dist/index.html''',
         "envify": "return 1",
     }
@@ -224,6 +292,7 @@ mkdir -p dist && echo built > dist/index.html''',
             "DEMO_GITHUB_API": github_api.url,
             "DOCKER_HOST": "",
             "GHCR_DEMO_TOKEN": TOKEN,
+            PASSWORD_NAME: "",
             **(env or {}),
         })
         result.calls = {key: path.read_text().splitlines() for key, path in files.items()
@@ -387,6 +456,43 @@ class TestPushContainer:
 
         assert result.returncode == 1
         assert "keyguard set GHCR_DEMO_TOKEN" in result.stderr
+        assert "docker" not in result.calls
+
+    def should_run_the_pod_demo_json_describes_with_hashed_logins(self, demo, tmp_path):
+        site = project(tmp_path / "perla", {"Dockerfile": CADDY, "demo.json": json.dumps(POD_PARTS)})
+
+        result = demo(["push"], cwd=site, env={PASSWORD_NAME: PASSWORD})
+
+        assert result.returncode == 0, result.stderr
+        manifest = result.files["manifest.json"].read_text()
+        pod = json.loads(manifest)["items"][0]["spec"]["template"]["spec"]
+        assert [container["name"] for container in pod["containers"]] == ["demo", "admin"]
+        assert pod["containers"][0]["env"] == [
+            {"name": "TONI_HASH", "value": f"bcrypt-of-{len(PASSWORD)}-chars"},
+            {"name": "MARIKA_HASH", "value": f"bcrypt-of-{len(PASSWORD)}-chars"}]
+        assert len(calls_matching(result, "bun", "bun -e")) == 1
+        assert PASSWORD not in manifest
+        assert not any(PASSWORD in call for calls in result.calls.values() for call in calls)
+        assert f"the logins take the password in {PASSWORD_NAME} (keyguard)" in result.stdout + result.stderr
+
+    def should_stop_before_building_when_demo_json_has_logins_but_no_password(self, demo, tmp_path):
+        site = project(tmp_path / "perla", {"Dockerfile": CADDY, "demo.json": json.dumps(POD_PARTS)})
+
+        result = demo(["push"], cwd=site)
+
+        assert result.returncode == 1
+        assert (f"no {PASSWORD_NAME}: create the password demo.json names for its logins, "
+                f"then `keyguard set {PASSWORD_NAME}`") in result.stderr
+        assert "GHCR_DEMO_TOKEN" not in result.stderr
+        assert "docker" not in result.calls
+
+    def should_stop_before_building_when_demo_json_is_wrong(self, demo, tmp_path):
+        site = project(tmp_path / "perla", {"Dockerfile": CADDY, "demo.json": '{"sidecar": {}}'})
+
+        result = demo(["push"], cwd=site)
+
+        assert result.returncode == 1
+        assert "demo.json: unknown key sidecar" in result.stderr
         assert "docker" not in result.calls
 
 

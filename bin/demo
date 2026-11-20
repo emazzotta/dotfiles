@@ -17,7 +17,16 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Final, Iterator, NoReturn, Optional, Sequence, Union
+from typing import (
+    Callable,
+    Final,
+    Iterator,
+    Mapping,
+    NoReturn,
+    Optional,
+    Sequence,
+    Union,
+)
 
 from scriptlog import error, info, success, warn
 
@@ -41,6 +50,18 @@ REGISTRY: Final = "ghcr.io/emazzotta"
 REGISTRY_USER: Final = "emazzotta"
 PLATFORM: Final = "linux/arm64"
 TOKEN_KEY: Final = "GHCR_DEMO_TOKEN"
+TOKEN_HINT: Final = "a classic PAT with write:packages and delete:packages"
+PASSWORD_HINT: Final = "the password demo.json names for its logins"
+CONFIG_FILE: Final = "demo.json"
+SECRET_NAME: Final = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+HASH_INPUT: Final = "DEMO_HASH_INPUT"
+BCRYPT_SCRIPT: Final = (
+    f'process.stdout.write(await Bun.password.hash(process.env.{HASH_INPUT}, {{algorithm: "bcrypt"}}))')
+TMP_VOLUME: Final = "tmp"
+DATA_VOLUME: Final = "data"
+CONTAINER_RESOURCES: Final = {"requests": {"cpu": "10m", "memory": "64Mi"}, "limits": {"cpu": "500m", "memory": "512Mi"}}
+CONTAINER_SECURITY: Final = {"allowPrivilegeEscalation": False,
+                             "capabilities": {"drop": ["ALL"], "add": ["NET_BIND_SERVICE"]}}
 IMAGE_VERSIONS_KEPT: Final = 2
 ROLLOUT_TIMEOUT: Final = "180s"
 LOG_LINES: Final = "40"
@@ -81,6 +102,10 @@ push reads the project's Dockerfile and deploys it the cheapest way that matches
 without a Dockerfile: a start script runs as `bun run start`, otherwise static files from
 dist/ build/ out/ public/ or the project itself. bun run build runs first when it exists.
 --dir and --spa force static. .git, node_modules, .env* and .DS_Store are never uploaded.
+A demo.json beside the Dockerfile adds what a container demo's pod needs: "volume" (a
+scratch emptyDir path), "init" (a command), "sidecars" (name: command, same image),
+"password_hashes" (variable: keyguard name, set to the bcrypt hash of that secret) and
+"ready" (an HTTP readiness path); personal-infra docs/runbooks/demos.md.
 Every demo is public and noindex. Runs on the devbox, the Mac host and in a container
 on the tailnet; container demos need a docker daemon."""
 
@@ -130,6 +155,79 @@ class Container:
 
 
 Plan = Union[Static, BunServer, Files, Container]
+
+
+@dataclass(frozen=True)
+class DemoConfig:
+    volume: Optional[str] = None
+    init: tuple[str, ...] = ()
+    sidecars: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    password_hashes: tuple[tuple[str, str], ...] = ()
+    ready: Optional[str] = None
+
+    @property
+    def password_names(self) -> tuple[str, ...]:
+        return tuple(sorted({secret for _, secret in self.password_hashes}))
+
+
+PLAIN_POD: Final = DemoConfig()
+
+
+def is_text(value: object) -> bool:
+    return isinstance(value, str) and bool(value)
+
+
+def is_words(value: object) -> bool:
+    return isinstance(value, list) and bool(value) and all(isinstance(word, str) for word in value)
+
+
+def is_commands(value: object) -> bool:
+    return isinstance(value, dict) and all(is_words(command) for command in value.values())
+
+
+# The names reach envify's shell line, so only plain variable names pass.
+def is_secret_names(value: object) -> bool:
+    return isinstance(value, dict) and bool(value) and all(
+        isinstance(secret, str) and SECRET_NAME.match(secret) for secret in value.values())
+
+
+CONFIG_KEYS: Final[dict[str, tuple[Callable[[object], bool], str]]] = {
+    "volume": (is_text, "a path"),
+    "init": (is_words, "a command, as a list of strings"),
+    "sidecars": (is_commands, "an object of container name to command"),
+    "password_hashes": (is_secret_names, "an object of variable name to the keyguard name of its password"),
+    "ready": (is_text, "a path"),
+}
+
+
+def parse_config(path: Path) -> dict:
+    try:
+        settings = json.loads(path.read_text())
+    except json.JSONDecodeError as failure:
+        die(f"{CONFIG_FILE}: not JSON: {failure}")
+    if not isinstance(settings, dict):
+        die(f"{CONFIG_FILE}: must be an object")
+    for key, value in settings.items():
+        if key not in CONFIG_KEYS:
+            die(f"{CONFIG_FILE}: unknown key {key} (known: {', '.join(CONFIG_KEYS)})")
+        valid, expected = CONFIG_KEYS[key]
+        if not valid(value):
+            die(f"{CONFIG_FILE}: {key} must be {expected}")
+    return settings
+
+
+def load_config(project: Path) -> DemoConfig:
+    path = project / CONFIG_FILE
+    if not path.is_file():
+        return PLAIN_POD
+    settings = parse_config(path)
+    return DemoConfig(
+        volume=settings.get("volume"),
+        init=tuple(settings.get("init", ())),
+        sidecars=tuple((name, tuple(command)) for name, command in settings.get("sidecars", {}).items()),
+        password_hashes=tuple(settings.get("password_hashes", {}).items()),
+        ready=settings.get("ready"),
+    )
 
 
 def instructions(text: str) -> Iterator[tuple[str, str]]:
@@ -373,15 +471,35 @@ def extract_site(image: str, candidates: Sequence[str], into: Path) -> Path:
         subprocess.run(["docker", "rm", container], stdout=subprocess.DEVNULL)
 
 
-def load_token() -> str:
-    if os.environ.get(TOKEN_KEY):
-        return os.environ[TOKEN_KEY]
-    script = f'source envify {TOKEN_KEY} && printf "%s" "${TOKEN_KEY}"'
+# One envify call for every missing name, so a push asks for one approval.
+# envify fails as a whole when one name is missing, so the error names each candidate.
+def load_secrets(*keys: str) -> dict[str, str]:
+    missing = [key for key in keys if not os.environ.get(key)]
+    loaded = envify(missing) if missing else {}
+    absent = [key for key in missing if not loaded.get(key)]
+    if absent:
+        die("; ".join(f"no {key}: create {TOKEN_HINT if key == TOKEN_KEY else PASSWORD_HINT}, "
+                      f"then `keyguard set {key}`" for key in absent))
+    return {key: os.environ.get(key) or loaded[key] for key in keys}
+
+
+def envify(keys: Sequence[str]) -> dict[str, str]:
+    values = " ".join(f'"${key}"' for key in keys)
+    script = f'source envify {" ".join(keys)} && printf "%s\\0" {values}'
     result = subprocess.run(["bash", "-c", script], stdout=subprocess.PIPE, text=True)
-    if result.returncode != 0 or not result.stdout:
-        die(f"no {TOKEN_KEY}: create a classic PAT with write:packages and delete:packages, "
-            f"then `keyguard set {TOKEN_KEY}`")
-    return result.stdout
+    return dict(zip(keys, result.stdout.split("\0"))) if result.returncode == 0 else {}
+
+
+# The password reaches Bun through the environment, never through argv.
+def bcrypt_hash(password: str, name: str) -> str:
+    hashed = run(["bun", "-e", BCRYPT_SCRIPT], f"bun could not hash {name}",
+                 env={**os.environ, HASH_INPUT: password}, stdout=subprocess.PIPE, text=True)
+    return hashed.stdout.strip()
+
+
+def password_env(config: DemoConfig, secrets: Mapping[str, str]) -> dict[str, str]:
+    hashes = {name: bcrypt_hash(secrets[name], name) for name in config.password_names}
+    return {variable: hashes[name] for variable, name in config.password_hashes}
 
 
 def docker_host() -> str:
@@ -405,25 +523,44 @@ def docker_push(image: str, token: str, name: str) -> None:
         run(["docker", "push", "--quiet", image], f"{name}: docker push failed", env=env, stdout=subprocess.DEVNULL)
 
 
-def workload(name: str, image: str, port: int) -> dict:
-    labels = {"app": "demo", NAME_LABEL: name}
-    metadata = {"name": f"demo-{name}", "namespace": NAMESPACE, "labels": labels}
-    container = {
-        "name": "demo", "image": image, "imagePullPolicy": "IfNotPresent",
-        "ports": [{"name": "http", "containerPort": port}],
-        "readinessProbe": {"tcpSocket": {"port": port}, "periodSeconds": 2},
-        "lifecycle": {"preStop": {"sleep": {"seconds": STOP_DELAY_SECONDS}}},
-        "resources": {"requests": {"cpu": "10m", "memory": "64Mi"}, "limits": {"cpu": "500m", "memory": "512Mi"}},
-        "securityContext": {"allowPrivilegeEscalation": False,
-                            "capabilities": {"drop": ["ALL"], "add": ["NET_BIND_SERVICE"]}},
-        "volumeMounts": [{"name": "tmp", "mountPath": "/tmp"}],
-    }
-    pod = {
+def container_spec(name: str, image: str, command: Sequence[str], mounts: list[dict]) -> dict:
+    spec = {"name": name, "image": image, "imagePullPolicy": "IfNotPresent", "resources": CONTAINER_RESOURCES,
+            "securityContext": CONTAINER_SECURITY, "volumeMounts": mounts}
+    return {**spec, "command": list(command)} if command else spec
+
+
+def readiness(port: int, path: Optional[str]) -> dict:
+    check = {"httpGet": {"path": path, "port": port}} if path else {"tcpSocket": {"port": port}}
+    return {**check, "periodSeconds": 2}
+
+
+def volume_mounts(config: DemoConfig) -> list[dict]:
+    data = [{"name": DATA_VOLUME, "mountPath": config.volume}] if config.volume else []
+    return [{"name": TMP_VOLUME, "mountPath": "/tmp"}, *data]
+
+
+def pod_spec(image: str, port: int, config: DemoConfig, env: Mapping[str, str]) -> dict:
+    mounts = volume_mounts(config)
+    variables = {"env": [{"name": key, "value": value} for key, value in env.items()]} if env else {}
+    main = {**container_spec("demo", image, (), mounts), **variables,
+            "ports": [{"name": "http", "containerPort": port}], "readinessProbe": readiness(port, config.ready),
+            "lifecycle": {"preStop": {"sleep": {"seconds": STOP_DELAY_SECONDS}}}}
+    sidecars = [{**container_spec(name, image, command, mounts), **variables} for name, command in config.sidecars]
+    init = {"initContainers": [container_spec("init", image, config.init, mounts)]} if config.init else {}
+    return {
         "automountServiceAccountToken": False, "enableServiceLinks": False,
         "securityContext": {"runAsNonRoot": True, "runAsUser": DEMO_USER, "runAsGroup": DEMO_USER,
                             "fsGroup": DEMO_USER, "seccompProfile": {"type": "RuntimeDefault"}},
-        "containers": [container], "volumes": [{"name": "tmp", "emptyDir": {}}],
+        **init, "containers": [main, *sidecars],
+        "volumes": [{"name": mount["name"], "emptyDir": {}} for mount in mounts],
     }
+
+
+def workload(name: str, image: str, port: int, config: DemoConfig = PLAIN_POD,
+             env: Optional[Mapping[str, str]] = None) -> dict:
+    labels = {"app": "demo", NAME_LABEL: name}
+    metadata = {"name": f"demo-{name}", "namespace": NAMESPACE, "labels": labels}
+    pod = pod_spec(image, port, config, env or {})
     deployment = {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": metadata, "spec": {
         "replicas": 1, "revisionHistoryLimit": IMAGE_VERSIONS_KEPT, "progressDeadlineSeconds": 120,
         "strategy": {"type": "RollingUpdate", "rollingUpdate": {"maxSurge": 1, "maxUnavailable": 0}},
@@ -433,11 +570,11 @@ def workload(name: str, image: str, port: int) -> dict:
     return {"apiVersion": "v1", "kind": "List", "items": [deployment, service]}
 
 
-def roll_out(name: str, image: str, port: int) -> None:
+def roll_out(name: str, image: str, port: int, config: DemoConfig, env: Mapping[str, str]) -> None:
     info(f"{name}: rolling out demo-{name}")
     existed = bool(run_quiet(kubectl("get", "deployment", f"demo-{name}", "-o", "name", "--ignore-not-found")))
     run(kubectl("apply", "--server-side", "--force-conflicts", "--field-manager=demo", "-f", "-"),
-        f"{name}: kubectl apply failed", input=json.dumps(workload(name, image, port)), text=True,
+        f"{name}: kubectl apply failed", input=json.dumps(workload(name, image, port, config, env)), text=True,
         stdout=subprocess.DEVNULL)
     status = subprocess.run(kubectl("rollout", "status", f"deployment/demo-{name}", f"--timeout={ROLLOUT_TIMEOUT}"),
                             stdout=subprocess.DEVNULL)
@@ -484,7 +621,7 @@ def prune_images(name: str, token: str) -> None:
 
 def delete_images(name: str) -> None:
     try:
-        github("DELETE", f"/user/packages/container/demo-{name}", load_token())
+        github("DELETE", f"/user/packages/container/demo-{name}", load_secrets(TOKEN_KEY)[TOKEN_KEY])
     except urllib.error.HTTPError as failure:
         if failure.code != 404:
             warn(f"{name}: {REGISTRY}/demo-{name} stays: {failure}")
@@ -499,15 +636,19 @@ def drop_container(name: str) -> None:
 
 
 def push_container(project: Path, name: str, port: int) -> None:
-    token = load_token()
+    config = load_config(project)
+    secrets = load_secrets(TOKEN_KEY, *config.password_names)
+    env = password_env(config, secrets)
     image = f"{REGISTRY}/demo-{name}:{time.strftime('%Y%m%d%H%M%S', time.gmtime())}"
     docker_build(project, image, name)
-    docker_push(image, token, name)
-    roll_out(name, image, port)
+    docker_push(image, secrets[TOKEN_KEY], name)
+    roll_out(name, image, port, config, env)
     linked = run(ctl("push", name, "--image", image, "--port", str(port)), f"{name}: the demo host did not take the route",
                  stdout=subprocess.PIPE, text=True)
     announce(linked.stdout)
-    prune_images(name, token)
+    if env:
+        info(f"{name}: the logins take the password in {', '.join(config.password_names)} (keyguard)")
+    prune_images(name, secrets[TOKEN_KEY])
 
 
 def push_files(project: Path, name: str, candidates: Sequence[str]) -> None:
