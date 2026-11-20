@@ -554,6 +554,7 @@ def mac_share(tmp_path: Path) -> Path:
 
 
 class TestBridge:
+    @pytest.mark.use_case("UC-001", scenario="A4: No docker daemon: the Mac pushes", business_rules=("BR-002",))
     def should_hand_a_container_push_to_the_mac_when_no_docker_daemon_answers(self, demo, tmp_path):
         site = project(tmp_path / "share" / "perla", {"Dockerfile": CADDY})
 
@@ -567,6 +568,7 @@ class TestBridge:
         assert calls_matching(result, "docker", "build") == []
         assert "kubectl" not in result.calls
 
+    @pytest.mark.use_case("UC-001", scenario="Basic flow")
     def should_build_here_when_a_docker_daemon_answers(self, demo, tmp_path):
         site = project(tmp_path / "share" / "perla", {"Dockerfile": CADDY})
 
@@ -576,6 +578,7 @@ class TestBridge:
         assert "envify" not in result.calls
         assert len(calls_matching(result, "docker", "build")) == 1
 
+    @pytest.mark.use_case("UC-001", scenario="A1: Static files")
     def should_keep_a_static_push_in_the_container(self, demo, tmp_path):
         site = project(tmp_path / "share" / "perla", {"dist/index.html": "hi"})
 
@@ -585,6 +588,7 @@ class TestBridge:
         assert "envify" not in result.calls
         assert result.uploaded == ["index.html"]
 
+    @pytest.mark.use_case("UC-001", scenario="A5: The push on the Mac fails")
     def should_fail_when_the_push_on_the_mac_fails(self, demo, tmp_path):
         site = project(tmp_path / "share" / "perla", {"Dockerfile": CADDY})
 
@@ -594,6 +598,7 @@ class TestBridge:
         assert result.returncode == 1
         assert "perla: the push on the Mac failed" in result.stderr
 
+    @pytest.mark.use_case("UC-001", scenario="A4: No docker daemon: the Mac pushes", business_rules=("BR-004",))
     def should_push_the_project_the_bridge_names_with_the_whole_log_on_stdout(self, demo, tmp_path):
         site = project(tmp_path / "Projects" / "perla", {"Dockerfile": CADDY})
         request = json.dumps({"project": str(site), "name": "perla"})
@@ -606,6 +611,7 @@ class TestBridge:
         assert "perla: https://perla-demo.plexius.ch (release r2)" in result.stdout
 
     @pytest.mark.parametrize("exported,expected", [("", ".kube/personal-infra.yaml"), ("own.yaml", "own.yaml")])
+    @pytest.mark.use_case("UC-001", scenario="A4: No docker daemon: the Mac pushes", business_rules=("BR-003",))
     def should_reach_the_cluster_through_the_kubeconfig_the_login_shell_exports(self, demo, tmp_path, exported,
                                                                                expected):
         site = project(tmp_path / "Projects" / "perla", {"Dockerfile": CADDY})
@@ -618,6 +624,7 @@ class TestBridge:
         assert result.returncode == 0, result.stdout
         assert result.files["kubeconfig"].read_text().strip() == str(tmp_path / expected)
 
+    @pytest.mark.use_case("UC-001", scenario="A6: The Mac refuses the request", business_rules=("BR-004",))
     def should_report_a_refused_bridge_request_on_stdout(self, demo):
         result = demo(["--bridge-push"], stdin="not json")
 
@@ -626,6 +633,7 @@ class TestBridge:
         assert "docker" not in result.calls
 
     @pytest.mark.parametrize("folder", ["Documents/perla", "Projects/../Documents/perla", "Projects/missing", "Projects"])
+    @pytest.mark.use_case("UC-001", scenario="A6: The Mac refuses the request", business_rules=("BR-001",))
     def should_refuse_a_folder_outside_projects_and_desktop(self, demo_module, tmp_path, folder):
         project(tmp_path / "Documents" / "perla", {"Dockerfile": CADDY})
         request = json.dumps({"project": str(tmp_path / folder), "name": "perla"})
@@ -633,6 +641,7 @@ class TestBridge:
         with pytest.raises(demo_module.DemoError, match="not a folder inside"):
             demo_module.parse_bridge_request(request, tmp_path)
 
+    @pytest.mark.use_case("UC-001", scenario="A6: The Mac refuses the request", business_rules=("BR-001",))
     def should_refuse_a_link_inside_projects_that_leads_out(self, demo_module, tmp_path):
         outside = project(tmp_path / "Documents" / "perla", {"Dockerfile": CADDY})
         (tmp_path / "Projects").mkdir()
@@ -648,12 +657,14 @@ class TestBridge:
         '{"name": "perla"}',
         '["perla"]',
     ])
+    @pytest.mark.use_case("UC-001", scenario="A6: The Mac refuses the request")
     def should_refuse_a_malformed_request(self, demo_module, tmp_path, request_text):
         project(tmp_path / "Projects" / "perla", {"Dockerfile": CADDY})
 
         with pytest.raises(demo_module.DemoError):
             demo_module.parse_bridge_request(request_text, tmp_path)
 
+    @pytest.mark.use_case("UC-001", scenario="A4: No docker daemon: the Mac pushes", business_rules=("BR-001",))
     def should_accept_a_folder_inside_desktop(self, demo_module, tmp_path):
         site = project(tmp_path / "Desktop" / "perla", {"Dockerfile": CADDY})
 
@@ -661,6 +672,7 @@ class TestBridge:
 
         assert request == demo_module.BridgeRequest(site.resolve(), "perla")
 
+    @pytest.mark.use_case("UC-001", scenario="A4: No docker daemon: the Mac pushes", business_rules=("BR-003",))
     def should_keep_launchd_path_first_and_add_the_mac_tool_folders_after_it(self, demo_module):
         entries = demo_module.with_mac_tools("/usr/bin:/bin").split(":")
 

@@ -29,22 +29,26 @@ class TestMacPathMapping:
     def mounts(self, macbridge, request):
         return macbridge.parse_users_mounts(request.param)
 
+    @pytest.mark.use_case("UC-001", scenario="A4: No docker daemon: the Mac pushes")
     def should_map_through_the_longest_matching_mount(self, macbridge, mounts):
         mac_path = macbridge.to_mac_path(Path("/home/opencode/dotfiles/bin/envify"), mounts)
 
         assert mac_path == Path("/Users/someone/Projects/private/dotfiles/bin/envify")
 
+    @pytest.mark.use_case("UC-001", scenario="A4: No docker daemon: the Mac pushes")
     def should_decode_escaped_spaces_in_mount_roots(self, macbridge, mounts):
         mac_path = macbridge.to_mac_path(Path("/workspace/code/my-files/a.txt"), mounts)
 
         assert mac_path == Path("/Users/someone/My Files/a.txt")
 
     @pytest.mark.parametrize("path", ["/tmp/scratch.txt", "/proc/self/status", "/etc/passwd"])
+    @pytest.mark.use_case("UC-001", scenario="A4: No docker daemon: the Mac pushes")
     def should_not_map_paths_outside_the_users_share(self, macbridge, mounts, path):
         assert macbridge.to_mac_path(Path(path), mounts) is None
 
 
 class TestReadUsersMounts:
+    @pytest.mark.use_case("UC-001", scenario="A4: No docker daemon: the Mac pushes")
     def should_read_the_users_share_from_a_mountinfo_file(self, macbridge, tmp_path):
         mountinfo = tmp_path / "mountinfo"
         mountinfo.write_text(MOUNTINFO)
@@ -53,5 +57,6 @@ class TestReadUsersMounts:
 
         assert (Path("/workspace/code/Desktop"), Path("/Users/someone/Desktop")) in mounts
 
+    @pytest.mark.use_case("UC-001", scenario="A4: No docker daemon: the Mac pushes")
     def should_find_no_mounts_outside_a_container(self, macbridge, tmp_path):
         assert macbridge.read_users_mounts(tmp_path / "no-mountinfo") == []
