@@ -246,10 +246,11 @@ def demo(run_cli, tmp_path, github_api):
     work.mkdir()
     files = {name: work / name for name in (
         "kubectl", "docker", "bun", "envify", "bridge-request", "upload.tgz", "manifest.json", "creds", "leaks",
-        "docker-host")}
+        "docker-host", "kubeconfig")}
     mocks = {
         "kubectl": f'''
 echo "$*" >> "{files['kubectl']}"
+echo "${{KUBECONFIG:-}}" > "{files['kubeconfig']}"
 name=$(echo "$*" | sed -E 's/.* push ([^ ]+).*/\\1/')
 case "$*" in
     *" exec -i "*" push "*) cat > "{files['upload.tgz']}"; echo "$name: https://$name-demo.plexius.ch (release r1)" ;;
@@ -295,7 +296,6 @@ echo "perla: https://perla-demo.plexius.ch (release r3)"''',
             "TMPDIR": str(tmp_path),
             "KUBECONFIG": str(tmp_path / "no-kubeconfig"),
             "DEMO_SERVICE_ACCOUNT_TOKEN": str(tmp_path / "no-token"),
-            "DEMO_CONTAINER_MARKER": str(tmp_path / "no-dockerenv"),
             "DEMO_GITHUB_API": github_api.url,
             "DEMO_MOUNTINFO": str(tmp_path / "no-mountinfo"),
             "DOCKER_HOST": "",
@@ -517,24 +517,22 @@ class TestGuards:
         assert result.returncode in (1, 2)
         assert "kubectl" not in result.calls
 
-    def should_reach_the_cluster_through_the_tailnet_inside_a_container(self, run_cli, tmp_path):
-        marker = project(tmp_path, {"dockerenv": ""}) / "dockerenv"
+    def should_reach_the_cluster_through_the_tailnet_without_a_kubeconfig(self, run_cli, tmp_path):
         mocks = {"kubectl": 'echo "$KUBECONFIG"; grep "server:" "$KUBECONFIG"'}
 
         result = run_cli("demo", ["list"], mock_bins=mocks, isolate_path=True, env_extra={
             "HOME": str(tmp_path), "KUBECONFIG": str(tmp_path / "none"),
-            "DEMO_SERVICE_ACCOUNT_TOKEN": str(tmp_path / "none"), "DEMO_CONTAINER_MARKER": str(marker)})
+            "DEMO_SERVICE_ACCOUNT_TOKEN": str(tmp_path / "none")})
 
         kubeconfig, server = result.stdout.splitlines()
         assert server.strip() == "server: https://personal-infra-operator.asymptote-bass.ts.net"
         assert not Path(kubeconfig).exists()
 
-    def should_keep_an_existing_kubeconfig_inside_a_container(self, run_cli, tmp_path):
-        files = project(tmp_path, {"dockerenv": "", "kubeconfig": "own"})
+    def should_keep_an_existing_kubeconfig(self, run_cli, tmp_path):
+        files = project(tmp_path, {"kubeconfig": "own"})
 
         result = run_cli("demo", ["list"], mock_bins={"kubectl": 'echo "$KUBECONFIG"'}, isolate_path=True,
-                         env_extra={"HOME": str(tmp_path), "KUBECONFIG": str(files / "kubeconfig"),
-                                    "DEMO_CONTAINER_MARKER": str(files / "dockerenv")})
+                         env_extra={"HOME": str(tmp_path), "KUBECONFIG": str(files / "kubeconfig")})
 
         assert result.stdout == f"{files / 'kubeconfig'}\n"
 
@@ -544,7 +542,7 @@ class TestGuards:
 
         result = run_cli("demo", ["list"], mock_bins=mocks, isolate_path=True, env_extra={
             "HOME": str(tmp_path), "KUBECONFIG": str(tmp_path / "none"),
-            "DEMO_SERVICE_ACCOUNT_TOKEN": str(token), "DEMO_CONTAINER_MARKER": str(tmp_path / "none")})
+            "DEMO_SERVICE_ACCOUNT_TOKEN": str(token)})
 
         assert result.stdout == "api=kubernetes.default.svc\n"
 
@@ -606,6 +604,19 @@ class TestBridge:
         assert result.stderr == ""
         assert calls_matching(result, "docker", "build")[0].endswith(str(site))
         assert "perla: https://perla-demo.plexius.ch (release r2)" in result.stdout
+
+    @pytest.mark.parametrize("exported,expected", [("", ".kube/personal-infra.yaml"), ("own.yaml", "own.yaml")])
+    def should_reach_the_cluster_through_the_kubeconfig_the_login_shell_exports(self, demo, tmp_path, exported,
+                                                                               expected):
+        site = project(tmp_path / "Projects" / "perla", {"Dockerfile": CADDY})
+        project(tmp_path, {".kube/personal-infra.yaml": "", "own.yaml": ""})
+        request = json.dumps({"project": str(site), "name": "perla"})
+
+        result = demo(["--bridge-push"], stdin=request,
+                      env={"KUBECONFIG": str(tmp_path / exported) if exported else ""})
+
+        assert result.returncode == 0, result.stdout
+        assert result.files["kubeconfig"].read_text().strip() == str(tmp_path / expected)
 
     def should_report_a_refused_bridge_request_on_stdout(self, demo):
         result = demo(["--bridge-push"], stdin="not json")

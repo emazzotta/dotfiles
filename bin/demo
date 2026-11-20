@@ -71,7 +71,6 @@ DEMO_USER: Final = 1000
 STOP_DELAY_SECONDS: Final = 5
 SERVICE_ACCOUNT_TOKEN: Final = Path(
     os.environ.get("DEMO_SERVICE_ACCOUNT_TOKEN", "/var/run/secrets/kubernetes.io/serviceaccount/token"))
-CONTAINER_MARKER: Final = Path(os.environ.get("DEMO_CONTAINER_MARKER", "/.dockerenv"))
 # The Tailscale operator's API server proxy: the tailnet identity authenticates, so the
 # token is only a placeholder that keeps kubectl from prompting for Basic auth.
 TAILNET_KUBECONFIG: Final = """\
@@ -97,6 +96,7 @@ DEMO_MOUNTINFO: Final = Path(os.environ.get("DEMO_MOUNTINFO", MOUNTINFO))
 BRIDGE_ENDPOINT: Final = "demo-push"
 BRIDGE_FLAG: Final = "--bridge-push"
 MAC_PROJECT_ROOTS: Final = ("Projects", "Desktop")
+SHELL_KUBECONFIG: Final = Path(".kube") / "personal-infra.yaml"  # KUBECONFIG in bash/.bashrc.d/00-env.sh
 SCRIPT_DIR: Final = Path(__file__).resolve().parent
 
 EPILOG: Final = f"""\
@@ -388,7 +388,7 @@ def require_cluster_access() -> None:
     if SERVICE_ACCOUNT_TOKEN.is_file():
         os.environ.setdefault("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
         os.environ.setdefault("KUBERNETES_SERVICE_PORT", "443")
-    elif CONTAINER_MARKER.exists():
+    else:
         os.environ["KUBECONFIG"] = str(write_tailnet_kubeconfig())
 
 
@@ -713,11 +713,18 @@ def with_mac_tools(path: str) -> str:
     return os.pathsep.join(entry for entry in (path, *TOOL_DIRS, str(SCRIPT_DIR)) if entry)
 
 
+def use_shell_kubeconfig(home: Path) -> None:
+    kubeconfig = home / SHELL_KUBECONFIG
+    if not os.environ.get("KUBECONFIG") and kubeconfig.is_file():
+        os.environ["KUBECONFIG"] = str(kubeconfig)
+
+
 def push_for_bridge(request: str, home: Path) -> int:
     # The bridge answers with stdout alone on success, so the log has to arrive there whole.
     os.dup2(sys.stdout.fileno(), sys.stderr.fileno())
     target = parse_bridge_request(request, home)
     os.environ["PATH"] = with_mac_tools(os.environ.get("PATH", ""))
+    use_shell_kubeconfig(home)
     require_cluster_access()
     push(target.project, target.name, None, False)
     return 0
