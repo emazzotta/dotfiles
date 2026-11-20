@@ -33,6 +33,7 @@ import scriptlog
 import session_move
 import session_registry
 import session_title
+from macbridge import TOOL_DIRS
 from session_move import BoxPaths, Lease, MountedRepo, MoveError, MovePlan, TranscriptPending
 
 BIN: Final = Path(__file__).resolve().parent
@@ -42,7 +43,6 @@ PICKER: Final = BIN / "picker"
 LOG: Final = Path.home() / ".claude" / "claude-move.log"
 TRANSCRIPTS: Final = Path.home() / ".claude" / "projects" / "-workspace"
 REMOTE_SCRIPT: Final = "/home/opencode/dotfiles/bin/claude-move"
-TOOL_DIRS: Final = ("/opt/homebrew/bin", "/usr/local/bin", str(Path.home() / ".docker" / "bin"))
 BOX_TMUX_SESSION: Final = session_registry.FALLBACK_TMUX_SESSION
 BOX_WORKSPACE: Final = Path("/workspace")
 MOVED_TO: Final = "devbox"

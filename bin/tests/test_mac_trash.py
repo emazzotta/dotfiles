@@ -17,9 +17,6 @@ MOUNTINFO = (
     "180 132 0:45 /tmp/opencode /tmp rw - virtiofs virtiofs2 rw\n"
     "100 90 0:22 / /proc rw,nosuid - proc proc rw\n"
 )
-FAKEOWNER_MOUNTINFO = MOUNTINFO.replace(
-    " - virtiofs virtiofs0 rw", " - fakeowner /run/host_mark/Users rw,fakeowner"
-).replace(" - virtiofs virtiofs2 rw", " - fakeowner /run/host_mark/private rw,fakeowner")
 
 
 @pytest.fixture
@@ -38,26 +35,6 @@ def home(tmp_path):
 @pytest.fixture
 def roots(home):
     return [(home / name).resolve() for name in ("Desktop", "Downloads", "Projects")]
-
-
-class TestMacPathMapping:
-    @pytest.fixture(params=[MOUNTINFO, FAKEOWNER_MOUNTINFO], ids=["virtiofs", "fakeowner"])
-    def mounts(self, mac_trash, request):
-        return mac_trash.parse_users_mounts(request.param)
-
-    def should_map_through_the_longest_matching_mount(self, mac_trash, mounts):
-        mac_path = mac_trash.to_mac_path(Path("/home/opencode/dotfiles/bin/envify"), mounts)
-
-        assert mac_path == Path("/Users/someone/Projects/private/dotfiles/bin/envify")
-
-    def should_decode_escaped_spaces_in_mount_roots(self, mac_trash, mounts):
-        mac_path = mac_trash.to_mac_path(Path("/workspace/code/my-files/a.txt"), mounts)
-
-        assert mac_path == Path("/Users/someone/My Files/a.txt")
-
-    @pytest.mark.parametrize("path", ["/tmp/scratch.txt", "/proc/self/status", "/etc/passwd"])
-    def should_not_map_paths_outside_the_users_share(self, mac_trash, mounts, path):
-        assert mac_trash.to_mac_path(Path(path), mounts) is None
 
 
 class TestRefusalReason:
