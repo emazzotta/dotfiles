@@ -667,12 +667,12 @@ def push_files(project: Path, name: str, candidates: Sequence[str]) -> None:
 
 def docker_answers() -> bool:
     try:
-        return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+        return subprocess.run(["docker", "info"], capture_output=True, check=False).returncode == 0
     except FileNotFoundError:
         return False
 
 
-def mac_build_project(project: Path) -> Optional[Path]:
+def mac_build_project(project: Path) -> Path | None:
     mac_project = to_mac_path(project.resolve(), read_users_mounts(DEMO_MOUNTINFO))
     return mac_project if mac_project is not None and not docker_answers() else None
 

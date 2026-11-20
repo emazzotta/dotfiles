@@ -6,8 +6,9 @@ Mac, launchd starts a bridge command with a PATH that has neither Homebrew nor D
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Final, Sequence
+from typing import Final
 
 MOUNTINFO: Final = Path("/proc/self/mountinfo")
 MAC_USERS_DIR: Final = Path("/Users")
