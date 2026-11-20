@@ -28,6 +28,7 @@ from typing import (
     Union,
 )
 
+from macbridge import MOUNTINFO, TOOL_DIRS, read_users_mounts, to_mac_path
 from scriptlog import error, info, success, warn
 
 COMMANDS: Final = ("push", "list", "logs", "rm")
@@ -92,6 +93,11 @@ users:
       token: tailscale-managed
 """
 GITHUB_API: Final = os.environ.get("DEMO_GITHUB_API", "https://api.github.com")
+DEMO_MOUNTINFO: Final = Path(os.environ.get("DEMO_MOUNTINFO", MOUNTINFO))
+BRIDGE_ENDPOINT: Final = "demo-push"
+BRIDGE_FLAG: Final = "--bridge-push"
+MAC_PROJECT_ROOTS: Final = ("Projects", "Desktop")
+SCRIPT_DIR: Final = Path(__file__).resolve().parent
 
 EPILOG: Final = f"""\
 push reads the project's Dockerfile and deploys it the cheapest way that matches it:
@@ -107,7 +113,8 @@ scratch emptyDir path), "init" (a command), "sidecars" (name: command, same imag
 "password_hashes" (variable: keyguard name, set to the bcrypt hash of that secret) and
 "ready" (an HTTP readiness path); personal-infra docs/runbooks/demos.md.
 Every demo is public and noindex. Runs on the devbox, the Mac host and in a container
-on the tailnet; container demos need a docker daemon."""
+on the tailnet. A Dockerfile build needs a docker daemon; a container on the Mac without
+one hands the push to the Mac through the keyguard bridge endpoint {BRIDGE_ENDPOINT}."""
 
 
 class DemoError(Exception):
@@ -658,9 +665,71 @@ def push_files(project: Path, name: str, candidates: Sequence[str]) -> None:
         upload(name, extract_site(image, candidates, Path(site)), [], label="the image's site files")
 
 
+def docker_answers() -> bool:
+    try:
+        return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def mac_build_project(project: Path) -> Optional[Path]:
+    mac_project = to_mac_path(project.resolve(), read_users_mounts(DEMO_MOUNTINFO))
+    return mac_project if mac_project is not None and not docker_answers() else None
+
+
+def push_on_the_mac(mac_project: Path, name: str) -> None:
+    info(f"{name}: no docker daemon here, so the Mac builds {mac_project} (bridge {BRIDGE_ENDPOINT}, Touch ID)")
+    request = json.dumps({"project": str(mac_project), "name": name})
+    run(["envify", "--bridge", BRIDGE_ENDPOINT, "--stdin"], f"{name}: the push on the Mac failed",
+        input=request, text=True)
+
+
+@dataclass(frozen=True)
+class BridgeRequest:
+    project: Path
+    name: str
+
+
+def parse_bridge_request(text: str, home: Path) -> BridgeRequest:
+    try:
+        request = json.loads(text)
+    except json.JSONDecodeError:
+        request = None
+    if not isinstance(request, dict) or not is_text(request.get("project")) or not is_text(request.get("name")):
+        die(f'{BRIDGE_ENDPOINT}: expected {{"project": <absolute path>, "name": <demo name>}}')
+    require_names([request["name"]])
+    return BridgeRequest(mac_project_folder(request["project"], home), request["name"])
+
+
+def mac_project_folder(raw: str, home: Path) -> Path:
+    project = Path(raw).resolve()
+    roots = [(home / root).resolve() for root in MAC_PROJECT_ROOTS]
+    if not Path(raw).is_absolute() or not project.is_dir() or not any(root in project.parents for root in roots):
+        die(f"{BRIDGE_ENDPOINT}: {raw} is not a folder inside ~/{' or ~/'.join(MAC_PROJECT_ROOTS)}")
+    return project
+
+
+def with_mac_tools(path: str) -> str:
+    return os.pathsep.join(entry for entry in (path, *TOOL_DIRS, str(SCRIPT_DIR)) if entry)
+
+
+def push_for_bridge(request: str, home: Path) -> int:
+    # The bridge answers with stdout alone on success, so the log has to arrive there whole.
+    os.dup2(sys.stdout.fileno(), sys.stderr.fileno())
+    target = parse_bridge_request(request, home)
+    os.environ["PATH"] = with_mac_tools(os.environ.get("PATH", ""))
+    require_cluster_access()
+    push(target.project, target.name, None, False)
+    return 0
+
+
 def push(project: Path, name: str, site_dir: Optional[str], spa: bool) -> None:
     plan = plan_push(project, site_dir, spa)
     info(f"{name}: {describe(plan)}")
+    mac_project = mac_build_project(project) if isinstance(plan, (Container, Files)) else None
+    if mac_project is not None:
+        push_on_the_mac(mac_project, name)
+        return
     if isinstance(plan, Container):
         push_container(project, name, plan.port)
         return
@@ -737,6 +806,8 @@ def main(argv: Sequence[str]) -> int:
         print("\n".join(complete(argv[1:])))
         return 0
     try:
+        if argv[:1] == [BRIDGE_FLAG]:
+            return push_for_bridge(sys.stdin.read(), Path.home())
         return dispatch(parse_args(argv))
     except DemoError as failure:
         error(str(failure))

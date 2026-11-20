@@ -245,7 +245,8 @@ def demo(run_cli, tmp_path, github_api):
     work = tmp_path / "work"
     work.mkdir()
     files = {name: work / name for name in (
-        "kubectl", "docker", "bun", "upload.tgz", "manifest.json", "creds", "leaks", "docker-host")}
+        "kubectl", "docker", "bun", "envify", "bridge-request", "upload.tgz", "manifest.json", "creds", "leaks",
+        "docker-host")}
     mocks = {
         "kubectl": f'''
 echo "$*" >> "{files['kubectl']}"
@@ -264,6 +265,7 @@ echo "$*" >> "{files['docker']}"
 case "$1" in
     build) [ -z "${{BUILD_FAILS:-}}" ] || exit 1 ;;
     buildx) [ -z "${{NO_BUILDX:-}}" ] || exit 1 ;;
+    info) [ -z "${{NO_DOCKER:-}}" ] || exit 1 ;;
     context) echo unix:///mock/docker.sock ;;
     push) printf 'ghcr.io\\n' | docker-credential-demo get > "{files['creds']}"
           grep -rl "$DEMO_REGISTRY_SECRET" "$DOCKER_CONFIG" > "{files['leaks']}"
@@ -279,24 +281,30 @@ esac''',
 echo "bun $*" >> "{files['bun']}"
 if [ "$1" = -e ]; then printf 'bcrypt-of-%s-chars' "${{#DEMO_HASH_INPUT}}"; exit 0; fi
 mkdir -p dist && echo built > dist/index.html''',
-        "envify": "return 1",
+        "envify": f'''
+[ "$1" = --bridge ] || {{ return 1 2>/dev/null || exit 1; }}
+echo "$*" >> "{files['envify']}"
+cat > "{files['bridge-request']}"
+[ -z "${{BRIDGE_FAILS:-}}" ] || {{ echo "bridge returned 500: docker build failed" >&2; exit 1; }}
+echo "perla: https://perla-demo.plexius.ch (release r3)"''',
     }
 
-    def _run(args, cwd=None, env=None):
-        result = run_cli("demo", args, mock_bins=mocks, isolate_path=True, cwd=cwd or tmp_path, env_extra={
+    def _run(args, cwd=None, env=None, stdin=None):
+        result = run_cli("demo", args, mock_bins=mocks, isolate_path=True, cwd=cwd or tmp_path, stdin=stdin, env_extra={
             "HOME": str(tmp_path),
             "TMPDIR": str(tmp_path),
             "KUBECONFIG": str(tmp_path / "no-kubeconfig"),
             "DEMO_SERVICE_ACCOUNT_TOKEN": str(tmp_path / "no-token"),
             "DEMO_CONTAINER_MARKER": str(tmp_path / "no-dockerenv"),
             "DEMO_GITHUB_API": github_api.url,
+            "DEMO_MOUNTINFO": str(tmp_path / "no-mountinfo"),
             "DOCKER_HOST": "",
             "GHCR_DEMO_TOKEN": TOKEN,
             PASSWORD_NAME: "",
             **(env or {}),
         })
         result.calls = {key: path.read_text().splitlines() for key, path in files.items()
-                        if key in ("kubectl", "docker", "bun") and path.exists()}
+                        if key in ("kubectl", "docker", "bun", "envify") and path.exists()}
         result.files = files
         result.uploaded = _members(files["upload.tgz"]) if files["upload.tgz"].exists() else None
         result.github = github_api.requests
@@ -539,6 +547,115 @@ class TestGuards:
             "DEMO_SERVICE_ACCOUNT_TOKEN": str(token), "DEMO_CONTAINER_MARKER": str(tmp_path / "none")})
 
         assert result.stdout == "api=kubernetes.default.svc\n"
+
+
+def mac_share(tmp_path: Path) -> Path:
+    mountinfo = tmp_path / "mountinfo"
+    mountinfo.write_text(f"161 132 0:44 /someone/Projects/private {tmp_path / 'share'} rw - virtiofs virtiofs0 rw\n")
+    return mountinfo
+
+
+class TestBridge:
+    def should_hand_a_container_push_to_the_mac_when_no_docker_daemon_answers(self, demo, tmp_path):
+        site = project(tmp_path / "share" / "perla", {"Dockerfile": CADDY})
+
+        result = demo(["push"], cwd=site, env={"DEMO_MOUNTINFO": str(mac_share(tmp_path)), "NO_DOCKER": "1"})
+
+        assert result.returncode == 0, result.stderr
+        assert result.calls["envify"] == ["--bridge demo-push --stdin"]
+        assert json.loads(result.files["bridge-request"].read_text()) == {
+            "project": "/Users/someone/Projects/private/perla", "name": "perla"}
+        assert "perla: https://perla-demo.plexius.ch (release r3)" in result.stdout
+        assert calls_matching(result, "docker", "build") == []
+        assert "kubectl" not in result.calls
+
+    def should_build_here_when_a_docker_daemon_answers(self, demo, tmp_path):
+        site = project(tmp_path / "share" / "perla", {"Dockerfile": CADDY})
+
+        result = demo(["push"], cwd=site, env={"DEMO_MOUNTINFO": str(mac_share(tmp_path))})
+
+        assert result.returncode == 0, result.stderr
+        assert "envify" not in result.calls
+        assert len(calls_matching(result, "docker", "build")) == 1
+
+    def should_keep_a_static_push_in_the_container(self, demo, tmp_path):
+        site = project(tmp_path / "share" / "perla", {"dist/index.html": "hi"})
+
+        result = demo(["push"], cwd=site, env={"DEMO_MOUNTINFO": str(mac_share(tmp_path)), "NO_DOCKER": "1"})
+
+        assert result.returncode == 0, result.stderr
+        assert "envify" not in result.calls
+        assert result.uploaded == ["index.html"]
+
+    def should_fail_when_the_push_on_the_mac_fails(self, demo, tmp_path):
+        site = project(tmp_path / "share" / "perla", {"Dockerfile": CADDY})
+
+        result = demo(["push"], cwd=site, env={
+            "DEMO_MOUNTINFO": str(mac_share(tmp_path)), "NO_DOCKER": "1", "BRIDGE_FAILS": "1"})
+
+        assert result.returncode == 1
+        assert "perla: the push on the Mac failed" in result.stderr
+
+    def should_push_the_project_the_bridge_names_with_the_whole_log_on_stdout(self, demo, tmp_path):
+        site = project(tmp_path / "Projects" / "perla", {"Dockerfile": CADDY})
+        request = json.dumps({"project": str(site), "name": "perla"})
+
+        result = demo(["--bridge-push"], stdin=request)
+
+        assert result.returncode == 0, result.stdout
+        assert result.stderr == ""
+        assert calls_matching(result, "docker", "build")[0].endswith(str(site))
+        assert "perla: https://perla-demo.plexius.ch (release r2)" in result.stdout
+
+    def should_report_a_refused_bridge_request_on_stdout(self, demo):
+        result = demo(["--bridge-push"], stdin="not json")
+
+        assert result.returncode == 1
+        assert "demo-push: expected" in result.stdout
+        assert "docker" not in result.calls
+
+    @pytest.mark.parametrize("folder", ["Documents/perla", "Projects/../Documents/perla", "Projects/missing", "Projects"])
+    def should_refuse_a_folder_outside_projects_and_desktop(self, demo_module, tmp_path, folder):
+        project(tmp_path / "Documents" / "perla", {"Dockerfile": CADDY})
+        request = json.dumps({"project": str(tmp_path / folder), "name": "perla"})
+
+        with pytest.raises(demo_module.DemoError, match="not a folder inside"):
+            demo_module.parse_bridge_request(request, tmp_path)
+
+    def should_refuse_a_link_inside_projects_that_leads_out(self, demo_module, tmp_path):
+        outside = project(tmp_path / "Documents" / "perla", {"Dockerfile": CADDY})
+        (tmp_path / "Projects").mkdir()
+        (tmp_path / "Projects" / "perla").symlink_to(outside)
+        request = json.dumps({"project": str(tmp_path / "Projects" / "perla"), "name": "perla"})
+
+        with pytest.raises(demo_module.DemoError, match="not a folder inside"):
+            demo_module.parse_bridge_request(request, tmp_path)
+
+    @pytest.mark.parametrize("request_text", [
+        '{"project": "Projects/perla", "name": "perla"}',
+        '{"project": "/x", "name": "Bad_Name"}',
+        '{"name": "perla"}',
+        '["perla"]',
+    ])
+    def should_refuse_a_malformed_request(self, demo_module, tmp_path, request_text):
+        project(tmp_path / "Projects" / "perla", {"Dockerfile": CADDY})
+
+        with pytest.raises(demo_module.DemoError):
+            demo_module.parse_bridge_request(request_text, tmp_path)
+
+    def should_accept_a_folder_inside_desktop(self, demo_module, tmp_path):
+        site = project(tmp_path / "Desktop" / "perla", {"Dockerfile": CADDY})
+
+        request = demo_module.parse_bridge_request(json.dumps({"project": str(site), "name": "perla"}), tmp_path)
+
+        assert request == demo_module.BridgeRequest(site.resolve(), "perla")
+
+    def should_keep_launchd_path_first_and_add_the_mac_tool_folders_after_it(self, demo_module):
+        entries = demo_module.with_mac_tools("/usr/bin:/bin").split(":")
+
+        assert entries[:2] == ["/usr/bin", "/bin"]
+        assert "/opt/homebrew/bin" in entries
+        assert entries[-1] == str(demo_module.SCRIPT_DIR)
 
 
 class TestRelay:
