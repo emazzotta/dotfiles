@@ -196,7 +196,7 @@ class TestBuildEntrypointInvocation:
     @staticmethod
     def args(**overrides):
         defaults = dict(
-            rm=None, convert=False, opencode=False, hermes=False, resume=None,
+            rm=None, convert=False, opencode=False, agy=False, hermes=False, resume=None,
             no_skip=False, skip=False, all_projects=False, paths=[],
         )
         return argparse.Namespace(**(defaults | overrides))
@@ -293,6 +293,36 @@ class TestBuildEntrypointInvocation:
     def test_should_not_hand_claude_settings_to_opencode(self, cl, leonardo_repo):
         _entrypoint, plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
             self.args(opencode=True), [], leonardo_repo)
+        assert "--settings" not in [*plugin_args, *entrypoint_args]
+
+    def test_should_pick_agy_when_asked(self, cl):
+        entrypoint, plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(agy=True), [], ELSEWHERE)
+        assert (entrypoint, plugin_args, entrypoint_args) == ("agy", [], [])
+
+    def test_should_forward_dangerously_skip_permissions_to_agy(self, cl):
+        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(agy=True, skip=True), [], ELSEWHERE)
+        assert entrypoint_args == ["--dangerously-skip-permissions"]
+
+    def test_should_forward_no_skip_as_mode_accept_edits_to_agy(self, cl):
+        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(agy=True, no_skip=True), [], ELSEWHERE)
+        assert entrypoint_args == ["--mode", "accept-edits"]
+
+    def test_should_continue_recent_agy_conversation_when_resume_empty(self, cl):
+        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(agy=True, resume=""), [], ELSEWHERE)
+        assert entrypoint_args == ["--continue"]
+
+    def test_should_resume_specific_agy_conversation_when_resume_has_id(self, cl):
+        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(agy=True, resume="conv_12345"), [], ELSEWHERE)
+        assert entrypoint_args == ["--conversation", "conv_12345"]
+
+    def test_should_not_hand_claude_settings_to_agy(self, cl, leonardo_repo):
+        _entrypoint, plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(agy=True), [], leonardo_repo)
         assert "--settings" not in [*plugin_args, *entrypoint_args]
 
 
@@ -1356,6 +1386,20 @@ class TestMain:
         assert exit_info.value.code == 2
         assert "--all" in capsys.readouterr().err
 
+    def should_reject_all_for_agy(self, cl, monkeypatch, mock_cl_run, capsys):
+        monkeypatch.setattr(sys, "argv", ["cl", "-g", "-a"])
+        with pytest.raises(SystemExit) as exit_info:
+            cl.main()
+        assert exit_info.value.code == 2
+        assert "agy" in capsys.readouterr().err
+
+    def should_reject_opencode_and_agy_combined(self, cl, monkeypatch, mock_cl_run, capsys):
+        monkeypatch.setattr(sys, "argv", ["cl", "-o", "-g"])
+        with pytest.raises(SystemExit) as exit_info:
+            cl.main()
+        assert exit_info.value.code == 2
+        assert "mutually exclusive" in capsys.readouterr().err
+
     @pytest.mark.parametrize("explicit", [["--effort", "high"], ["--effort=high"]])
     def should_keep_an_explicit_effort_instead_of_injecting_the_default(self, cl, monkeypatch, mock_cl_run, explicit):
         monkeypatch.setattr(sys, "argv", ["cl", *explicit])
@@ -2162,6 +2206,11 @@ class TestBuildSessionRecord:
 
         assert (record.agent, record.session_id) == (cl.session_registry.Agent.OPENCODE, None)
 
+    def test_should_record_an_agy_run_for_web_terminal_without_a_session_to_restore(self, cl, tmp_path):
+        record = cl.build_session_record(cl_namespace(), [], ("agy", [], []), tmp_path)
+
+        assert (record.agent, record.session_id) == (cl.session_registry.Agent.AGY, None)
+
     def test_should_record_the_container_the_run_lives_in(self, cl, tmp_path):
         container = cl.session_registry.Container("opencode-1787254728", Path("/usr/local/bin/docker"))
 
@@ -2502,6 +2551,6 @@ class TestRoutesByPrompt:
 
     def should_not_route_when_resuming_a_named_session(self, cl):
         args = argparse.Namespace(no_skip=False, skip=False, resume=CLAUDE_SESSION_ID, all_projects=False,
-                                  rm=None, convert=False, opencode=False, hermes=False, paths=[])
+                                  rm=None, convert=False, opencode=False, agy=False, hermes=False, paths=[])
         entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(args, ["continue"], ELSEWHERE)
         assert entrypoint == "claude"

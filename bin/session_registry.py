@@ -47,6 +47,7 @@ class Mount:
 class Agent(Enum):
     CLAUDE = "claude"
     OPENCODE = "opencode"
+    AGY = "agy"
 
 
 @dataclass(frozen=True)

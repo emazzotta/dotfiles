@@ -319,6 +319,7 @@ DOTFILES_CRUFT_PATTERNS = (
 CLAUDE_ENTRYPOINTS = ("claude", "claude-route")
 TRACKED_ENTRYPOINTS = (*CLAUDE_ENTRYPOINTS, "claude-resume")
 OPENCODE_ENTRYPOINTS = ("opencode", "opencode-resume")
+AGY_ENTRYPOINTS = ("agy",)
 PICKER_ENTRYPOINTS = ("claude-resume", "opencode-resume")
 OPENCODE_SERVER_ARGS = ("--port", "0")
 ROUTE_OVERRIDING_FLAGS = ("--model", "--effort", "--print")
@@ -327,6 +328,7 @@ CLAUDE_VALUE_FLAGS = (
     "--system-prompt", "--append-system-prompt", "--mcp-config", "--tools", "--allowedTools",
     "--disallowedTools", "--fallback-model", "--name",
 )
+AGY_SESSION_CHOOSING_FLAGS = ("--continue", "-c", "--conversation")
 GIT_CRYPT_FILTER_KEY_PATTERN = r"^(filter|diff)\.git-crypt.*\.(smudge|clean|textconv)$"
 CLAUDE_SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
 OPENCODE_SESSION_ID = re.compile(r"ses_[0-9A-Za-z]+")
@@ -858,10 +860,15 @@ def build_session_record(
 ) -> session_registry.SessionRecord | None:
     """opencode's runs are recorded for web-terminal only: no Claude session id, so restore never reopens one."""
     entrypoint, _plugin_args, entrypoint_args = invocation
-    if entrypoint not in (*TRACKED_ENTRYPOINTS, *OPENCODE_ENTRYPOINTS) or "--print" in claude_args:
+    if entrypoint not in (*TRACKED_ENTRYPOINTS, *OPENCODE_ENTRYPOINTS, *AGY_ENTRYPOINTS) or "--print" in claude_args:
         return None
     session_id = _named_session_id(entrypoint_args)
-    agent = session_registry.Agent.OPENCODE if entrypoint in OPENCODE_ENTRYPOINTS else session_registry.Agent.CLAUDE
+    if entrypoint in AGY_ENTRYPOINTS:
+        agent = session_registry.Agent.AGY
+    elif entrypoint in OPENCODE_ENTRYPOINTS:
+        agent = session_registry.Agent.OPENCODE
+    else:
+        agent = session_registry.Agent.CLAUDE
     return session_registry.SessionRecord(
         session_id=UUID(session_id) if session_id else None,
         cwd=pwd,
@@ -920,6 +927,15 @@ def build_permission_args(no_skip: bool, skip: bool) -> list[str]:
     """Without either flag the mode comes from permissions.defaultMode in settings.json."""
     if no_skip:
         return ["--permission-mode", "manual"]
+    if skip:
+        return ["--dangerously-skip-permissions"]
+    return []
+
+
+def build_agy_permission_args(no_skip: bool, skip: bool) -> list[str]:
+    """agy uses --mode for permission control and --dangerously-skip-permissions."""
+    if no_skip:
+        return ["--mode", "accept-edits"]
     if skip:
         return ["--dangerously-skip-permissions"]
     return []
@@ -1110,6 +1126,13 @@ def build_entrypoint_invocation(args, claude_args: list[str], pwd: Path) -> tupl
     elif args.convert:
         entrypoint = "session-convert"
         entrypoint_args = claude_args
+    elif getattr(args, "agy", False):
+        entrypoint = "agy"
+        agy_permission_args = build_agy_permission_args(args.no_skip, args.skip)
+        resume_args: list[str] = []
+        if args.resume is not None:
+            resume_args = ["--continue"] if not args.resume else ["--conversation", args.resume]
+        entrypoint_args = [*agy_permission_args, *resume_args, *claude_args]
     elif args.opencode:
         if use_picker:
             entrypoint = "opencode-resume"
@@ -1231,6 +1254,7 @@ def main() -> None:
         help="mount only git-tracked files from PWD (respects .gitignore); requires .git and .gitignore",
     )
     parser.add_argument("-o", "--opencode", action="store_true", default=False, help="run opencode instead of claude")
+    parser.add_argument("-g", "--agy", action="store_true", default=False, help="run agy (Antigravity CLI) instead of claude")
     parser.add_argument("-m", "--hermes", action="store_true", default=False, help="run hermes agent")
     parser.add_argument(
         "-r", "--resume",
@@ -1270,6 +1294,10 @@ def main() -> None:
 
     if args.all_projects and args.opencode:
         parser.error("-a/--all scopes claude sessions by project; opencode keeps a single session store")
+    if args.all_projects and args.agy:
+        parser.error("-a/--all is not supported with agy")
+    if args.agy and args.opencode:
+        parser.error("-g/--agy and -o/--opencode are mutually exclusive")
 
     if not (IS_DARWIN and OPENCODE_ROOT.is_dir()):
         invocation = build_entrypoint_invocation(args, claude_args, pwd)
