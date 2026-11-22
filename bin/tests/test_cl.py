@@ -197,7 +197,7 @@ class TestBuildEntrypointInvocation:
     def args(**overrides):
         defaults = dict(
             rm=None, convert=False, opencode=False, agy=False, hermes=False, resume=None,
-            no_skip=False, skip=False, all_projects=False, paths=[],
+            no_skip=False, skip=False, all_projects=False, paths=[], opt_in=[],
         )
         return argparse.Namespace(**(defaults | overrides))
 
@@ -290,9 +290,40 @@ class TestBuildEntrypointInvocation:
             self.args(), [], tmp_path / "Desktop")
         assert "--settings" not in plugin_args
 
+    def test_should_enable_the_kicad_plugin_when_asked(self, cl):
+        _entrypoint, plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(opt_in=["kicad"]), [], ELSEWHERE)
+        assert self.enabled_plugins(plugin_args) == {"kicad-happy@skills-dir": True}
+
+    def test_should_enable_the_synced_claude_ai_skills_when_asked(self, cl):
+        _entrypoint, plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(opt_in=["claudeai"]), [], ELSEWHERE)
+        assert json.loads(plugin_args[plugin_args.index("--settings") + 1]) == {"syncClaudeAiSkills": True}
+
+    def test_should_share_one_settings_flag_between_the_leonardo_plugins_and_the_asked_sets(self, cl, leonardo_repo):
+        _entrypoint, plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(opt_in=["kicad", "pat"]), [], leonardo_repo)
+        assert plugin_args.count("--settings") == 1
+        assert self.enabled_plugins(plugin_args) == {
+            **dict.fromkeys(cl.LEONARDO_ONLY_PLUGINS, True), "kicad-happy@skills-dir": True, "pat@skills-dir": True,
+        }
+
+    def test_should_forward_the_asked_sets_through_the_resume_picker(self, cl):
+        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(resume="", opt_in=["pat"]), [], ELSEWHERE)
+        forwarded = entrypoint_args[entrypoint_args.index("--") + 1:]
+        assert self.enabled_plugins(forwarded) == {"pat@skills-dir": True}
+
+    def test_should_split_comma_separated_sets(self, cl):
+        assert cl.parse_opt_in("kicad,pat") == ["kicad", "pat"]
+
+    def test_should_reject_an_unknown_set(self, cl):
+        with pytest.raises(argparse.ArgumentTypeError, match="unknown set nope"):
+            cl.parse_opt_in("kicad,nope")
+
     def test_should_not_hand_claude_settings_to_opencode(self, cl, leonardo_repo):
         _entrypoint, plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
-            self.args(opencode=True), [], leonardo_repo)
+            self.args(opencode=True, opt_in=["kicad"]), [], leonardo_repo)
         assert "--settings" not in [*plugin_args, *entrypoint_args]
 
     def test_should_pick_agy_when_asked(self, cl):

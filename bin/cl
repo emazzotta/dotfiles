@@ -289,6 +289,11 @@ LEONARDO_ONLY_PLUGINS = (
     "aiup-vaadin-jooq@ai-unified-process-marketplace",
     "vaadin-skills@vaadin-marketplace",
 )
+OPT_IN_SETS = {
+    "kicad": {"enabledPlugins": {"kicad-happy@skills-dir": True}},
+    "pat": {"enabledPlugins": {"pat@skills-dir": True}},
+    "claudeai": {"syncClaudeAiSkills": True},
+}
 KEYGUARD = Path.home() / "Projects" / "private" / "keyguard"
 DESKTOP = Path.home() / "Desktop"
 DOWNLOADS = Path.home() / "Downloads"
@@ -1098,12 +1103,23 @@ def is_leonardo_launch(launch_dirs: list[Path]) -> bool:
     return any(d.resolve().is_relative_to(LEONARDO_PROJECTS.resolve()) for d in launch_dirs)
 
 
-def build_leonardo_plugin_args(launch_dirs: list[Path]) -> list[str]:
-    """User settings keep these plugins off; a Leonardo launch turns them on for that session only."""
-    if not is_leonardo_launch(launch_dirs):
-        return []
-    enabled = {plugin: True for plugin in LEONARDO_ONLY_PLUGINS}
-    return ["--settings", json.dumps({"enabledPlugins": enabled})]
+def parse_opt_in(value: str) -> list[str]:
+    names = [name for name in value.split(",") if name]
+    unknown = [name for name in names if name not in OPT_IN_SETS]
+    if unknown:
+        raise argparse.ArgumentTypeError(f"unknown set {', '.join(unknown)} (choose from {', '.join(OPT_IN_SETS)})")
+    return names
+
+
+def build_session_settings_args(launch_dirs: list[Path], opt_ins: list[str]) -> list[str]:
+    """User settings keep these sets off; a Leonardo launch or --with turns them on for that session only. Claude keeps the last --settings, so they share one."""
+    settings: dict = {}
+    if is_leonardo_launch(launch_dirs):
+        settings["enabledPlugins"] = dict.fromkeys(LEONARDO_ONLY_PLUGINS, True)
+    for name in opt_ins:
+        for key, value in OPT_IN_SETS[name].items():
+            settings[key] = {**settings.get(key, {}), **value} if isinstance(value, dict) else value
+    return ["--settings", json.dumps(settings)] if settings else []
 
 
 def with_opencode_server(opencode_args: list[str]) -> list[str]:
@@ -1162,7 +1178,7 @@ def build_entrypoint_invocation(args, claude_args: list[str], pwd: Path) -> tupl
 
     plugin_args = []
     if entrypoint in (*CLAUDE_ENTRYPOINTS, "claude-resume"):
-        plugin_args = build_leonardo_plugin_args(args.paths or [pwd])
+        plugin_args = build_session_settings_args(args.paths or [pwd], getattr(args, "opt_in", []))
 
     if entrypoint == "claude-resume":
         forwarded = [*permission_args, *plugin_args, *claude_args]
@@ -1236,7 +1252,7 @@ def _run_container(
 def main() -> None:
     pwd = Path.cwd()
 
-    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n | -s] [-r [SESSION]] [-a] [CLAUDE_ARGS...]")
+    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n | -s] [-r [SESSION]] [-a] [--with SETS] [CLAUDE_ARGS...]")
     parser.add_argument("-f", "--file", dest="files", action="append", default=[], metavar="FILE")
     parser.add_argument(
         "-p", "--path",
@@ -1272,6 +1288,11 @@ def main() -> None:
     parser.add_argument(
         "-a", "--all", dest="all_projects", action="store_true", default=False,
         help="let the session picker span every project instead of the current one; implies -r",
+    )
+    parser.add_argument(
+        "--with",
+        dest="opt_in", action="extend", type=parse_opt_in, default=[], metavar="SETS",
+        help=f"turn off-by-default sets on for this session, comma separated or repeated: {', '.join(OPT_IN_SETS)}",
     )
     parser.add_argument("--convert", action="store_true", default=False, help="convert sessions between claude and opencode")
     parser.add_argument(

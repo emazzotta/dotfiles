@@ -1,13 +1,35 @@
 {
   "cleanupPeriodDays": 365,
+  "syncClaudeAiSkills": false,
   "skillListingBudgetFraction": 0.025,
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
   },
   "permissions": {
+    "deny": [
+      "ReportFindings"
+    ],
     "defaultMode": "auto"
   },
   "model": "sonnet",
+  "disableClaudeAiConnectors": true,
+  "skillOverrides": {
+    "artifact-capabilities": "name-only",
+    "artifact-design": "name-only",
+    "artifact-diagramming": "name-only",
+    "claude-in-chrome": "name-only",
+    "dataviz": "name-only",
+    "fewer-permission-prompts": "name-only",
+    "init": "name-only",
+    "keybindings-help": "name-only",
+    "loop": "name-only",
+    "plugin-authoring": "name-only",
+    "run": "name-only",
+    "schedule": "name-only",
+    "security-review": "name-only",
+    "simplify": "name-only",
+    "workflow-authoring": "name-only"
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -205,6 +227,8 @@
       }
     ]
   },
+  "enableArtifact": false,
+  "enableWorkflows": false,
   "statusLine": {
     "type": "command",
     "command": "~/dotfiles/bin/claude-statusline /opt/ccline/ccline"
@@ -217,7 +241,9 @@
     "aiup-core@ai-unified-process-marketplace": false,
     "aiup-vaadin-jooq@ai-unified-process-marketplace": false,
     "jdtls-lsp@claude-plugins-official": true,
-    "vaadin-skills@vaadin-marketplace": false
+    "vaadin-skills@vaadin-marketplace": false,
+    "kicad-happy@skills-dir": false,
+    "pat@skills-dir": false
   },
   "extraKnownMarketplaces": {
     "leonardo-skills": {
@@ -241,6 +267,7 @@
       "autoUpdate": true
     }
   },
+  "feedbackDrafts": "off",
   "effortLevel": "xhigh",
   "modelSettings": {
     "claude-opus-5-5": {
@@ -258,7 +285,11 @@
   "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
+  "claudeMdExcludes": [
+    "/home/opencode/.claude/CLAUDE.md"
+  ],
   "theme": "dark",
   "switchModelsOnFlag": true,
-  "remoteControlAtStartup": false
+  "remoteControlAtStartup": false,
+  "advisorModel": "fable"
 }
