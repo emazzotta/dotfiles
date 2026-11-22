@@ -310,15 +310,35 @@ class TestBuildEntrypointInvocation:
             self.args(agy=True, no_skip=True), [], ELSEWHERE)
         assert entrypoint_args == ["--mode", "accept-edits"]
 
-    def test_should_continue_recent_agy_conversation_when_resume_empty(self, cl):
-        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+    def test_should_open_the_agy_picker_when_resume_names_no_conversation(self, cl):
+        entrypoint, plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
             self.args(agy=True, resume=""), [], ELSEWHERE)
-        assert entrypoint_args == ["--continue"]
+        assert (entrypoint, plugin_args, entrypoint_args) == ("agy-resume", [], [])
 
-    def test_should_resume_specific_agy_conversation_when_resume_has_id(self, cl):
+    def test_should_prefilter_the_agy_picker_with_the_text_resume_was_given(self, cl):
+        entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(agy=True, resume="deploy"), [], ELSEWHERE)
+        assert (entrypoint, entrypoint_args) == ("agy-resume", ["deploy"])
+
+    def test_should_span_every_project_in_the_agy_picker_when_all_is_set(self, cl):
+        entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(agy=True, all_projects=True), [], ELSEWHERE)
+        assert (entrypoint, entrypoint_args) == ("agy-resume", ["-a"])
+
+    def test_should_hand_the_permission_flags_to_the_conversation_the_agy_picker_opens(self, cl):
         _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
-            self.args(agy=True, resume="conv_12345"), [], ELSEWHERE)
-        assert entrypoint_args == ["--conversation", "conv_12345"]
+            self.args(agy=True, resume="", skip=True), ["--model", "flash"], ELSEWHERE)
+        assert entrypoint_args == ["--", "--dangerously-skip-permissions", "--model", "flash"]
+
+    def test_should_open_the_named_agy_conversation_directly_instead_of_the_picker(self, cl):
+        entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(agy=True, resume=CLAUDE_SESSION_ID), [], ELSEWHERE)
+        assert (entrypoint, entrypoint_args) == ("agy", ["--conversation", CLAUDE_SESSION_ID])
+
+    def test_should_leave_agy_to_continue_its_latest_conversation_when_it_is_given_the_flag(self, cl):
+        entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(agy=True), ["--continue"], ELSEWHERE)
+        assert (entrypoint, entrypoint_args) == ("agy", ["--continue"])
 
     def test_should_not_hand_claude_settings_to_agy(self, cl, leonardo_repo):
         _entrypoint, plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
@@ -1386,8 +1406,36 @@ class TestMain:
         assert exit_info.value.code == 2
         assert "--all" in capsys.readouterr().err
 
-    def should_reject_all_for_agy(self, cl, monkeypatch, mock_cl_run, capsys):
+    @pytest.mark.parametrize("argv", [["-g", "-r"], ["-g", "-r", "deploy"], ["-g", "--resume"]])
+    def should_open_the_agy_picker_when_resume_names_no_conversation(self, cl, monkeypatch, mock_cl_run, argv):
+        monkeypatch.setattr(sys, "argv", ["cl", *argv])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert "agy-resume" in cmd
+        assert "--conversation" not in cmd
+
+    def should_open_the_agy_picker_across_all_projects_when_all_is_the_only_flag(self, cl, monkeypatch, mock_cl_run):
         monkeypatch.setattr(sys, "argv", ["cl", "-g", "-a"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert cmd[cmd.index("agy-resume") + 1] == "-a"
+
+    def should_open_the_given_agy_conversation_without_asking_whether_it_moved(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(cl.session_move, "read_lease", lambda _session: pytest.fail("agy conversations never move"))
+        monkeypatch.setattr(sys, "argv", ["cl", "-g", "-r", CLAUDE_SESSION_ID])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert cmd[cmd.index("--conversation") + 1] == CLAUDE_SESSION_ID
+        assert cmd.index("--conversation") > cmd.index("agy")
+
+    @pytest.mark.parametrize("argv", [["-g", "--rm"], ["-g", "--convert"]])
+    def should_reject_session_removal_and_conversion_for_agy_because_they_know_only_claude_and_opencode(
+        self, cl, monkeypatch, mock_cl_run, capsys, argv,
+    ):
+        monkeypatch.setattr(sys, "argv", ["cl", *argv])
         with pytest.raises(SystemExit) as exit_info:
             cl.main()
         assert exit_info.value.code == 2
@@ -2210,6 +2258,16 @@ class TestBuildSessionRecord:
         record = cl.build_session_record(cl_namespace(), [], ("agy", [], []), tmp_path)
 
         assert (record.agent, record.session_id) == (cl.session_registry.Agent.AGY, None)
+
+    def test_should_record_what_the_agy_picker_lists_in_the_folder_it_runs_in(self, cl, tmp_path, monkeypatch):
+        monkeypatch.setattr(cl, "CONTAINER_WORKSPACE", tmp_path / "missing")
+        args = cl_namespace(resume="deploy", all_projects=True, agy=True)
+
+        record = cl.build_session_record(args, [], ("agy-resume", [], ["deploy", "-a"]), tmp_path)
+
+        assert (record.agent, record.picker) == (
+            cl.session_registry.Agent.AGY, cl.session_registry.Picker(tmp_path, True, "deploy"),
+        )
 
     def test_should_record_the_container_the_run_lives_in(self, cl, tmp_path):
         container = cl.session_registry.Container("opencode-1787254728", Path("/usr/local/bin/docker"))

@@ -41,9 +41,6 @@ DB_PATH: Final = session_picker.opencode_db_path()
 CACHE_PATH: Final = Path.home() / ".cache" / "opencode-resume-index.tsv"
 CACHE_HEADER: Final = "#opencode-resume-index v2"
 MS_PER_SECOND: Final = 1000
-USER_COLOR: Final = "\033[36m"
-ASSISTANT_COLOR: Final = "\033[32m"
-DIM: Final = "\033[2m"
 
 CONTENT_QUERY: Final = (
     "SELECT p.session_id, p.data "
@@ -141,24 +138,21 @@ def render_preview(sid: str, raw_query: str = "") -> str:
             return f"session {sid} not found"
         title, updated = session
         reset = session_picker.RESET
+        dim = session_picker.DIM
         out = [
-            f"{DIM}{sid}  {session_picker.format_ago(updated // MS_PER_SECOND)}{reset}",
-            f"{DIM}{title}{reset}",
+            f"{dim}{sid}  {session_picker.format_ago(updated // MS_PER_SECOND)}{reset}",
+            f"{dim}{title}{reset}",
             "",
         ]
         turns = 0
         for message_data, part_data in conn.execute(TURNS_QUERY, (sid,)):
             if turns >= session_picker.PREVIEW_TURN_LIMIT:
-                out.append(f"{DIM}…(truncated){reset}")
+                out.append(f"{dim}…(truncated){reset}")
                 break
             text = _part_text(part_data)
             if not text:
                 continue
-            role = _role(message_data)
-            color = USER_COLOR if role == "user" else ASSISTANT_COLOR
-            highlighted = session_picker.highlight_matches(session_picker.truncate_turn(text), tokens)
-            out.append(f"{color}▌ {role}{reset} {highlighted}")
-            out.append("")
+            out.extend(session_picker.render_turn(_role(message_data), text, tokens))
             turns += 1
     finally:
         conn.close()

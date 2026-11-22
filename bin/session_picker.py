@@ -1,6 +1,6 @@
 """TSV cache, display formatting and fzf plumbing for session pickers, and the opencode database path.
 
-Shared by claude-resume, opencode-resume and session-convert. Ranking lives in session_search.
+Shared by claude-resume, opencode-resume, agy-resume and session-convert. Ranking lives in session_search.
 
 fzf runs with --disabled: matching and ordering are ours, so a `change`
 binding re-runs the ranked search on every keystroke and reloads the list.
@@ -32,6 +32,9 @@ DAYS_PER_YEAR: Final = 365
 ELLIPSIS: Final = "…"
 HIGHLIGHT_ON: Final = "\033[43m\033[30m"
 RESET: Final = "\033[0m"
+USER_COLOR: Final = "\033[36m"
+ASSISTANT_COLOR: Final = "\033[32m"
+DIM: Final = "\033[2m"
 
 FZF_HEADER_HINT: Final = "phrase matches first | space = AND  ^title  title$  !exclude  a|b"
 
@@ -134,6 +137,12 @@ def highlight_matches(text: str, tokens: Sequence[str]) -> str:
         return text
     pattern = re.compile("|".join(re.escape(token) for token in tokens), re.IGNORECASE)
     return pattern.sub(lambda m: f"{HIGHLIGHT_ON}{m.group(0)}{RESET}", text)
+
+
+def render_turn(role: str, text: str, tokens: Sequence[str]) -> list[str]:
+    """The preview pane's lines for one prompt or reply: a role label, the highlighted text, a blank line."""
+    color = USER_COLOR if role == "user" else ASSISTANT_COLOR
+    return [f"{color}▌ {role}{RESET} {highlight_matches(truncate_turn(text), tokens)}", ""]
 
 
 @dataclass(frozen=True)

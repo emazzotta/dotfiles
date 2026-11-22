@@ -38,9 +38,6 @@ PROJECTS_DIR: Final = Path(os.environ.get("CLAUDE_PROJECTS", Path.home() / ".cla
 CACHE_NAME: Final = ".claude-resume-index.tsv"
 CACHE_HEADER: Final = "#claude-resume-index v4"
 NO_PROMPT: Final = "(no prompt)"
-USER_COLOR: Final = "\033[36m"
-ASSISTANT_COLOR: Final = "\033[32m"
-DIM: Final = "\033[2m"
 SLASH_COMMAND_MARKERS: Final = ("<command-name>", "<local-command-stdout>", "<local-command-stderr>")
 
 
@@ -163,15 +160,12 @@ def find_jsonl(session_id: str) -> Path | None:
 
 def render_preview(jsonl: Path, raw_query: str = "") -> str:
     tokens = session_search.highlight_tokens(session_search.parse_query(raw_query))
-    out: list[str] = [f"{DIM}{jsonl.parent.name}/{jsonl.name}{session_picker.RESET}", ""]
+    out: list[str] = [f"{session_picker.DIM}{jsonl.parent.name}/{jsonl.name}{session_picker.RESET}", ""]
     for turns, (kind, text) in enumerate(read_turns(jsonl)):
         if turns >= session_picker.PREVIEW_TURN_LIMIT:
-            out.append(f"{DIM}…(truncated){session_picker.RESET}")
+            out.append(f"{session_picker.DIM}…(truncated){session_picker.RESET}")
             break
-        color = USER_COLOR if kind == "user" else ASSISTANT_COLOR
-        highlighted = session_picker.highlight_matches(session_picker.truncate_turn(text), tokens)
-        out.append(f"{color}▌ {kind}{session_picker.RESET} {highlighted}")
-        out.append("")
+        out.extend(session_picker.render_turn(kind, text, tokens))
     return "\n".join(out)
 
 

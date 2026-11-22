@@ -319,8 +319,8 @@ DOTFILES_CRUFT_PATTERNS = (
 CLAUDE_ENTRYPOINTS = ("claude", "claude-route")
 TRACKED_ENTRYPOINTS = (*CLAUDE_ENTRYPOINTS, "claude-resume")
 OPENCODE_ENTRYPOINTS = ("opencode", "opencode-resume")
-AGY_ENTRYPOINTS = ("agy",)
-PICKER_ENTRYPOINTS = ("claude-resume", "opencode-resume")
+AGY_ENTRYPOINTS = ("agy", "agy-resume")
+PICKER_ENTRYPOINTS = ("claude-resume", "opencode-resume", "agy-resume")
 OPENCODE_SERVER_ARGS = ("--port", "0")
 ROUTE_OVERRIDING_FLAGS = ("--model", "--effort", "--print")
 CLAUDE_VALUE_FLAGS = (
@@ -328,7 +328,6 @@ CLAUDE_VALUE_FLAGS = (
     "--system-prompt", "--append-system-prompt", "--mcp-config", "--tools", "--allowedTools",
     "--disallowedTools", "--fallback-model", "--name",
 )
-AGY_SESSION_CHOOSING_FLAGS = ("--continue", "-c", "--conversation")
 GIT_CRYPT_FILTER_KEY_PATTERN = r"^(filter|diff)\.git-crypt.*\.(smudge|clean|textconv)$"
 CLAUDE_SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
 OPENCODE_SESSION_ID = re.compile(r"ses_[0-9A-Za-z]+")
@@ -941,6 +940,18 @@ def build_agy_permission_args(no_skip: bool, skip: bool) -> list[str]:
     return []
 
 
+def build_agy_invocation(
+    args: argparse.Namespace, claude_args: list[str], conversation_id: str, picker_args: list[str] | None,
+) -> tuple[str, list[str]]:
+    """agy-resume lists the folder's conversations when no id was named; agy opens a named one or a new one."""
+    permission_args = build_agy_permission_args(args.no_skip, args.skip)
+    if picker_args is not None:
+        forwarded = [*permission_args, *claude_args]
+        return "agy-resume", [*picker_args, "--", *forwarded] if forwarded else picker_args
+    resume_args = ["--conversation", conversation_id] if conversation_id else []
+    return "agy", [*permission_args, *resume_args, *claude_args]
+
+
 def build_volume_args(
     files: list[str],
     paths: list[Path],
@@ -1127,12 +1138,9 @@ def build_entrypoint_invocation(args, claude_args: list[str], pwd: Path) -> tupl
         entrypoint = "session-convert"
         entrypoint_args = claude_args
     elif getattr(args, "agy", False):
-        entrypoint = "agy"
-        agy_permission_args = build_agy_permission_args(args.no_skip, args.skip)
-        resume_args: list[str] = []
-        if args.resume is not None:
-            resume_args = ["--continue"] if not args.resume else ["--conversation", args.resume]
-        entrypoint_args = [*agy_permission_args, *resume_args, *claude_args]
+        entrypoint, entrypoint_args = build_agy_invocation(
+            args, claude_args, session_id, [*search_args, *scope_args] if use_picker else None,
+        )
     elif args.opencode:
         if use_picker:
             entrypoint = "opencode-resume"
@@ -1289,15 +1297,15 @@ def main() -> None:
         sys.exit(0)
     note_interrupted_sessions()
     resumed = resolve_session_id(args.resume, args.opencode)
-    if resumed and not args.opencode:
+    if resumed and not (args.opencode or args.agy):
         confirm_resume_after_move(resumed)
 
     if args.all_projects and args.opencode:
         parser.error("-a/--all scopes claude sessions by project; opencode keeps a single session store")
-    if args.all_projects and args.agy:
-        parser.error("-a/--all is not supported with agy")
     if args.agy and args.opencode:
         parser.error("-g/--agy and -o/--opencode are mutually exclusive")
+    if args.agy and (args.rm is not None or args.convert):
+        parser.error("--rm and --convert work on claude and opencode sessions, not on agy conversations")
 
     if not (IS_DARWIN and OPENCODE_ROOT.is_dir()):
         invocation = build_entrypoint_invocation(args, claude_args, pwd)
@@ -1341,7 +1349,7 @@ def main() -> None:
         _profile(f"{Path(container_path).name} mount")
     container_name = f"opencode-{int(time())}"
     run_dir = claude_run_dir()
-    sync_transcripts(args.resume is not None or args.all_projects)
+    sync_transcripts((args.resume is not None or args.all_projects) and not args.agy)
     _profile("transcript sync")
     invocation = build_entrypoint_invocation(args, claude_args, pwd)
     entrypoint, plugin_args, entrypoint_args = invocation

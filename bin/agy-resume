@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""
+agy-resume: conversation resumer for agy (Antigravity CLI) with ranked content search.
+
+Reads agy's conversation metadata and each conversation's transcript, indexes
+titles and message text into a TSV cache keyed by transcript mtime, and hands
+the result to fzf with a live preview pane. The query syntax and ranking are
+those of claude-resume.
+
+Usage:
+    agy-resume [SEARCH] [-n COUNT] [-a] [--rebuild] [-- AGY_ARGS...]
+    agy-resume --preview-id <id>      # internal, used by fzf preview
+    agy-resume --search-query <query> # internal, used by fzf reload
+
+On selection, execs `agy --conversation <id> AGY_ARGS...`.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shlex
+import shutil
+import sys
+from collections.abc import Iterator
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Final
+from urllib.parse import unquote, urlparse
+
+try:
+    import session_picker
+    import session_search
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import session_picker
+    import session_search
+
+AGY_DIR: Final = Path(os.environ.get("AGY_DIR", Path.home() / ".gemini" / "antigravity-cli"))
+CACHE_PATH: Final = Path.home() / ".cache" / "agy-resume-index.tsv"
+CACHE_HEADER: Final = "#agy-resume-index v1"
+METADATA_FILE: Final = Path("cache") / "conversation_metadata.json"
+TRANSCRIPT_FILE: Final = Path(".system_generated") / "logs" / "transcript.jsonl"
+NO_PROMPT: Final = "(no prompt)"
+ROLE_OF_RECORD: Final = {"USER_INPUT": "user", "PLANNER_RESPONSE": "assistant"}
+USER_REQUEST: Final = re.compile(r"<USER_REQUEST>\n?(.*?)\n?</USER_REQUEST>", re.DOTALL)
+
+
+@dataclass(frozen=True)
+class Conversation:
+    sid: str
+    title: str
+    workspaces: tuple[str, ...]
+    internal: bool
+
+    @property
+    def project(self) -> str:
+        return self.workspaces[0] if self.workspaces else ""
+
+
+def workspace_path(uri: str) -> str:
+    return unquote(urlparse(uri).path)
+
+
+def read_conversations(agy_dir: Path) -> dict[str, Conversation]:
+    """What agy knows about each conversation, or nothing when it has not written its metadata yet."""
+    try:
+        listed = json.loads((agy_dir / METADATA_FILE).read_text())["conversations"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    conversations: dict[str, Conversation] = {}
+    for sid, entry in listed.items():
+        summary = entry.get("summary", {}) if isinstance(entry, dict) else {}
+        conversations[sid] = Conversation(
+            sid,
+            summary.get("Title") or summary.get("Preview") or "",
+            tuple(workspace_path(uri) for uri in summary.get("WorkspaceURIs") or ()),
+            bool(entry.get("is_internal") or summary.get("Internal")),
+        )
+    return conversations
+
+
+def transcript_of(agy_dir: Path, sid: str) -> Path:
+    return agy_dir / "brain" / sid / TRANSCRIPT_FILE
+
+
+def user_request(content: str) -> str:
+    """The text the user typed, without the metadata agy wraps around it."""
+    found = USER_REQUEST.search(content)
+    return found.group(1) if found else content
+
+
+def read_turns(path: Path) -> Iterator[tuple[str, str]]:
+    """Yield (role, text) for every prompt and reply in a transcript."""
+    try:
+        with path.open(errors="replace") as f:
+            for line in f:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                role = ROLE_OF_RECORD.get(record.get("type"))
+                content = record.get("content")
+                if role is None or not isinstance(content, str):
+                    continue
+                text = session_picker.flatten(user_request(content) if role == "user" else content)
+                if text:
+                    yield role, text
+    except OSError:
+        return
+
+
+def scan_transcript(path: Path) -> tuple[str, str]:
+    """Return (first prompt, searchable content), lowercased once so the per-keystroke search never has to."""
+    first_prompt = ""
+    chunks: list[str] = []
+    for role, text in read_turns(path):
+        if not first_prompt and role == "user":
+            first_prompt = text
+        chunks.append(text)
+    return first_prompt, " ".join(chunks).lower()
+
+
+def in_scope(conversation: Conversation, folder: Path, all_projects: bool) -> bool:
+    return not conversation.internal and (all_projects or str(folder) in conversation.workspaces)
+
+
+def build_sessions(
+    agy_dir: Path, folder: Path, all_projects: bool, force_rebuild: bool = False,
+) -> list[session_search.Session]:
+    """Index every conversation in scope, reusing cached text whose transcript mtime is unchanged."""
+    conversations = read_conversations(agy_dir)
+    cache = {} if force_rebuild else session_picker.load_cache(CACHE_PATH, CACHE_HEADER)
+    fresh: dict[str, session_picker.CacheEntry] = {}
+    sessions: list[session_search.Session] = []
+    for sid, conversation in conversations.items():
+        transcript = transcript_of(agy_dir, sid)
+        try:
+            mtime = int(transcript.stat().st_mtime)
+        except OSError:
+            continue
+        cached = cache.get(sid)
+        if cached and cached.stamp == mtime:
+            title, content = conversation.title or cached.title, cached.content
+        else:
+            first_prompt, content = scan_transcript(transcript)
+            title = conversation.title or first_prompt or NO_PROMPT
+        fresh[sid] = session_picker.CacheEntry(mtime, title, content)
+        if in_scope(conversation, folder, all_projects):
+            sessions.append(session_search.Session(sid, mtime, title, content, conversation.project))
+    session_picker.save_cache(CACHE_PATH, CACHE_HEADER, fresh)
+    return sessions
+
+
+def load_sessions(agy_dir: Path, folder: Path, all_projects: bool) -> list[session_search.Session]:
+    """Read the cache only - the fast path fzf calls on every keystroke."""
+    conversations = read_conversations(agy_dir)
+    return [
+        session_search.Session(sid, entry.stamp, entry.title, entry.content, conversations[sid].project)
+        for sid, entry in session_picker.load_cache(CACHE_PATH, CACHE_HEADER).items()
+        if sid in conversations and in_scope(conversations[sid], folder, all_projects)
+    ]
+
+
+def build_rows(sessions: list[session_search.Session], show_project: bool, count: int) -> list[str]:
+    return [
+        session_picker.format_row(
+            session_picker.format_display(s.title, s.updated_at, s.project if show_project else ""), s.sid,
+        )
+        for s in sessions[:count]
+    ]
+
+
+def rank(sessions: list[session_search.Session], raw_query: str) -> list[session_search.Session]:
+    return session_search.search(sessions, session_search.parse_query(raw_query))
+
+
+def render_preview(agy_dir: Path, sid: str, raw_query: str = "") -> str:
+    transcript = transcript_of(agy_dir, sid)
+    if not transcript.is_file():
+        return f"conversation {sid} not found"
+    tokens = session_search.highlight_tokens(session_search.parse_query(raw_query))
+    out = [f"{session_picker.DIM}{sid}{session_picker.RESET}", ""]
+    for turns, (role, text) in enumerate(read_turns(transcript)):
+        if turns >= session_picker.PREVIEW_TURN_LIMIT:
+            out.append(f"{session_picker.DIM}…(truncated){session_picker.RESET}")
+            break
+        out.extend(session_picker.render_turn(role, text, tokens))
+    return "\n".join(out)
+
+
+def cmd_preview(sid: str, raw_query: str) -> int:
+    print(render_preview(AGY_DIR, sid, raw_query))
+    return 0
+
+
+def cmd_search(raw_query: str, count: int, all_projects: bool) -> int:
+    sessions = rank(load_sessions(AGY_DIR, Path.cwd(), all_projects), raw_query)
+    session_picker.write_rows(build_rows(sessions, all_projects, count))
+    return 0
+
+
+def build_commands(count: int, all_projects: bool) -> session_picker.PickerCommands:
+    self_path = shlex.quote(str(Path(__file__).resolve()))
+    scope_flag = " -a" if all_projects else ""
+    return session_picker.PickerCommands(
+        preview=f"{self_path} --preview-id={{2}} --preview-query={{q}}",
+        reload=f"{self_path} --search-query={{q}} -n {count}{scope_flag}",
+    )
+
+
+def cmd_pick(raw_query: str, count: int, all_projects: bool, rebuild: bool, agy_args: list[str]) -> int:
+    if not (AGY_DIR / "brain").is_dir():
+        print(f"agy conversations not found: {AGY_DIR}", file=sys.stderr)
+        return 1
+    sessions = build_sessions(AGY_DIR, Path.cwd(), all_projects, force_rebuild=rebuild)
+    if not sessions:
+        where = "any project" if all_projects else f"the current project ({Path.cwd()}). Use -a for all projects"
+        print(f"No conversations for {where}", file=sys.stderr)
+        return 1
+
+    try:
+        sid = session_picker.pick(
+            build_rows(rank(sessions, raw_query), all_projects, count), raw_query,
+            f"Resume conversation | {session_picker.FZF_HEADER_HINT}",
+            build_commands(count, all_projects),
+        )
+    except FileNotFoundError as e:
+        print(e, file=sys.stderr)
+        return 2
+    if sid is None:
+        return 1
+
+    agy = shutil.which("agy")
+    if not agy:
+        print("agy not found on PATH", file=sys.stderr)
+        return 2
+    os.execvp(agy, [agy, "--conversation", sid, *agy_args])
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="agy-resume", add_help=True)
+    parser.add_argument("search", nargs="*", default=[])
+    parser.add_argument("-n", "--count", type=int, default=10000)
+    parser.add_argument("-a", "--all", action="store_true")
+    parser.add_argument("--rebuild", action="store_true", help="force cache rebuild")
+    parser.add_argument("--preview-id", dest="preview_id", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--preview-query", dest="preview_query", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--search-query", dest="search_query", default=None, help=argparse.SUPPRESS)
+
+    our_argv, agy_args = session_picker.split_args(sys.argv[1:])
+    args = parser.parse_args(our_argv)
+
+    if args.preview_id:
+        return cmd_preview(args.preview_id, args.preview_query)
+    if args.search_query is not None:
+        return cmd_search(args.search_query, args.count, args.all)
+    return cmd_pick(" ".join(args.search), args.count, args.all, args.rebuild, agy_args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
