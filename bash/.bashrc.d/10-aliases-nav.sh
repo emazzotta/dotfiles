@@ -31,3 +31,6 @@ alias prp='cd $PRIVATE_PROJECTS'
 alias lrp='cd $WDIR/leo-productions'
 alias utmdir='cd $HOME/Library/Containers/com.utmapp.UTM/Data/Documents'
 alias w='cd $WDIR'
+
+### OPEN IN FINDER ###
+alias memos='open "$HOME/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings"'
