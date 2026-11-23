@@ -1,6 +1,7 @@
 import io
 import json
 import threading
+import time
 from contextlib import redirect_stderr
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -23,11 +24,21 @@ def notify(load_script, tmp_path, monkeypatch):
     monkeypatch.setattr(module, "STATE_DIR", tmp_path / "state")
     monkeypatch.setattr(module, "DEVBOX_TOKEN_FILE", tmp_path / "no-token")
     monkeypatch.setattr(module, "IS_MAC", False)
+    monkeypatch.setattr(module.presence, "PRESENCE_DIR", tmp_path / "presence")
     monkeypatch.setattr(module.socket, "gethostname", lambda: "f635a28c3a2e")
     monkeypatch.setenv("CLAUDE_PROJECTS", str(tmp_path / "projects"))
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
     monkeypatch.delenv("TMUX_PANE", raising=False)
     return module
+
+
+def _reader(notify, kind):
+    return lambda: notify.presence.Presence(kind)
+
+
+@pytest.fixture
+def at_a_computer(notify):
+    return _reader(notify, "computer")
 
 
 @pytest.fixture
@@ -114,11 +125,12 @@ class TestFinishedPing:
 
         assert [body["title"] for body in delivered] == [None]
 
-    def should_wait_ten_minutes_in_short_polls_before_sending(self, notify, spawned, delivered):
+    def should_wait_ten_minutes_in_short_polls_before_sending_while_someone_is_at_a_computer(
+            self, notify, spawned, delivered, at_a_computer):
         _hook(notify, "Stop", last_assistant_message="Done.")
         waited = []
 
-        notify.fire(SESSION, _armed_token(spawned), sleep=waited.append)
+        notify.fire(SESSION, _armed_token(spawned), sleep=waited.append, presence_reader=at_a_computer)
 
         assert waited == [5.0] * 120
         assert [body["text"] for body in delivered] == ["Done."]
@@ -179,6 +191,91 @@ class TestFinishedPing:
         assert spawned == []
 
 
+class TestPresenceTiming:
+    @pytest.mark.parametrize("kind", ["away", "unknown"])
+    def should_send_at_the_first_poll_when_nobody_is_at_a_web_terminal(self, notify, spawned, delivered, kind):
+        _hook(notify, "Stop", last_assistant_message="Done.")
+        waited = []
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=waited.append, presence_reader=_reader(notify, kind))
+
+        assert waited == [5.0]
+        assert [body["text"] for body in delivered] == ["Done."]
+
+    def should_send_a_prompt_ping_at_the_first_poll_when_nobody_is_at_a_web_terminal(self, notify, spawned, delivered):
+        _ask(notify)
+        waited = []
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=waited.append, presence_reader=_reader(notify, "away"))
+
+        assert waited == [5.0]
+        assert [body["kind"] for body in delivered] == ["prompt"]
+
+    @pytest.mark.parametrize("kind", ["computer", "phone"])
+    def should_keep_the_ten_minute_wait_while_someone_is_present(self, notify, spawned, delivered, kind):
+        _hook(notify, "Stop", last_assistant_message="Done.")
+        waited = []
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=waited.append, presence_reader=_reader(notify, kind))
+
+        assert waited == [5.0] * 120
+        assert [body["text"] for body in delivered] == ["Done."]
+
+    def should_send_at_the_next_poll_when_the_last_person_leaves_during_the_wait(self, notify, spawned, delivered):
+        _hook(notify, "Stop", last_assistant_message="Done.")
+        states = iter(["computer", "computer", "phone", "away", "computer"])
+        waited = []
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=waited.append,
+                    presence_reader=lambda: notify.presence.Presence(next(states)))
+
+        assert waited == [5.0] * 4
+        assert [body["text"] for body in delivered] == ["Done."]
+
+    def should_let_a_prompt_submit_cancel_a_ping_that_is_due_at_the_first_poll(self, notify, spawned, delivered):
+        _hook(notify, "Stop", last_assistant_message="Done.")
+
+        def submit_before_the_poll_ends(seconds):
+            _hook(notify, "UserPromptSubmit", prompt="next")
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=submit_before_the_poll_ends,
+                    presence_reader=_reader(notify, "away"))
+
+        assert delivered == []
+
+    def should_let_a_pane_in_use_cancel_a_ping_when_no_web_terminal_is_open(
+            self, notify, spawned, delivered, monkeypatch):
+        monkeypatch.setenv("TMUX_PANE", PANE)
+        _hook(notify, "Stop", last_assistant_message="Done.")
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None, presence_reader=_reader(notify, "away"),
+                    clients=lambda: [notify.TmuxClient(PANE, LONG_AGO, LONG_AFTER)])
+
+        assert delivered == []
+
+    def should_read_the_presence_folder_by_default(self, notify, spawned, delivered):
+        _hook(notify, "Stop", last_assistant_message="Done.")
+        token = _armed_token(spawned)
+        folder = notify.presence.PRESENCE_DIR
+        folder.mkdir(parents=True)
+        (folder / "terminal").write_text(f"{int(time.time())} phone\n")
+        waited = []
+
+        notify.fire(SESSION, token, sleep=waited.append)
+
+        assert waited == [5.0] * 120
+        assert [body["text"] for body in delivered] == ["Done."]
+
+    def should_send_at_the_first_poll_by_default_when_the_presence_folder_is_missing(
+            self, notify, spawned, delivered):
+        _hook(notify, "Stop", last_assistant_message="Done.")
+        waited = []
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=waited.append)
+
+        assert waited == [5.0]
+
+
 class TestSeenPane:
     def should_not_ping_when_a_client_showing_the_pane_was_used_after_the_reply(
             self, notify, spawned, delivered, monkeypatch):
@@ -199,11 +296,11 @@ class TestSeenPane:
         (PANE, LONG_AFTER, LONG_AFTER),
     ], ids=["used-before-the-reply", "other-pane-used", "only-attached-after-the-reply"])
     def should_ping_when_no_client_used_the_pane_after_the_reply(
-            self, notify, spawned, delivered, monkeypatch, pane, created, activity):
+            self, notify, spawned, delivered, monkeypatch, at_a_computer, pane, created, activity):
         monkeypatch.setenv("TMUX_PANE", PANE)
         _hook(notify, "Stop", last_assistant_message="Done.")
 
-        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None,
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None, presence_reader=at_a_computer,
                     clients=lambda: [notify.TmuxClient(pane, created, activity)])
 
         assert [body["text"] for body in delivered] == ["Done."]
@@ -264,11 +361,12 @@ class TestPromptPing:
 
         assert [body["kind"] for body in delivered] == ["prompt"]
 
-    def should_wait_ten_minutes_in_short_polls_before_sending(self, notify, spawned, delivered):
+    def should_wait_ten_minutes_in_short_polls_before_sending_while_someone_is_at_a_computer(
+            self, notify, spawned, delivered, at_a_computer):
         _ask(notify)
         waited = []
 
-        notify.fire(SESSION, _armed_token(spawned), sleep=waited.append)
+        notify.fire(SESSION, _armed_token(spawned), sleep=waited.append, presence_reader=at_a_computer)
 
         assert waited == [5.0] * 120
         assert [body["text"] for body in delivered] == ["Asks: Tea or coffee?"]

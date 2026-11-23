@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Ping Telegram through mazzotta-bot when a Claude session waits for input.
 
-As a Claude Code hook (no arguments, the hook's JSON on stdin), it arms a ping that goes
-out 10 min later unless the session was seen first: a prompt was submitted, or a tmux
-client showing its pane got a key or a focus change. Attaching alone does not count,
-since the web terminal reattaches every tab at once.
+As a Claude Code hook (no arguments, the hook's JSON on stdin), it arms a ping. With a
+computer or phone at a web terminal (presence.py), the ping goes out 10 min later unless
+the session was seen first: a prompt was submitted, or a tmux client showing its pane got
+a key or a focus change. Attaching alone does not count, since the web terminal reattaches
+every tab at once. With nobody there, or no way to tell, it goes out at the next 5 s poll,
+unless a prompt was submitted or the prompted tool finished first. Someone showing up
+before that poll puts it back on the 10 min wait.
 - Stop arms the ping with the first sentence of the reply. Background agents still at
   work for the session hold it.
 - PermissionRequest notes what the prompt is about. The permission_prompt Notification,
@@ -38,6 +41,7 @@ from pathlib import Path
 from typing import Final
 from uuid import UUID
 
+import presence
 import session_title
 
 PING_DELAY: Final = timedelta(minutes=10)
@@ -67,8 +71,9 @@ or cancels a Telegram ping through the unlock service.
 
   send                read a notice ({"session", "container", "title", "text", "kind"}) on stdin and
                       deliver it; the keyguard bridge endpoint runs this on the Mac
-  fire SESSION TOKEN  internal: wait 10 minutes, then send the session's pending ping
-                      if TOKEN still holds it and the session's tmux pane went unseen
+  fire SESSION TOKEN  internal: wait for the session's pending ping to fall due (10 minutes
+                      with someone at a web terminal, one poll without), then send it if
+                      TOKEN still holds it and the session's tmux pane went unseen
 
 Options:
   -h, --help  show this help and exit
@@ -255,24 +260,30 @@ def armed_ping(session: UUID, token: str) -> dict | None:
     return pending if pending is not None and pending.get("token") == token else None
 
 
-def wait_unseen(session: UUID, token: str, sleep: Callable[[float], None], seen: Callable[[], bool]) -> bool:
+def wait_until_due(session: UUID, token: str, sleep: Callable[[float], None], seen: Callable[[], bool],
+                   away: Callable[[], bool]) -> bool:
     for _ in range(PING_DELAY // SEEN_POLL):
         sleep(SEEN_POLL.total_seconds())
         if armed_ping(session, token) is None or seen():
             return False
+        if away():
+            return True
     return True
 
 
 def fire(session: UUID, token: str, sleep: Callable[[float], None] = time.sleep,
-         clients: Callable[[], Iterable[TmuxClient]] = tmux_clients) -> int:
+         clients: Callable[[], Iterable[TmuxClient]] = tmux_clients,
+         presence_reader: Callable[[], presence.Presence] = presence.current) -> int:
     armed = datetime.now(timezone.utc).replace(microsecond=0)
     pane = os.environ.get("TMUX_PANE")
-    unseen = wait_unseen(session, token, sleep, lambda: pane is not None and seen_since(pane, armed, clients()))
+    due = wait_until_due(session, token, sleep,
+                         lambda: pane is not None and seen_since(pane, armed, clients()),
+                         lambda: not presence_reader().attended)
     ping = armed_ping(session, token)
     if ping is None:
         return 0
     take_state(state_file(session, "pending"))
-    return deliver(json.dumps(notice(session, ping["text"], PingKind(ping["kind"])))) if unseen else 0
+    return deliver(json.dumps(notice(session, ping["text"], PingKind(ping["kind"])))) if due else 0
 
 
 def post_to_store(body: str, bearer: str | None) -> int:
