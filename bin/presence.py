@@ -1,6 +1,7 @@
 """Who sits at a web terminal right now, read from ~/.claude/presence.
 
-Each file in the folder is one web-terminal instance. Each line is `<epoch-seconds> <kind>` with kind
+Each file in the folder is one web-terminal instance (a name starting with a dot is a temporary
+write and is skipped). Each line is `<epoch-seconds> <kind>` with kind
 `computer` or `phone`, and stays fresh for 120 seconds. A malformed line is ignored. A missing or
 unreadable folder is `unknown`, which callers treat as away.
 """
@@ -57,7 +58,7 @@ def file_lines(path: Path) -> list[str]:
 
 def folder_lines(folder: Path) -> list[str] | None:
     try:
-        files = [entry for entry in folder.iterdir() if entry.is_file()]
+        files = [entry for entry in folder.iterdir() if not entry.name.startswith(".") and entry.is_file()]
     except OSError:
         return None
     return [line for entry in files for line in file_lines(entry)]

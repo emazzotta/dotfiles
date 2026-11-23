@@ -67,20 +67,51 @@ class TestFolderLines:
 
         assert presence.folder_lines(tmp_path / "presence") is None
 
+    def should_skip_every_file_whose_name_starts_with_a_dot(self, presence, tmp_path):
+        (tmp_path / ".terminal.tmp").write_text(f"{NOW} computer\n")
+        (tmp_path / ".hidden").write_text(f"{NOW} computer\n")
+        (tmp_path / "terminal").write_text(f"{NOW} phone\n")
+
+        lines = presence.folder_lines(tmp_path)
+
+        assert lines == [f"{NOW} phone"]
+        assert presence.classify(lines, NOW) == presence.Presence.PHONE
+
+    def should_count_a_normal_file_beside_a_temporary_write(self, presence, tmp_path):
+        (tmp_path / ".terminal.tmp").write_text(f"{NOW} phone\n")
+        (tmp_path / "terminal").write_text(f"{NOW} computer\n")
+
+        assert presence.classify(presence.folder_lines(tmp_path), NOW) == presence.Presence.COMPUTER
+
+    def should_give_away_when_only_a_temporary_write_is_there(self, presence, tmp_path):
+        (tmp_path / ".terminal.tmp").write_text(f"{NOW} computer\n")
+
+        assert presence.classify(presence.folder_lines(tmp_path), NOW) == presence.Presence.AWAY
+
+    def should_merge_equal_lines_from_several_files(self, presence, tmp_path):
+        (tmp_path / "terminal-a").write_text(f"{NOW} phone\n{NOW} phone\n")
+        (tmp_path / "terminal-b").write_text(f"{NOW} phone\n")
+
+        lines = presence.folder_lines(tmp_path)
+
+        assert lines == [f"{NOW} phone"] * 3
+        assert presence.classify(lines, NOW) == presence.Presence.PHONE
+
     def should_skip_a_subfolder(self, presence, tmp_path):
         (tmp_path / "nested").mkdir()
         (tmp_path / "terminal").write_text("1 phone\n")
 
         assert presence.folder_lines(tmp_path) == ["1 phone"]
 
-    def should_skip_a_file_it_cannot_read_and_keep_the_others(self, presence, tmp_path, monkeypatch):
+    @pytest.mark.parametrize("failure", [PermissionError, FileNotFoundError], ids=["unreadable", "vanished"])
+    def should_skip_a_file_it_cannot_read_and_keep_the_others(self, presence, tmp_path, monkeypatch, failure):
         (tmp_path / "locked").write_text("1 computer\n")
         (tmp_path / "open").write_text("2 phone\n")
         read_text = type(tmp_path).read_text
 
         def read_unless_locked(path, *args, **kwargs):
             if path.name == "locked":
-                raise PermissionError(path)
+                raise failure(path)
             return read_text(path, *args, **kwargs)
 
         monkeypatch.setattr(type(tmp_path), "read_text", read_unless_locked)
