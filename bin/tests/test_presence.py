@@ -32,6 +32,7 @@ class TestClassify:
     @pytest.mark.parametrize("line", [
         "", "   ", "garbage", f"{NOW}", "computer", f"computer {NOW}", f"{NOW} tablet", f"{NOW} computer extra",
         f"{NOW} Computer", "-5 computer", f"{NOW}.5 computer", f"{NOW}computer",
+        f"{'9' * 13} computer", f"{'9' * 5000} computer", "\u0663\u0664 computer",
     ])
     def should_ignore_a_line_in_a_bad_format(self, presence, line):
         assert presence.classify([line], NOW) == presence.Presence.AWAY

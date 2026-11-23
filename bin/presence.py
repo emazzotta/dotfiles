@@ -17,7 +17,7 @@ from typing import Final
 
 PRESENCE_DIR: Final = Path.home() / ".claude" / "presence"
 FRESH_FOR: Final = timedelta(seconds=120)
-LINE: Final = re.compile(r"(\d+)\s+(computer|phone)")
+LINE: Final = re.compile(r"([0-9]{1,12})\s+(computer|phone)")
 
 
 class Presence(Enum):
