@@ -13,6 +13,12 @@ before that poll puts it back on the 10 min wait.
   terminal sets on a window it opens for a Telegram request. An answer ignores presence
   and tmux activity: it goes out at the next 5 s poll unless its pending ping is gone or
   was replaced. Background agents still at work for the session hold it.
+- On a window that also carries `@wt_ephemeral 1`, which the web terminal sets when the
+  Telegram request asked for a one-shot session, the answer closes the window once the
+  unlock service accepted it (tmux kill-window). The window stays, and the message says
+  why in its first line, when background shells or crons may still run, or when the last
+  line of the reply is a question. It stays too, silently, when the send failed, since the
+  answer then lives only there. The flag stays on the window: the next Stop is judged anew.
 - PermissionRequest notes what the prompt is about. The permission_prompt Notification,
   which Claude Code raises only once a prompt has waited about 6 s unanswered, arms it.
 - PostToolUse and PostToolUseFailure of the prompted tool cancel the prompt's ping: an
@@ -51,8 +57,11 @@ PING_DELAY: Final = timedelta(minutes=10)
 SEEN_POLL: Final = timedelta(seconds=5)
 TMUX_TIMEOUT: Final = timedelta(seconds=2)
 TMUX_CLIENT_FORMAT: Final = "#{pane_id}\t#{client_created}\t#{client_activity}"
-ORIGIN_FORMAT: Final = "#{@wt_origin}"
+WINDOW_FORMAT: Final = "#{@wt_origin}\t#{@wt_ephemeral}"
 AUTOMATION_ORIGIN: Final = "automation"
+EPHEMERAL_FLAG: Final = "1"
+BACKGROUND_NOTE: Final = "Window kept open: background work may still be running."
+QUESTION_NOTE: Final = "Window kept open: the reply ends with a question."
 SEND_TIMEOUT: Final = timedelta(seconds=10)
 SENTENCE_LIMIT: Final = 200
 FINISHED_FALLBACK: Final = "Finished, waiting for your input."
@@ -67,6 +76,7 @@ CANARY: Final = re.compile(
     r"^\s*Emanuele,\s*(?:\d{4}-\d{2}-\d{2} \d{2}:\d{2} [A-Z]+ \([^)]*\):\s*)?")
 MARKDOWN_LINK: Final = re.compile(r"\[([^\]]+)\]\([^)]*\)")
 MARKDOWN_EMPHASIS: Final = re.compile(r"\*\*|__|`")
+TRAILING_MARKUP: Final = "*_`"
 LINE_MARKER: Final = re.compile(r"^(?:[#>*\-]+|\d+\.)\s+")
 SENTENCE_END: Final = re.compile(r"(?<=[.!?])\s")
 USAGE: Final = """Usage: claude-notify [send | fire SESSION TOKEN]
@@ -79,7 +89,9 @@ or cancels a Telegram ping through the unlock service.
   fire SESSION TOKEN  internal: wait for the session's pending ping to fall due (10 minutes
                       with someone at a web terminal, one poll without, and one poll for
                       an answer whoever is there), then send it if TOKEN still holds it and
-                      the session's tmux pane went unseen (an answer ignores the pane)
+                      the session's tmux pane went unseen (an answer ignores the pane); an
+                      answer of a one-shot window then closes the window if TOKEN still
+                      holds it and the send succeeded
 
 Options:
   -h, --help  show this help and exit
@@ -117,6 +129,21 @@ def is_unattended() -> bool:
 def background_work_pending(event: dict) -> bool:
     tasks = event.get("background_tasks") or []
     return any(task.get("type") not in WAKING_TASK_TYPES_EXEMPT for task in tasks)
+
+
+def work_may_remain(event: dict) -> bool:
+    return any(event.get(key) is None or bool(event[key]) for key in ("background_tasks", "session_crons"))
+
+
+def ends_with_question(reply: str) -> bool:
+    lines = [line.rstrip() for line in reply.splitlines() if line.strip()]
+    return bool(lines) and lines[-1].rstrip(TRAILING_MARKUP).endswith("?")
+
+
+def open_note(event: dict, reply: str) -> str | None:
+    if work_may_remain(event):
+        return BACKGROUND_NOTE
+    return QUESTION_NOTE if ends_with_question(reply) else None
 
 
 def container_label() -> str | None:
@@ -167,9 +194,9 @@ def spawn(arguments: Sequence[str]) -> None:
                      start_new_session=True)
 
 
-def arm(session: UUID, text: str, kind: PingKind, prompt: dict | None = None) -> None:
+def arm(session: UUID, text: str, kind: PingKind, prompt: dict | None = None, close: bool = False) -> None:
     token = secrets.token_hex(8)
-    pending = {"token": token, "text": text, "kind": kind.value, "prompt": prompt}
+    pending = {"token": token, "text": text, "kind": kind.value, "prompt": prompt, "close": close}
     write_state(state_file(session, "pending"), json.dumps(pending))
     spawn(["fire", str(session), token])
 
@@ -183,10 +210,13 @@ def on_stop(session: UUID, event: dict) -> None:
         take_state(state_file(session, "pending"))
         return
     reply = event.get("last_assistant_message") or ""
-    if window_origin() == AUTOMATION_ORIGIN:
-        arm(session, reply if reply.strip() else FINISHED_FALLBACK, PingKind.ANSWER)
-    else:
+    marks = window_marks()
+    if not marks.automation:
         arm(session, first_sentence(reply), PingKind.FINISHED)
+        return
+    answer = reply if reply.strip() else FINISHED_FALLBACK
+    note = open_note(event, answer) if marks.one_shot else None
+    arm(session, f"{note}\n\n{answer}" if note else answer, PingKind.ANSWER, close=marks.one_shot and note is None)
 
 
 def on_permission_request(session: UUID, event: dict) -> None:
@@ -264,9 +294,32 @@ def tmux_clients() -> list[TmuxClient]:
     return parse_clients(tmux_output("list-clients", "-F", TMUX_CLIENT_FORMAT))
 
 
-def window_origin() -> str:
+@dataclass(frozen=True)
+class WindowMarks:
+    origin: str = ""
+    ephemeral: str = ""
+
+    @property
+    def automation(self) -> bool:
+        return self.origin == AUTOMATION_ORIGIN
+
+    @property
+    def one_shot(self) -> bool:
+        return self.automation and self.ephemeral == EPHEMERAL_FLAG
+
+
+def window_marks() -> WindowMarks:
     pane = os.environ.get("TMUX_PANE")
-    return tmux_output("display-message", "-p", "-t", pane, ORIGIN_FORMAT).strip() if pane else ""
+    if not pane:
+        return WindowMarks()
+    origin, _, ephemeral = tmux_output("display-message", "-p", "-t", pane, WINDOW_FORMAT).rstrip("\n").partition("\t")
+    return WindowMarks(origin, ephemeral)
+
+
+def close_window() -> None:
+    pane = os.environ.get("TMUX_PANE")
+    if pane and window_marks().one_shot:
+        tmux_output("kill-window", "-t", pane)
 
 
 def seen_since(pane: str, armed: datetime, clients: Iterable[TmuxClient]) -> bool:
@@ -305,8 +358,23 @@ def fire(session: UUID, token: str, sleep: Callable[[float], None] = time.sleep,
     ping = armed_ping(session, token)
     if ping is None:
         return 0
-    take_state(state_file(session, "pending"))
-    return deliver(json.dumps(notice(session, ping["text"], PingKind(ping["kind"])))) if due else 0
+    if not due:
+        take_state(state_file(session, "pending"))
+        return 0
+    body = json.dumps(notice(session, ping["text"], PingKind(ping["kind"])))
+    if not ping.get("close"):
+        take_state(state_file(session, "pending"))
+        return deliver(body)
+    return deliver_then_close(session, token, body)
+
+
+def deliver_then_close(session: UUID, token: str, body: str) -> int:
+    sent = deliver(body)
+    if armed_ping(session, token) is not None:
+        take_state(state_file(session, "pending"))
+        if sent == 0:
+            close_window()
+    return sent
 
 
 def post_to_store(body: str, bearer: str | None) -> int:

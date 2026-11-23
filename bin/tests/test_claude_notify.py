@@ -1,10 +1,15 @@
 import io
 import json
+import os
+import shutil
+import subprocess
+import tempfile
 import threading
 import time
 from contextlib import redirect_stderr
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from types import SimpleNamespace
 from typing import ClassVar
 from uuid import UUID
 
@@ -25,7 +30,7 @@ def notify(load_script, tmp_path, monkeypatch):
     monkeypatch.setattr(module, "DEVBOX_TOKEN_FILE", tmp_path / "no-token")
     monkeypatch.setattr(module, "IS_MAC", False)
     monkeypatch.setattr(module.presence, "PRESENCE_DIR", tmp_path / "presence")
-    monkeypatch.setattr(module, "window_origin", lambda: "")
+    monkeypatch.setattr(module, "window_marks", module.WindowMarks)
     monkeypatch.setattr(module.socket, "gethostname", lambda: "f635a28c3a2e")
     monkeypatch.setenv("CLAUDE_PROJECTS", str(tmp_path / "projects"))
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
@@ -44,7 +49,22 @@ def at_a_computer(notify):
 
 @pytest.fixture
 def from_telegram(notify, monkeypatch):
-    monkeypatch.setattr(notify, "window_origin", lambda: "automation")
+    monkeypatch.setattr(notify, "window_marks", lambda: notify.WindowMarks("automation"))
+
+
+def _record_kill(window, arguments):
+    if arguments[0] == "kill-window":
+        window.events.append(arguments)
+    return ""
+
+
+@pytest.fixture
+def one_shot(notify, monkeypatch):
+    window = SimpleNamespace(marks=notify.WindowMarks("automation", "1"), events=[])
+    monkeypatch.setattr(notify, "window_marks", lambda: window.marks)
+    monkeypatch.setattr(notify, "tmux_output", lambda *arguments: _record_kill(window, arguments))
+    monkeypatch.setenv("TMUX_PANE", PANE)
+    return window
 
 
 @pytest.fixture
@@ -229,7 +249,7 @@ class TestAnswerPing:
     @pytest.mark.parametrize("origin", ["", "user", "automation-x", "Automation"])
     def should_keep_the_first_sentence_ping_for_any_other_origin(
             self, notify, spawned, delivered, monkeypatch, origin):
-        monkeypatch.setattr(notify, "window_origin", lambda: origin)
+        monkeypatch.setattr(notify, "window_marks", lambda: notify.WindowMarks(origin))
         _hook(notify, "Stop", last_assistant_message="Done. Details follow.")
 
         notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
@@ -298,30 +318,235 @@ class TestAnswerPing:
         assert [(body["text"], body["kind"]) for body in delivered] == [("Asks: Tea or coffee?", "prompt")]
 
 
-class TestWindowOrigin:
-    def should_ask_tmux_for_the_option_of_the_window_holding_the_pane(self, load_script, monkeypatch):
+NO_WORK = {"background_tasks": [], "session_crons": []}
+
+
+def _stop(notify, reply, **fields):
+    _hook(notify, "Stop", last_assistant_message=reply, **fields)
+
+
+def _fire(notify, spawned, index=0, **kwargs):
+    return notify.fire(SESSION, spawned[index][2], sleep=lambda seconds: None, **kwargs)
+
+
+class TestOneShotWindow:
+    REPLY = "Emanuele, the build is green.\n\nNothing else to do."
+    CLOSE = ("kill-window", "-t", PANE)
+
+    def should_close_the_window_once_the_answer_was_sent(self, notify, spawned, delivered, one_shot):
+        _stop(notify, self.REPLY, **NO_WORK)
+
+        assert _fire(notify, spawned) == 0
+        assert [(body["kind"], body["text"]) for body in delivered] == [("answer", self.REPLY)]
+        assert one_shot.events == [self.CLOSE]
+
+    def should_close_only_after_the_send_returned(self, notify, spawned, one_shot, monkeypatch):
+        monkeypatch.setattr(notify, "deliver", lambda body: one_shot.events.append(("send",)) or 0)
+        _stop(notify, self.REPLY, **NO_WORK)
+
+        _fire(notify, spawned)
+
+        assert one_shot.events == [("send",), self.CLOSE]
+
+    @pytest.mark.parametrize("fields", [
+        {"background_tasks": [{"type": "shell"}], "session_crons": []},
+        {"background_tasks": [], "session_crons": [{"id": "cron-1"}]},
+        {"session_crons": []},
+        {"background_tasks": []},
+        {},
+    ], ids=["shell", "cron", "no background_tasks key", "no session_crons key", "no keys"])
+    def should_keep_the_window_and_say_why_when_background_work_may_remain(
+            self, notify, spawned, delivered, one_shot, fields):
+        _stop(notify, self.REPLY, **fields)
+
+        _fire(notify, spawned)
+
+        assert [(body["kind"], body["text"]) for body in delivered] == [
+            ("answer", f"{notify.BACKGROUND_NOTE}\n\n{self.REPLY}")]
+        assert one_shot.events == []
+
+    @pytest.mark.parametrize("reply", [
+        "Shall I push?",
+        "Done.\n\nShall I push?\n\n",
+        "Done.\n\nShall I push?  \n  ",
+        "Done.\n\n**Shall I push?**",
+        "Done.\n\n_Shall I push?_",
+        "Done.\n\n- Option A?\n- Option B?",
+    ])
+    def should_keep_the_window_and_say_why_when_the_reply_ends_with_a_question(
+            self, notify, spawned, delivered, one_shot, reply):
+        _stop(notify, reply, **NO_WORK)
+
+        _fire(notify, spawned)
+
+        assert [body["text"] for body in delivered] == [f"{notify.QUESTION_NOTE}\n\n{reply}"]
+        assert one_shot.events == []
+
+    @pytest.mark.parametrize("reply", [
+        "Is it done? Yes, it is done.",
+        "Why? Because.\nIt works.",
+        "Done.\n\nThe question mark ? sits mid-line.",
+        "Done.",
+    ])
+    def should_close_the_window_when_a_question_is_not_the_last_line(
+            self, notify, spawned, delivered, one_shot, reply):
+        _stop(notify, reply, **NO_WORK)
+
+        _fire(notify, spawned)
+
+        assert [body["text"] for body in delivered] == [reply]
+        assert one_shot.events == [self.CLOSE]
+
+    def should_name_the_background_work_when_it_also_asks_a_question(self, notify, spawned, delivered, one_shot):
+        _stop(notify, "Shall I wait?", background_tasks=[{"type": "shell"}], session_crons=[])
+
+        _fire(notify, spawned)
+
+        assert [body["text"] for body in delivered] == [f"{notify.BACKGROUND_NOTE}\n\nShall I wait?"]
+
+    def should_keep_the_window_without_a_note_when_the_send_failed(self, notify, spawned, one_shot, monkeypatch):
+        bodies = []
+        monkeypatch.setattr(notify, "deliver", lambda body: bodies.append(json.loads(body)) or 1)
+        _stop(notify, self.REPLY, **NO_WORK)
+
+        assert _fire(notify, spawned) == 1
+        assert [body["text"] for body in bodies] == [self.REPLY]
+        assert one_shot.events == []
+
+    def should_keep_the_window_when_a_prompt_was_submitted_while_the_answer_was_sent(
+            self, notify, spawned, one_shot, monkeypatch):
+        def sent_while_the_owner_types(body):
+            _hook(notify, "UserPromptSubmit", prompt="one more thing")
+            return 0
+
+        monkeypatch.setattr(notify, "deliver", sent_while_the_owner_types)
+        _stop(notify, self.REPLY, **NO_WORK)
+
+        _fire(notify, spawned)
+
+        assert one_shot.events == []
+
+    def should_leave_the_close_to_a_newer_stop_that_came_while_the_answer_was_sent(
+            self, notify, spawned, one_shot, monkeypatch):
+        def sent_while_claude_stops_again(body):
+            _stop(notify, "Second answer.", **NO_WORK)
+            return 0
+
+        monkeypatch.setattr(notify, "deliver", sent_while_claude_stops_again)
+        _stop(notify, self.REPLY, **NO_WORK)
+
+        _fire(notify, spawned)
+
+        assert one_shot.events == []
+        assert notify.read_pending(SESSION)["token"] == spawned[1][2]
+
+    def should_keep_the_window_when_it_lost_a_flag_since_the_stop(self, notify, spawned, one_shot, monkeypatch):
+        def sent_after_the_flag_went(body):
+            one_shot.marks = notify.WindowMarks("automation", "")
+            return 0
+
+        monkeypatch.setattr(notify, "deliver", sent_after_the_flag_went)
+        _stop(notify, self.REPLY, **NO_WORK)
+
+        _fire(notify, spawned)
+
+        assert one_shot.events == []
+
+    def should_judge_each_stop_anew_while_the_flag_stays(self, notify, spawned, delivered, one_shot):
+        _stop(notify, "Shall I go on?", **NO_WORK)
+        _fire(notify, spawned)
+        assert one_shot.events == []
+
+        _stop(notify, "Yes, all done.", **NO_WORK)
+        _fire(notify, spawned, index=1)
+
+        assert [body["text"] for body in delivered] == [f"{notify.QUESTION_NOTE}\n\nShall I go on?", "Yes, all done."]
+        assert one_shot.events == [self.CLOSE]
+
+    def should_not_close_a_window_the_bot_started_without_the_ephemeral_flag(
+            self, notify, spawned, delivered, one_shot):
+        one_shot.marks = notify.WindowMarks("automation", "")
+        _stop(notify, "Shall I push?", **NO_WORK)
+
+        _fire(notify, spawned)
+
+        assert [(body["kind"], body["text"]) for body in delivered] == [("answer", "Shall I push?")]
+        assert one_shot.events == []
+
+    @pytest.mark.parametrize("origin", ["", "user", "Automation"])
+    def should_not_close_a_window_that_the_bot_did_not_start(self, notify, spawned, delivered, one_shot, origin):
+        one_shot.marks = notify.WindowMarks(origin, "1")
+        _stop(notify, self.REPLY, **NO_WORK)
+
+        _fire(notify, spawned)
+
+        assert [body["kind"] for body in delivered] == ["finished"]
+        assert one_shot.events == []
+
+    def should_not_close_a_window_while_background_agents_hold_the_answer(self, notify, spawned, one_shot):
+        _stop(notify, self.REPLY, background_tasks=[{"type": "subagent"}], session_crons=[])
+
+        assert spawned == []
+        assert one_shot.events == []
+
+    def should_not_close_a_window_that_waits_on_a_permission_prompt(self, notify, spawned, delivered, one_shot):
+        _ask(notify)
+
+        _fire(notify, spawned)
+
+        assert [body["kind"] for body in delivered] == ["prompt"]
+        assert one_shot.events == []
+
+    def should_arm_no_close_for_a_reply_that_is_not_in_a_one_shot_window(self, notify, spawned, from_telegram):
+        _stop(notify, self.REPLY, **NO_WORK)
+
+        assert notify.read_pending(SESSION)["close"] is False
+
+
+class TestWindowMarks:
+    def should_ask_tmux_once_for_both_options_of_the_window_holding_the_pane(self, load_script, monkeypatch):
         notify = load_script("claude-notify")
         monkeypatch.setenv("TMUX_PANE", PANE)
         runs = []
         monkeypatch.setattr(notify.subprocess, "run", lambda command, **kwargs: runs.append(command) or
-                            type("Done", (), {"stdout": "automation\n"})())
+                            type("Done", (), {"stdout": "automation\t1\n"})())
 
-        assert notify.window_origin() == "automation"
-        assert runs == [["tmux", "display-message", "-p", "-t", PANE, "#{@wt_origin}"]]
+        assert notify.window_marks() == notify.WindowMarks("automation", "1")
+        assert runs == [["tmux", "display-message", "-p", "-t", PANE, "#{@wt_origin}\t#{@wt_ephemeral}"]]
 
-    def should_give_nothing_when_the_option_is_not_set(self, load_script, monkeypatch):
+    @pytest.mark.parametrize("stdout, expected", [
+        ("automation\t\n", ("automation", "")),
+        ("\t1\n", ("", "1")),
+        ("\t\n", ("", "")),
+        ("\n", ("", "")),
+        ("", ("", "")),
+    ])
+    def should_read_an_option_that_is_not_set_as_empty(self, load_script, monkeypatch, stdout, expected):
         notify = load_script("claude-notify")
         monkeypatch.setenv("TMUX_PANE", PANE)
-        monkeypatch.setattr(notify.subprocess, "run", lambda command, **kwargs: type("Done", (), {"stdout": "\n"})())
+        monkeypatch.setattr(notify.subprocess, "run", lambda command, **kwargs: type("Done", (), {"stdout": stdout})())
 
-        assert notify.window_origin() == ""
+        assert notify.window_marks() == notify.WindowMarks(*expected)
+
+    @pytest.mark.parametrize("origin, ephemeral, automation, one_shot", [
+        ("automation", "1", True, True),
+        ("automation", "", True, False),
+        ("automation", "0", True, False),
+        ("", "1", False, False),
+        ("Automation", "1", False, False),
+        ("user", "1", False, False),
+    ])
+    def should_call_a_window_one_shot_only_with_both_options(self, notify, origin, ephemeral, automation, one_shot):
+        marks = notify.WindowMarks(origin, ephemeral)
+
+        assert (marks.automation, marks.one_shot) == (automation, one_shot)
 
     def should_not_ask_tmux_outside_a_pane(self, load_script, monkeypatch):
         notify = load_script("claude-notify")
         monkeypatch.delenv("TMUX_PANE", raising=False)
         monkeypatch.setattr(notify.subprocess, "run", lambda *args, **kwargs: pytest.fail("tmux was asked"))
 
-        assert notify.window_origin() == ""
+        assert notify.window_marks() == notify.WindowMarks()
 
     def should_give_nothing_when_tmux_cannot_run(self, load_script, monkeypatch):
         notify = load_script("claude-notify")
@@ -332,7 +557,7 @@ class TestWindowOrigin:
 
         monkeypatch.setattr(notify.subprocess, "run", missing_tmux)
 
-        assert notify.window_origin() == ""
+        assert notify.window_marks() == notify.WindowMarks()
 
 
 class TestPresenceTiming:
@@ -656,3 +881,48 @@ class TestMain:
     def should_reject_unknown_arguments(self, notify):
         with redirect_stderr(io.StringIO()):
             assert notify.main(["bogus"]) == 2
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(shutil.which("tmux") is None, reason="needs tmux")
+class TestRealTmux:
+    @pytest.fixture
+    def window(self, load_script, monkeypatch):
+        environment = {key: value for key, value in os.environ.items() if key not in ("TMUX", "TMUX_PANE")}
+        with tempfile.TemporaryDirectory(prefix="cn") as folder:
+            socket_path = f"{folder}/tmux.sock"
+
+            def tmux(*arguments):
+                command = ["tmux", "-S", socket_path, "-f", "/dev/null", *arguments]
+                return subprocess.run(command, capture_output=True, text=True, check=True, env=environment).stdout.strip()
+
+            tmux("new-session", "-d", "-s", "lab", "-n", "keep", "sleep 60")
+            pane = tmux("new-window", "-d", "-P", "-F", "#{pane_id}", "-n", "one-shot", "sleep 60")
+            tmux("set-option", "-w", "-t", pane, "@wt_origin", "automation")
+            tmux("set-option", "-w", "-t", pane, "@wt_ephemeral", "1")
+            monkeypatch.setenv("TMUX", f"{socket_path},0,0")
+            monkeypatch.setenv("TMUX_PANE", pane)
+            try:
+                yield SimpleNamespace(notify=load_script("claude-notify"), tmux=tmux, pane=pane)
+            finally:
+                subprocess.run(["tmux", "-S", socket_path, "kill-server"], capture_output=True, check=False, env=environment)
+
+    def should_read_both_options_of_the_window_holding_the_pane(self, window):
+        assert window.notify.window_marks() == window.notify.WindowMarks("automation", "1")
+
+    def should_read_an_option_that_is_not_set_as_empty(self, window):
+        window.tmux("set-option", "-w", "-u", "-t", window.pane, "@wt_ephemeral")
+
+        assert window.notify.window_marks() == window.notify.WindowMarks("automation", "")
+
+    def should_close_the_window_of_the_pane_and_no_other(self, window):
+        window.notify.close_window()
+
+        assert window.tmux("list-windows", "-F", "#{window_name}") == "keep"
+
+    def should_leave_a_window_without_the_flag_open(self, window):
+        window.tmux("set-option", "-w", "-u", "-t", window.pane, "@wt_ephemeral")
+
+        window.notify.close_window()
+
+        assert window.tmux("list-windows", "-F", "#{window_name}").splitlines() == ["keep", "one-shot"]
