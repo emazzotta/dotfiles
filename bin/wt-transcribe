@@ -1,0 +1,571 @@
+#!/usr/bin/env python3
+"""Transcribe the audio on stdin and print the text as one JSON line.
+
+web-terminal pipes a voice note over ssh into this script on the devbox. The audio stays
+in memory (at most 20 MB and 600 s, any format ffmpeg reads). One run loads the model,
+works and ends.
+
+Success: exit 0 and one line on stdout, for example
+  {"text": "...", "language": "en", "language_probability": 0.97, "low_confidence": false,
+   "seconds": 12.3, "model": "small", "elapsed": 0.9, "peak_mb": 762}
+Refusal: exit 3 and one line {"refused": "<code>", "detail": "<sentence>"}, with the code
+busy, low_memory, model_missing, not_installed, too_large, too_long, no_audio or timeout.
+A refusal can come before stdin is read. A usage error exits 2, any other failure exits
+with its own code and text on stderr, with nothing on stdout.
+seconds is the audio length, elapsed the model load plus the transcription. The language
+probability is 1.0 when one code forces the language.
+
+--fetch is the only code path that uses the network. It reads no stdin.
+"""
+from __future__ import annotations
+
+import argparse
+import fcntl
+import hashlib
+import json
+import math
+import os
+import resource
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+from types import FrameType
+from typing import Any, BinaryIO, Final, NoReturn, Protocol, TextIO
+
+import scriptlog
+
+MODELS: Final = ("tiny", "base", "small")
+DEFAULT_MODEL: Final = "small"
+MODEL_SHA256: Final = {
+    "tiny": "dcb76c6586fc06cbdac6dd21f14cfd129cc4cdd9dce19bf4ffa62e59cbe6e6d1",
+    "base": "d01c3014881c9c6f3133c182f3d2887eb6ca1c789a7538c5c007196857a0a6a9",
+    "small": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671",
+}
+MODEL_BUDGET_GIB: Final = {"tiny": 0.5, "base": 0.75, "small": 1.0}
+RESERVE_GIB: Final = 2.0
+GIB: Final = 1024 ** 3
+CPU_THREADS: Final = 4
+BEAM_SIZE: Final = 5
+NICE_INCREMENT: Final = 10
+
+MAX_INPUT_BYTES: Final = 20 * 1024 * 1024
+MAX_AUDIO_SECONDS: Final = 600
+DECODE_TIMEOUT: Final = 60
+DEFAULT_TIME_LIMIT: Final = 300.0
+SAMPLE_RATE: Final = 16000
+BYTES_PER_SAMPLE: Final = 4
+
+QUIET_DB: Final = -50.0
+RETRY_MAX_SECONDS: Final = 60
+FEW_WORDS: Final = 3
+LONG_RECORDING_SECONDS: Final = 10
+LOOP_REPEATS: Final = 3
+
+DEFAULT_LANGUAGES: Final = "en,de,it"
+MAX_LANGUAGES: Final = 5
+LANGUAGE_CODES: Final = frozenset(
+    "af am ar as az ba be bg bn bo br bs ca cs cy da de el en es et eu fa fi fo fr gl gu ha haw he hi hr ht hu hy "
+    "id is it ja jw ka kk km kn ko la lb ln lo lt lv mg mi mk ml mn mr ms mt my ne nl nn no oc pa pl ps pt ro ru "
+    "sa sd si sk sl sn so sq sr su sv sw ta te tg th tk tl tr tt uk ur uz vi yi yo zh yue".split())
+
+CGROUP_DIR: Final = Path("/sys/fs/cgroup")
+MEMINFO: Final = Path("/proc/meminfo")
+LOCK_ENV: Final = "WT_TRANSCRIBE_LOCK"
+MODELS_ENV: Final = "WT_TRANSCRIBE_MODELS"
+DEFAULT_STORE: Final = Path(".local") / "share" / "wt-transcribe" / "models"
+
+REFUSED_EXIT: Final = 3
+FAILURE_EXIT: Final = 1
+MISSING_TOOL_EXIT: Final = 127
+
+
+class Code(Enum):
+    BUSY = "busy"
+    LOW_MEMORY = "low_memory"
+    MODEL_MISSING = "model_missing"
+    NOT_INSTALLED = "not_installed"
+    TOO_LARGE = "too_large"
+    TOO_LONG = "too_long"
+    NO_AUDIO = "no_audio"
+    TIMEOUT = "timeout"
+
+
+class Refusal(Exception):
+    def __init__(self, code: Code, detail: str) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+
+
+class Failure(Exception):
+    def __init__(self, message: str, exit_code: int = FAILURE_EXIT) -> None:
+        super().__init__(message)
+        self.exit_code = exit_code
+
+
+@dataclass(frozen=True)
+class Segment:
+    start: float
+    text: str
+
+
+@dataclass(frozen=True)
+class Samples:
+    raw: bytes
+
+    @property
+    def count(self) -> int:
+        return len(self.raw) // BYTES_PER_SAMPLE
+
+    @property
+    def seconds(self) -> float:
+        return self.count / SAMPLE_RATE
+
+
+@dataclass(frozen=True)
+class Verdict:
+    text: str
+    low_confidence: bool
+
+
+@dataclass(frozen=True)
+class Language:
+    code: str
+    probability: float
+
+
+@dataclass(frozen=True)
+class Transcript:
+    verdict: Verdict
+    language: Language
+    seconds: float
+    model: str
+    elapsed: float
+
+
+@dataclass(frozen=True)
+class Options:
+    model: str
+    languages: tuple[str, ...]
+    time_limit: float
+
+
+NO_SPEECH: Final = Verdict("", False)
+
+
+class SpeechEngine(Protocol):
+    def detect_language(self, samples: Samples) -> Mapping[str, float]: ...
+
+    def segments(self, samples: Samples, language: str, vad_filter: bool) -> Iterator[Segment]: ...
+
+    def level_db(self, samples: Samples) -> float: ...
+
+
+class WhisperEngine:
+    def __init__(self, model_dir: Path) -> None:
+        try:
+            import numpy
+            from faster_whisper import WhisperModel
+        except ImportError as error:
+            raise Refusal(Code.NOT_INSTALLED, f"the Python package {error.name} is not installed") from error
+        self._numpy = numpy
+        self._model = WhisperModel(str(model_dir), device="cpu", compute_type="int8",
+                                   cpu_threads=CPU_THREADS, local_files_only=True)
+
+    def detect_language(self, samples: Samples) -> dict[str, float]:
+        try:
+            _, _, probabilities = self._model.detect_language(self._audio(samples), vad_filter=True)
+        except ValueError:
+            return {}
+        return dict(probabilities)
+
+    def segments(self, samples: Samples, language: str, vad_filter: bool) -> Iterator[Segment]:
+        found, _ = self._model.transcribe(self._audio(samples), language=language,
+                                          vad_filter=vad_filter, beam_size=BEAM_SIZE)
+        for segment in found:
+            yield Segment(segment.start, segment.text)
+
+    def level_db(self, samples: Samples) -> float:
+        audio = self._audio(samples)
+        rms = math.sqrt(float(self._numpy.vdot(audio, audio)) / audio.size)
+        return 20 * math.log10(rms) if rms > 0 else -math.inf
+
+    def _audio(self, samples: Samples) -> Any:
+        return self._numpy.frombuffer(samples.raw, dtype="<f4")
+
+
+def words_in(text: str) -> int:
+    return len(text.split())
+
+
+def joined_text(segments: Iterable[Segment]) -> str:
+    return " ".join(text for text in (segment.text.strip() for segment in segments) if text)
+
+
+def spoken(segments: Iterable[Segment], seconds: float) -> Iterator[Segment]:
+    return (segment for segment in segments if segment.start < seconds)
+
+
+def filtered_verdict(seconds: float, text: str) -> Verdict:
+    few_words = 0 < words_in(text) <= FEW_WORDS
+    return Verdict(text, few_words and seconds > LONG_RECORDING_SECONDS)
+
+
+def retry_wanted(seconds: float, level_db: float) -> bool:
+    return seconds <= RETRY_MAX_SECONDS and level_db >= QUIET_DB
+
+
+def unfiltered_verdict(segments: Iterable[Segment]) -> Verdict:
+    texts: list[str] = []
+    for segment in segments:
+        text = segment.text.strip()
+        if not text:
+            continue
+        texts.append(text)
+        if texts[-LOOP_REPEATS:] == [text] * LOOP_REPEATS:
+            return NO_SPEECH
+    return Verdict(" ".join(texts), bool(texts))
+
+
+def transcribe_audio(engine: SpeechEngine, samples: Samples, language: str) -> Verdict:
+    seconds = samples.seconds
+    text = joined_text(spoken(engine.segments(samples, language, True), seconds))
+    if text:
+        return filtered_verdict(seconds, text)
+    if not retry_wanted(seconds, engine.level_db(samples)):
+        return NO_SPEECH
+    return unfiltered_verdict(spoken(engine.segments(samples, language, False), seconds))
+
+
+def pick_language(listed: tuple[str, ...], probabilities: Mapping[str, float]) -> Language:
+    best = listed[0]
+    for code in listed[1:]:
+        if probabilities.get(code, 0.0) > probabilities.get(best, 0.0):
+            best = code
+    return Language(best, probabilities.get(best, 0.0))
+
+
+def choose_language(engine: SpeechEngine, samples: Samples, listed: tuple[str, ...]) -> Language:
+    if len(listed) == 1:
+        return Language(listed[0], 1.0)
+    return pick_language(listed, engine.detect_language(samples))
+
+
+def read_text(path: Path) -> str | None:
+    try:
+        return path.read_text()
+    except OSError:
+        return None
+
+
+def number_after(text: str, key: str) -> int | None:
+    for line in text.splitlines():
+        fields = line.replace(":", " ").split()
+        if fields[:1] == [key] and fields[1:2] and fields[1].isdigit():
+            return int(fields[1])
+    return None
+
+
+def cgroup_free(directory: Path, limit: int) -> int | None:
+    current = read_text(directory / "memory.current")
+    stat = read_text(directory / "memory.stat")
+    inactive = number_after(stat, "inactive_file") if stat is not None else None
+    if current is None or inactive is None or not current.strip().isdigit():
+        return None
+    return max(limit - max(int(current) - inactive, 0), 0)
+
+
+def available_in_meminfo(path: Path) -> int | None:
+    text = read_text(path)
+    kilobytes = number_after(text, "MemAvailable") if text is not None else None
+    return kilobytes * 1024 if kilobytes is not None else None
+
+
+def free_bytes(cgroup: Path, meminfo: Path) -> int | None:
+    limit = read_text(cgroup / "memory.max")
+    if limit is not None and limit.strip().isdigit():
+        return cgroup_free(cgroup, int(limit))
+    return available_in_meminfo(meminfo)
+
+
+def needed_bytes(model: str) -> int:
+    return int((RESERVE_GIB + MODEL_BUDGET_GIB[model]) * GIB)
+
+
+def require_free_memory(model: str) -> None:
+    free = free_bytes(CGROUP_DIR, MEMINFO)
+    needed = needed_bytes(model)
+    if free is None:
+        raise Refusal(Code.LOW_MEMORY, f"free memory cannot be read, {needed / GIB:.2f} GiB are needed")
+    if free < needed:
+        raise Refusal(Code.LOW_MEMORY, f"{free / GIB:.2f} GiB free, {needed / GIB:.2f} GiB needed for {model}")
+
+
+def lock_path() -> Path:
+    return Path(os.environ.get(LOCK_ENV) or f"/tmp/wt-transcribe-{os.getuid()}.lock")
+
+
+@contextmanager
+def exclusive_run() -> Iterator[None]:
+    descriptor = os.open(lock_path(), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise Refusal(Code.BUSY, "another transcription is running") from error
+        yield
+    finally:
+        os.close(descriptor)
+
+
+@contextmanager
+def time_limit(seconds: float) -> Iterator[None]:
+    def expire(signum: int, frame: FrameType | None) -> NoReturn:
+        raise Refusal(Code.TIMEOUT, f"the run did not finish within {seconds:g} seconds")
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def model_store() -> Path:
+    override = os.environ.get(MODELS_ENV)
+    return Path(override) if override else Path.home() / DEFAULT_STORE
+
+
+def require_model(name: str) -> Path:
+    folder = model_store() / name
+    if not folder.is_dir():
+        raise Refusal(Code.MODEL_MISSING,
+                      f"the model {name} is not in {folder.parent}: run wt-transcribe --fetch {name}")
+    return folder
+
+
+def read_audio(stream: BinaryIO) -> bytes:
+    audio = stream.read(MAX_INPUT_BYTES + 1)
+    if len(audio) > MAX_INPUT_BYTES:
+        raise Refusal(Code.TOO_LARGE, f"the audio is larger than {MAX_INPUT_BYTES // (1024 * 1024)} MB")
+    return audio
+
+
+def run_ffmpeg(prefix: list[str], source: str, **options: Any) -> Samples:
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", *prefix, "-t", str(MAX_AUDIO_SECONDS + 1),
+               "-i", source, "-vn", "-f", "f32le", "-ar", str(SAMPLE_RATE), "-ac", "1", "pipe:1"]
+    try:
+        done = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              timeout=DECODE_TIMEOUT, **options)
+    except FileNotFoundError as error:
+        raise Failure("ffmpeg is not installed", MISSING_TOOL_EXIT) from error
+    except subprocess.TimeoutExpired as error:
+        raise Refusal(Code.TIMEOUT, f"ffmpeg did not finish within {DECODE_TIMEOUT} seconds") from error
+    raw = done.stdout[:len(done.stdout) // BYTES_PER_SAMPLE * BYTES_PER_SAMPLE]
+    if done.returncode != 0 or not raw:
+        raise Refusal(Code.NO_AUDIO, "ffmpeg found no audio in the input")
+    return Samples(raw)
+
+
+def decode_from_memory_file(audio: bytes) -> Samples:
+    descriptor = os.memfd_create("wt-transcribe")
+    try:
+        view = memoryview(audio)
+        while view:
+            view = view[os.write(descriptor, view):]
+        return run_ffmpeg(["-nostdin"], f"/dev/fd/{descriptor}", stdin=subprocess.DEVNULL, pass_fds=(descriptor,))
+    finally:
+        os.close(descriptor)
+
+
+def decode(audio: bytes) -> Samples:
+    if hasattr(os, "memfd_create"):
+        return decode_from_memory_file(audio)
+    return run_ffmpeg([], "pipe:0", input=audio)
+
+
+def require_length(samples: Samples) -> None:
+    if samples.seconds > MAX_AUDIO_SECONDS:
+        raise Refusal(Code.TOO_LONG, f"the audio is longer than {MAX_AUDIO_SECONDS} seconds")
+
+
+def transcribe(options: Options, model_dir: Path, samples: Samples) -> Transcript:
+    started = time.monotonic()
+    engine = WhisperEngine(model_dir)
+    language = choose_language(engine, samples, options.languages)
+    verdict = transcribe_audio(engine, samples, language.code)
+    return Transcript(verdict, language, samples.seconds, options.model, time.monotonic() - started)
+
+
+def transcribe_stdin(options: Options) -> Transcript:
+    with time_limit(options.time_limit), exclusive_run():
+        require_free_memory(options.model)
+        model_dir = require_model(options.model)
+        os.nice(NICE_INCREMENT)
+        samples = decode(read_audio(sys.stdin.buffer))
+        require_length(samples)
+        return transcribe(options, model_dir, samples)
+
+
+def peak_mb() -> int:
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return round(peak / (1024 * 1024 if sys.platform == "darwin" else 1024))
+
+
+def result_line(transcript: Transcript) -> dict[str, object]:
+    return {
+        "text": transcript.verdict.text,
+        "language": transcript.language.code,
+        "language_probability": round(transcript.language.probability, 2),
+        "low_confidence": transcript.verdict.low_confidence,
+        "seconds": round(transcript.seconds, 1),
+        "model": transcript.model,
+        "elapsed": round(transcript.elapsed, 1),
+        "peak_mb": peak_mb(),
+    }
+
+
+def run(options: Options) -> tuple[int, dict[str, object]]:
+    try:
+        return 0, result_line(transcribe_stdin(options))
+    except Refusal as refusal:
+        return REFUSED_EXIT, {"refused": refusal.code.value, "detail": refusal.detail}
+
+
+@contextmanager
+def result_channel() -> Iterator[TextIO]:
+    sys.stdout.flush()
+    channel = os.fdopen(os.dup(1), "w")
+    os.dup2(2, 1)
+    try:
+        yield channel
+    finally:
+        channel.flush()
+        os.dup2(channel.fileno(), 1)
+        channel.close()
+
+
+def transcribe_command(options: Options) -> int:
+    with result_channel() as channel:
+        code, line = run(options)
+        print(json.dumps(line), file=channel)
+    return code
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def checksum_matches(name: str, folder: Path) -> bool:
+    expected = MODEL_SHA256[name]
+    try:
+        actual = sha256_of(folder / "model.bin")
+    except OSError as error:
+        actual = f"unreadable ({error.strerror})"
+    if actual != expected:
+        scriptlog.error(f"{name}: checksum of model.bin differs: expected {expected}, got {actual}")
+    return actual == expected
+
+
+def download_files(name: str, folder: Path) -> None:
+    try:
+        from faster_whisper.utils import download_model
+    except ImportError as error:
+        raise Failure("faster-whisper is not installed, so nothing can be downloaded") from error
+    download_model(name, output_dir=str(folder))
+
+
+def download_into(name: str, target: Path) -> bool:
+    store = target.parent
+    store.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{name}-", dir=store.parent))
+    try:
+        scriptlog.info(f"{name}: downloading")
+        download_files(name, staging)
+        if not checksum_matches(name, staging):
+            return False
+        os.replace(staging, target)
+        return True
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def fetch_model(name: str) -> bool:
+    target = model_store() / name
+    if target.exists():
+        stored = checksum_matches(name, target)
+    else:
+        stored = download_into(name, target)
+    if stored:
+        scriptlog.success(f"{name}: checksum matches, stored in {target}")
+    return stored
+
+
+def fetch(names: list[str]) -> int:
+    try:
+        outcomes = [fetch_model(name) for name in names]
+    except (OSError, ValueError) as error:
+        raise Failure(f"fetch failed: {error}") from error
+    return 0 if all(outcomes) else FAILURE_EXIT
+
+
+def language_list(text: str) -> tuple[str, ...]:
+    codes = tuple(text.split(","))
+    unknown = [code for code in codes if code not in LANGUAGE_CODES]
+    if unknown:
+        raise argparse.ArgumentTypeError(f"unknown language code: {', '.join(unknown)}")
+    if len(codes) > MAX_LANGUAGES:
+        raise argparse.ArgumentTypeError(f"at most {MAX_LANGUAGES} language codes")
+    return codes
+
+
+def seconds_type(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        value = math.nan
+    if not 0 < value < math.inf:
+        raise argparse.ArgumentTypeError(f"not a number of seconds above 0: {text}")
+    return value
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="wt-transcribe", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--model", choices=MODELS, default=DEFAULT_MODEL, help=f"default: {DEFAULT_MODEL}")
+    parser.add_argument("--language", type=language_list, default=language_list(DEFAULT_LANGUAGES), metavar="CODES",
+                        help=f"one to {MAX_LANGUAGES} codes: one forces it, several pick the likeliest "
+                             f"(default: {DEFAULT_LANGUAGES})")
+    parser.add_argument("--time-limit", type=seconds_type, default=DEFAULT_TIME_LIMIT, metavar="SECONDS",
+                        help=f"end the run with the refusal timeout (default: {DEFAULT_TIME_LIMIT:g})")
+    parser.add_argument("--fetch", nargs="+", choices=MODELS, metavar="MODEL",
+                        help="download and check these models into the store, then end")
+    return parser
+
+
+def main(argv: list[str]) -> int:
+    arguments = build_parser().parse_args(argv)
+    try:
+        if arguments.fetch:
+            return fetch(arguments.fetch)
+        return transcribe_command(Options(arguments.model, arguments.language, arguments.time_limit))
+    except Failure as failure:
+        print(f"wt-transcribe: {failure}", file=sys.stderr)
+        return failure.exit_code
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
