@@ -243,7 +243,8 @@
     "jdtls-lsp@claude-plugins-official": true,
     "vaadin-skills@vaadin-marketplace": false,
     "kicad-happy@skills-dir": false,
-    "pat@skills-dir": false
+    "pat@skills-dir": false,
+    "pstack@skills-dir": false
   },
   "extraKnownMarketplaces": {
     "leonardo-skills": {

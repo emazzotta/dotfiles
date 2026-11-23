@@ -292,6 +292,7 @@ LEONARDO_ONLY_PLUGINS = (
 OPT_IN_SETS = {
     "kicad": {"enabledPlugins": {"kicad-happy@skills-dir": True}},
     "pat": {"enabledPlugins": {"pat@skills-dir": True}},
+    "pstack": {"enabledPlugins": {"pstack@skills-dir": True}},
     "claudeai": {"syncClaudeAiSkills": True},
 }
 KEYGUARD = Path.home() / "Projects" / "private" / "keyguard"

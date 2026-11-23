@@ -290,10 +290,14 @@ class TestBuildEntrypointInvocation:
             self.args(), [], tmp_path / "Desktop")
         assert "--settings" not in plugin_args
 
-    def test_should_enable_the_kicad_plugin_when_asked(self, cl):
+    @pytest.mark.parametrize("opt_in,plugin", [
+        ("kicad", "kicad-happy@skills-dir"),
+        ("pstack", "pstack@skills-dir"),
+    ])
+    def test_should_enable_the_skills_dir_plugin_when_asked(self, cl, opt_in, plugin):
         _entrypoint, plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(
-            self.args(opt_in=["kicad"]), [], ELSEWHERE)
-        assert self.enabled_plugins(plugin_args) == {"kicad-happy@skills-dir": True}
+            self.args(opt_in=[opt_in]), [], ELSEWHERE)
+        assert self.enabled_plugins(plugin_args) == {plugin: True}
 
     def test_should_enable_the_synced_claude_ai_skills_when_asked(self, cl):
         _entrypoint, plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(
