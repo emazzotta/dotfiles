@@ -10,8 +10,9 @@ unless a prompt was submitted or the prompted tool finished first. Someone showi
 before that poll puts it back on the 10 min wait.
 - Stop arms the ping with the first sentence of the reply, or with the whole reply as an
   `answer` when the session's tmux window carries `@wt_origin automation`, which the web
-  terminal sets on a window it opens for a Telegram request. Background agents still at
-  work for the session hold it.
+  terminal sets on a window it opens for a Telegram request. An answer ignores presence
+  and tmux activity: it goes out at the next 5 s poll unless its pending ping is gone or
+  was replaced. Background agents still at work for the session hold it.
 - PermissionRequest notes what the prompt is about. The permission_prompt Notification,
   which Claude Code raises only once a prompt has waited about 6 s unanswered, arms it.
 - PostToolUse and PostToolUseFailure of the prompted tool cancel the prompt's ping: an
@@ -76,8 +77,9 @@ or cancels a Telegram ping through the unlock service.
   send                read a notice ({"session", "container", "title", "text", "kind"}) on stdin and
                       deliver it; the keyguard bridge endpoint runs this on the Mac
   fire SESSION TOKEN  internal: wait for the session's pending ping to fall due (10 minutes
-                      with someone at a web terminal, one poll without), then send it if
-                      TOKEN still holds it and the session's tmux pane went unseen
+                      with someone at a web terminal, one poll without, and one poll for
+                      an answer whoever is there), then send it if TOKEN still holds it and
+                      the session's tmux pane went unseen (an answer ignores the pane)
 
 Options:
   -h, --help  show this help and exit
@@ -287,14 +289,19 @@ def wait_until_due(session: UUID, token: str, sleep: Callable[[float], None], se
     return True
 
 
+def is_answer(ping: dict | None) -> bool:
+    return ping is not None and ping["kind"] == PingKind.ANSWER.value
+
+
 def fire(session: UUID, token: str, sleep: Callable[[float], None] = time.sleep,
          clients: Callable[[], Iterable[TmuxClient]] = tmux_clients,
          presence_reader: Callable[[], presence.Presence] = presence.current) -> int:
     armed = datetime.now(timezone.utc).replace(microsecond=0)
     pane = os.environ.get("TMUX_PANE")
+    answer = is_answer(armed_ping(session, token))
     due = wait_until_due(session, token, sleep,
-                         lambda: pane is not None and seen_since(pane, armed, clients()),
-                         lambda: not presence_reader().attended)
+                         lambda: not answer and pane is not None and seen_since(pane, armed, clients()),
+                         lambda: answer or not presence_reader().attended)
     ping = armed_ping(session, token)
     if ping is None:
         return 0

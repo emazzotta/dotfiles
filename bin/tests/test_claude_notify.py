@@ -236,16 +236,45 @@ class TestAnswerPing:
 
         assert [(body["text"], body["kind"]) for body in delivered] == [("Done.", "finished")]
 
-    @pytest.mark.parametrize("kind, polls", [("away", 1), ("unknown", 1), ("phone", 120), ("computer", 120)])
-    def should_follow_the_presence_timing_of_any_other_ping(
-            self, notify, spawned, delivered, from_telegram, kind, polls):
+    @pytest.mark.parametrize("kind", ["computer", "phone", "away", "unknown"])
+    def should_send_at_the_first_poll_whoever_is_present(self, notify, spawned, delivered, from_telegram, kind):
         _hook(notify, "Stop", last_assistant_message=self.REPLY)
         waited = []
 
         notify.fire(SESSION, _armed_token(spawned), sleep=waited.append, presence_reader=_reader(notify, kind))
 
-        assert waited == [5.0] * polls
+        assert waited == [5.0]
         assert [body["kind"] for body in delivered] == ["answer"]
+
+    def should_send_although_a_tmux_client_is_using_the_pane(
+            self, notify, spawned, delivered, from_telegram, monkeypatch):
+        monkeypatch.setenv("TMUX_PANE", PANE)
+        _hook(notify, "Stop", last_assistant_message=self.REPLY)
+        waited = []
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=waited.append, presence_reader=_reader(notify, "computer"),
+                    clients=lambda: [notify.TmuxClient(PANE, LONG_AGO, LONG_AFTER)])
+
+        assert waited == [5.0]
+        assert [body["kind"] for body in delivered] == ["answer"]
+
+    def should_send_nothing_for_a_token_that_a_newer_stop_replaced(self, notify, spawned, delivered, from_telegram):
+        _hook(notify, "Stop", last_assistant_message="First answer.")
+        _hook(notify, "Stop", last_assistant_message="Second answer.")
+        first, second = spawned
+
+        notify.fire(SESSION, first[2], sleep=lambda seconds: None)
+        assert delivered == []
+
+        notify.fire(SESSION, second[2], sleep=lambda seconds: None)
+        assert [body["text"] for body in delivered] == ["Second answer."]
+
+    def should_send_nothing_when_the_session_ends_before_the_poll(self, notify, spawned, delivered, from_telegram):
+        _hook(notify, "Stop", last_assistant_message=self.REPLY)
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: _hook(notify, "SessionEnd"))
+
+        assert delivered == []
 
     def should_still_cancel_the_answer_when_a_prompt_is_submitted(self, notify, spawned, delivered, from_telegram):
         _hook(notify, "Stop", last_assistant_message=self.REPLY)
