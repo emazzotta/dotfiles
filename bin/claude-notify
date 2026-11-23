@@ -8,7 +8,9 @@ a key or a focus change. Attaching alone does not count, since the web terminal 
 every tab at once. With nobody there, or no way to tell, it goes out at the next 5 s poll,
 unless a prompt was submitted or the prompted tool finished first. Someone showing up
 before that poll puts it back on the 10 min wait.
-- Stop arms the ping with the first sentence of the reply. Background agents still at
+- Stop arms the ping with the first sentence of the reply, or with the whole reply as an
+  `answer` when the session's tmux window carries `@wt_origin automation`, which the web
+  terminal sets on a window it opens for a Telegram request. Background agents still at
   work for the session hold it.
 - PermissionRequest notes what the prompt is about. The permission_prompt Notification,
   which Claude Code raises only once a prompt has waited about 6 s unanswered, arms it.
@@ -48,6 +50,8 @@ PING_DELAY: Final = timedelta(minutes=10)
 SEEN_POLL: Final = timedelta(seconds=5)
 TMUX_TIMEOUT: Final = timedelta(seconds=2)
 TMUX_CLIENT_FORMAT: Final = "#{pane_id}\t#{client_created}\t#{client_activity}"
+ORIGIN_FORMAT: Final = "#{@wt_origin}"
+AUTOMATION_ORIGIN: Final = "automation"
 SEND_TIMEOUT: Final = timedelta(seconds=10)
 SENTENCE_LIMIT: Final = 200
 FINISHED_FALLBACK: Final = "Finished, waiting for your input."
@@ -120,6 +124,7 @@ def container_label() -> str | None:
 class PingKind(Enum):
     FINISHED = "finished"
     PROMPT = "prompt"
+    ANSWER = "answer"
 
 
 def notice(session: UUID, text: str, kind: PingKind) -> dict:
@@ -175,7 +180,11 @@ def on_stop(session: UUID, event: dict) -> None:
     if background_work_pending(event):
         take_state(state_file(session, "pending"))
         return
-    arm(session, first_sentence(event.get("last_assistant_message") or ""), PingKind.FINISHED)
+    reply = event.get("last_assistant_message") or ""
+    if window_origin() == AUTOMATION_ORIGIN:
+        arm(session, reply if reply.strip() else FINISHED_FALLBACK, PingKind.ANSWER)
+    else:
+        arm(session, first_sentence(reply), PingKind.FINISHED)
 
 
 def on_permission_request(session: UUID, event: dict) -> None:
@@ -241,14 +250,21 @@ def parse_clients(listing: str) -> list[TmuxClient]:
     return clients
 
 
-def tmux_clients() -> list[TmuxClient]:
-    command = ["tmux", "list-clients", "-F", TMUX_CLIENT_FORMAT]
+def tmux_output(*arguments: str) -> str:
     try:
-        listing = subprocess.run(command, capture_output=True, text=True, check=False,
-                                 timeout=TMUX_TIMEOUT.total_seconds()).stdout
+        return subprocess.run(["tmux", *arguments], capture_output=True, text=True, check=False,
+                              timeout=TMUX_TIMEOUT.total_seconds()).stdout
     except (OSError, subprocess.SubprocessError):
-        return []
-    return parse_clients(listing)
+        return ""
+
+
+def tmux_clients() -> list[TmuxClient]:
+    return parse_clients(tmux_output("list-clients", "-F", TMUX_CLIENT_FORMAT))
+
+
+def window_origin() -> str:
+    pane = os.environ.get("TMUX_PANE")
+    return tmux_output("display-message", "-p", "-t", pane, ORIGIN_FORMAT).strip() if pane else ""
 
 
 def seen_since(pane: str, armed: datetime, clients: Iterable[TmuxClient]) -> bool:

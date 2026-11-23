@@ -25,6 +25,7 @@ def notify(load_script, tmp_path, monkeypatch):
     monkeypatch.setattr(module, "DEVBOX_TOKEN_FILE", tmp_path / "no-token")
     monkeypatch.setattr(module, "IS_MAC", False)
     monkeypatch.setattr(module.presence, "PRESENCE_DIR", tmp_path / "presence")
+    monkeypatch.setattr(module, "window_origin", lambda: "")
     monkeypatch.setattr(module.socket, "gethostname", lambda: "f635a28c3a2e")
     monkeypatch.setenv("CLAUDE_PROJECTS", str(tmp_path / "projects"))
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
@@ -39,6 +40,11 @@ def _reader(notify, kind):
 @pytest.fixture
 def at_a_computer(notify):
     return _reader(notify, "computer")
+
+
+@pytest.fixture
+def from_telegram(notify, monkeypatch):
+    monkeypatch.setattr(notify, "window_origin", lambda: "automation")
 
 
 @pytest.fixture
@@ -189,6 +195,115 @@ class TestFinishedPing:
         _hook(notify, "Stop", last_assistant_message="Done.")
 
         assert spawned == []
+
+
+class TestAnswerPing:
+    REPLY = "Emanuele, here is the plan.\n\n**Step one** reads [the docs](https://example.com).\n\n- `a`\n- b\n"
+
+    def should_arm_the_whole_reply_as_an_answer_for_a_session_started_from_telegram(
+            self, notify, spawned, delivered, from_telegram):
+        _hook(notify, "Stop", last_assistant_message=self.REPLY)
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
+
+        assert delivered == [{"session": str(SESSION), "container": "f635a28c3a2e", "title": None,
+                              "text": self.REPLY, "kind": "answer"}]
+
+    def should_not_cut_a_long_reply(self, notify, spawned, delivered, from_telegram):
+        reply = "\n".join(f"Line {number}: " + "word " * 20 for number in range(60))
+        _hook(notify, "Stop", last_assistant_message=reply)
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
+
+        assert [body["text"] for body in delivered] == [reply]
+
+    @pytest.mark.parametrize("reply", ["", "  \n ", None])
+    def should_fall_back_to_the_fixed_line_when_the_reply_has_no_text(
+            self, notify, spawned, delivered, from_telegram, reply):
+        _hook(notify, "Stop", last_assistant_message=reply)
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
+
+        assert [(body["text"], body["kind"]) for body in delivered] == [(notify.FINISHED_FALLBACK, "answer")]
+
+    @pytest.mark.parametrize("origin", ["", "user", "automation-x", "Automation"])
+    def should_keep_the_first_sentence_ping_for_any_other_origin(
+            self, notify, spawned, delivered, monkeypatch, origin):
+        monkeypatch.setattr(notify, "window_origin", lambda: origin)
+        _hook(notify, "Stop", last_assistant_message="Done. Details follow.")
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
+
+        assert [(body["text"], body["kind"]) for body in delivered] == [("Done.", "finished")]
+
+    @pytest.mark.parametrize("kind, polls", [("away", 1), ("unknown", 1), ("phone", 120), ("computer", 120)])
+    def should_follow_the_presence_timing_of_any_other_ping(
+            self, notify, spawned, delivered, from_telegram, kind, polls):
+        _hook(notify, "Stop", last_assistant_message=self.REPLY)
+        waited = []
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=waited.append, presence_reader=_reader(notify, kind))
+
+        assert waited == [5.0] * polls
+        assert [body["kind"] for body in delivered] == ["answer"]
+
+    def should_still_cancel_the_answer_when_a_prompt_is_submitted(self, notify, spawned, delivered, from_telegram):
+        _hook(notify, "Stop", last_assistant_message=self.REPLY)
+        _hook(notify, "UserPromptSubmit", prompt="next")
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
+
+        assert delivered == []
+
+    def should_hold_the_answer_while_background_agents_work(self, notify, spawned, from_telegram):
+        _hook(notify, "Stop", last_assistant_message=self.REPLY, background_tasks=[{"type": "subagent"}])
+
+        assert spawned == []
+
+    def should_leave_a_prompt_ping_a_prompt_in_a_session_started_from_telegram(
+            self, notify, spawned, delivered, from_telegram):
+        _ask(notify)
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
+
+        assert [(body["text"], body["kind"]) for body in delivered] == [("Asks: Tea or coffee?", "prompt")]
+
+
+class TestWindowOrigin:
+    def should_ask_tmux_for_the_option_of_the_window_holding_the_pane(self, load_script, monkeypatch):
+        notify = load_script("claude-notify")
+        monkeypatch.setenv("TMUX_PANE", PANE)
+        runs = []
+        monkeypatch.setattr(notify.subprocess, "run", lambda command, **kwargs: runs.append(command) or
+                            type("Done", (), {"stdout": "automation\n"})())
+
+        assert notify.window_origin() == "automation"
+        assert runs == [["tmux", "display-message", "-p", "-t", PANE, "#{@wt_origin}"]]
+
+    def should_give_nothing_when_the_option_is_not_set(self, load_script, monkeypatch):
+        notify = load_script("claude-notify")
+        monkeypatch.setenv("TMUX_PANE", PANE)
+        monkeypatch.setattr(notify.subprocess, "run", lambda command, **kwargs: type("Done", (), {"stdout": "\n"})())
+
+        assert notify.window_origin() == ""
+
+    def should_not_ask_tmux_outside_a_pane(self, load_script, monkeypatch):
+        notify = load_script("claude-notify")
+        monkeypatch.delenv("TMUX_PANE", raising=False)
+        monkeypatch.setattr(notify.subprocess, "run", lambda *args, **kwargs: pytest.fail("tmux was asked"))
+
+        assert notify.window_origin() == ""
+
+    def should_give_nothing_when_tmux_cannot_run(self, load_script, monkeypatch):
+        notify = load_script("claude-notify")
+        monkeypatch.setenv("TMUX_PANE", PANE)
+
+        def missing_tmux(*args, **kwargs):
+            raise FileNotFoundError("tmux")
+
+        monkeypatch.setattr(notify.subprocess, "run", missing_tmux)
+
+        assert notify.window_origin() == ""
 
 
 class TestPresenceTiming:
