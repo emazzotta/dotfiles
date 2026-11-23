@@ -11,7 +11,7 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "sonnet",
+  "model": "opus",
   "disableClaudeAiConnectors": true,
   "skillOverrides": {
     "artifact-capabilities": "name-only",
@@ -272,7 +272,7 @@
   "effortLevel": "xhigh",
   "modelSettings": {
     "claude-opus-5-5": {
-      "effortLevel": "xhigh"
+      "effortLevel": "medium"
     },
     "claude-sonnet-5-5": {
       "effortLevel": "xhigh"
@@ -282,6 +282,7 @@
     }
   },
   "autoCompactWindow": 300000,
+  "advisorModel": "fable",
   "tui": "default",
   "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
@@ -291,6 +292,5 @@
   ],
   "theme": "dark",
   "switchModelsOnFlag": true,
-  "remoteControlAtStartup": false,
-  "advisorModel": "fable"
+  "remoteControlAtStartup": false
 }
