@@ -25,6 +25,7 @@ from uuid import UUID
 import session_title
 
 SESSION_ENV: Final = "CLAUDE_CODE_SESSION_ID"
+AGY_METADATA_ENV: Final = "ANTIGRAVITY_SOURCE_METADATA"
 SHORT_ID_LENGTH: Final = 8
 TMUX_TIMEOUT_SECONDS: Final = 1.0
 SHELL_TITLE: Final = "shell"
@@ -146,11 +147,27 @@ def opencode_session() -> dict[str, str] | None:
     return None
 
 
+def agy_session() -> dict[str, str] | None:
+    raw = os.environ.get(AGY_METADATA_ENV, "")
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        tool = data.get("tool") if isinstance(data, dict) else None
+        conversation_id = tool.get("conversationId") if isinstance(tool, dict) else None
+        conversation = UUID(conversation_id) if isinstance(conversation_id, str) else None
+    except ValueError:
+        return None
+    if conversation is None:
+        return None
+    return {"session": conversation.hex[:SHORT_ID_LENGTH], "title": session_title.find_agy(conversation)}
+
+
 def describe() -> dict[str, str]:
     session = session_id()
     if session is not None:
         return {"session": session.hex[:SHORT_ID_LENGTH], "title": session_title.find(session)}
-    return opencode_session() or {"session": "", "title": shell_title()}
+    return agy_session() or opencode_session() or {"session": "", "title": shell_title()}
 
 
 def main(argv: Sequence[str]) -> int:

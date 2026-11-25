@@ -35,7 +35,9 @@ def message_record(text):
 def caller(load_script, monkeypatch, tmp_path):
     module = load_script("claude-caller")
     monkeypatch.setenv("CLAUDE_PROJECTS", str(tmp_path / "projects"))
+    monkeypatch.setenv("AGY_DIR", str(tmp_path / "agy"))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", str(SESSION))
+    monkeypatch.delenv("ANTIGRAVITY_SOURCE_METADATA", raising=False)
     monkeypatch.delenv("TMUX", raising=False)
     monkeypatch.delenv("TMUX_PANE", raising=False)
     monkeypatch.setattr(module, "parent_and_name", lambda pid: None)
@@ -95,6 +97,38 @@ class TestDescribe:
 
     def should_treat_a_session_id_that_is_no_uuid_as_none(self, caller, monkeypatch):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "not-a-session")
+
+        assert caller.describe() == {"session": "", "title": "shell"}
+
+
+class TestAgy:
+    AGY_ID = UUID("3cd52c3b-2116-4676-85bd-9045e7f09bc9")
+
+    def _write_metadata(self, tmp_path, summary):
+        cache = tmp_path / "agy" / "cache"
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / "conversation_metadata.json").write_text(
+            json.dumps({"conversations": {str(self.AGY_ID): {"summary": summary}}})
+        )
+
+    def test_should_name_the_agy_conversation_and_its_title_from_source_metadata(self, caller, monkeypatch, tmp_path):
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+        monkeypatch.setenv("ANTIGRAVITY_SOURCE_METADATA", json.dumps({"tool": {"conversationId": str(self.AGY_ID)}}))
+        self._write_metadata(tmp_path, {"Title": "Agy web-terminal\nchat", "Preview": "fallback"})
+
+        assert caller.describe() == {"session": "3cd52c3b", "title": "Agy web-terminal chat"}
+
+    def test_should_fall_back_to_preview_when_agy_has_no_title_yet(self, caller, monkeypatch, tmp_path):
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+        monkeypatch.setenv("ANTIGRAVITY_SOURCE_METADATA", json.dumps({"tool": {"conversationId": str(self.AGY_ID)}}))
+        self._write_metadata(tmp_path, {"Title": "", "Preview": "first prompt"})
+
+        assert caller.describe() == {"session": "3cd52c3b", "title": "first prompt"}
+
+    @pytest.mark.parametrize("raw", ["{broken", "{}", json.dumps({"tool": {"conversationId": "not-a-uuid"}})])
+    def test_should_ignore_invalid_agy_metadata(self, caller, monkeypatch, raw):
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+        monkeypatch.setenv("ANTIGRAVITY_SOURCE_METADATA", raw)
 
         assert caller.describe() == {"session": "", "title": "shell"}
 
@@ -224,7 +258,10 @@ def should_name_the_session_of_the_opencode_it_runs_under(tmp_path):
     fake = tmp_path / "opencode"
     fake.write_text(f"#!{sys.executable}{FAKE_OPENCODE}")
     fake.chmod(0o755)
-    env = {key: value for key, value in os.environ.items() if key not in {"CLAUDE_CODE_SESSION_ID", "TMUX"}}
+    env = {
+        key: value for key, value in os.environ.items()
+        if key not in {"CLAUDE_CODE_SESSION_ID", "ANTIGRAVITY_SOURCE_METADATA", "TMUX"}
+    }
     env.update(FAKE_SESSIONS=json.dumps(SESSIONS), FAKE_STATUSES=json.dumps({SUBAGENT: BUSY}))
 
     result = subprocess.run([str(fake), str(BIN_DIR / "claude-caller")], capture_output=True, text=True, env=env,
@@ -281,3 +318,21 @@ class TestCli:
 
         assert result.returncode == 0
         assert json.loads(result.stdout) == {"session": "48f92bcb", "title": ""}
+
+    def should_name_the_agy_session_from_antigravity_source_metadata(self, run_cli, tmp_path):
+        agy_id = "3cd52c3b-2116-4676-85bd-9045e7f09bc9"
+        cache = tmp_path / "agy" / "cache"
+        cache.mkdir(parents=True)
+        (cache / "conversation_metadata.json").write_text(
+            json.dumps({"conversations": {agy_id: {"summary": {"Title": "Agy parity"}}}})
+        )
+
+        result = run_cli("claude-caller", env_extra={
+            "CLAUDE_CODE_SESSION_ID": "",
+            "AGY_DIR": str(tmp_path / "agy"),
+            "ANTIGRAVITY_SOURCE_METADATA": json.dumps({"tool": {"conversationId": agy_id}}),
+            "TMUX": "", "TMUX_PANE": "",
+        })
+
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {"session": "3cd52c3b", "title": "Agy parity"}

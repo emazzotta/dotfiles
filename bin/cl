@@ -779,7 +779,7 @@ def build_session_id_args(claude_args: list[str]) -> list[str]:
 
 def _named_session_id(entrypoint_args: list[str]) -> str:
     for flag, value in zip(entrypoint_args, entrypoint_args[1:]):
-        if flag in ("--resume", "--session-id") and CLAUDE_SESSION_ID.fullmatch(value):
+        if flag in ("--resume", "--session-id", "--conversation") and CLAUDE_SESSION_ID.fullmatch(value):
             return value
     return ""
 
@@ -901,6 +901,12 @@ def mounts_of(volume_args: list[str]) -> tuple[session_registry.Mount, ...]:
         for host, container in (pair for pair in pairs if len(pair) == 2)
         if host.startswith("/") and container.startswith("/")
     )
+
+
+def compose_mounts() -> tuple[session_registry.Mount, ...]:
+    """Static bind mounts from docker-compose.yml that web-terminal needs to map container paths on the Mac."""
+    gemini = OPENCODE_ROOT / "opencode" / "gemini"
+    return (session_registry.Mount(gemini, "/home/opencode/.gemini"),) if gemini.is_dir() else ()
 
 
 def claude_run_dir() -> Path:
@@ -1391,7 +1397,8 @@ def main() -> None:
     _profile("handoff to docker compose")
 
     record = build_session_record(
-        args, claude_args, invocation, pwd, mounts_of(volume_args), run_dir, container_of(container_name),
+        args, claude_args, invocation, pwd, (*mounts_of(volume_args), *compose_mounts()), run_dir,
+        container_of(container_name),
     )
     with _session_registry().track(record) as session:
         _install_exit_guard(session, container_name)

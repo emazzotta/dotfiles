@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from subprocess import SubprocessError, run
-from typing import IO, Final, Union
+from typing import IO, Final, Protocol, Union
 from uuid import UUID, uuid4
 
 import scriptlog
@@ -28,12 +28,20 @@ LAUNCHER: Final = "cl"
 FOLLOW_INTERVAL: Final = timedelta(seconds=2)
 CLOCK_SKEW: Final = timedelta(seconds=30)
 TMUX_TIMEOUT_SECONDS: Final = 5
+DOCKER_TIMEOUT_SECONDS: Final = 5
 TMUX_EXIT_GRACE: Final = timedelta(seconds=1)
 TMUX_POLL_INTERVAL: Final = timedelta(milliseconds=100)
 FALLBACK_TMUX_SESSION: Final = "main"
 STATE_DIR: Final = Path.home() / ".local" / "state" / LAUNCHER
 REGISTRY_DIR: Final = STATE_DIR / "sessions"
 SIGNAL_EXIT_BASE: Final = 128
+AGY_LOCK_SCRIPT: Final = (
+    "pid=$(ps -A -o pid= -o comm= 2>/dev/null"
+    " | awk '{ name = $2; sub(/.*\\//, \"\", name); if (name == \"agy\") { print $1; exit } }');"
+    ' [ -n "$pid" ] || exit 0;'
+    ' ls -l "/proc/$pid/fd" 2>/dev/null'
+    " | sed -n 's|.* -> .*/presence/\\([0-9a-f-]\\{36\\}\\)\\.lock$|\\1|p' | head -n 1"
+)
 
 
 @dataclass(frozen=True)
@@ -271,6 +279,32 @@ class ClaudeProcess:
         return None
 
 
+class _SessionFinder(Protocol):
+    def session_id(self) -> UUID | None: ...
+
+
+class AgyProcess:
+    """Finds the conversation UUID that agy holds open in a container via its presence lock."""
+
+    def __init__(self, container: Container) -> None:
+        self._container = container
+
+    def session_id(self) -> UUID | None:
+        try:
+            result = run(
+                [str(self._container.docker), "exec", self._container.name, "sh", "-c", AGY_LOCK_SCRIPT],
+                check=False, capture_output=True, text=True, timeout=DOCKER_TIMEOUT_SECONDS,
+            )
+        except (OSError, SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+        try:
+            return UUID(result.stdout.strip())
+        except ValueError:
+            return None
+
+
 def _write(handle: IO[str], record: SessionRecord) -> None:
     handle.seek(0)
     handle.truncate()
@@ -314,11 +348,19 @@ class TrackedSession:
         self.finish(None)
 
     def follow(self, pid: int | None) -> None:
-        own = self._record.claude_sessions
-        process = ClaudeProcess(
-            own or self._processes, self._record.started_at, pid, self._record.session_id, alone=own is not None,
-        )
-        threading.Thread(target=self._follow, args=(process,), daemon=True).start()
+        finder: _SessionFinder
+        if self._record.agent == Agent.AGY:
+            if self._record.container is None:
+                return
+            finder = AgyProcess(self._record.container)
+        elif self._record.agent == Agent.CLAUDE:
+            own = self._record.claude_sessions
+            finder = ClaudeProcess(
+                own or self._processes, self._record.started_at, pid, self._record.session_id, alone=own is not None,
+            )
+        else:
+            return
+        threading.Thread(target=self._follow, args=(finder,), daemon=True).start()
 
     def finish(self, signum: int | None) -> None:
         with self._lock:
@@ -330,7 +372,7 @@ class TrackedSession:
                 remove_run_files(self._record)
             self._handle.close()
 
-    def _follow(self, process: ClaudeProcess) -> None:
+    def _follow(self, process: _SessionFinder) -> None:
         while not self._finished.wait(FOLLOW_INTERVAL.total_seconds()):
             session_id = process.session_id()
             if session_id is not None:
@@ -480,7 +522,11 @@ class Registry:
 
     def _resumable(self, record: SessionRecord) -> bool:
         """A session killed before its first prompt left no transcript to resume."""
-        return record.session_id is not None and (self.transcripts / f"{record.session_id}.jsonl").is_file()
+        return (
+            record.agent == Agent.CLAUDE
+            and record.session_id is not None
+            and (self.transcripts / f"{record.session_id}.jsonl").is_file()
+        )
 
 
 def _tmux(*args: str) -> str:

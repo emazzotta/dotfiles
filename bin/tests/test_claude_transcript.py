@@ -201,6 +201,45 @@ class TestOpencode:
         assert not any(result.server.iterdir())
 
 
+AGY_SESSION = f"agy_{SESSION}"
+AGY_JSON = json.dumps({"id": AGY_SESSION, "title": "Fix agy chat", "transcript": ""})
+
+
+class TestAgy:
+    @pytest.fixture
+    def handed(self, tmp_path):
+        kept = tmp_path / "handed-agy.json"
+        body = (f'if [ "$1" = install ]; then exit 0; fi\n'
+                f'for arg; do case "$arg" in *.json) cp "$arg" {kept} ;; esac; done\n'
+                f"for last; do :; done\nprintf '%s' '{RENDERED}' > \"$last\"")
+        return kept, body
+
+    @pytest.mark.parametrize(("flags", "prefix"), [
+        ([], "agy-chat"), (["--text-only"], "agy-text"), (["--message", "step-0"], "agy-message"),
+    ])
+    def test_should_render_an_agy_session_from_stdin_under_its_own_prefix(self, publish, handed, flags, prefix):
+        kept, body = handed
+
+        result = publish([*flags, AGY_SESSION], bun=body, stdin=AGY_JSON, title=None)
+
+        assert result.returncode == 0, result.stderr
+        assert result.published.startswith(f"{prefix}-")
+        assert kept.read_text() == AGY_JSON
+
+    def test_should_refuse_to_replay_an_agy_session(self, publish):
+        result = publish(["--insight", AGY_SESSION], stdin=AGY_JSON)
+
+        assert result.returncode == 2
+        assert "--insight replays Claude Code transcripts only" in result.stderr
+
+    def test_should_refuse_an_agy_session_without_one_on_stdin(self, publish):
+        result = publish([AGY_SESSION], stdin="", title=None)
+
+        assert result.returncode == 1
+        assert f"no agy session on stdin for {AGY_SESSION}" in result.stderr
+        assert not any(result.server.iterdir())
+
+
 class TestNameReuse:
     def should_reuse_published_name_when_session_is_already_online(self, publish):
         result = publish([SESSION], listing=f"-rw-r--r-- 1 root root 900 Jul 16 02:42 {PUBLISHED_CHAT}")

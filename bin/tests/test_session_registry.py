@@ -270,6 +270,33 @@ class TestTrackedSession:
 
         assert unwritable.track(make_record()) is registry_module.UNTRACKED
 
+    def test_should_follow_an_agy_container_and_log_its_folder(self, registry_module, make_record, tmp_path, monkeypatch):
+        log = tmp_path / "conversations.tsv"
+        registry = registry_module.Registry(tmp_path / "registry", tmp_path / "processes", tmp_path / "transcripts", log)
+        container = registry_module.Container("opencode-99", Path("/usr/local/bin/docker"))
+        monkeypatch.setattr(registry_module, "FOLLOW_INTERVAL", timedelta(milliseconds=10))
+        monkeypatch.setattr(
+            registry_module, "run",
+            lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, f"{CLEARED_ID}\n", ""),
+        )
+        record = make_record(session_id=None, agent=registry_module.Agent.AGY, container=container)
+
+        with registry.track(record) as session:
+            session.follow(None)
+            deadline = time.monotonic() + 2
+            while not log.is_file() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            session.finish(None)
+
+        assert log.read_text() == f"{CLEARED_ID}\t{tmp_path}\n"
+
+    def test_should_never_count_an_interrupted_agy_record_for_claude_restore(self, registry, registry_module, make_record):
+        write_transcript(registry, FIRST_ID)
+        with registry.track(make_record(agent=registry_module.Agent.AGY)) as session:
+            session.finish(signal.SIGTERM)
+
+        assert registry.count_interrupted() == 0
+
 
 class TestRecordSurvivesAKill:
     HOLD_RECORD = (

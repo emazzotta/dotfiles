@@ -2638,3 +2638,20 @@ class TestRoutesByPrompt:
                                   rm=None, convert=False, opencode=False, agy=False, hermes=False, paths=[])
         entrypoint, _plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(args, ["continue"], ELSEWHERE)
         assert entrypoint == "claude"
+
+
+class TestAgySessionRecord:
+    def test_should_extract_conversation_id_from_agy_resume_args(self, cl):
+        assert cl._named_session_id(["--conversation", CLAUDE_SESSION_ID]) == CLAUDE_SESSION_ID
+
+    def test_should_include_gemini_compose_mount_when_present(self, cl, tmp_path, monkeypatch):
+        gemini = tmp_path / "opencode" / "gemini"
+        gemini.mkdir(parents=True)
+        monkeypatch.setattr(cl, "OPENCODE_ROOT", tmp_path)
+
+        assert cl.compose_mounts() == (cl.session_registry.Mount(gemini, "/home/opencode/.gemini"),)
+
+    def test_should_omit_gemini_compose_mount_when_missing(self, cl, tmp_path, monkeypatch):
+        monkeypatch.setattr(cl, "OPENCODE_ROOT", tmp_path)
+
+        assert cl.compose_mounts() == ()

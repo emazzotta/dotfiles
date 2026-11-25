@@ -19,10 +19,15 @@ TITLE_TYPE: Final = "ai-title"
 TITLE_MARK: Final = TITLE_TYPE.encode()
 CHUNK_BYTES: Final = 1 << 16
 SCAN_LIMIT_BYTES: Final = 16 << 20
+AGY_METADATA_REL: Final = Path("cache") / "conversation_metadata.json"
 
 
 def projects_dir() -> Path:
     return Path(os.environ.get("CLAUDE_PROJECTS", Path.home() / ".claude" / "projects"))
+
+
+def agy_dir() -> Path:
+    return Path(os.environ.get("AGY_DIR", Path.home() / ".gemini" / "antigravity-cli"))
 
 
 def clean(title: str) -> str:
@@ -70,3 +75,17 @@ def find(session: UUID) -> str:
         return clean(next((title for title in titles if title is not None), ""))
     except OSError:
         return ""
+
+
+def find_agy(conversation: UUID) -> str:
+    metadata = agy_dir() / AGY_METADATA_REL
+    try:
+        conversations = json.loads(metadata.read_text()).get("conversations")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    entry = conversations.get(str(conversation)) if isinstance(conversations, dict) else None
+    summary = entry.get("summary") if isinstance(entry, dict) else None
+    if not isinstance(summary, dict):
+        return ""
+    title = summary.get("Title") or summary.get("Preview") or ""
+    return clean(title) if isinstance(title, str) else ""
