@@ -25,6 +25,7 @@ vim/.vim_runtime/my_plugins/
 !**/.gnupg/gpg.conf
 !**/.m2/settings.template.xml
 !**/.ssh/config
+!**/.ssh/devbox_known_hosts
 !**/ccline/config.toml
 !**/ccline/models.toml
 !**/ccline/themes
