@@ -18,7 +18,7 @@ from typing import Final, Mapping, Optional
 
 SHM: Final = Path("/dev/shm")
 FOLDER_PREFIX: Final = "fleet-"
-SOCKET_NAME: Final = "token.sock"
+SOCKET_SUFFIX: Final = ".sock"
 PRIVATE_FOLDER_MODE: Final = 0o700
 PRIVATE_SOCKET_UMASK: Final = 0o177
 GET: Final = b"get"
@@ -42,8 +42,8 @@ def private_base(platform: str, environ: Mapping[str, str], shm: Path) -> Option
     return shm if shm.is_dir() else None
 
 
-def socket_in(base: Optional[Path], uid: int) -> Optional[Path]:
-    return None if base is None else base / f"{FOLDER_PREFIX}{uid}" / SOCKET_NAME
+def socket_in(base: Optional[Path], uid: int, name: str) -> Optional[Path]:
+    return None if base is None else base / f"{FOLDER_PREFIX}{uid}" / f"{name}{SOCKET_SUFFIX}"
 
 
 def fetch(path: Path) -> Optional[str]:

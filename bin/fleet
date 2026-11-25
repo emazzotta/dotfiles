@@ -26,7 +26,8 @@ as the owner's words.
 WEB_TERMINAL_URL names the terminal: http://localhost:8122 by default,
 http://host.docker.internal:8122 inside a container, and https://terminal.mazzotta.me
 on the dev box (/opt/unlock exists), whose terminal sees the dev box only. The bearer is
-TELEGRAM_BOT_WEB_TERMINAL_AUTOMATION_TOKEN when it is set, else the one the master's holder keeps,
+FLEET_WEB_TERMINAL_AUTOMATION_TOKEN, fleet's own, whose texts and prompts the terminal marks as
+sent by a session: the exported one when it is set, else the one the master's holder keeps,
 else one loaded through envify. `fleet master on` loads it past keyguard's cache and starts the
 holder (token_hold), which keeps it in memory until `fleet master off` or the container ends; a
 held bearer the terminal refuses is loaded and held anew once per run. The dev box holds none,
@@ -56,7 +57,7 @@ import master_session
 import notify_delivery
 import token_hold
 
-TOKEN_NAME: Final = "TELEGRAM_BOT_WEB_TERMINAL_AUTOMATION_TOKEN"
+TOKEN_NAME: Final = "FLEET_WEB_TERMINAL_AUTOMATION_TOKEN"
 CACHE_NAME: Final = "ENVIFY_CACHE_TIMEOUT"
 NO_CACHE: Final = "0"
 NOT_HELD: Final = "fleet master on holds no token on this box: each fleet call still loads it through envify"
@@ -120,7 +121,7 @@ def terminal_url(environ: Dict[str, str], exists: Callable[[Path], bool]) -> str
 def hold_socket(environ: Dict[str, str], exists: Callable[[Path], bool]) -> Optional[Path]:
     if exists(DEVBOX_MARKER):
         return None
-    return token_hold.socket_in(token_hold.private_base(sys.platform, environ, token_hold.SHM), os.getuid())
+    return token_hold.socket_in(token_hold.private_base(sys.platform, environ, token_hold.SHM), os.getuid(), TOKEN_NAME)
 
 
 class Tokens:

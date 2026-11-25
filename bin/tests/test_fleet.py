@@ -391,7 +391,7 @@ class TestMain:
         assert (code, capsys.readouterr().err) == (1, "fleet: 401: Send the automation token as a bearer.\n")
 
 
-HOLD = Path("/dev/shm/fleet-1001/token.sock")
+HOLD = Path("/dev/shm/fleet-1001/FLEET_WEB_TERMINAL_AUTOMATION_TOKEN.sock")
 
 
 @pytest.fixture
@@ -498,10 +498,14 @@ class TestHoldSocket:
     def should_hold_no_bearer_on_the_devbox_where_every_session_shares_the_container(self, fleet):
         assert fleet.hold_socket({}, lambda path: path == fleet.DEVBOX_MARKER) is None
 
-    def should_hold_it_in_the_private_folder_of_this_user_elsewhere(self, fleet, monkeypatch):
+    def should_hold_it_in_the_private_folder_of_this_user_under_the_tokens_name_elsewhere(self, fleet, monkeypatch):
         monkeypatch.setattr(fleet.token_hold, "private_base", lambda platform, environ, shm: Path("/dev/shm"))
 
-        assert fleet.hold_socket({}, lambda path: False) == Path(f"/dev/shm/fleet-{fleet.os.getuid()}/token.sock")
+        assert fleet.hold_socket({}, lambda path: False) == Path(
+            f"/dev/shm/fleet-{fleet.os.getuid()}/FLEET_WEB_TERMINAL_AUTOMATION_TOKEN.sock")
+
+    def should_use_the_bearer_of_its_own_that_the_terminal_marks_as_fleets(self, fleet):
+        assert fleet.TOKEN_NAME == "FLEET_WEB_TERMINAL_AUTOMATION_TOKEN"
 
 
 class TestHoldingMaster:
@@ -659,6 +663,6 @@ class TestOwnerToken:
 
 class TestCli:
     def should_print_its_usage_without_loading_the_token(self, run_cli):
-        result = run_cli("fleet", ["--help"], env_extra={"TELEGRAM_BOT_WEB_TERMINAL_AUTOMATION_TOKEN": ""})
+        result = run_cli("fleet", ["--help"], env_extra={"FLEET_WEB_TERMINAL_AUTOMATION_TOKEN": ""})
 
         assert (result.returncode, "watch" in result.stdout, "envify" in result.stderr) == (0, True, False)

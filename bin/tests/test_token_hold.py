@@ -57,9 +57,16 @@ class TestPrivateBase:
 
         assert base == (shm if expected == "shm" else expected)
 
-    def should_name_one_socket_per_user_in_the_base(self, hold):
-        assert (hold.socket_in(Path("/dev/shm"), 1001), hold.socket_in(None, 1001)) == (
-            Path("/dev/shm/fleet-1001/token.sock"), None)
+    def should_name_one_socket_per_user_and_token_in_the_base(self, hold):
+        assert (hold.socket_in(Path("/dev/shm"), 1001, "A_TOKEN"), hold.socket_in(None, 1001, "A_TOKEN")) == (
+            Path("/dev/shm/fleet-1001/A_TOKEN.sock"), None)
+
+    def should_never_answer_with_a_token_held_under_another_name(self, hold, folder):
+        hold.start(hold.socket_in(folder, 1, "OLD_TOKEN"), VALUE)
+        try:
+            assert hold.fetch(hold.socket_in(folder, 1, "NEW_TOKEN")) is None
+        finally:
+            hold.stop(hold.socket_in(folder, 1, "OLD_TOKEN"))
 
 
 class TestHolder:
