@@ -128,11 +128,11 @@ def record_success(home: Path) -> None:
         pass
 
 
-def failing_since(home: Path, now: datetime) -> Failing | None:
-    """One failed tick after sleep or a network change is noise; an hour with no run reaching the box is not."""
+def failing_since(home: Path) -> Failing | None:
+    """One failed tick before sleep or a network change is noise; failures spanning an hour with no run reaching the box are not."""
     succeeded = last_success(home)
     failures = [(when, message) for when, message in logged_failures(home) if when > succeeded]
-    if not failures or now - failures[0][0] < FAILURE_GRACE:
+    if not failures or failures[-1][0] - failures[0][0] < FAILURE_GRACE:
         return None
     return Failing(failures[0][0], failure_reason(failures[-1][1]))
 

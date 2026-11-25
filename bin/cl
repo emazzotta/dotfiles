@@ -1110,7 +1110,7 @@ def warn_if_sync_failing() -> None:
         return
     claude_sync = load_script_module(CLAUDE_SYNC, "claude_sync")
     home = claude_sync.local_home()
-    failing = claude_sync.failing_since(home, datetime.now())
+    failing = claude_sync.failing_since(home)
     if failing:
         _warn(f"claude-sync has failed since {failing.since:%d %b at %H:%M}",
               f"{_display_path(home / claude_sync.LOG_NAME)}: {failing.reason}")

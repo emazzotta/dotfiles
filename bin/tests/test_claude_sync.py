@@ -610,19 +610,24 @@ class TestFailureWarning:
         assert not (claude_home / "claude-sync.ok").exists()
 
     def should_stay_quiet_without_failures(self, script, tmp_path):
-        assert script.failing_since(tmp_path, NOW) is None
+        assert script.failing_since(tmp_path) is None
 
-    def should_stay_quiet_while_failures_are_younger_than_an_hour(self, script, tmp_path):
-        write_log(tmp_path, (NOW - timedelta(minutes=59), HOST_KEY_FAILURE))
+    def should_stay_quiet_while_failures_span_less_than_an_hour(self, script, tmp_path):
+        write_log(tmp_path, (NOW - timedelta(minutes=59), HOST_KEY_FAILURE), (NOW, HOST_KEY_FAILURE))
 
-        assert script.failing_since(tmp_path, NOW) is None
+        assert script.failing_since(tmp_path) is None
+
+    def should_ignore_a_lone_failure_however_old_it_is(self, script, tmp_path):
+        write_log(tmp_path, (NOW - timedelta(hours=10), HOST_KEY_FAILURE))
+
+        assert script.failing_since(tmp_path) is None
 
     def should_report_the_first_failure_and_the_latest_reason_once_they_outlast_an_hour(self, script, tmp_path):
         write_log(tmp_path,
                   (NOW - timedelta(hours=26), "settings sync skipped: rsync exit 255: Connection reset by peer"),
                   (NOW - timedelta(minutes=5), HOST_KEY_FAILURE + "\nrsync: connection unexpectedly closed"))
 
-        failing = script.failing_since(tmp_path, NOW)
+        failing = script.failing_since(tmp_path)
 
         assert failing == (NOW - timedelta(hours=26), "Host key verification failed.")
 
@@ -630,23 +635,24 @@ class TestFailureWarning:
         write_log(tmp_path, (NOW - timedelta(hours=3), HOST_KEY_FAILURE))
         mark_success_at(tmp_path, NOW - timedelta(hours=2))
 
-        assert script.failing_since(tmp_path, NOW) is None
+        assert script.failing_since(tmp_path) is None
 
     def should_count_from_the_first_failure_after_the_last_success(self, script, tmp_path):
         write_log(tmp_path,
                   (NOW - timedelta(hours=3), "settings sync skipped: rsync exit 255: Connection reset by peer"),
-                  (NOW - timedelta(minutes=90), HOST_KEY_FAILURE))
+                  (NOW - timedelta(minutes=90), HOST_KEY_FAILURE),
+                  (NOW - timedelta(minutes=30), HOST_KEY_FAILURE))
         mark_success_at(tmp_path, NOW - timedelta(hours=2))
 
-        failing = script.failing_since(tmp_path, NOW)
+        failing = script.failing_since(tmp_path)
 
         assert failing.since == NOW - timedelta(minutes=90)
 
     def should_keep_a_reason_that_names_no_destination(self, script, tmp_path):
         reason = "settings sync skipped: rsync exit 255: Connection reset by peer"
-        write_log(tmp_path, (NOW - timedelta(hours=2), reason))
+        write_log(tmp_path, (NOW - timedelta(hours=2), HOST_KEY_FAILURE), (NOW, reason))
 
-        assert script.failing_since(tmp_path, NOW).reason == reason
+        assert script.failing_since(tmp_path).reason == reason
 
 
 class TestLeftOut:

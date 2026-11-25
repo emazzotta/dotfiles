@@ -2662,6 +2662,8 @@ class TestAgySessionRecord:
 class TestSyncFailureWarning:
     HOST_KEY_FAILURE = ("2026-11-24 15:45:01 rsync exit 255 [/usr/sbin/cron, no-agent, home=/Users/someone]"
                         " -> devbox:/home/opencode/.claude/projects/: Host key verification failed.\n")
+    LATER_FAILURE = ("2026-11-25 18:21:53 settings sync skipped: rsync exit 255:"
+                     " Host key verification failed.\n")
 
     @pytest.fixture
     def claude_home(self, cl, tmp_path, monkeypatch):
@@ -2672,7 +2674,7 @@ class TestSyncFailureWarning:
         return home
 
     def should_warn_when_claude_sync_has_kept_failing(self, cl, claude_home, capsys):
-        (claude_home / "claude-sync.log").write_text(self.HOST_KEY_FAILURE)
+        (claude_home / "claude-sync.log").write_text(self.HOST_KEY_FAILURE + self.LATER_FAILURE)
 
         cl.warn_if_sync_failing()
 
@@ -2681,7 +2683,7 @@ class TestSyncFailureWarning:
         assert "Host key verification failed." in err
 
     def should_stay_silent_once_a_sync_reached_the_box(self, cl, claude_home, capsys):
-        (claude_home / "claude-sync.log").write_text(self.HOST_KEY_FAILURE)
+        (claude_home / "claude-sync.log").write_text(self.HOST_KEY_FAILURE + self.LATER_FAILURE)
         (claude_home / "claude-sync.ok").touch()
 
         cl.warn_if_sync_failing()
