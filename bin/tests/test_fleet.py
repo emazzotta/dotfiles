@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,8 +24,8 @@ def fleet(load_script):
 @pytest.fixture
 def stub(fleet):
     class StubApi(fleet.Api):
-        def __init__(self, answers):
-            super().__init__("http://terminal.test", "token")
+        def __init__(self, answers, tokens=None):
+            super().__init__("http://terminal.test", tokens or fleet.Tokens({fleet.TOKEN_NAME: "token"}, None))
             self.answers = answers
             self.calls = []
             self.timeouts = []
@@ -356,6 +358,172 @@ class TestMain:
         code = fleet.main(["boxes"], lambda: api)
 
         assert (code, capsys.readouterr().err) == (1, "fleet: 401: Send the automation token as a bearer.\n")
+
+
+HOLD = Path("/dev/shm/fleet-1001/token.sock")
+
+
+@pytest.fixture
+def holder(fleet, monkeypatch):
+    state = SimpleNamespace(value=None, started=[], stopped=[])
+
+    def start(path, value):
+        state.started.append((path, value))
+        state.value = value
+
+    def stop(path):
+        state.stopped.append(path)
+        was_held, state.value = state.value is not None, None
+        return was_held
+
+    monkeypatch.setattr(fleet.token_hold, "fetch", lambda path: state.value)
+    monkeypatch.setattr(fleet.token_hold, "start", start)
+    monkeypatch.setattr(fleet.token_hold, "stop", stop)
+    return state
+
+
+@pytest.fixture
+def loads(fleet, monkeypatch):
+    caches = []
+
+    def values_via_shell(keys, environ):
+        caches.append(environ.get("ENVIFY_CACHE_TIMEOUT", "inherited"))
+        return {keys[0]: f"loaded-{len(caches)}"}
+
+    monkeypatch.setattr(fleet.envify, "values_via_shell", values_via_shell)
+    return caches
+
+
+@pytest.fixture
+def replying(fleet):
+    class ReplyingApi(fleet.Api):
+        def __init__(self, tokens, statuses):
+            super().__init__("http://terminal.test", tokens)
+            self.statuses = list(statuses)
+            self.sent_with = []
+
+        def send(self, method, path, body, timeout, token):
+            self.sent_with.append(token)
+            return fleet.Answer(self.statuses.pop(0), None)
+
+    return ReplyingApi
+
+
+class TestTokens:
+    def should_take_the_bearer_from_the_environment_first(self, fleet, holder, loads):
+        holder.value = "held"
+
+        assert (fleet.Tokens({fleet.TOKEN_NAME: "exported"}, HOLD).current(), loads) == ("exported", [])
+
+    def should_take_the_held_bearer_before_loading_one(self, fleet, holder, loads):
+        holder.value = "held"
+
+        assert (fleet.Tokens({}, HOLD).current(), loads) == ("held", [])
+
+    @pytest.mark.parametrize("hold_at", [HOLD, None])
+    def should_load_through_envify_with_the_callers_cache_when_nothing_holds_one(self, fleet, holder, loads, hold_at):
+        assert (fleet.Tokens({}, hold_at).current(), loads) == ("loaded-1", ["inherited"])
+
+    def should_renew_a_held_bearer_once_when_the_terminal_refuses_it(self, fleet, holder, loads, replying):
+        holder.value = "old"
+        api = replying(fleet.Tokens({}, HOLD), [401, 200])
+
+        answer = api.call("GET", "/sessions")
+
+        assert (answer.status, api.sent_with, holder.stopped, holder.started, loads) == (
+            200, ["old", "loaded-1"], [HOLD], [(HOLD, "loaded-1")], ["0"])
+
+    def should_renew_at_most_once_in_one_run(self, fleet, holder, loads, replying):
+        holder.value = "old"
+        api = replying(fleet.Tokens({}, HOLD), [401, 401, 401])
+
+        statuses = [api.call("GET", "/sessions").status for _ in range(2)]
+
+        assert (statuses, api.sent_with, loads) == ([401, 401], ["old", "loaded-1", "loaded-1"], ["0"])
+
+    def should_pass_a_refusal_on_when_the_bearer_is_not_held(self, fleet, holder, loads, replying):
+        api = replying(fleet.Tokens({fleet.TOKEN_NAME: "exported"}, HOLD), [401])
+
+        assert (api.call("GET", "/sessions").status, holder.stopped, loads) == (401, [], [])
+
+    def should_ask_for_no_second_approval_after_a_renewal_that_failed(self, fleet, holder, replying, monkeypatch):
+        holder.value = "old"
+        asked = []
+
+        def refused(keys, environ):
+            asked.append(keys)
+            raise fleet.envify.EnvifyError("Touch ID cancelled or failed")
+
+        monkeypatch.setattr(fleet.envify, "values_via_shell", refused)
+        api = replying(fleet.Tokens({}, HOLD), [401, 401])
+
+        with pytest.raises(fleet.FleetError, match="Touch ID cancelled"):
+            api.call("GET", "/sessions")
+
+        assert (api.call("GET", "/sessions").status, len(asked), api.sent_with) == (401, 1, ["old", "old"])
+
+
+class TestHoldSocket:
+    def should_hold_no_bearer_on_the_devbox_where_every_session_shares_the_container(self, fleet):
+        assert fleet.hold_socket({}, lambda path: path == fleet.DEVBOX_MARKER) is None
+
+    def should_hold_it_in_the_private_folder_of_this_user_elsewhere(self, fleet, monkeypatch):
+        monkeypatch.setattr(fleet.token_hold, "private_base", lambda platform, environ, shm: Path("/dev/shm"))
+
+        assert fleet.hold_socket({}, lambda path: False) == Path(f"/dev/shm/fleet-{fleet.os.getuid()}/token.sock")
+
+
+class TestHoldingMaster:
+    @pytest.fixture
+    def marking(self, fleet, stub, monkeypatch, tmp_path):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", MASTER)
+        monkeypatch.setattr(fleet.master_session, "MARK_DIR", tmp_path / "master")
+
+        def run(state, tokens, *flags):
+            marked = flags[-1] if flags else MASTER
+            answer = (200, {"ok": True, **session(conversation=marked, short=marked[:8], master=state == "on")})
+            api = stub({("POST", f"/sessions/{marked}/master"): answer}, tokens)
+            return fleet.main(["master", state, *flags], lambda: api), api
+        return run
+
+    def should_hold_a_bearer_loaded_past_keyguards_cache_when_it_turns_master(self, fleet, holder, loads, marking):
+        code, api = marking("on", fleet.Tokens({}, HOLD))
+
+        assert (code, holder.started, loads, api.calls[0][2]) == (0, [(HOLD, "loaded-1")], ["0"], {"on": True})
+
+    def should_hold_the_exported_bearer_without_loading_one(self, fleet, holder, loads, marking):
+        marking("on", fleet.Tokens({fleet.TOKEN_NAME: "exported"}, HOLD))
+
+        assert (holder.started, loads) == ([(HOLD, "exported")], [])
+
+    def should_keep_a_holder_that_already_answers(self, fleet, holder, loads, marking):
+        holder.value = "held"
+
+        marking("on", fleet.Tokens({}, HOLD))
+
+        assert (holder.started, loads) == ([], [])
+
+    def should_say_it_holds_nothing_where_no_private_folder_exists(self, fleet, holder, loads, marking, capsys):
+        code, _ = marking("on", fleet.Tokens({}, None))
+
+        assert (code, holder.started, "holds no token" in capsys.readouterr().err) == (0, [], True)
+
+    def should_stop_the_holder_when_it_stops_being_master(self, fleet, holder, loads, marking):
+        holder.value = "held"
+
+        code, _ = marking("off", fleet.Tokens({}, HOLD))
+
+        assert (code, holder.stopped) == (0, [HOLD])
+
+    def should_hold_nothing_when_it_marks_another_session(self, fleet, holder, loads, marking):
+        marking("on", fleet.Tokens({fleet.TOKEN_NAME: "exported"}, HOLD), "--session", CLAUDE)
+
+        assert holder.started == []
+
+    def should_hold_the_bearer_when_it_names_its_own_session(self, fleet, holder, loads, marking):
+        marking("on", fleet.Tokens({fleet.TOKEN_NAME: "exported"}, HOLD), "--session", MASTER)
+
+        assert holder.started == [(HOLD, "exported")]
 
 
 OWNER_INPUT = f"/sessions/{CLAUDE}/owner-input"

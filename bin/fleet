@@ -21,8 +21,12 @@ as the owner's words.
 
 WEB_TERMINAL_URL names the terminal: http://localhost:8122 by default,
 http://host.docker.internal:8122 inside a container, and https://terminal.mazzotta.me
-on the dev box (/opt/unlock exists), whose terminal sees the dev box only. The bearer comes from
-TELEGRAM_BOT_WEB_TERMINAL_AUTOMATION_TOKEN, loaded through envify when it is not set.
+on the dev box (/opt/unlock exists), whose terminal sees the dev box only. The bearer is
+TELEGRAM_BOT_WEB_TERMINAL_AUTOMATION_TOKEN when it is set, else the one the master's holder keeps,
+else one loaded through envify. `fleet master on` loads it past keyguard's cache and starts the
+holder (token_hold), which keeps it in memory until `fleet master off` or the container ends; a
+held bearer the terminal refuses is loaded and held anew once per run. The dev box holds none,
+since all its sessions share one container.
 
 Exit codes: 0 done, 1 failed, 2 usage, 3 refused: the agent waits or asks no more, the session
 cannot take a message the owner signs, or the session or its window may not close.
@@ -46,8 +50,12 @@ from typing import Any, Callable, Dict, Final, Iterator, List, Optional, Set, Tu
 import envify
 import master_session
 import notify_delivery
+import token_hold
 
 TOKEN_NAME: Final = "TELEGRAM_BOT_WEB_TERMINAL_AUTOMATION_TOKEN"
+CACHE_NAME: Final = "ENVIFY_CACHE_TIMEOUT"
+NO_CACHE: Final = "0"
+NOT_HELD: Final = "fleet master on holds no token on this box: each fleet call still loads it through envify"
 URL_NAME: Final = "WEB_TERMINAL_URL"
 LOCAL_URL: Final = "http://localhost:8122"
 CONTAINER_URL: Final = "http://host.docker.internal:8122"
@@ -70,6 +78,7 @@ EXIT_FAILED: Final = 1
 EXIT_REFUSED: Final = 3
 HTTP_NO_CONTENT: Final = 204
 HTTP_BAD_REQUEST: Final = 400
+HTTP_UNAUTHORIZED: Final = 401
 HTTP_NOT_FOUND: Final = 404
 HTTP_CONFLICT: Final = 409
 AGENTS: Final = ("claude", "opencode", "agy")
@@ -103,26 +112,93 @@ def terminal_url(environ: Dict[str, str], exists: Callable[[Path], bool]) -> str
     return CONTAINER_URL if exists(CONTAINER_MARKER) else LOCAL_URL
 
 
-def load_token() -> str:
-    if not os.environ.get(TOKEN_NAME):
+def hold_socket(environ: Dict[str, str], exists: Callable[[Path], bool]) -> Optional[Path]:
+    if exists(DEVBOX_MARKER):
+        return None
+    return token_hold.socket_in(token_hold.private_base(sys.platform, environ, token_hold.SHM), os.getuid())
+
+
+class Tokens:
+    """The bearer of one run, in the order the module doc names."""
+
+    def __init__(self, environ: Dict[str, str], hold_at: Optional[Path]) -> None:
+        self.environ = environ
+        self.hold_at = hold_at
+        self.value: Optional[str] = None
+        self.held = False
+        self.renewed = False
+
+    def current(self) -> str:
+        if self.value is None:
+            self.value, self.held = self.find()
+        return self.value
+
+    def find(self) -> Tuple[str, bool]:
+        exported = self.environ.get(TOKEN_NAME)
+        if exported:
+            return exported, False
+        held = self.fetch_held()
+        return (held, True) if held else (self.load(cached=True), False)
+
+    def fetch_held(self) -> Optional[str]:
+        return token_hold.fetch(self.hold_at) if self.hold_at else None
+
+    def hold(self) -> bool:
+        if self.hold_at is None:
+            return False
+        held = self.fetch_held()
+        if held is None:
+            held = self.environ.get(TOKEN_NAME) or self.load(cached=False)
+            self.keep(self.hold_at, held)
+        self.value, self.held = held, True
+        return True
+
+    def release(self) -> None:
+        if self.hold_at is not None:
+            token_hold.stop(self.hold_at)
+
+    def renew(self) -> Optional[str]:
+        if not self.held or self.renewed or self.hold_at is None:
+            return None
+        self.renewed = True
+        token_hold.stop(self.hold_at)
+        self.value = self.load(cached=False)
+        self.keep(self.hold_at, self.value)
+        return self.value
+
+    def load(self, cached: bool) -> str:
+        environ = self.environ if cached else {**self.environ, CACHE_NAME: NO_CACHE}
         try:
-            envify.load_env_via_shell((TOKEN_NAME,))
+            token = envify.values_via_shell((TOKEN_NAME,), environ).get(TOKEN_NAME, "")
         except envify.EnvifyError as error:
             raise FleetError(f"envify could not load {TOKEN_NAME}: {error}".strip()) from error
-    token = os.environ.get(TOKEN_NAME, "")
-    if not token:
-        raise FleetError(f"{TOKEN_NAME} is empty")
-    return token
+        if not token:
+            raise FleetError(f"{TOKEN_NAME} is empty")
+        return token
+
+    @staticmethod
+    def keep(at: Path, token: str) -> None:
+        try:
+            token_hold.start(at, token)
+        except (token_hold.HoldError, OSError) as error:
+            raise FleetError(f"could not hold {TOKEN_NAME}: {error}") from error
 
 
 class Api:
-    def __init__(self, base: str, token: str) -> None:
+    def __init__(self, base: str, tokens: Tokens) -> None:
         self.base = base
-        self.token = token
+        self.tokens = tokens
 
     def call(self, method: str, path: str, body: Optional[Any] = None, timeout: float = REQUEST_TIMEOUT_S) -> Answer:
+        answer = self.send(method, path, body, timeout, self.tokens.current())
+        if answer.status != HTTP_UNAUTHORIZED:
+            return answer
+        renewed = self.tokens.renew()
+        return answer if renewed is None else self.send(method, path, body, timeout, renewed)
+
+    def send(self, method: str, path: str, body: Optional[Any], timeout: float, token: str) -> Answer:
         data = None if body is None else json.dumps(body).encode()
-        headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         request = urllib.request.Request(f"{self.base}/api/automation{path}", data=data, method=method, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -342,15 +418,20 @@ def run_close(api: Api, args: argparse.Namespace) -> None:
 
 
 def run_master(api: Api, args: argparse.Namespace) -> None:
-    session = args.session or own_session(dict(os.environ))
+    own = own_session(dict(os.environ))
+    session = args.session or own
     if session is None:
         raise FleetError(f"name the session with --session: {SESSION_ID_NAME} is not set")
     on = args.state == "on"
+    if on and session == own and not api.tokens.hold():
+        print(NOT_HELD, file=sys.stderr)
     marked = api.ok("POST", f"/sessions/{quoted(session)}/master", {"on": on})
     try:
         master_session.mark(uuid.UUID(marked["conversation"]), on)
     except ValueError:
         print("no Telegram quiet for this agent: claude-notify knows Claude Code sessions only", file=sys.stderr)
+    if not on and session == own:
+        api.tokens.release()
     print(f"{'marked' if on else 'unmarked'} {describe(marked)}")
 
 
@@ -530,7 +611,8 @@ def main(argv: List[str], connect: Callable[[], Api]) -> int:
 
 
 def connect() -> Api:
-    return Api(terminal_url(dict(os.environ), Path.exists), load_token())
+    environ = dict(os.environ)
+    return Api(terminal_url(environ, Path.exists), Tokens(environ, hold_socket(environ, Path.exists)))
 
 
 if __name__ == "__main__":

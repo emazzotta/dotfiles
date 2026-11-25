@@ -227,15 +227,18 @@ class EnvifyError(RuntimeError):
 
 # `source envify` in a bash child reaches the devbox shim; load_env bypasses it.
 def load_env_via_shell(keys: tuple[str, ...]) -> None:
+    os.environ.update(values_via_shell(keys, dict(os.environ)))
+
+
+def values_via_shell(keys: tuple[str, ...], environ: dict[str, str]) -> dict[str, str]:
     names = " ".join(keys)
     echoes = " && ".join(f'echo "{key}=${{{key}}}"' for key in keys)
-    result = subprocess.run(["bash", "-c", f"source envify {names} && {echoes}"], capture_output=True, text=True)
+    result = subprocess.run(["bash", "-c", f"source envify {names} && {echoes}"], capture_output=True, text=True,
+                            env=environ)
     if result.returncode != 0:
         raise EnvifyError(result.stderr)
-    for line in result.stdout.splitlines():
-        key, _, value = line.partition("=")
-        if key in keys:
-            os.environ[key] = value
+    values = (line.partition("=") for line in result.stdout.splitlines())
+    return {key: value for key, _, value in values if key in keys}
 
 
 def owner_signature(text: str, target: str, box: str, title: str) -> str:

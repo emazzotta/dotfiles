@@ -150,6 +150,21 @@ class TestLoadEnvViaShell:
 
         assert str(raised.value) == ""
 
+    def should_hand_the_values_back_without_exporting_them(self, envify, shim):
+        shim.write_text("export ENVIFY_TEST_A=1 ENVIFY_TEST_B=2\n")
+
+        values = envify.values_via_shell(self.KEYS, dict(os.environ))
+
+        assert (values, "ENVIFY_TEST_A" in os.environ) == ({"ENVIFY_TEST_A": "1", "ENVIFY_TEST_B": "2"}, False)
+
+    def should_run_envify_in_the_environment_it_is_given(self, envify, shim, tmp_path):
+        seen = tmp_path / "seen"
+        shim.write_text(f'printf "%s" "$ENVIFY_CACHE_TIMEOUT" > "{seen}"\nexport ENVIFY_TEST_A=1 ENVIFY_TEST_B=2\n')
+
+        envify.values_via_shell(self.KEYS, {**os.environ, "ENVIFY_CACHE_TIMEOUT": "0"})
+
+        assert seen.read_text() == "0"
+
 
 class TestGuiSession:
     @pytest.fixture
