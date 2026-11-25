@@ -61,6 +61,19 @@ class TestState:
     def should_tell_a_question_apart_from_a_prompt_only_the_owner_answers(self, fleet, over, expected):
         assert fleet.state_of(session(**over)) == expected
 
+    @pytest.mark.parametrize("outcome,expected", [
+        ("decision", "decision"),
+        ("blocked", "blocked"),
+        ("running", "running"),
+        ("done", "done"),
+        (None, "idle"),
+    ])
+    def should_tell_an_idle_session_by_what_its_last_reply_leaves_for_the_owner(self, fleet, outcome, expected):
+        assert fleet.state_of(session(outcome=outcome)) == expected
+
+    def should_read_a_terminal_that_lists_no_outcome_as_idle(self, fleet):
+        assert fleet.state_of(session()) == "idle"
+
 
 class TestChanges:
     def should_report_started_ended_and_changed_sessions_only(self, fleet):
@@ -83,6 +96,11 @@ class TestDescribe:
         line = fleet.describe(session(master=True, cue="master", flag="Tests fail"))
 
         assert line == "aaaaaaaa  claude@mac  idle  Fix the login form  [/workspace/code/app]  master  cue:master  flag: Tests fail"
+
+    def should_count_the_background_tasks_an_idle_session_still_runs(self, fleet):
+        line = fleet.describe(session(outcome="running", tasks=2))
+
+        assert line == "aaaaaaaa  claude@mac  running  Fix the login form  [/workspace/code/app]  tasks:2"
 
 
 OTHER = "bbbbbbbb-0000-4000-8000-000000000002"
@@ -168,6 +186,19 @@ class TestWatcher:
             "busy -> aaaaaaaa  claude@mac  idle  Fix the login form  [/workspace/code/app]",
             "  reply: Tests pass.",
         ]
+
+    @pytest.mark.parametrize("outcome", ["decision", "blocked", "running", "done", None])
+    def should_print_the_reply_of_a_session_that_turns_idle_whatever_its_reply_leaves(self, watching, outcome):
+        watcher, _, _ = watching([session(status="busy")], [session(status="idle", outcome=outcome)], replies={CLAUDE: "Tests pass."})
+        watcher.start()
+
+        assert watcher.look()[-1] == "  reply: Tests pass."
+
+    def should_print_no_reply_when_an_idle_session_only_changes_its_outcome(self, watching):
+        watcher, _, _ = watching([session(outcome="running", tasks=1)], [session(outcome="done")], replies={CLAUDE: "Tests pass."})
+        watcher.start()
+
+        assert watcher.look() == ["running -> aaaaaaaa  claude@mac  done  Fix the login form  [/workspace/code/app]"]
 
     def should_send_a_flag_the_owner_left_unseen_to_telegram_once(self, watching):
         flagged = session(flag="Tests fail", cue="master")

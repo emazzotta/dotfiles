@@ -7,6 +7,10 @@ watches for changes. Permission prompts and Keyguard requests stay the owner's: 
 a message to a waiting agent and answers questions only, and closes a busy or waiting session
 only with --force. It never closes the master's window or one that holds more than the agent.
 
+An idle session shows what its last reply leaves for the owner, as the terminal reads its closing
+block: decision, blocked, running or done, else idle; tasks:N counts the background tasks it still
+runs.
+
 The master session (`fleet master on`) asks the owner to look at a session with `fleet flag`:
 the terminal shows the flag on that window until the owner sees it. `fleet watch` leaves the
 master's own session out, reports a session busy for --stuck-after minutes once with its last
@@ -74,6 +78,7 @@ S_PER_MIN: Final = 60
 REPLY_COLUMNS: Final = 300
 SESSION_ID_NAME: Final = "CLAUDE_CODE_SESSION_ID"
 MASTER_CUE: Final = "master"
+IDLE_STATES: Final = frozenset({"idle", "done", "decision", "blocked", "running"})
 EXIT_FAILED: Final = 1
 EXIT_REFUSED: Final = 3
 HTTP_NO_CONTENT: Final = 204
@@ -234,14 +239,18 @@ def quoted(segment: str) -> str:
 
 
 def state_of(session: Session) -> str:
-    if session.get("status") != "waiting":
-        return str(session.get("status", "?"))
+    status = session.get("status")
+    if status == "idle":
+        return str(session.get("outcome") or "idle")
+    if status != "waiting":
+        return str(status or "?")
     return "asks" if session.get("question") else "waits-for-owner"
 
 
 def describe(session: Session) -> str:
     title = session.get("title") or "(untitled)"
     marks = "".join(mark for mark in (
+        f"  tasks:{session['tasks']}" if session.get("tasks") else "",
         "  master" if session.get("master") else "",
         f"  cue:{session['cue']}" if session.get("cue") else "",
         f"  flag: {session['flag']}" if session.get("flag") else "",
@@ -270,6 +279,10 @@ def question_lines(session: Session) -> Iterator[str]:
 
 def snapshot(sessions: List[Session]) -> Dict[str, Tuple[str, str]]:
     return {each["conversation"]: (state_of(each), describe(each)) for each in sessions}
+
+
+def turned_idle(before: str, after: str) -> bool:
+    return before == "busy" and after in IDLE_STATES
 
 
 def changes(before: Dict[str, Tuple[str, str]], after: Dict[str, Tuple[str, str]]) -> List[str]:
@@ -471,7 +484,7 @@ class Watcher:
         after = snapshot(sessions)
         lines = changes(self.before, after)
         lines += [f"  reply: {self.reply(key)}" for key, (state, _) in after.items()
-                  if state == "idle" and self.before.get(key, ("",))[0] == "busy"]
+                  if turned_idle(self.before.get(key, ("",))[0], state)]
         self.before = after
         return lines + self.note(sessions)
 
