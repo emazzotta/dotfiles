@@ -234,7 +234,6 @@
     "command": "~/dotfiles/bin/claude-statusline /opt/ccline/ccline"
   },
   "enabledPlugins": {
-    "superpowers@claude-plugins-official": false,
     "finance@synced": false,
     "code-review@claude-plugins-official": true,
     "leonardo@leonardo-skills": true,
@@ -244,7 +243,8 @@
     "vaadin-skills@vaadin-marketplace": false,
     "kicad-happy@skills-dir": true,
     "pat@skills-dir": true,
-    "pstack@skills-dir": true
+    "pstack@skills-dir": true,
+    "superpowers@skills-dir": true
   },
   "extraKnownMarketplaces": {
     "leonardo-skills": {
