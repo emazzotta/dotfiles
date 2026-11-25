@@ -519,6 +519,48 @@ class TestOneShotWindow:
         assert notify.read_pending(SESSION)["close"] is False
 
 
+class TestSilentMarker:
+    GREEN = "Emanuele, ops sweep 13:15: all green.\n\n[silent]"
+    CLOSE = ("kill-window", "-t", PANE)
+
+    def should_arm_no_ping_when_the_last_line_is_the_marker(self, notify, spawned):
+        _stop(notify, self.GREEN, **NO_WORK)
+
+        assert spawned == []
+
+    def should_cancel_a_ping_still_pending_when_the_reply_is_silent(self, notify, spawned, from_telegram):
+        _stop(notify, "First answer.", **NO_WORK)
+        _stop(notify, self.GREEN, **NO_WORK)
+
+        assert notify.read_pending(SESSION) is None
+
+    def should_close_a_one_shot_window_without_sending(self, notify, spawned, delivered, one_shot):
+        _stop(notify, self.GREEN, **NO_WORK)
+
+        assert _fire(notify, spawned) == 0
+        assert delivered == []
+        assert one_shot.events == [self.CLOSE]
+
+    def should_keep_a_one_shot_window_silently_when_background_work_may_remain(
+            self, notify, spawned, delivered, one_shot):
+        _stop(notify, self.GREEN, background_tasks=[{"type": "shell"}], session_crons=[])
+
+        assert spawned == []
+        assert one_shot.events == []
+
+    @pytest.mark.parametrize("reply", [
+        "Write [silent] as the last line to mute it.",
+        "[silent]\n\nBut this line comes last.",
+        "Done.\n\n[silent] after all",
+    ])
+    def should_send_when_the_marker_is_not_the_whole_last_line(self, notify, spawned, delivered, from_telegram, reply):
+        _stop(notify, reply, **NO_WORK)
+
+        _fire(notify, spawned)
+
+        assert [body["text"] for body in delivered] == [reply]
+
+
 class TestWindowMarks:
     def should_ask_tmux_once_for_both_options_of_the_window_holding_the_pane(self, load_script, monkeypatch):
         notify = load_script("claude-notify")

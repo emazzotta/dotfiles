@@ -19,6 +19,8 @@ before that poll puts it back on the 10 min wait.
   why in its first line, when background shells or crons may still run, or when the last
   line of the reply is a question. It stays too, silently, when the send failed, since the
   answer then lives only there. The flag stays on the window: the next Stop is judged anew.
+- A reply whose last line is `[silent]` (SILENT_MARKER) sends nothing and cancels what is
+  pending. A one-shot window still closes as it would after a send.
 - PermissionRequest notes what the prompt is about. The permission_prompt Notification,
   which Claude Code raises only once a prompt has waited about 6 s unanswered, arms it.
 - PostToolUse and PostToolUseFailure of the prompted tool cancel the prompt's ping: an
@@ -60,6 +62,7 @@ BACKGROUND_NOTE: Final = "Window kept open: background work may still be running
 QUESTION_NOTE: Final = "Window kept open: the reply ends with a question."
 SENTENCE_LIMIT: Final = 200
 FINISHED_FALLBACK: Final = "Finished, waiting for your input."
+SILENT_MARKER: Final = "[silent]"
 STATE_DIR: Final = Path.home() / ".cache" / "claude-notify"
 UNATTENDED_ENTRYPOINT_PREFIX: Final = "sdk"
 WAKING_TASK_TYPES_EXEMPT: Final = frozenset({"shell"})
@@ -127,8 +130,16 @@ def work_may_remain(event: dict) -> bool:
 
 
 def ends_with_question(reply: str) -> bool:
-    lines = [line.rstrip() for line in reply.splitlines() if line.strip()]
-    return bool(lines) and lines[-1].rstrip(TRAILING_MARKUP).endswith("?")
+    return last_line(reply).rstrip(TRAILING_MARKUP).endswith("?")
+
+
+def last_line(reply: str) -> str:
+    lines = [line.strip() for line in reply.splitlines() if line.strip()]
+    return lines[-1] if lines else ""
+
+
+def is_silent(reply: str) -> bool:
+    return last_line(reply) == SILENT_MARKER
 
 
 def open_note(event: dict, reply: str) -> str | None:
@@ -170,9 +181,11 @@ def spawn(arguments: Sequence[str]) -> None:
                      start_new_session=True)
 
 
-def arm(session: UUID, text: str, kind: PingKind, prompt: dict | None = None, close: bool = False) -> None:
+def arm(session: UUID, text: str, kind: PingKind, prompt: dict | None = None, close: bool = False,
+        silent: bool = False) -> None:
     token = secrets.token_hex(8)
-    pending = {"token": token, "text": text, "kind": kind.value, "prompt": prompt, "close": close}
+    pending = {"token": token, "text": text, "kind": kind.value, "prompt": prompt, "close": close,
+               "silent": silent}
     write_state(state_file(session, "pending"), json.dumps(pending))
     spawn(["fire", str(session), token])
 
@@ -187,12 +200,21 @@ def on_stop(session: UUID, event: dict) -> None:
         return
     reply = event.get("last_assistant_message") or ""
     marks = window_marks()
+    if is_silent(reply):
+        stay_silent(session, event, marks)
+        return
     if not marks.automation:
         arm(session, first_sentence(reply), PingKind.FINISHED)
         return
     answer = reply if reply.strip() else FINISHED_FALLBACK
     note = open_note(event, answer) if marks.one_shot else None
     arm(session, f"{note}\n\n{answer}" if note else answer, PingKind.ANSWER, close=marks.one_shot and note is None)
+
+
+def stay_silent(session: UUID, event: dict, marks: WindowMarks) -> None:
+    take_state(state_file(session, "pending"))
+    if marks.one_shot and not work_may_remain(event):
+        arm(session, "", PingKind.ANSWER, close=True, silent=True)
 
 
 def on_permission_request(session: UUID, event: dict) -> None:
@@ -336,6 +358,10 @@ def fire(session: UUID, token: str, sleep: Callable[[float], None] = time.sleep,
         return 0
     if not due:
         take_state(state_file(session, "pending"))
+        return 0
+    if ping.get("silent"):
+        take_state(state_file(session, "pending"))
+        close_window()
         return 0
     body = json.dumps(notice(session, ping["text"], PingKind(ping["kind"])))
     if not ping.get("close"):
