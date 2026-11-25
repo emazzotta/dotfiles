@@ -3,14 +3,12 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
-import threading
 import time
 from contextlib import redirect_stderr
 from datetime import UTC, datetime, timedelta
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from types import SimpleNamespace
-from typing import ClassVar
 from uuid import UUID
 
 import pytest
@@ -27,11 +25,13 @@ QUESTION = {"questions": [{"question": "Tea or coffee?"}]}
 def notify(load_script, tmp_path, monkeypatch):
     module = load_script("claude-notify")
     monkeypatch.setattr(module, "STATE_DIR", tmp_path / "state")
-    monkeypatch.setattr(module, "DEVBOX_TOKEN_FILE", tmp_path / "no-token")
-    monkeypatch.setattr(module, "IS_MAC", False)
+    delivery = sys.modules["notify_delivery"]
+    monkeypatch.setattr(delivery, "DEVBOX_TOKEN_FILE", tmp_path / "no-token")
+    monkeypatch.setattr(delivery, "IS_MAC", False)
+    monkeypatch.setattr(delivery.socket, "gethostname", lambda: "f635a28c3a2e")
+    monkeypatch.setattr(module.master_session, "MARK_DIR", tmp_path / "master")
     monkeypatch.setattr(module.presence, "PRESENCE_DIR", tmp_path / "presence")
     monkeypatch.setattr(module, "window_marks", module.WindowMarks)
-    monkeypatch.setattr(module.socket, "gethostname", lambda: "f635a28c3a2e")
     monkeypatch.setenv("CLAUDE_PROJECTS", str(tmp_path / "projects"))
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
     monkeypatch.delenv("TMUX_PANE", raising=False)
@@ -203,6 +203,22 @@ class TestFinishedPing:
 
         assert len(spawned) == 1
         assert delivered == []
+
+    def should_not_ping_when_the_master_session_finishes(self, notify, spawned, delivered):
+        notify.master_session.mark(SESSION, True)
+
+        _hook(notify, "Stop", last_assistant_message="Watching 4 sessions.")
+
+        assert (spawned, delivered) == ([], [])
+
+    def should_ping_again_once_the_session_is_no_longer_the_master(self, notify, spawned, delivered):
+        notify.master_session.mark(SESSION, True)
+        notify.master_session.mark(SESSION, False)
+
+        _hook(notify, "Stop", last_assistant_message="Done.")
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
+
+        assert [body["text"] for body in delivered] == ["Done."]
 
     def should_still_ping_when_only_a_background_shell_runs(self, notify, spawned):
         _hook(notify, "Stop", last_assistant_message="Done.", background_tasks=[{"type": "shell"}])
@@ -792,83 +808,6 @@ class TestPromptPing:
         _hook(notify, "Notification", notification_type=notification_type, message="x")
 
         assert spawned == []
-
-
-class TestDelivery:
-    def should_use_the_bridge_from_a_container(self, notify, monkeypatch):
-        runs = []
-        monkeypatch.setattr(notify.subprocess, "run",
-                            lambda command, **kwargs: runs.append((command, kwargs["input"])) or
-                            type("Done", (), {"returncode": 0})())
-
-        assert notify.deliver('{"text": "x"}') == 0
-        assert runs == [(["envify", "--bridge", "claude-notify", "--stdin"], '{"text": "x"}')]
-
-    def should_use_the_box_token_on_the_dev_box(self, notify, monkeypatch, tmp_path):
-        token_file = tmp_path / "request-token"
-        token_file.write_text("box-token\n")
-        monkeypatch.setattr(notify, "DEVBOX_TOKEN_FILE", token_file)
-        posts = []
-        monkeypatch.setattr(notify, "post_to_store", lambda body, bearer: posts.append(bearer) or 0)
-
-        notify.deliver("{}")
-
-        assert posts == ["box-token"]
-
-    def should_rely_on_the_tailnet_identity_on_the_mac(self, notify, monkeypatch):
-        monkeypatch.setattr(notify, "IS_MAC", True)
-        posts = []
-        monkeypatch.setattr(notify, "post_to_store", lambda body, bearer: posts.append(bearer) or 0)
-
-        notify.deliver("{}")
-
-        assert posts == [None]
-
-
-class _Recorder(BaseHTTPRequestHandler):
-    status = 202
-    received: ClassVar[list] = []
-
-    def do_POST(self):
-        length = int(self.headers["Content-Length"])
-        self.received.append((self.path, dict(self.headers), self.rfile.read(length)))
-        self.send_response(self.status)
-        self.end_headers()
-
-    def log_message(self, *args):
-        pass
-
-
-@pytest.fixture
-def store(monkeypatch):
-    _Recorder.received = []
-    server = HTTPServer(("127.0.0.1", 0), _Recorder)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    monkeypatch.setenv("KEYGUARD_STORE_URL", f"http://127.0.0.1:{server.server_address[1]}")
-    yield _Recorder
-    server.shutdown()
-
-
-class TestPostToStore:
-    def should_post_the_notice_as_json_with_the_bearer(self, notify, store):
-        assert notify.post_to_store('{"text": "x"}', "box-token") == 0
-
-        (path, headers, body), = store.received
-        assert path == "/notify"
-        assert headers["Content-Type"] == "application/json"
-        assert headers["Authorization"] == "Bearer box-token"
-        assert body == b'{"text": "x"}'
-
-    def should_report_a_refusal_without_the_token(self, notify, store, monkeypatch):
-        monkeypatch.setattr(store, "status", 403)
-        stderr = io.StringIO()
-
-        with redirect_stderr(stderr):
-            result = notify.post_to_store("{}", "box-token")
-
-        assert result == 1
-        assert "HTTP 403" in stderr.getvalue()
-        assert "box-token" not in stderr.getvalue()
 
 
 class TestMain:

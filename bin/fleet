@@ -6,6 +6,13 @@ starts new ones, sends messages, reads replies, answers questions and watches fo
 Permission prompts and Keyguard requests stay the owner's: the API refuses a message to a
 waiting agent and answers questions only.
 
+The master session (`fleet master on`) asks the owner to look at a session with `fleet flag`:
+the terminal shows the flag on that window until the owner sees it. `fleet watch` leaves the
+master's own session out, reports a session busy for --stuck-after minutes once with its last
+reply, prints the reply of each session that turns idle, and sends a flag still unseen after
+--telegram-after minutes to Telegram, where a reply reaches the master. It counts busy time
+from its own start, so a restart begins the count anew.
+
 WEB_TERMINAL_URL names the terminal: http://localhost:8122 by default,
 http://host.docker.internal:8122 inside a container, and https://terminal.mazzotta.me
 on the dev box (/opt/unlock exists), whose terminal sees the dev box only. The bearer comes from
@@ -23,9 +30,13 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Final, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Final, Iterator, List, Optional, Set, Tuple
+
+import master_session
+import notify_delivery
 
 TOKEN_NAME: Final = "TELEGRAM_BOT_WEB_TERMINAL_AUTOMATION_TOKEN"
 URL_NAME: Final = "WEB_TERMINAL_URL"
@@ -38,6 +49,12 @@ REQUEST_TIMEOUT_S: Final = 30
 FIRST_REPLY_WAIT_S: Final = 120
 FIRST_REPLY_SLACK_S: Final = 20
 DEFAULT_WATCH_INTERVAL_S: Final = 5.0
+DEFAULT_STUCK_AFTER_MIN: Final = 20.0
+DEFAULT_TELEGRAM_AFTER_MIN: Final = 10.0
+S_PER_MIN: Final = 60
+REPLY_COLUMNS: Final = 300
+SESSION_ID_NAME: Final = "CLAUDE_CODE_SESSION_ID"
+MASTER_CUE: Final = "master"
 EXIT_FAILED: Final = 1
 EXIT_REFUSED: Final = 3
 HTTP_NO_CONTENT: Final = 204
@@ -135,7 +152,17 @@ def state_of(session: Session) -> str:
 
 def describe(session: Session) -> str:
     title = session.get("title") or "(untitled)"
-    return f"{session['short']}  {session['agent']}@{session['box']}  {state_of(session)}  {title}  [{session['cwd']}]"
+    marks = "".join(mark for mark in (
+        "  master" if session.get("master") else "",
+        f"  cue:{session['cue']}" if session.get("cue") else "",
+        f"  flag: {session['flag']}" if session.get("flag") else "",
+    ))
+    return f"{session['short']}  {session['agent']}@{session['box']}  {state_of(session)}  {title}  [{session['cwd']}]{marks}"
+
+
+def one_line(text: str) -> str:
+    line = " ".join(text.split())
+    return line if len(line) <= REPLY_COLUMNS else line[:REPLY_COLUMNS - 1].rstrip() + "\u2026"
 
 
 def find_session(sessions: List[Session], ref: str) -> Session:
@@ -251,14 +278,124 @@ def run_answer(api: Api, args: argparse.Namespace) -> None:
     print(f"answered {describe(answered)}")
 
 
+def run_flag(api: Api, args: argparse.Namespace) -> None:
+    flagged = api.ok("POST", f"/sessions/{quoted(args.session)}/flag", {"text": text_of(args.text)})
+    print(f"flagged {describe(flagged)}")
+
+
+def own_session(environ: Dict[str, str]) -> Optional[str]:
+    return environ.get(SESSION_ID_NAME) or None
+
+
+def run_master(api: Api, args: argparse.Namespace) -> None:
+    session = args.session or own_session(dict(os.environ))
+    if session is None:
+        raise FleetError(f"name the session with --session: {SESSION_ID_NAME} is not set")
+    on = args.state == "on"
+    marked = api.ok("POST", f"/sessions/{quoted(session)}/master", {"on": on})
+    try:
+        master_session.mark(uuid.UUID(marked["conversation"]), on)
+    except ValueError:
+        print("no Telegram quiet for this agent: claude-notify knows Claude Code sessions only", file=sys.stderr)
+    print(f"{'marked' if on else 'unmarked'} {describe(marked)}")
+
+
+@dataclass(frozen=True)
+class Limits:
+    stuck_after_s: float
+    telegram_after_s: float
+
+
+class Watcher:
+    """Turns each look at the sessions into the lines the master reads (module doc, fleet watch)."""
+
+    def __init__(self, api: Api, own: Optional[str], limits: Limits, alert: Callable[[str, str], bool],
+                 clock: Callable[[], float] = time.monotonic) -> None:
+        self.api = api
+        self.own = own
+        self.limits = limits
+        self.alert = alert
+        self.clock = clock
+        self.before: Dict[str, Tuple[str, str]] = {}
+        self.busy_since: Dict[str, float] = {}
+        self.told_stuck: Set[str] = set()
+        self.flagged_since: Dict[Tuple[str, str], float] = {}
+        self.alerted: Set[Tuple[str, str]] = set()
+
+    def others(self) -> List[Session]:
+        return [each for each in self.api.ok("GET", "/sessions")["sessions"] if each["conversation"] != self.own]
+
+    def start(self) -> int:
+        sessions = self.others()
+        self.before = snapshot(sessions)
+        self.note(sessions)
+        return len(sessions)
+
+    def look(self) -> List[str]:
+        sessions = self.others()
+        after = snapshot(sessions)
+        lines = changes(self.before, after)
+        lines += [f"  reply: {self.reply(key)}" for key, (state, _) in after.items()
+                  if state == "idle" and self.before.get(key, ("",))[0] == "busy"]
+        self.before = after
+        return lines + self.note(sessions)
+
+    def note(self, sessions: List[Session]) -> List[str]:
+        now = self.clock()
+        return self.stuck(sessions, now) + self.unseen_flags(sessions, now)
+
+    def stuck(self, sessions: List[Session], now: float) -> List[str]:
+        busy = {each["conversation"]: each for each in sessions if each.get("status") == "busy"}
+        self.busy_since = {key: self.busy_since.get(key, now) for key in busy}
+        self.told_stuck &= set(busy)
+        lines = []
+        for key, session in busy.items():
+            minutes = int((now - self.busy_since[key]) // S_PER_MIN)
+            if now - self.busy_since[key] >= self.limits.stuck_after_s and key not in self.told_stuck:
+                self.told_stuck.add(key)
+                lines += [f"stuck {describe(session)}  busy {minutes} min", f"  last reply: {self.reply(key)}"]
+        return lines
+
+    def unseen_flags(self, sessions: List[Session], now: float) -> List[str]:
+        flagged = {(each["conversation"], each["flag"]): each for each in sessions if each.get("flag") and each.get("cue") == MASTER_CUE}
+        self.flagged_since = {key: self.flagged_since.get(key, now) for key in flagged}
+        self.alerted &= set(flagged)
+        lines = []
+        for key, session in flagged.items():
+            if now - self.flagged_since[key] >= self.limits.telegram_after_s and key not in self.alerted:
+                self.alerted.add(key)
+                sent = self.alert(session.get("title") or session["short"], key[1])
+                lines.append(f"{'telegram' if sent else 'telegram not sent'} {session['short']}: {key[1]}")
+        return lines
+
+    def reply(self, conversation: str) -> str:
+        try:
+            text = self.api.ok("GET", f"/sessions/{quoted(conversation)}/last-reply")["text"]
+        except FleetError:
+            text = None
+        return one_line(text) if text else "(none to judge from)"
+
+
+def telegram_alert(own: Optional[str]) -> Callable[[str, str], bool]:
+    def alert(title: str, flag: str) -> bool:
+        try:
+            master = uuid.UUID(own or "")
+        except ValueError:
+            return False
+        text = one_line(f"Master: {title}: {flag}")
+        return notify_delivery.send(master, text, notify_delivery.PingKind.PROMPT) == 0
+    return alert
+
+
 def run_watch(api: Api, args: argparse.Namespace) -> None:
-    before = snapshot(api.ok("GET", "/sessions")["sessions"])
-    print(f"watching {len(before)} sessions", flush=True)
+    own = own_session(dict(os.environ))
+    watcher = Watcher(api, own, Limits(args.stuck_after * S_PER_MIN, args.telegram_after * S_PER_MIN), telegram_alert(own))
+    print(f"watching {watcher.start()} sessions", flush=True)
     lost = False
     while True:
         time.sleep(args.interval)
         try:
-            after = snapshot(api.ok("GET", "/sessions")["sessions"])
+            lines = watcher.look()
         except FleetError as error:
             if not lost:
                 print(f"! lost the terminal: {error}", flush=True)
@@ -267,9 +404,8 @@ def run_watch(api: Api, args: argparse.Namespace) -> None:
         if lost:
             print("! the terminal answers again", flush=True)
         lost = False
-        for line in changes(before, after):
+        for line in lines:
             print(line, flush=True)
-        before = after
 
 
 def parser() -> argparse.ArgumentParser:
@@ -302,8 +438,19 @@ def parser() -> argparse.ArgumentParser:
     answer.add_argument("labels", nargs="*", help="option labels, then at most one answer of your own, for one question")
     answer.add_argument("--answers-json", help='several questions: [["Postgres"], ["Small", "Large"]]')
     answer.set_defaults(run=run_answer)
-    watch = commands.add_parser("watch", help="print a line each time a session starts, ends or changes status")
+    flag = commands.add_parser("flag", help="ask the owner to look at a session, shown on its window until seen")
+    flag.add_argument("session", help="a conversation id or short id")
+    flag.add_argument("text", help="what the owner should look at, or - to read it from stdin")
+    flag.set_defaults(run=run_flag)
+    master = commands.add_parser("master", help="mark this session as the master, or unmark it")
+    master.add_argument("state", choices=("on", "off"))
+    master.add_argument("--session", help=f"another session than ${SESSION_ID_NAME}")
+    master.set_defaults(run=run_master)
+    watch = commands.add_parser("watch", help="print a line each time a session starts, ends, changes status or seems stuck")
     watch.add_argument("--interval", type=float, default=DEFAULT_WATCH_INTERVAL_S, help="seconds between looks")
+    watch.add_argument("--stuck-after", type=float, default=DEFAULT_STUCK_AFTER_MIN, help="minutes busy before a session counts as stuck")
+    watch.add_argument("--telegram-after", type=float, default=DEFAULT_TELEGRAM_AFTER_MIN,
+                       help="minutes a flag stays unseen before it goes to Telegram")
     watch.set_defaults(run=run_watch)
     return root
 

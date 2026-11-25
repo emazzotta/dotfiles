@@ -25,10 +25,9 @@ before that poll puts it back on the 10 min wait.
   answer from the web terminal's chat view comes as tmux send-keys, which is not seen.
 - UserPromptSubmit and SessionEnd cancel what is pending.
 
-The unlock service holds the bot token and composes the message. The dev box reaches it
-with its request token, the Mac with its tailnet identity, and a Mac container through
-the public keyguard bridge endpoint `claude-notify`, which runs `claude-notify send` on
-the Mac. Runs outside an interactive session (`claude -p`, the Agent SDK) never ping.
+The master session (master_session.py) gets no Stop ping: it reports through its flags.
+Delivery: notify_delivery.py. Runs outside an interactive session (`claude -p`, the Agent
+SDK) never ping.
 """
 from __future__ import annotations
 
@@ -36,22 +35,19 @@ import json
 import os
 import re
 import secrets
-import socket
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from enum import Enum
 from pathlib import Path
 from typing import Final
 from uuid import UUID
 
+import master_session
 import presence
-import session_title
+from notify_delivery import PingKind, deliver, notice
 
 PING_DELAY: Final = timedelta(minutes=10)
 SEEN_POLL: Final = timedelta(seconds=5)
@@ -62,14 +58,9 @@ AUTOMATION_ORIGIN: Final = "automation"
 EPHEMERAL_FLAG: Final = "1"
 BACKGROUND_NOTE: Final = "Window kept open: background work may still be running."
 QUESTION_NOTE: Final = "Window kept open: the reply ends with a question."
-SEND_TIMEOUT: Final = timedelta(seconds=10)
 SENTENCE_LIMIT: Final = 200
 FINISHED_FALLBACK: Final = "Finished, waiting for your input."
 STATE_DIR: Final = Path.home() / ".cache" / "claude-notify"
-DEFAULT_STORE_URL: Final = "https://unlock.asymptote-bass.ts.net"
-DEVBOX_TOKEN_FILE: Final = Path("/etc/devbox-unlock/request-token")
-BRIDGE_ENDPOINT: Final = "claude-notify"
-IS_MAC: Final = sys.platform == "darwin"
 UNATTENDED_ENTRYPOINT_PREFIX: Final = "sdk"
 WAKING_TASK_TYPES_EXEMPT: Final = frozenset({"shell"})
 CANARY: Final = re.compile(
@@ -146,21 +137,6 @@ def open_note(event: dict, reply: str) -> str | None:
     return QUESTION_NOTE if ends_with_question(reply) else None
 
 
-def container_label() -> str | None:
-    return None if IS_MAC else socket.gethostname().split(".")[0]
-
-
-class PingKind(Enum):
-    FINISHED = "finished"
-    PROMPT = "prompt"
-    ANSWER = "answer"
-
-
-def notice(session: UUID, text: str, kind: PingKind) -> dict:
-    return {"session": str(session), "container": container_label(), "title": session_title.find(session) or None, "text": text,
-            "kind": kind.value}
-
-
 def state_file(session: UUID, kind: str) -> Path:
     return STATE_DIR / f"{session}.{kind}"
 
@@ -206,7 +182,7 @@ def prompted_tool(event: dict) -> dict:
 
 
 def on_stop(session: UUID, event: dict) -> None:
-    if background_work_pending(event):
+    if background_work_pending(event) or master_session.is_master(session):
         take_state(state_file(session, "pending"))
         return
     reply = event.get("last_assistant_message") or ""
@@ -375,31 +351,6 @@ def deliver_then_close(session: UUID, token: str, body: str) -> int:
         if sent == 0:
             close_window()
     return sent
-
-
-def post_to_store(body: str, bearer: str | None) -> int:
-    url = f"{os.environ.get('KEYGUARD_STORE_URL', DEFAULT_STORE_URL)}/notify"
-    headers = {"Content-Type": "application/json"}
-    if bearer:
-        headers["Authorization"] = f"Bearer {bearer}"
-    request = urllib.request.Request(url, data=body.encode(), headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=SEND_TIMEOUT.total_seconds()) as response:
-            response.read()
-    except (OSError, ValueError) as error:
-        detail = f"HTTP {error.code}" if isinstance(error, urllib.error.HTTPError) else type(error).__name__
-        print(f"claude-notify: not sent ({detail})", file=sys.stderr)
-        return 1
-    return 0
-
-
-def deliver(body: str) -> int:
-    if DEVBOX_TOKEN_FILE.is_file():
-        return post_to_store(body, DEVBOX_TOKEN_FILE.read_text().strip())
-    if IS_MAC:
-        return post_to_store(body, None)
-    command = ["envify", "--bridge", BRIDGE_ENDPOINT, "--stdin"]
-    return subprocess.run(command, input=body, text=True, stdout=subprocess.DEVNULL, check=False).returncode
 
 
 def main(argv: Sequence[str]) -> int:
