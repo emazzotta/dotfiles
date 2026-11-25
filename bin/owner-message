@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Final, List, Optional, Tuple
 
-OWNER_PUBLIC_KEY: Final = ""
+OWNER_PUBLIC_KEY: Final = "0PlnFoMdpyRRDS3TFk2mIcdcAzLQayz3q0mHMGrqCDk="
 PUBLIC_KEY_BYTES: Final = 32
 ED25519_SPKI_PREFIX: Final = bytes.fromhex("302a300506032b6570032100")
 TOKEN: Final = re.compile(r"([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)")
