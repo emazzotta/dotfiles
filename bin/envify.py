@@ -49,6 +49,7 @@ _SESSION_HEADER: str = "X-Keyguard-Session"
 _TITLE_HEADER: str = "X-Keyguard-Title"
 _PANE_HEADER: str = "X-Keyguard-Pane"
 _PANE_ENV: str = "TMUX_PANE"
+_OWNER_SIGN_PATH: str = "_owner/sign"
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +236,29 @@ def load_env_via_shell(keys: tuple[str, ...]) -> None:
         key, _, value = line.partition("=")
         if key in keys:
             os.environ[key] = value
+
+
+def owner_signature(text: str, target: str, box: str, title: str) -> str:
+    """A token of the message signed as the owner on the approve page (keyguard README, Owner signatures)."""
+    host = _find_reachable_host()
+    if host is None:
+        raise EnvifyError(f"param server unreachable on {', '.join(f'{h}:{_SERVER_PORT}' for h in _CANDIDATE_HOSTS)}")
+    body = {"text": text, "target": target, "box": box, **({"title": title} if title else {})}
+    request = urllib.request.Request(
+        f"http://{host}:{_SERVER_PORT}/{_OWNER_SIGN_PATH}", data=json.dumps(body).encode(), method="POST",
+        headers={"Content-Type": "application/json", "X-Keyguard-Source": socket.gethostname(), **_caller_headers()},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=_SECRET_TIMEOUT) as resp:
+            return resp.read().decode().strip()
+    except urllib.error.HTTPError as e:
+        raise EnvifyError(f"keyguard answered {e.code}: {e.read().decode().strip()}") from e
+    except (TimeoutError, socket.timeout):
+        raise EnvifyError(f"keyguard did not answer within {_SECRET_TIMEOUT} s") from None
+    except urllib.error.URLError as e:
+        raise EnvifyError(f"keyguard unreachable: {e.reason}") from e
+    except OSError as e:
+        raise EnvifyError(f"keyguard unreachable: {e}") from e
 
 
 def store_param(key: str, value: str) -> None:

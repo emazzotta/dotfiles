@@ -14,19 +14,25 @@ reply, prints the reply of each session that turns idle, and sends a flag still 
 --telegram-after minutes to Telegram, where a reply reaches the master. It counts busy time
 from its own start, so a restart begins the count anew.
 
+`fleet send --as-owner` has the owner sign the message on the approve page first, asked through
+keyguard on the Mac or the dev box's unlock client. The terminal pastes the text and the token,
+and the Claude Code session checks the token with `owner-message verify` before it takes the text
+as the owner's words.
+
 WEB_TERMINAL_URL names the terminal: http://localhost:8122 by default,
 http://host.docker.internal:8122 inside a container, and https://terminal.mazzotta.me
 on the dev box (/opt/unlock exists), whose terminal sees the dev box only. The bearer comes from
 TELEGRAM_BOT_WEB_TERMINAL_AUTOMATION_TOKEN, loaded through envify when it is not set.
 
-Exit codes: 0 done, 1 failed, 2 usage, 3 refused: the agent waits or asks no more, or the
-session or its window may not close.
+Exit codes: 0 done, 1 failed, 2 usage, 3 refused: the agent waits or asks no more, the session
+cannot take a message the owner signs, or the session or its window may not close.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.error
@@ -37,6 +43,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Final, Iterator, List, Optional, Set, Tuple
 
+import envify
 import master_session
 import notify_delivery
 
@@ -46,6 +53,7 @@ LOCAL_URL: Final = "http://localhost:8122"
 CONTAINER_URL: Final = "http://host.docker.internal:8122"
 DEVBOX_URL: Final = "https://terminal.mazzotta.me"
 DEVBOX_MARKER: Final = Path("/opt/unlock")
+DEVBOX_UNLOCK_CLIENT: Final = DEVBOX_MARKER / "keyguard-passkey"
 CONTAINER_MARKER: Final = Path("/.dockerenv")
 REQUEST_TIMEOUT_S: Final = 30
 FIRST_REPLY_WAIT_S: Final = 120
@@ -61,8 +69,12 @@ MASTER_CUE: Final = "master"
 EXIT_FAILED: Final = 1
 EXIT_REFUSED: Final = 3
 HTTP_NO_CONTENT: Final = 204
+HTTP_BAD_REQUEST: Final = 400
+HTTP_NOT_FOUND: Final = 404
 HTTP_CONFLICT: Final = 409
 AGENTS: Final = ("claude", "opencode", "agy")
+OWNER_CHECKING_AGENT: Final = "claude"
+NO_OWNER_INPUT: Final = "the terminal takes no owner messages: it needs web-terminal fd5e2fd or later with KEYGUARD_OWNER_PUBLIC_KEY"
 EFFORTS: Final = ("low", "medium", "high", "xhigh", "max")
 
 Session = Dict[str, Any]
@@ -93,11 +105,9 @@ def terminal_url(environ: Dict[str, str], exists: Callable[[Path], bool]) -> str
 
 def load_token() -> str:
     if not os.environ.get(TOKEN_NAME):
-        from envify import EnvifyError, load_env_via_shell
-
         try:
-            load_env_via_shell((TOKEN_NAME,))
-        except EnvifyError as error:
+            envify.load_env_via_shell((TOKEN_NAME,))
+        except envify.EnvifyError as error:
             raise FleetError(f"envify could not load {TOKEN_NAME}: {error}".strip()) from error
     token = os.environ.get(TOKEN_NAME, "")
     if not token:
@@ -268,8 +278,40 @@ def run_reply(api: Api, args: argparse.Namespace) -> None:
 
 
 def run_send(api: Api, args: argparse.Namespace) -> None:
+    if args.as_owner:
+        return send_as_owner(api, args.session, text_of(args.text))
     sent = api.ok("POST", f"/sessions/{quoted(args.session)}/input", {"text": text_of(args.text)})
     print(f"sent to {describe(sent)}")
+
+
+def owner_token(text: str, session: Session, exists: Callable[[Path], bool]) -> str:
+    title = session.get("title") or ""
+    if exists(DEVBOX_MARKER):
+        argv = [str(DEVBOX_UNLOCK_CLIENT), "sign", "--target", session["conversation"], "--box", session["box"]]
+        ran = subprocess.run([*argv, *(["--title", title] if title else [])], input=text, stdout=subprocess.PIPE, text=True, check=False)
+        if ran.returncode != 0:
+            raise FleetError(f"keyguard-passkey sign exited {ran.returncode}")
+        return ran.stdout.strip()
+    try:
+        return envify.owner_signature(text, session["conversation"], session["box"], title)
+    except envify.EnvifyError as error:
+        raise FleetError(f"keyguard gave no owner signature: {error}") from error
+
+
+def send_as_owner(api: Api, ref: str, text: str) -> None:
+    session = find_session(api.ok("GET", "/sessions")["sessions"], ref)
+    if session["agent"] != OWNER_CHECKING_AGENT:
+        raise Refused(f"{session['short']} runs {session['agent']}: only Claude Code checks a message the owner signed")
+    if session["status"] != "idle":
+        raise Refused(f"{session['short']} is {state_of(session)}: the owner signs for an idle session only")
+    path = f"/sessions/{quoted(session['conversation'])}/owner-input"
+    ready = api.call("POST", path, {})
+    if ready.status == HTTP_NOT_FOUND:
+        raise FleetError(NO_OWNER_INPUT)
+    if ready.status != HTTP_BAD_REQUEST:
+        raise FleetError(f"{ready.status}: {error_of(ready)}")
+    sent = api.ok("POST", path, {"token": owner_token(text, session, Path.exists)})
+    print(f"sent as the owner to {describe(sent)}")
 
 
 def run_answer(api: Api, args: argparse.Namespace) -> None:
@@ -444,6 +486,8 @@ def parser() -> argparse.ArgumentParser:
     send = commands.add_parser("send", help="send a message to a session that does not wait")
     send.add_argument("session", help="a conversation id or short id")
     send.add_argument("text", help="the message, or - to read it from stdin")
+    send.add_argument("--as-owner", action="store_true",
+                      help="have the owner sign it on the approve page first; the session checks it with owner-message")
     send.set_defaults(run=run_send)
     answer = commands.add_parser("answer", help="answer the questions a session asks")
     answer.add_argument("session", help="a conversation id or short id")

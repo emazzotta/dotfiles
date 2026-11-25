@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -47,6 +48,14 @@ class FakeResponse:
 
 def http_error(envify, code):
     return envify.urllib.error.HTTPError("http://localhost", code, "error", {}, io.BytesIO(b"denied"))
+
+
+class TokenResponse(FakeResponse):
+    def __init__(self, body):
+        self.body = body
+
+    def read(self):
+        return self.body
 
 
 class Python39SocketTimeout(OSError):
@@ -412,6 +421,58 @@ class TestTimeouts:
 
         assert exited.value.code == 1
         assert said in capsys.readouterr().err
+
+
+class TestOwnerSignature:
+    @pytest.fixture
+    def keyguard(self, envify, monkeypatch):
+        sent = []
+
+        def _answers(answer):
+            def fake_urlopen(request, timeout):
+                sent.append((request, timeout))
+                return raise_or_return(answer)
+            monkeypatch.setattr(envify.urllib.request, "urlopen", fake_urlopen)
+            monkeypatch.setattr(envify, "_find_reachable_host", lambda: "host.docker.internal")
+            monkeypatch.setattr(envify, "_caller", lambda: {"session": "48f92bcb", "title": "Master"})
+            return sent
+        return _answers
+
+    def should_post_the_message_to_keyguard_and_return_the_token(self, envify, keyguard):
+        sent = keyguard(TokenResponse(b"eyJ2IjoxfQ.c2ln\n"))
+
+        signed = envify.owner_signature("yes, push", "212df38e-7c4b-4a51-9d0e-3f6b2a8c1e57", "macbook", "Mazzotta-bot")
+
+        request, timeout = sent[0]
+        assert (signed, request.get_method(), request.full_url, request.get_header("Content-type"), request.get_header("X-keyguard-session")) == (
+            "eyJ2IjoxfQ.c2ln", "POST", f"http://host.docker.internal:{envify._SERVER_PORT}/_owner/sign", "application/json", "48f92bcb")
+        assert json.loads(request.data) == {"text": "yes, push", "target": "212df38e-7c4b-4a51-9d0e-3f6b2a8c1e57", "box": "macbook",
+                                            "title": "Mazzotta-bot"}
+        assert timeout > KEYGUARD_SERVER_READ_DEADLINE
+
+    def should_leave_out_a_title_the_session_does_not_have(self, envify, keyguard):
+        sent = keyguard(TokenResponse(b"a.b"))
+
+        envify.owner_signature("yes", "212df38e-7c4b-4a51-9d0e-3f6b2a8c1e57", "macbook", "")
+
+        assert "title" not in json.loads(sent[0][0].data)
+
+    @pytest.mark.parametrize("answer,said", [
+        ("http 403", "keyguard answered 403: denied"),
+        (TimeoutError("timed out"), "keyguard did not answer within"),
+        (OSError("connection refused"), "keyguard unreachable: connection refused"),
+    ], ids=["refused", "timed out", "gone"])
+    def should_raise_with_the_reason_keyguard_gives_no_token(self, envify, keyguard, answer, said):
+        keyguard(http_error(envify, 403) if answer == "http 403" else answer)
+
+        with pytest.raises(envify.EnvifyError, match=said):
+            envify.owner_signature("yes", "212df38e-7c4b-4a51-9d0e-3f6b2a8c1e57", "macbook", "")
+
+    def should_raise_when_no_keyguard_answers(self, envify, monkeypatch):
+        monkeypatch.setattr(envify, "_find_reachable_host", lambda: None)
+
+        with pytest.raises(envify.EnvifyError, match="param server unreachable"):
+            envify.owner_signature("yes", "212df38e-7c4b-4a51-9d0e-3f6b2a8c1e57", "macbook", "")
 
 
 class TestSetFlag:

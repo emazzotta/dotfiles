@@ -31,8 +31,9 @@ def stub(fleet):
         def call(self, method, path, body=None, timeout=fleet.REQUEST_TIMEOUT_S):
             self.calls.append((method, path, body))
             self.timeouts.append(timeout)
-            status, answer = self.answers[(method, path.split("?")[0])]
-            return fleet.Answer(status, answer)
+            answer = self.answers[(method, path.split("?")[0])]
+            status, body = answer.pop(0) if isinstance(answer, list) else answer
+            return fleet.Answer(status, body)
 
     return StubApi
 
@@ -355,6 +356,106 @@ class TestMain:
         code = fleet.main(["boxes"], lambda: api)
 
         assert (code, capsys.readouterr().err) == (1, "fleet: 401: Send the automation token as a bearer.\n")
+
+
+OWNER_INPUT = f"/sessions/{CLAUDE}/owner-input"
+
+
+@pytest.fixture
+def signer(fleet, monkeypatch):
+    asked = []
+
+    def owner_token(text, listed, exists):
+        asked.append((text, listed["conversation"], listed["box"], listed["title"]))
+        return "eyJ2IjoxfQ.c2ln"
+
+    monkeypatch.setattr(fleet, "owner_token", owner_token)
+    return asked
+
+
+class TestSendAsOwner:
+    def should_ask_the_owner_to_sign_for_the_full_conversation_and_its_box_then_send_the_token(self, fleet, stub, signer, capsys):
+        api = stub({
+            ("GET", "/sessions"): (200, {"sessions": [session()], "offline": []}),
+            ("POST", OWNER_INPUT): [(400, {"error": "Send the token of a message the owner signed."}), (200, {"ok": True, **session()})],
+        })
+
+        code = fleet.main(["send", "--as-owner", "aaaaaaaa", "yes, push"], lambda: api)
+
+        assert (code, signer, api.calls[1:], capsys.readouterr().out) == (
+            0, [("yes, push", CLAUDE, "mac", "Fix the login form")],
+            [("POST", OWNER_INPUT, {}), ("POST", OWNER_INPUT, {"token": "eyJ2IjoxfQ.c2ln"})],
+            "sent as the owner to aaaaaaaa  claude@mac  idle  Fix the login form  [/workspace/code/app]\n")
+
+    @pytest.mark.parametrize("listed,said", [
+        (session(status="busy"), "refused: aaaaaaaa is busy: the owner signs for an idle session only\n"),
+        (session(status="waiting"), "refused: aaaaaaaa is waits-for-owner: the owner signs for an idle session only\n"),
+        (session(agent="opencode"), "refused: aaaaaaaa runs opencode: only Claude Code checks a message the owner signed\n"),
+    ], ids=["busy", "waiting", "opencode"])
+    def should_not_ask_the_owner_for_a_message_the_session_could_not_take(self, fleet, stub, signer, capsys, listed, said):
+        api = stub({("GET", "/sessions"): (200, {"sessions": [listed], "offline": []})})
+
+        code = fleet.main(["send", "--as-owner", "aaaaaaaa", "yes, push"], lambda: api)
+
+        assert (code, signer, len(api.calls), capsys.readouterr().err) == (3, [], 1, said)
+
+    def should_not_ask_the_owner_when_the_terminal_takes_no_owner_messages(self, fleet, stub, signer, capsys):
+        api = stub({
+            ("GET", "/sessions"): (200, {"sessions": [session()], "offline": []}),
+            ("POST", OWNER_INPUT): (404, {"error": "Not found."}),
+        })
+
+        code = fleet.main(["send", "--as-owner", "aaaaaaaa", "yes, push"], lambda: api)
+
+        assert (code, signer, capsys.readouterr().err) == (
+            1, [], "fleet: the terminal takes no owner messages: it needs web-terminal fd5e2fd or later with KEYGUARD_OWNER_PUBLIC_KEY\n")
+
+    def should_exit_3_when_the_terminal_refuses_the_signed_message(self, fleet, stub, signer, capsys):
+        api = stub({
+            ("GET", "/sessions"): (200, {"sessions": [session()], "offline": []}),
+            ("POST", OWNER_INPUT): [(400, {}), (409, {"error": "The owner's signature has expired.", **session()})],
+        })
+
+        code = fleet.main(["send", "--as-owner", "aaaaaaaa", "yes, push"], lambda: api)
+
+        assert (code, capsys.readouterr().err) == (3, "refused: The owner's signature has expired.\n")
+
+
+class TestOwnerToken:
+    def should_ask_keyguard_on_the_mac(self, fleet, monkeypatch):
+        asked = []
+        monkeypatch.setattr(fleet.envify, "owner_signature", lambda *args: asked.append(args) or "eyJ2IjoxfQ.c2ln")
+
+        token = fleet.owner_token("yes", session(title=None), lambda path: False)
+
+        assert (token, asked) == ("eyJ2IjoxfQ.c2ln", [("yes", CLAUDE, "mac", "")])
+
+    def should_fail_with_the_reason_keyguard_gives(self, fleet, monkeypatch):
+        def refused(*_):
+            raise fleet.envify.EnvifyError("keyguard answered 403: you refused")
+        monkeypatch.setattr(fleet.envify, "owner_signature", refused)
+
+        with pytest.raises(fleet.FleetError, match="keyguard gave no owner signature: keyguard answered 403: you refused"):
+            fleet.owner_token("yes", session(), lambda path: False)
+
+    def should_ask_the_unlock_client_on_the_dev_box_with_the_text_on_stdin(self, fleet, monkeypatch):
+        ran = []
+
+        def fake_run(argv, **kwargs):
+            ran.append((argv, kwargs["input"]))
+            return fleet.subprocess.CompletedProcess(argv, 0, stdout="eyJ2IjoxfQ.c2ln\n")
+        monkeypatch.setattr(fleet.subprocess, "run", fake_run)
+
+        token = fleet.owner_token("yes,\npush", session(box="devbox"), lambda path: str(path) == "/opt/unlock")
+
+        assert (token, ran) == ("eyJ2IjoxfQ.c2ln", [(
+            ["/opt/unlock/keyguard-passkey", "sign", "--target", CLAUDE, "--box", "devbox", "--title", "Fix the login form"], "yes,\npush")])
+
+    def should_fail_with_the_exit_code_of_the_unlock_client(self, fleet, monkeypatch):
+        monkeypatch.setattr(fleet.subprocess, "run", lambda argv, **_: fleet.subprocess.CompletedProcess(argv, 2, stdout=""))
+
+        with pytest.raises(fleet.FleetError, match="keyguard-passkey sign exited 2"):
+            fleet.owner_token("yes", session(box="devbox"), lambda path: str(path) == "/opt/unlock")
 
 
 class TestCli:
