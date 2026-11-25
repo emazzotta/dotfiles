@@ -6,8 +6,9 @@ starts new ones, sends messages, reads replies, answers questions and watches fo
 Permission prompts and Keyguard requests stay the owner's: the API refuses a message to a
 waiting agent and answers questions only.
 
-WEB_TERMINAL_URL names the terminal: http://localhost:8122 by default, and
-http://host.docker.internal:8122 inside a container. The bearer comes from
+WEB_TERMINAL_URL names the terminal: http://localhost:8122 by default,
+http://host.docker.internal:8122 inside a container, and https://terminal.mazzotta.me
+on the dev box (/opt/unlock exists), whose terminal sees the dev box only. The bearer comes from
 TELEGRAM_BOT_WEB_TERMINAL_AUTOMATION_TOKEN, loaded through envify when it is not set.
 
 Exit codes: 0 done, 1 failed, 2 usage, 3 refused because the agent waits or asks no more.
@@ -30,6 +31,9 @@ TOKEN_NAME: Final = "TELEGRAM_BOT_WEB_TERMINAL_AUTOMATION_TOKEN"
 URL_NAME: Final = "WEB_TERMINAL_URL"
 LOCAL_URL: Final = "http://localhost:8122"
 CONTAINER_URL: Final = "http://host.docker.internal:8122"
+DEVBOX_URL: Final = "https://terminal.mazzotta.me"
+DEVBOX_MARKER: Final = Path("/opt/unlock")
+CONTAINER_MARKER: Final = Path("/.dockerenv")
 REQUEST_TIMEOUT_S: Final = 30
 FIRST_REPLY_WAIT_S: Final = 120
 FIRST_REPLY_SLACK_S: Final = 20
@@ -58,9 +62,13 @@ class Answer:
     body: Any
 
 
-def terminal_url(environ: Dict[str, str], in_container: bool) -> str:
+def terminal_url(environ: Dict[str, str], exists: Callable[[Path], bool]) -> str:
     configured = environ.get(URL_NAME, "").rstrip("/")
-    return configured or (CONTAINER_URL if in_container else LOCAL_URL)
+    if configured:
+        return configured
+    if exists(DEVBOX_MARKER):
+        return DEVBOX_URL
+    return CONTAINER_URL if exists(CONTAINER_MARKER) else LOCAL_URL
 
 
 def load_token() -> str:
@@ -314,7 +322,7 @@ def main(argv: List[str], connect: Callable[[], Api]) -> int:
 
 
 def connect() -> Api:
-    return Api(terminal_url(dict(os.environ), Path("/.dockerenv").exists()), load_token())
+    return Api(terminal_url(dict(os.environ), Path.exists), load_token())
 
 
 if __name__ == "__main__":

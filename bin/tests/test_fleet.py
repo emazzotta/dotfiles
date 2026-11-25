@@ -36,13 +36,14 @@ def stub(fleet):
 
 
 class TestTerminalUrl:
-    @pytest.mark.parametrize("environ,in_container,expected", [
-        ({}, False, "http://localhost:8122"),
-        ({}, True, "http://host.docker.internal:8122"),
-        ({"WEB_TERMINAL_URL": "https://terminal.test/"}, True, "https://terminal.test"),
+    @pytest.mark.parametrize("environ,markers,expected", [
+        ({}, set(), "http://localhost:8122"),
+        ({}, {"/.dockerenv"}, "http://host.docker.internal:8122"),
+        ({}, {"/opt/unlock", "/.dockerenv"}, "https://terminal.mazzotta.me"),
+        ({"WEB_TERMINAL_URL": "https://terminal.test/"}, {"/opt/unlock"}, "https://terminal.test"),
     ])
-    def should_take_the_configured_url_else_the_local_terminal(self, fleet, environ, in_container, expected):
-        assert fleet.terminal_url(environ, in_container) == expected
+    def should_take_the_configured_url_else_the_terminal_of_this_runtime(self, fleet, environ, markers, expected):
+        assert fleet.terminal_url(environ, lambda path: str(path) in markers) == expected
 
 
 class TestState:
