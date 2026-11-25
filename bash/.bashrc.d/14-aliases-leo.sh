@@ -6,6 +6,7 @@ alias leorunf='leorun --fast'
 alias lv='leonardo_vpn_toggle'
 alias lpath='leopath'
 alias leop='cd "$HOME/.leonardo/25"; print_and_copy "%USERPROFILE%/.leonardo/25/LEONARDO_25.props"'
+alias leoprops='vi ~/.leonardo/26/LEONARDO_26.props'
 
 ### DEPLOY ###
 alias ldeploy='av && python3 src/orchestration/installer.py all --git-diff'
