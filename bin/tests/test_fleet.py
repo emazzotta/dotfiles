@@ -26,9 +26,11 @@ def stub(fleet):
             super().__init__("http://terminal.test", "token")
             self.answers = answers
             self.calls = []
+            self.timeouts = []
 
         def call(self, method, path, body=None, timeout=fleet.REQUEST_TIMEOUT_S):
             self.calls.append((method, path, body))
+            self.timeouts.append(timeout)
             status, answer = self.answers[(method, path.split("?")[0])]
             return fleet.Answer(status, answer)
 
@@ -296,6 +298,56 @@ class TestMain:
         code = fleet.main(["master", "on"], lambda: stub({}))
 
         assert (code, capsys.readouterr().err) == (1, "fleet: name the session with --session: CLAUDE_CODE_SESSION_ID is not set\n")
+
+    def should_close_a_session_by_its_conversation_and_say_how_its_agent_ended(self, fleet, stub, monkeypatch, capsys):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", MASTER)
+        api = stub({
+            ("GET", "/sessions"): (200, {"sessions": [session()], "offline": []}),
+            ("DELETE", f"/sessions/{CLAUDE}"): (200, {"ok": True, "ended": "exit", **session()}),
+        })
+
+        code = fleet.main(["close", "aaaaaaaa"], lambda: api)
+
+        assert (code, api.calls[-1], capsys.readouterr().out) == (
+            0, ("DELETE", f"/sessions/{CLAUDE}", None), "closed aaaaaaaa  claude@mac  idle  Fix the login form  [/workspace/code/app]  (exit)\n")
+
+    def should_wait_for_the_close_longer_than_the_terminal_waits_for_the_agent(self, fleet, stub):
+        api = stub({
+            ("GET", "/sessions"): (200, {"sessions": [session()], "offline": []}),
+            ("DELETE", f"/sessions/{CLAUDE}"): (200, {"ok": True, "ended": "exit", **session()}),
+        })
+
+        fleet.main(["close", "aaaaaaaa"], lambda: api)
+
+        assert api.timeouts[-1] > fleet.CLOSE_WAIT_S
+
+    def should_ask_the_terminal_to_force_the_close_only_when_told_to(self, fleet, stub):
+        api = stub({
+            ("GET", "/sessions"): (200, {"sessions": [session(status="busy")], "offline": []}),
+            ("DELETE", f"/sessions/{CLAUDE}"): (200, {"ok": True, "ended": "hangup", **session(status="busy")}),
+        })
+
+        fleet.main(["close", "aaaaaaaa", "--force"], lambda: api)
+
+        assert api.calls[-1][1] == f"/sessions/{CLAUDE}?force=true"
+
+    def should_exit_3_when_the_terminal_refuses_to_close_a_busy_session(self, fleet, stub, capsys):
+        api = stub({
+            ("GET", "/sessions"): (200, {"sessions": [session(status="busy")], "offline": []}),
+            ("DELETE", f"/sessions/{CLAUDE}"): (409, {"error": "The agent is busy.", **session(status="busy")}),
+        })
+
+        code = fleet.main(["close", "aaaaaaaa"], lambda: api)
+
+        assert (code, capsys.readouterr().err) == (3, "refused: The agent is busy.\n")
+
+    def should_refuse_to_close_its_own_session_even_with_force(self, fleet, stub, monkeypatch, capsys):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", CLAUDE)
+        api = stub({("GET", "/sessions"): (200, {"sessions": [session()], "offline": []})})
+
+        code = fleet.main(["close", "aaaaaaaa", "--force"], lambda: api)
+
+        assert (code, len(api.calls), capsys.readouterr().err) == (3, 1, "refused: aaaaaaaa is this session\n")
 
     def should_fail_with_the_reason_the_terminal_gives(self, fleet, stub, capsys):
         api = stub({("GET", "/boxes"): (401, {"error": "Send the automation token as a bearer."})})

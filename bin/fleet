@@ -2,9 +2,10 @@
 """Steer the agents in tmux through web-terminal's automation API.
 
 Lists the live Claude Code, opencode and agy sessions on every box the terminal reaches,
-starts new ones, sends messages, reads replies, answers questions and watches for changes.
-Permission prompts and Keyguard requests stay the owner's: the API refuses a message to a
-waiting agent and answers questions only.
+starts new ones, sends messages, reads replies, answers questions, closes finished ones and
+watches for changes. Permission prompts and Keyguard requests stay the owner's: the API refuses
+a message to a waiting agent and answers questions only, and closes a busy or waiting session
+only with --force. It never closes the master's window or one that holds more than the agent.
 
 The master session (`fleet master on`) asks the owner to look at a session with `fleet flag`:
 the terminal shows the flag on that window until the owner sees it. `fleet watch` leaves the
@@ -18,7 +19,8 @@ http://host.docker.internal:8122 inside a container, and https://terminal.mazzot
 on the dev box (/opt/unlock exists), whose terminal sees the dev box only. The bearer comes from
 TELEGRAM_BOT_WEB_TERMINAL_AUTOMATION_TOKEN, loaded through envify when it is not set.
 
-Exit codes: 0 done, 1 failed, 2 usage, 3 refused because the agent waits or asks no more.
+Exit codes: 0 done, 1 failed, 2 usage, 3 refused: the agent waits or asks no more, or the
+session or its window may not close.
 """
 from __future__ import annotations
 
@@ -47,7 +49,8 @@ DEVBOX_MARKER: Final = Path("/opt/unlock")
 CONTAINER_MARKER: Final = Path("/.dockerenv")
 REQUEST_TIMEOUT_S: Final = 30
 FIRST_REPLY_WAIT_S: Final = 120
-FIRST_REPLY_SLACK_S: Final = 20
+CLOSE_WAIT_S: Final = 30
+WAIT_SLACK_S: Final = 20
 DEFAULT_WATCH_INTERVAL_S: Final = 5.0
 DEFAULT_STUCK_AFTER_MIN: Final = 20.0
 DEFAULT_TELEGRAM_AFTER_MIN: Final = 10.0
@@ -240,7 +243,7 @@ def run_start(api: Api, args: argparse.Namespace) -> None:
 
 
 def first_reply(api: Api, ref: str) -> Optional[Session]:
-    answer = api.call("GET", f"/sessions/{quoted(ref)}/first-reply?timeout={FIRST_REPLY_WAIT_S}", timeout=FIRST_REPLY_WAIT_S + FIRST_REPLY_SLACK_S)
+    answer = api.call("GET", f"/sessions/{quoted(ref)}/first-reply?timeout={FIRST_REPLY_WAIT_S}", timeout=FIRST_REPLY_WAIT_S + WAIT_SLACK_S)
     if answer.status == HTTP_NO_CONTENT:
         return None
     if answer.status >= 400:
@@ -285,6 +288,15 @@ def run_flag(api: Api, args: argparse.Namespace) -> None:
 
 def own_session(environ: Dict[str, str]) -> Optional[str]:
     return environ.get(SESSION_ID_NAME) or None
+
+
+def run_close(api: Api, args: argparse.Namespace) -> None:
+    session = find_session(api.ok("GET", "/sessions")["sessions"], args.session)
+    if session["conversation"] == own_session(dict(os.environ)):
+        raise Refused(f"{session['short']} is this session")
+    query = "?force=true" if args.force else ""
+    closed = api.ok("DELETE", f"/sessions/{quoted(session['conversation'])}{query}", timeout=CLOSE_WAIT_S + WAIT_SLACK_S)
+    print(f"closed {describe(closed)}  ({closed['ended']})")
 
 
 def run_master(api: Api, args: argparse.Namespace) -> None:
@@ -442,6 +454,11 @@ def parser() -> argparse.ArgumentParser:
     flag.add_argument("session", help="a conversation id or short id")
     flag.add_argument("text", help="what the owner should look at, or - to read it from stdin")
     flag.set_defaults(run=run_flag)
+    close = commands.add_parser("close", help="end the agent of an idle session with /exit and close its window")
+    close.add_argument("session", help="a conversation id or short id")
+    close.add_argument("--force", action="store_true",
+                       help="close a busy or waiting session too by hanging its agent up, or one that does not exit in time")
+    close.set_defaults(run=run_close)
     master = commands.add_parser("master", help="mark this session as the master, or unmark it")
     master.add_argument("state", choices=("on", "off"))
     master.add_argument("--session", help=f"another session than ${SESSION_ID_NAME}")
