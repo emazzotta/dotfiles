@@ -1,7 +1,8 @@
 import contextlib
 import fcntl
 import json
-from datetime import datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -535,7 +536,7 @@ class TestVisibility:
 
         assert failures == 1
         assert "Permission denied" in capsys.readouterr().err
-        assert script.report(failures, "up to date") == 1
+        assert script.report(tmp_path, failures, "up to date") == 1
 
     def should_say_when_another_run_holds_the_lock(self, sync, claude_home, rsync_log):
         lock = claude_home / "claude-sync.lock"
@@ -572,6 +573,80 @@ class TestVisibility:
         sync(["--push"], rsync_exit=255)
 
         assert "no-agent" in (claude_home / "claude-sync.log").read_text()
+
+
+NOW = datetime(2026, 11, 25, 12, 0, 0)
+HOST_KEY_FAILURE = ("rsync exit 255 [/usr/sbin/cron, no-agent, home=/Users/someone]"
+                    " -> devbox:/home/opencode/.claude/projects/: Host key verification failed.")
+
+
+def write_log(home, *entries):
+    lines = [f"{when:%Y-%m-%d %H:%M:%S} {message}" for when, message in entries]
+    (home / "claude-sync.log").write_text("\n".join(lines) + "\n")
+
+
+def mark_success_at(home, when):
+    marker = home / "claude-sync.ok"
+    marker.touch()
+    os.utime(marker, (when.timestamp(), when.timestamp()))
+
+
+class TestFailureWarning:
+    @pytest.fixture
+    def script(self, load_script):
+        return load_script("claude-sync")
+
+    def should_record_a_run_that_reached_the_box(self, sync, claude_home):
+        sync(["--push"])
+
+        assert (claude_home / "claude-sync.ok").is_file()
+
+    def should_still_finish_when_the_success_cannot_be_recorded(self, script, tmp_path):
+        assert script.report(tmp_path / "missing", 0, "up to date") == 0
+
+    def should_not_record_a_run_that_failed(self, sync, claude_home):
+        sync(["--push"], rsync_exit=255)
+
+        assert not (claude_home / "claude-sync.ok").exists()
+
+    def should_stay_quiet_without_failures(self, script, tmp_path):
+        assert script.failing_since(tmp_path, NOW) is None
+
+    def should_stay_quiet_while_failures_are_younger_than_an_hour(self, script, tmp_path):
+        write_log(tmp_path, (NOW - timedelta(minutes=59), HOST_KEY_FAILURE))
+
+        assert script.failing_since(tmp_path, NOW) is None
+
+    def should_report_the_first_failure_and_the_latest_reason_once_they_outlast_an_hour(self, script, tmp_path):
+        write_log(tmp_path,
+                  (NOW - timedelta(hours=26), "settings sync skipped: rsync exit 255: Connection reset by peer"),
+                  (NOW - timedelta(minutes=5), HOST_KEY_FAILURE + "\nrsync: connection unexpectedly closed"))
+
+        failing = script.failing_since(tmp_path, NOW)
+
+        assert failing == (NOW - timedelta(hours=26), "Host key verification failed.")
+
+    def should_forget_failures_before_the_last_success(self, script, tmp_path):
+        write_log(tmp_path, (NOW - timedelta(hours=3), HOST_KEY_FAILURE))
+        mark_success_at(tmp_path, NOW - timedelta(hours=2))
+
+        assert script.failing_since(tmp_path, NOW) is None
+
+    def should_count_from_the_first_failure_after_the_last_success(self, script, tmp_path):
+        write_log(tmp_path,
+                  (NOW - timedelta(hours=3), "settings sync skipped: rsync exit 255: Connection reset by peer"),
+                  (NOW - timedelta(minutes=90), HOST_KEY_FAILURE))
+        mark_success_at(tmp_path, NOW - timedelta(hours=2))
+
+        failing = script.failing_since(tmp_path, NOW)
+
+        assert failing.since == NOW - timedelta(minutes=90)
+
+    def should_keep_a_reason_that_names_no_destination(self, script, tmp_path):
+        reason = "settings sync skipped: rsync exit 255: Connection reset by peer"
+        write_log(tmp_path, (NOW - timedelta(hours=2), reason))
+
+        assert script.failing_since(tmp_path, NOW).reason == reason
 
 
 class TestLeftOut:

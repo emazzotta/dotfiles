@@ -50,12 +50,15 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
+def load_script_module(path: Path, module_name: str):
+    spec = importlib.util.spec_from_loader(module_name, SourceFileLoader(module_name, str(path)))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def load_host_resolver():
-    path = Path(__file__).resolve().parent / "host-resolver"
-    spec = importlib.util.spec_from_loader("host_resolver", SourceFileLoader("host_resolver", str(path)))
-    host_resolver = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(host_resolver)
-    return host_resolver
+    return load_script_module(Path(__file__).resolve().parent / "host-resolver", "host_resolver")
 
 
 def warn_if_offline() -> None:
@@ -1102,6 +1105,17 @@ def sync_transcripts(resuming: bool) -> None:
         pass
 
 
+def warn_if_sync_failing() -> None:
+    if not CLAUDE_SYNC.is_file():
+        return
+    claude_sync = load_script_module(CLAUDE_SYNC, "claude_sync")
+    home = claude_sync.local_home()
+    failing = claude_sync.failing_since(home, datetime.now())
+    if failing:
+        _warn(f"claude-sync has failed since {failing.since:%d %b at %H:%M}",
+              f"{_display_path(home / claude_sync.LOG_NAME)}: {failing.reason}")
+
+
 def is_leonardo_launch(launch_dirs: list[Path]) -> bool:
     """Every Leonardo repo lives under one folder, so the mounted directory tells the session's domain."""
     return any(d.resolve().is_relative_to(LEONARDO_PROJECTS.resolve()) for d in launch_dirs)
@@ -1342,6 +1356,8 @@ def main() -> None:
 
     warn_if_offline()
     _profile("internet check")
+    warn_if_sync_failing()
+    _profile("claude-sync check")
 
     without_project = converts_from_home_to_desktop(args, pwd)
     lock_targets = [] if without_project else args.paths or [pwd]

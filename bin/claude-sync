@@ -19,7 +19,9 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import NamedTuple
 
 import devbox_ssh
 import session_registry
@@ -29,6 +31,11 @@ SSH_COMMAND = " ".join(("ssh", *devbox_ssh.SSH_OPTIONS))
 RSYNC_TIMEOUT_SECONDS = 20
 RSYNC_CANDIDATES = ("/opt/homebrew/bin/rsync", "/usr/local/bin/rsync")
 MAX_LOG_BYTES = 1_000_000
+LOG_NAME = "claude-sync.log"
+LOG_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+LOG_ENTRY = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (.*)$")
+SUCCESS_MARKER = "claude-sync.ok"
+FAILURE_GRACE = timedelta(hours=1)
 UUID_PATTERN = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
 
 DEFAULT_HOME = "~/.claude"
@@ -78,14 +85,56 @@ def remote_workspace() -> str:
 
 
 def log(home: Path, message: str) -> None:
-    logfile = home / "claude-sync.log"
+    logfile = home / LOG_NAME
     try:
         if logfile.exists() and logfile.stat().st_size > MAX_LOG_BYTES:
             logfile.replace(logfile.with_suffix(".log.1"))
         with open(logfile, "a") as handle:
-            handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
+            handle.write(f"{time.strftime(LOG_TIME_FORMAT)} {message}\n")
     except OSError:
         pass
+
+
+class Failing(NamedTuple):
+    since: datetime
+    reason: str
+
+
+def logged_failures(home: Path) -> list[tuple[datetime, str]]:
+    try:
+        lines = (home / LOG_NAME).read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+    entries = (LOG_ENTRY.match(line) for line in lines)
+    return [(datetime.strptime(entry[1], LOG_TIME_FORMAT), entry[2]) for entry in entries if entry]
+
+
+def failure_reason(message: str) -> str:
+    _, arrow, destination_and_reason = message.partition(" -> ")
+    return destination_and_reason.split(": ", 1)[-1] if arrow else message
+
+
+def last_success(home: Path) -> datetime:
+    try:
+        return datetime.fromtimestamp((home / SUCCESS_MARKER).stat().st_mtime)
+    except OSError:
+        return datetime.min
+
+
+def record_success(home: Path) -> None:
+    try:
+        (home / SUCCESS_MARKER).touch()
+    except OSError:
+        pass
+
+
+def failing_since(home: Path, now: datetime) -> Failing | None:
+    """One failed tick after sleep or a network change is noise; an hour with no run reaching the box is not."""
+    succeeded = last_success(home)
+    failures = [(when, message) for when, message in logged_failures(home) if when > succeeded]
+    if not failures or now - failures[0][0] < FAILURE_GRACE:
+        return None
+    return Failing(failures[0][0], failure_reason(failures[-1][1]))
 
 
 def sessions_in(folder: Path) -> set[str]:
@@ -407,9 +456,10 @@ def announce(message: str) -> None:
         sys.stderr.write(f"claude-sync: {message}\n")
 
 
-def report(failures: int, done: str) -> int:
+def report(home: Path, failures: int, done: str) -> int:
     """A hook or a detached launch must never fail; a person at a terminal must never be left guessing."""
     if not failures:
+        record_success(home)
         announce(done)
         return 0
     return 1 if interactive() else 0
@@ -432,7 +482,7 @@ def main(argv: list[str]) -> int:
 
     if session:
         failures = transfer(home, session_transfers(home, session), args.verbose)
-        return report(failures + mirror_to_devbox(home, args.verbose), "pushed session")
+        return report(home, failures + mirror_to_devbox(home, args.verbose), "pushed session")
 
     excludes = find_live_sessions(session_registry.REGISTRY_DIR)
     failures = 0
@@ -441,7 +491,7 @@ def main(argv: list[str]) -> int:
         failures += mirror_to_devbox(home, args.verbose)
     if not args.push:
         failures += transfer(home, full_transfers(home, pull=True, excludes=excludes), args.verbose)
-    return report(failures, "up to date")
+    return report(home, failures, "up to date")
 
 
 if __name__ == "__main__":

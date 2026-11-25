@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 import pytest
 
+from bin.tests.conftest import BIN_DIR
+
 CLAUDE_SESSION_ID = "7f4d8b0f-8a6d-4e20-aade-ca033d3074dd"
 OPENCODE_SESSION_ID = "ses_06f4ce24cffeAOOJ6OWziGgkml"
 ELSEWHERE = Path("/Users/someone/Desktop")
@@ -2655,3 +2657,38 @@ class TestAgySessionRecord:
         monkeypatch.setattr(cl, "OPENCODE_ROOT", tmp_path)
 
         assert cl.compose_mounts() == ()
+
+
+class TestSyncFailureWarning:
+    HOST_KEY_FAILURE = ("2026-11-24 15:45:01 rsync exit 255 [/usr/sbin/cron, no-agent, home=/Users/someone]"
+                        " -> devbox:/home/opencode/.claude/projects/: Host key verification failed.\n")
+
+    @pytest.fixture
+    def claude_home(self, cl, tmp_path, monkeypatch):
+        monkeypatch.setattr(cl, "CLAUDE_SYNC", BIN_DIR / "claude-sync")
+        home = tmp_path / "claude"
+        home.mkdir()
+        monkeypatch.setenv("CLAUDE_HOME", str(home))
+        return home
+
+    def should_warn_when_claude_sync_has_kept_failing(self, cl, claude_home, capsys):
+        (claude_home / "claude-sync.log").write_text(self.HOST_KEY_FAILURE)
+
+        cl.warn_if_sync_failing()
+
+        err = capsys.readouterr().err
+        assert "claude-sync has failed since 24 Nov at 15:45" in err
+        assert "Host key verification failed." in err
+
+    def should_stay_silent_once_a_sync_reached_the_box(self, cl, claude_home, capsys):
+        (claude_home / "claude-sync.log").write_text(self.HOST_KEY_FAILURE)
+        (claude_home / "claude-sync.ok").touch()
+
+        cl.warn_if_sync_failing()
+
+        assert capsys.readouterr().err == ""
+
+    def should_stay_silent_without_claude_sync(self, cl, capsys):
+        cl.warn_if_sync_failing()
+
+        assert capsys.readouterr().err == ""
