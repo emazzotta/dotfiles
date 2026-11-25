@@ -243,7 +243,19 @@ class TestAnswerPing:
         notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
 
         assert delivered == [{"session": str(SESSION), "container": "f635a28c3a2e", "title": None,
-                              "text": self.REPLY, "kind": "answer"}]
+                              "text": self.REPLY, "kind": "answer", "presence": "unknown", "seen": None}]
+
+    def should_send_the_presence_and_the_last_use_with_an_answer(
+            self, notify, spawned, delivered, from_telegram, tmp_path):
+        folder = tmp_path / "presence"
+        folder.mkdir()
+        used = int(notify.time.time()) - 600
+        (folder / "terminal").write_text(f"{used} phone\n")
+        _hook(notify, "Stop", last_assistant_message=self.REPLY)
+
+        notify.fire(SESSION, _armed_token(spawned), sleep=lambda seconds: None)
+
+        assert [(body["presence"], body["seen"]) for body in delivered] == [("away", used)]
 
     def should_not_cut_a_long_reply(self, notify, spawned, delivered, from_telegram):
         reply = "\n".join(f"Line {number}: " + "word " * 20 for number in range(60))

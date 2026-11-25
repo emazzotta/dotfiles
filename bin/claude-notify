@@ -12,7 +12,8 @@ before that poll puts it back on the 10 min wait.
   `answer` when the session's tmux window carries `@wt_origin automation`, which the web
   terminal sets on a window it opens for a Telegram request. An answer ignores presence
   and tmux activity: it goes out at the next 5 s poll unless its pending ping is gone or
-  was replaced. Background agents still at work for the session hold it.
+  was replaced. Background agents still at work for the session hold it. It carries the
+  presence and the last use read when it goes out, for mazzotta-bot's spoken answers.
 - On a window that also carries `@wt_ephemeral 1`, which the web terminal sets when the
   Telegram request asked for a one-shot session, the answer closes the window once the
   unlock service accepted it (tmux kill-window). The window stays, and the message says
@@ -363,7 +364,8 @@ def fire(session: UUID, token: str, sleep: Callable[[float], None] = time.sleep,
         take_state(state_file(session, "pending"))
         close_window()
         return 0
-    body = json.dumps(notice(session, ping["text"], PingKind(ping["kind"])))
+    reading = presence.read() if is_answer(ping) else None
+    body = json.dumps(notice(session, ping["text"], PingKind(ping["kind"]), reading))
     if not ping.get("close"):
         take_state(state_file(session, "pending"))
         return deliver(body)

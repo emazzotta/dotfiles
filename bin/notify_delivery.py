@@ -4,7 +4,8 @@ The service holds the bot token and composes the message. The dev box reaches it
 token, the Mac with its tailnet identity, and a Mac container through the public keyguard bridge
 endpoint `claude-notify`, which runs `claude-notify send` on the Mac. A notice is the JSON
 {"session", "container", "title", "text", "kind"}; the session must be a Claude conversation UUID,
-the one a Telegram reply goes back to.
+the one a Telegram reply goes back to. An `answer` also carries "presence" and "seen", the presence
+and the last use at a web terminal when it went out, which the bot reads to decide on a voice.
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ from pathlib import Path
 from typing import Final
 from uuid import UUID
 
+import presence
 import session_title
 
 SEND_TIMEOUT: Final = timedelta(seconds=10)
@@ -40,9 +42,12 @@ def container_label() -> str | None:
     return None if IS_MAC else socket.gethostname().split(".")[0]
 
 
-def notice(session: UUID, text: str, kind: PingKind) -> dict:
-    return {"session": str(session), "container": container_label(), "title": session_title.find(session) or None, "text": text,
-            "kind": kind.value}
+def notice(session: UUID, text: str, kind: PingKind, reading: presence.Reading | None = None) -> dict:
+    body = {"session": str(session), "container": container_label(), "title": session_title.find(session) or None,
+            "text": text, "kind": kind.value}
+    if reading is not None:
+        body.update({"presence": reading.presence.value, "seen": reading.last_use})
+    return body
 
 
 def post_to_store(body: str, bearer: str | None) -> int:

@@ -143,5 +143,20 @@ class TestCurrent:
     def should_be_unknown_when_the_folder_does_not_exist(self, presence, folder):
         assert presence.current(clock=lambda: NOW) == presence.Presence.UNKNOWN
 
+    def should_read_the_presence_and_the_last_use_from_one_look_at_the_folder(self, presence, folder):
+        folder.mkdir()
+        (folder / "terminal").write_text(f"{_line(900, 'computer')}\n{_line(300, 'phone')}\ngarbage\n")
+        (folder / "other").write_text(_line(5000, "computer") + "\n")
+
+        reading = presence.read(clock=lambda: NOW)
+
+        assert reading == presence.Reading(presence.Presence.AWAY, NOW - 300)
+
+    def should_have_no_last_use_without_the_folder_or_a_valid_line(self, presence, folder):
+        assert presence.read(clock=lambda: NOW) == presence.Reading(presence.Presence.UNKNOWN, None)
+        folder.mkdir()
+        (folder / "terminal").write_text("garbage\n")
+        assert presence.read(clock=lambda: NOW) == presence.Reading(presence.Presence.AWAY, None)
+
     def should_read_the_folder_under_the_claude_home(self, presence):
         assert presence.PRESENCE_DIR.parts[-2:] == (".claude", "presence")

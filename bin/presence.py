@@ -3,13 +3,15 @@
 Each file in the folder is one web-terminal instance (a name starting with a dot is a temporary
 write and is skipped). Each line is `<epoch-seconds> <kind>` with kind
 `computer` or `phone`, and stays fresh for 120 seconds. A malformed line is ignored. A missing or
-unreadable folder is `unknown`, which callers treat as away.
+unreadable folder is `unknown`, which callers treat as away. The last use is the newest epoch of any
+valid line, fresh or not.
 """
 from __future__ import annotations
 
 import re
 import time
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
 from pathlib import Path
@@ -29,6 +31,12 @@ class Presence(Enum):
     @property
     def attended(self) -> bool:
         return self in (Presence.COMPUTER, Presence.PHONE)
+
+
+@dataclass(frozen=True)
+class Reading:
+    presence: Presence
+    last_use: int | None
 
 
 def fresh_kinds(lines: Iterable[str], now: float) -> set[Presence]:
@@ -64,5 +72,15 @@ def folder_lines(folder: Path) -> list[str] | None:
     return [line for entry in files for line in file_lines(entry)]
 
 
+def last_use(lines: Iterable[str]) -> int | None:
+    uses = [int(match.group(1)) for line in lines if (match := LINE.fullmatch(line.strip()))]
+    return max(uses, default=None)
+
+
+def read(clock: Callable[[], float] = time.time) -> Reading:
+    lines = folder_lines(PRESENCE_DIR)
+    return Reading(classify(lines, clock()), None if lines is None else last_use(lines))
+
+
 def current(clock: Callable[[], float] = time.time) -> Presence:
-    return classify(folder_lines(PRESENCE_DIR), clock())
+    return read(clock).presence
