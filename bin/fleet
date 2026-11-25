@@ -1,0 +1,324 @@
+#!/usr/bin/env python3
+"""Steer the agents in tmux through web-terminal's automation API.
+
+Lists the live Claude Code, opencode and agy sessions on every box the terminal reaches,
+starts new ones, sends messages, reads replies, answers questions and watches for changes.
+Permission prompts and Keyguard requests stay the owner's: the API refuses a message to a
+waiting agent and answers questions only.
+
+WEB_TERMINAL_URL names the terminal: http://localhost:8122 by default, and
+http://host.docker.internal:8122 inside a container. The bearer comes from
+TELEGRAM_BOT_WEB_TERMINAL_AUTOMATION_TOKEN, loaded through envify when it is not set.
+
+Exit codes: 0 done, 1 failed, 2 usage, 3 refused because the agent waits or asks no more.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Dict, Final, Iterator, List, Optional, Tuple
+
+TOKEN_NAME: Final = "TELEGRAM_BOT_WEB_TERMINAL_AUTOMATION_TOKEN"
+URL_NAME: Final = "WEB_TERMINAL_URL"
+LOCAL_URL: Final = "http://localhost:8122"
+CONTAINER_URL: Final = "http://host.docker.internal:8122"
+REQUEST_TIMEOUT_S: Final = 30
+FIRST_REPLY_WAIT_S: Final = 120
+FIRST_REPLY_SLACK_S: Final = 20
+DEFAULT_WATCH_INTERVAL_S: Final = 5.0
+EXIT_FAILED: Final = 1
+EXIT_REFUSED: Final = 3
+HTTP_NO_CONTENT: Final = 204
+HTTP_CONFLICT: Final = 409
+AGENTS: Final = ("claude", "opencode", "agy")
+EFFORTS: Final = ("low", "medium", "high", "xhigh", "max")
+
+Session = Dict[str, Any]
+
+
+class FleetError(RuntimeError):
+    pass
+
+
+class Refused(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class Answer:
+    status: int
+    body: Any
+
+
+def terminal_url(environ: Dict[str, str], in_container: bool) -> str:
+    configured = environ.get(URL_NAME, "").rstrip("/")
+    return configured or (CONTAINER_URL if in_container else LOCAL_URL)
+
+
+def load_token() -> str:
+    if not os.environ.get(TOKEN_NAME):
+        from envify import EnvifyError, load_env_via_shell
+
+        try:
+            load_env_via_shell((TOKEN_NAME,))
+        except EnvifyError as error:
+            raise FleetError(f"envify could not load {TOKEN_NAME}: {error}".strip()) from error
+    token = os.environ.get(TOKEN_NAME, "")
+    if not token:
+        raise FleetError(f"{TOKEN_NAME} is empty")
+    return token
+
+
+class Api:
+    def __init__(self, base: str, token: str) -> None:
+        self.base = base
+        self.token = token
+
+    def call(self, method: str, path: str, body: Optional[Any] = None, timeout: float = REQUEST_TIMEOUT_S) -> Answer:
+        data = None if body is None else json.dumps(body).encode()
+        headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
+        request = urllib.request.Request(f"{self.base}/api/automation{path}", data=data, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return Answer(response.status, parsed(response.read()))
+        except urllib.error.HTTPError as error:
+            return Answer(error.code, parsed(error.read()))
+        except (urllib.error.URLError, OSError) as error:
+            raise FleetError(f"{self.base} does not answer: {error}") from error
+
+    def ok(self, method: str, path: str, body: Optional[Any] = None, timeout: float = REQUEST_TIMEOUT_S) -> Any:
+        answer = self.call(method, path, body, timeout)
+        if answer.status == HTTP_CONFLICT:
+            raise Refused(error_of(answer))
+        if answer.status >= 400:
+            raise FleetError(f"{answer.status}: {error_of(answer)}")
+        return answer.body
+
+
+def parsed(raw: bytes) -> Any:
+    try:
+        return json.loads(raw) if raw else None
+    except ValueError:
+        return raw.decode(errors="replace")
+
+
+def error_of(answer: Answer) -> str:
+    body = answer.body
+    return str(body.get("error", body)) if isinstance(body, dict) else str(body)
+
+
+def quoted(segment: str) -> str:
+    return urllib.parse.quote(segment, safe="")
+
+
+def state_of(session: Session) -> str:
+    if session.get("status") != "waiting":
+        return str(session.get("status", "?"))
+    return "asks" if session.get("question") else "waits-for-owner"
+
+
+def describe(session: Session) -> str:
+    title = session.get("title") or "(untitled)"
+    return f"{session['short']}  {session['agent']}@{session['box']}  {state_of(session)}  {title}  [{session['cwd']}]"
+
+
+def find_session(sessions: List[Session], ref: str) -> Session:
+    found = [each for each in sessions if ref in (each["conversation"], each["short"])]
+    if len(found) != 1:
+        raise FleetError(f"{len(found)} live sessions match {ref}")
+    return found[0]
+
+
+def question_lines(session: Session) -> Iterator[str]:
+    for number, asked in enumerate(session["question"]["questions"], start=1):
+        kind = "several" if asked.get("multiSelect") else "one"
+        options = ", ".join(option["label"] for option in asked["options"])
+        yield f"  Q{number} ({kind}): {asked['question']}  options: {options}"
+
+
+def snapshot(sessions: List[Session]) -> Dict[str, Tuple[str, str]]:
+    return {each["conversation"]: (state_of(each), describe(each)) for each in sessions}
+
+
+def changes(before: Dict[str, Tuple[str, str]], after: Dict[str, Tuple[str, str]]) -> List[str]:
+    lines = [f"+ {line}" for key, (_, line) in after.items() if key not in before]
+    lines += [f"- {line}" for key, (_, line) in before.items() if key not in after]
+    lines += [f"{before[key][0]} -> {line}" for key, (state, line) in after.items() if key in before and before[key][0] != state]
+    return lines
+
+
+def answers_from(args: argparse.Namespace) -> List[List[str]]:
+    if args.answers_json:
+        answers = json.loads(args.answers_json)
+        if not isinstance(answers, list) or not all(isinstance(each, list) for each in answers):
+            raise FleetError("--answers-json takes a list of lists of labels")
+        return answers
+    if not args.labels:
+        raise FleetError("give the labels of one question, or --answers-json for several")
+    return [list(args.labels)]
+
+
+def text_of(argument: str) -> str:
+    return sys.stdin.read() if argument == "-" else argument
+
+
+def print_json(value: Any) -> None:
+    print(json.dumps(value, indent=2, ensure_ascii=False))
+
+
+def run_boxes(api: Api, args: argparse.Namespace) -> None:
+    boxes = api.ok("GET", "/boxes")
+    if args.json:
+        return print_json(boxes)
+    for box in boxes:
+        print(f"{box['name']}  {'online' if box['online'] else 'offline'}  {box['latencyMs'] or '-'} ms")
+
+
+def run_ls(api: Api, args: argparse.Namespace) -> None:
+    query = f"?q={quoted(' '.join(args.query))}" if args.query else ""
+    listed = api.ok("GET", f"/sessions{query}")
+    if args.json:
+        return print_json(listed)
+    for session in listed["sessions"]:
+        print(describe(session))
+        if session.get("question"):
+            print("\n".join(question_lines(session)))
+    if listed["offline"]:
+        print(f"could not read: {', '.join(listed['offline'])}")
+
+
+def run_start(api: Api, args: argparse.Namespace) -> None:
+    body = {"box": args.box, "agent": args.agent, "prompt": text_of(args.prompt)}
+    body.update({key: value for key, value in (("model", args.model), ("effort", args.effort), ("cwd", args.cwd)) if value})
+    started = api.ok("POST", "/sessions", body)
+    print(f"started {started['pane']} ({started['window']}) on {started['box']}")
+    if args.wait:
+        print_reply(first_reply(api, started["pane"]), args.json)
+
+
+def first_reply(api: Api, ref: str) -> Optional[Session]:
+    answer = api.call("GET", f"/sessions/{quoted(ref)}/first-reply?timeout={FIRST_REPLY_WAIT_S}", timeout=FIRST_REPLY_WAIT_S + FIRST_REPLY_SLACK_S)
+    if answer.status == HTTP_NO_CONTENT:
+        return None
+    if answer.status >= 400:
+        raise FleetError(f"{answer.status}: {error_of(answer)}")
+    return answer.body
+
+
+def print_reply(reply: Optional[Session], as_json: bool) -> None:
+    if as_json:
+        return print_json(reply)
+    if reply is None:
+        return print("no reply yet")
+    print(f"{describe(reply)}\n\n{reply['text'] if reply['text'] is not None else '(no reply among the newest records)'}")
+
+
+def run_first(api: Api, args: argparse.Namespace) -> None:
+    print_reply(first_reply(api, args.session), args.json)
+
+
+def run_reply(api: Api, args: argparse.Namespace) -> None:
+    print_reply(api.ok("GET", f"/sessions/{quoted(args.session)}/last-reply", timeout=REQUEST_TIMEOUT_S), args.json)
+
+
+def run_send(api: Api, args: argparse.Namespace) -> None:
+    sent = api.ok("POST", f"/sessions/{quoted(args.session)}/input", {"text": text_of(args.text)})
+    print(f"sent to {describe(sent)}")
+
+
+def run_answer(api: Api, args: argparse.Namespace) -> None:
+    session = find_session(api.ok("GET", "/sessions")["sessions"], args.session)
+    if not session.get("question"):
+        raise Refused(f"{session['short']} asks no question ({state_of(session)})")
+    body = {"question": session["question"]["id"], "answers": answers_from(args)}
+    answered = api.ok("POST", f"/sessions/{quoted(session['conversation'])}/answer", body)
+    print(f"answered {describe(answered)}")
+
+
+def run_watch(api: Api, args: argparse.Namespace) -> None:
+    before = snapshot(api.ok("GET", "/sessions")["sessions"])
+    print(f"watching {len(before)} sessions", flush=True)
+    lost = False
+    while True:
+        time.sleep(args.interval)
+        try:
+            after = snapshot(api.ok("GET", "/sessions")["sessions"])
+        except FleetError as error:
+            if not lost:
+                print(f"! lost the terminal: {error}", flush=True)
+            lost = True
+            continue
+        if lost:
+            print("! the terminal answers again", flush=True)
+        lost = False
+        for line in changes(before, after):
+            print(line, flush=True)
+        before = after
+
+
+def parser() -> argparse.ArgumentParser:
+    root = argparse.ArgumentParser(prog="fleet", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    root.add_argument("--json", action="store_true", help="print the API's JSON")
+    commands = root.add_subparsers(dest="command", required=True)
+    commands.add_parser("boxes", help="list the boxes and whether they answer").set_defaults(run=run_boxes)
+    ls = commands.add_parser("ls", help="list the live sessions, the newest first")
+    ls.add_argument("query", nargs="*", help="words the title, folder or name holds")
+    ls.set_defaults(run=run_ls)
+    start = commands.add_parser("start", help="start an agent with a prompt in a new window")
+    start.add_argument("box")
+    start.add_argument("agent", choices=AGENTS)
+    start.add_argument("prompt", help="the prompt, or - to read it from stdin")
+    start.add_argument("--model")
+    start.add_argument("--effort", choices=EFFORTS)
+    start.add_argument("--cwd", help="an absolute folder the box allows")
+    start.add_argument("--wait", action="store_true", help="print the agent's first reply")
+    start.set_defaults(run=run_start)
+    for name, run, about in (("first", run_first, "the first reply"), ("reply", run_reply, "the last reply, with the status")):
+        command = commands.add_parser(name, help=f"print {about} of a session")
+        command.add_argument("session", help="a conversation id, short id or pane")
+        command.set_defaults(run=run)
+    send = commands.add_parser("send", help="send a message to a session that does not wait")
+    send.add_argument("session", help="a conversation id or short id")
+    send.add_argument("text", help="the message, or - to read it from stdin")
+    send.set_defaults(run=run_send)
+    answer = commands.add_parser("answer", help="answer the questions a session asks")
+    answer.add_argument("session", help="a conversation id or short id")
+    answer.add_argument("labels", nargs="*", help="option labels, then at most one answer of your own, for one question")
+    answer.add_argument("--answers-json", help='several questions: [["Postgres"], ["Small", "Large"]]')
+    answer.set_defaults(run=run_answer)
+    watch = commands.add_parser("watch", help="print a line each time a session starts, ends or changes status")
+    watch.add_argument("--interval", type=float, default=DEFAULT_WATCH_INTERVAL_S, help="seconds between looks")
+    watch.set_defaults(run=run_watch)
+    return root
+
+
+def main(argv: List[str], connect: Callable[[], Api]) -> int:
+    args = parser().parse_args(argv)
+    try:
+        args.run(connect(), args)
+    except Refused as refusal:
+        print(f"refused: {refusal}", file=sys.stderr)
+        return EXIT_REFUSED
+    except (FleetError, ValueError) as error:
+        print(f"fleet: {error}", file=sys.stderr)
+        return EXIT_FAILED
+    return 0
+
+
+def connect() -> Api:
+    return Api(terminal_url(dict(os.environ), Path("/.dockerenv").exists()), load_token())
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:], connect))
+    except KeyboardInterrupt:
+        sys.exit(130)
