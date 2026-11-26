@@ -87,6 +87,7 @@ _cl()
   fi
   case "${prev}" in
     -f|--file|-p|--path) return 0 ;;
+    --autocompact) _reply_matching <<< "auto"; return 0 ;;
   esac
   if [[ "${cur}" == -* ]]; then
     COMPREPLY=($(compgen -W "${_CL_OPTS_CACHE}" -- "${cur}"))

@@ -460,6 +460,16 @@ class TestKeyguard:
         assert candidates == []
 
 
+class TestCl:
+    @pytest.fixture(autouse=True)
+    def help_text(self, mock):
+        mock("cl", "echo '  --autocompact WINDOW  auto-compact window for this claude session only'")
+
+    @pytest.mark.parametrize("typed", ["", "a"])
+    def should_offer_auto_where_the_autocompact_window_goes(self, complete, typed):
+        assert complete("_cl", "cl", "--autocompact", typed) == ["auto"]
+
+
 class TestRegistrations:
     def should_register_the_help_completers_only_for_bin_scripts(self, tmp_path, commands):
         specs = run_bash("complete -p", tmp_path, commands).splitlines()
