@@ -155,6 +155,8 @@ def closing_server():
 
 EC_KEY = ["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", "{key}"]
 RSA_KEY = ["genrsa", "-out", "{key}", "2048"]
+ED25519_KEY = ["genpkey", "-algorithm", "ED25519", "-out", "{key}"]
+ED448_KEY = ["genpkey", "-algorithm", "ED448", "-out", "{key}"]
 
 
 @requires_tool("openssl")
@@ -172,6 +174,15 @@ class TestKeySize:
 
         assert "Key size is adequate (2048+ bits)" in result.stdout
         assert "weak" not in result.stdout.lower().replace("weak sha1", "")
+
+    @pytest.mark.parametrize("key_args,bits", [(ED25519_KEY, 256), (ED448_KEY, 456)], ids=["ed25519", "ed448"])
+    def test_should_report_the_fixed_key_size_of_an_edwards_curve_certificate(self, run_cli, tls_server, key_args, bits):
+        result = run_cli("ssl_verify", [tls_server(key_args)])
+
+        assert f"Key Size: {bits} bits" in result.stdout
+        assert "weak" not in result.stdout.lower().replace("weak sha1", "")
+        assert "4096+" not in result.stdout
+        assert "integer expression expected" not in result.stderr
 
     def test_should_finish_the_report_for_a_certificate_without_authority_and_transparency_data(self, run_cli, tls_server):
         result = run_cli("ssl_verify", [tls_server(EC_KEY)])
@@ -196,13 +207,22 @@ class TestKeySize:
         ("Public-Key: (256 bit)", 256),
         ("Public-Key: (256 bit field, 128 bit security level)", 256),
         ("Public-Key: (2048 bit)", 2048),
-    ], ids=["openssl 3", "openssl 4 elliptic curve", "rsa"])
+        ("ED25519 Public-Key:", 256),
+        ("ED448 Public-Key:", 456),
+    ], ids=["openssl 3", "openssl 4 elliptic curve", "rsa", "ed25519", "ed448"])
     def test_should_read_the_key_size_from_the_public_key_line(self, tmp_path, line, bits):
         text = f"        Subject Public Key Info:\n                {line}\n"
 
         result = run_script_function(tmp_path, "public_key_bits", f"printf '%s' '{text}' | public_key_bits")
 
         assert result.stdout == f"{bits}\n"
+
+    def test_should_read_no_key_size_when_the_public_key_line_has_no_bit_count(self, tmp_path):
+        text = "        Subject Public Key Info:\n                X25519 Public-Key:\n"
+
+        result = run_script_function(tmp_path, "public_key_bits", f"printf '%s' '{text}' | public_key_bits")
+
+        assert result.stdout == ""
 
 
 @requires_tool("openssl")

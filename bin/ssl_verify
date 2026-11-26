@@ -45,7 +45,10 @@ min_key_bits() {
 }
 
 public_key_bits() {
-    sed -n 's/.*Public-Key: (\([0-9][0-9]*\) bit.*/\1/p'
+    sed -n \
+        -e 's/.*Public-Key: (\([0-9][0-9]*\) bit.*/\1/p' \
+        -e 's/^[[:space:]]*ED25519 Public-Key:.*/256/p' \
+        -e 's/^[[:space:]]*ED448 Public-Key:.*/456/p'
 }
 
 run_with_timeout() {
@@ -217,12 +220,18 @@ PUBKEY_INFO=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A2
 echo "$PUBKEY_INFO"
 
 KEY_SIZE=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | public_key_bits)
-echo "Key Size: ${KEY_SIZE} bits"
+if [ -n "$KEY_SIZE" ]; then
+    echo "Key Size: ${KEY_SIZE} bits"
+else
+    echo "Key Size: unknown"
+fi
 
 KEY_ALGO=$(echo "$PUBKEY_INFO" | head -n1)
 MIN_KEY_BITS=$(min_key_bits "$KEY_ALGO")
 
-if [ "$KEY_SIZE" -lt "$MIN_KEY_BITS" ]; then
+if [ -z "$KEY_SIZE" ]; then
+    echo -e "${YELLOW}⚠ Key size not checked: no bit count for ${KEY_ALGO##*: }${NC}"
+elif [ "$KEY_SIZE" -lt "$MIN_KEY_BITS" ]; then
     echo -e "${RED}✗ Key size is weak (< ${MIN_KEY_BITS} bits)${NC}"
 elif [ "$KEY_SIZE" -lt 4096 ]; then
     echo -e "${GREEN}✓ Key size is adequate (${MIN_KEY_BITS}+ bits)${NC}"
@@ -362,7 +371,7 @@ if run_with_timeout 5 openssl s_client -connect "${HOST}:${PORT}" -servername "$
     WARNINGS=$((WARNINGS + 1))
 fi
 
-if [ "$KEY_SIZE" -lt "$MIN_KEY_BITS" ]; then
+if [ -n "$KEY_SIZE" ] && [ "$KEY_SIZE" -lt "$MIN_KEY_BITS" ]; then
     echo -e "${RED}✗ CRITICAL: Weak key size (< ${MIN_KEY_BITS} bits)${NC}"
     CRITICAL=$((CRITICAL + 1))
 fi
