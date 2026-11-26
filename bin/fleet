@@ -8,8 +8,8 @@ a message to a waiting agent and answers questions only, and closes a busy or wa
 only with --force. It never closes the master's window or one that holds more than the agent.
 
 An idle session shows what its last reply leaves for the owner, as the terminal reads its closing
-block: decision, blocked, running or done, else idle; tasks:N counts the background tasks it still
-runs.
+block: decision, blocked, running or done, else idle; tasks:N, beside any of them, counts the
+background tasks it still runs.
 
 The master session (`fleet master on`) asks the owner to look at a session with `fleet flag`:
 the terminal shows the flag on that window until the owner sees it. `fleet watch` leaves the

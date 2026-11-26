@@ -97,10 +97,11 @@ class TestDescribe:
 
         assert line == "aaaaaaaa  claude@mac  idle  Fix the login form  [/workspace/code/app]  master  cue:master  flag: Tests fail"
 
-    def should_count_the_background_tasks_an_idle_session_still_runs(self, fleet):
-        line = fleet.describe(session(outcome="running", tasks=2))
+    @pytest.mark.parametrize("outcome,state", [("done", "done"), (None, "idle"), ("running", "running")])
+    def should_show_the_background_tasks_beside_the_state_the_reply_gives(self, fleet, outcome, state):
+        line = fleet.describe(session(outcome=outcome, tasks=2))
 
-        assert line == "aaaaaaaa  claude@mac  running  Fix the login form  [/workspace/code/app]  tasks:2"
+        assert line == f"aaaaaaaa  claude@mac  {state}  Fix the login form  [/workspace/code/app]  tasks:2"
 
 
 OTHER = "bbbbbbbb-0000-4000-8000-000000000002"
