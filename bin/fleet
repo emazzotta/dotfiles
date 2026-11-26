@@ -2,10 +2,11 @@
 """Steer the agents in tmux through web-terminal's automation API.
 
 Lists the live Claude Code, opencode and agy sessions on every box the terminal reaches,
-starts new ones, sends messages, reads replies, answers questions, closes finished ones and
-watches for changes. Permission prompts and Keyguard requests stay the owner's: the API refuses
-a message to a waiting agent and answers questions only, and closes a busy or waiting session
-only with --force. It never closes the master's window or one that holds more than the agent.
+starts new ones, opens stored ones again, sends messages, reads replies, answers questions,
+closes finished ones and watches for changes. Permission prompts and Keyguard requests stay the
+owner's: the API refuses a message to a waiting agent and answers questions only, and closes a
+busy or waiting session only with --force. It never closes the master's window or one that holds
+more than the agent.
 
 An idle session shows what its last reply leaves for the owner, as the terminal reads its closing
 block: decision, blocked, running or done, else idle; tasks:N, beside any of them, counts the
@@ -35,7 +36,8 @@ held bearer the terminal refuses is loaded and held anew once per run. The dev b
 since all its sessions share one container.
 
 Exit codes: 0 done, 1 failed, 2 usage, 3 refused: the agent waits or asks no more, the session
-cannot take a message the owner signs, or the session or its window may not close.
+cannot take a message the owner signs, the session or its window may not close, or the
+conversation to resume is live or its short id names several.
 """
 from __future__ import annotations
 
@@ -71,6 +73,7 @@ DEVBOX_UNLOCK_CLIENT: Final = DEVBOX_MARKER / "keyguard-passkey"
 CONTAINER_MARKER: Final = Path("/.dockerenv")
 REQUEST_TIMEOUT_S: Final = 30
 FIRST_REPLY_WAIT_S: Final = 120
+RESUME_POLL_S: Final = 2.0
 CLOSE_WAIT_S: Final = 30
 WAIT_SLACK_S: Final = 20
 DEFAULT_WATCH_INTERVAL_S: Final = 5.0
@@ -336,11 +339,38 @@ def run_ls(api: Api, args: argparse.Namespace) -> None:
 
 def run_start(api: Api, args: argparse.Namespace) -> None:
     body = {"box": args.box, "agent": args.agent, "prompt": text_of(args.prompt)}
-    body.update({key: value for key, value in (("model", args.model), ("effort", args.effort), ("cwd", args.cwd)) if value})
+    body.update(given(args, "model", "effort", "cwd"))
     started = api.ok("POST", "/sessions", body)
     print(f"started {started['pane']} ({started['window']}) on {started['box']}")
     if args.wait:
         print_reply(first_reply(api, started["pane"]), args.json)
+
+
+def run_resume(api: Api, args: argparse.Namespace) -> None:
+    body = {"box": args.box, "resume": args.conversation, "prompt": text_of(args.prompt)}
+    body.update(given(args, "agent", "model", "effort"))
+    started = api.ok("POST", "/sessions", body)
+    print(f"started {started['pane']} ({started['window']}) on {started['box']}  "
+          f"{started['conversation']}  model {started['model'] or '-'}  effort {started['effort'] or '-'}")
+    if args.wait:
+        print_reply(resumed_reply(api, started["conversation"]), args.json)
+
+
+def resumed_reply(api: Api, conversation: str) -> Optional[Session]:
+    deadline = time.monotonic() + FIRST_REPLY_WAIT_S
+    worked = False
+    while time.monotonic() < deadline:
+        listed = [each for each in api.ok("GET", "/sessions")["sessions"] if each["conversation"] == conversation]
+        status = listed[0]["status"] if listed else None
+        if worked and status not in (None, "busy"):
+            return api.ok("GET", f"/sessions/{quoted(conversation)}/last-reply")
+        worked = worked or status == "busy"
+        time.sleep(RESUME_POLL_S)
+    return None
+
+
+def given(args: argparse.Namespace, *names: str) -> Dict[str, str]:
+    return {name: getattr(args, name) for name in names if getattr(args, name)}
 
 
 def first_reply(api: Api, ref: str) -> Optional[Session]:
@@ -575,6 +605,16 @@ def parser() -> argparse.ArgumentParser:
     start.add_argument("--cwd", help="an absolute folder the box allows")
     start.add_argument("--wait", action="store_true", help="print the agent's first reply")
     start.set_defaults(run=run_start)
+    resume = commands.add_parser("resume", help="open a stored conversation again in a new window, with a prompt as its next turn")
+    resume.add_argument("box")
+    resume.add_argument("conversation", help="the full id or short id of a conversation the box keeps")
+    resume.add_argument("prompt", help="the prompt, or - to read it from stdin")
+    resume.add_argument("--agent", choices=AGENTS, help="look among this agent's conversations only")
+    resume.add_argument("--model", help="else the conversation's own, for Claude Code")
+    resume.add_argument("--effort", choices=EFFORTS, help="else the conversation's own, for Claude Code")
+    resume.add_argument("--wait", action="store_true",
+                        help="print the reply to the prompt once the agent has worked and stopped, not the conversation's first")
+    resume.set_defaults(run=run_resume)
     for name, run, about in (("first", run_first, "the first reply"), ("reply", run_reply, "the last reply, with the status")):
         command = commands.add_parser(name, help=f"print {about} of a session")
         command.add_argument("session", help="a conversation id, short id or pane")

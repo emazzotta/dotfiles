@@ -40,6 +40,29 @@ def stub(fleet):
     return StubApi
 
 
+OPENCODE = "ses_1111111111aaaaaaaaOpEnCoDe"
+
+
+def resumed(**over):
+    return {"window": "@5", "pane": "%12", "box": "devbox", "session": "main", "conversation": CLAUDE,
+            "model": "claude-sonnet-5-5", "effort": "high", **over}
+
+
+def listing(**over):
+    return 200, {"sessions": [session(pane="%12", **over)] if over else [], "offline": []}
+
+
+@pytest.fixture
+def clock(fleet, monkeypatch):
+    now = SimpleNamespace(now=0.0)
+
+    def sleep(seconds):
+        now.now += seconds
+
+    monkeypatch.setattr(fleet, "time", SimpleNamespace(monotonic=lambda: now.now, sleep=sleep))
+    return now
+
+
 class TestTerminalUrl:
     @pytest.mark.parametrize("environ,markers,expected", [
         ({}, set(), "http://localhost:8122"),
@@ -309,6 +332,56 @@ class TestMain:
 
         assert (code, api.calls[0][2], capsys.readouterr().out.splitlines()[-1]) == (
             0, {"box": "mac", "agent": "claude", "prompt": "Fix the form", "effort": "high"}, "On it.")
+
+    def should_resume_a_conversation_by_its_short_id_and_print_the_model_and_effort_it_runs_on(self, fleet, stub, capsys):
+        api = stub({("POST", "/sessions"): (201, resumed())})
+
+        code = fleet.main(["resume", "devbox", "aaaaaaaa", "Carry on"], lambda: api)
+
+        assert (code, api.calls[0][2], capsys.readouterr().out) == (
+            0, {"box": "devbox", "resume": "aaaaaaaa", "prompt": "Carry on"},
+            f"started %12 (@5) on devbox  {CLAUDE}  model claude-sonnet-5-5  effort high\n")
+
+    def should_send_the_agent_model_and_effort_given_and_read_the_prompt_from_stdin(self, fleet, stub, monkeypatch):
+        monkeypatch.setattr(fleet.sys, "stdin", SimpleNamespace(read=lambda: "Carry on"))
+        api = stub({("POST", "/sessions"): (201, resumed(model="opus", effort="max"))})
+
+        fleet.main(["resume", "devbox", CLAUDE, "-", "--agent", "claude", "--model", "opus", "--effort", "max"], lambda: api)
+
+        assert api.calls[0][2] == {"box": "devbox", "resume": CLAUDE, "prompt": "Carry on", "agent": "claude", "model": "opus", "effort": "max"}
+
+    def should_print_a_dash_for_a_setting_the_agent_picks_itself(self, fleet, stub, capsys):
+        api = stub({("POST", "/sessions"): (201, resumed(conversation=OPENCODE, model=None, effort=None))})
+
+        fleet.main(["resume", "devbox", "OpEnCoDe", "Carry on"], lambda: api)
+
+        assert capsys.readouterr().out.endswith(f"{OPENCODE}  model -  effort -\n")
+
+    def should_exit_3_when_the_conversation_to_resume_is_live(self, fleet, stub, capsys):
+        api = stub({("POST", "/sessions"): (409, {"error": "aaaaaaaa is live in %3: send it the text instead."})})
+
+        code = fleet.main(["resume", "devbox", "aaaaaaaa", "Carry on"], lambda: api)
+
+        assert (code, capsys.readouterr().err) == (3, "refused: aaaaaaaa is live in %3: send it the text instead.\n")
+
+    def should_wait_for_the_resumed_session_to_work_and_stop_before_it_prints_the_reply_to_the_prompt(self, fleet, stub, clock, capsys):
+        api = stub({
+            ("POST", "/sessions"): (201, resumed()),
+            ("GET", "/sessions"): [listing(), listing(status="idle"), listing(status="busy"), listing(status="busy"), listing(status="idle")],
+            ("GET", f"/sessions/{CLAUDE}/last-reply"): (200, {"text": "Done, tests pass.", **session(pane="%12")}),
+        })
+
+        code = fleet.main(["resume", "devbox", "aaaaaaaa", "Carry on", "--wait"], lambda: api)
+
+        assert (code, capsys.readouterr().out.splitlines()[-1], [call[:2] for call in api.calls].count(("GET", "/sessions"))) == (0, "Done, tests pass.", 5)
+        assert not any(path.endswith("/first-reply") for _, path, _ in api.calls)
+
+    def should_print_no_reply_yet_when_the_resumed_session_shows_no_work_in_time(self, fleet, stub, clock, capsys):
+        api = stub({("POST", "/sessions"): (201, resumed()), ("GET", "/sessions"): (200, {"sessions": [session(status="idle")], "offline": []})})
+
+        code = fleet.main(["resume", "devbox", "aaaaaaaa", "Carry on", "--wait"], lambda: api)
+
+        assert (code, capsys.readouterr().out.splitlines()[-1], clock.now) == (0, "no reply yet", fleet.FIRST_REPLY_WAIT_S)
 
     def should_flag_a_session_with_the_words_given(self, fleet, stub, capsys):
         api = stub({("POST", "/sessions/aaaaaaaa/flag"): (200, {"ok": True, **session(flag="Tests fail", cue="master")})})
