@@ -295,6 +295,10 @@ LEONARDO_ONLY_PLUGINS = (
 OPT_IN_SETS = {
     "claudeai": {"syncClaudeAiSkills": True},
 }
+AUTOCOMPACT_AUTO = "auto"
+AUTOCOMPACT_MIN_TOKENS = 100_000
+AUTOCOMPACT_TOKENS = re.compile(r"(\d+(?:\.\d+)?)([km]?)")
+TOKEN_UNITS = {"": 1, "k": 1_000, "m": 1_000_000}
 KEYGUARD = Path.home() / "Projects" / "private" / "keyguard"
 DESKTOP = Path.home() / "Desktop"
 DOWNLOADS = Path.home() / "Downloads"
@@ -841,6 +845,7 @@ def restore_args(args: argparse.Namespace, claude_args: list[str]) -> list[str]:
         *(["-n"] if args.no_skip else []),
         *(["-s"] if args.skip else []),
         *(["--git-ignore-mount"] if args.git_ignore_mount else []),
+        *autocompact_args(args),
         *_without_session_choice(claude_args),
     ]
 
@@ -1129,6 +1134,23 @@ def parse_opt_in(value: str) -> list[str]:
     return names
 
 
+def parse_autocompact(value: str) -> str:
+    """Claude's --autocompact window, checked here so a typo fails before the container starts."""
+    text = value.strip().lower()
+    if text == AUTOCOMPACT_AUTO:
+        return text
+    match = AUTOCOMPACT_TOKENS.fullmatch(text)
+    tokens = round(float(match.group(1)) * TOKEN_UNITS[match.group(2)]) if match else 0
+    if tokens < AUTOCOMPACT_MIN_TOKENS:
+        raise argparse.ArgumentTypeError(f"'{value}' is not auto or at least 100k tokens, such as 500000 or 500k")
+    return str(tokens)
+
+
+def autocompact_args(args: argparse.Namespace) -> list[str]:
+    window = getattr(args, "autocompact", None)
+    return ["--autocompact", window] if window else []
+
+
 def build_session_settings_args(launch_dirs: list[Path], opt_ins: list[str]) -> list[str]:
     """User settings keep these sets off; a Leonardo launch or --with turns them on for that session only. Claude keeps the last --settings, so they share one."""
     settings: dict = {}
@@ -1196,7 +1218,10 @@ def build_entrypoint_invocation(args, claude_args: list[str], pwd: Path) -> tupl
 
     plugin_args = []
     if entrypoint in (*CLAUDE_ENTRYPOINTS, "claude-resume"):
-        plugin_args = build_session_settings_args(args.paths or [pwd], getattr(args, "opt_in", []))
+        plugin_args = [
+            *build_session_settings_args(args.paths or [pwd], getattr(args, "opt_in", [])),
+            *autocompact_args(args),
+        ]
 
     if entrypoint == "claude-resume":
         forwarded = [*permission_args, *plugin_args, *claude_args]
@@ -1270,7 +1295,7 @@ def _run_container(
 def main() -> None:
     pwd = Path.cwd()
 
-    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n | -s] [-r [SESSION]] [-a] [--with SETS] [CLAUDE_ARGS...]")
+    parser = argparse.ArgumentParser(prog="cl", usage="cl [-f FILE]... [-p PATH]... [-x EXCLUDE]... [-n | -s] [-r [SESSION]] [-a] [--with SETS] [--autocompact WINDOW] [CLAUDE_ARGS...]")
     parser.add_argument("-f", "--file", dest="files", action="append", default=[], metavar="FILE")
     parser.add_argument(
         "-p", "--path",
@@ -1312,6 +1337,11 @@ def main() -> None:
         dest="opt_in", action="extend", type=parse_opt_in, default=[], metavar="SETS",
         help=f"turn off-by-default sets on for this session, comma separated or repeated: {', '.join(OPT_IN_SETS)}",
     )
+    parser.add_argument(
+        "--autocompact",
+        type=parse_autocompact, default=None, metavar="WINDOW",
+        help="auto-compact window for this claude session only, auto or at least 100k tokens (500000, 500k)",
+    )
     parser.add_argument("--convert", action="store_true", default=False, help="convert sessions between claude and opencode")
     parser.add_argument(
         "--rm",
@@ -1335,6 +1365,8 @@ def main() -> None:
         print(_session_registry().count_interrupted())
         sys.exit(0)
     note_interrupted_sessions()
+    if args.autocompact and (args.opencode or args.agy or args.hermes):
+        parser.error("--autocompact sets the window of a claude session; opencode, agy and hermes take none")
     resumed = resolve_session_id(args.resume, args.opencode)
     if resumed and not (args.opencode or args.agy):
         confirm_resume_after_move(resumed)

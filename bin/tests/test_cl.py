@@ -318,6 +318,40 @@ class TestBuildEntrypointInvocation:
         with pytest.raises(argparse.ArgumentTypeError, match="unknown set nope"):
             cl.parse_opt_in("claudeai,nope")
 
+    @pytest.mark.parametrize(("value", "expected"), [
+        ("auto", "auto"), (" AUTO ", "auto"), ("100000", "100000"), ("500000", "500000"),
+        ("500k", "500000"), ("500K", "500000"), ("0.5m", "500000"), ("1m", "1000000"),
+    ])
+    def test_should_accept_an_autocompact_window_claude_accepts(self, cl, value, expected):
+        assert cl.parse_autocompact(value) == expected
+
+    @pytest.mark.parametrize("value", ["99999", "99k", "500", "", "lots", "500kb", "-500000", "5e5"])
+    def test_should_reject_an_autocompact_window_below_100k_or_not_a_size(self, cl, value):
+        with pytest.raises(argparse.ArgumentTypeError, match="at least 100k tokens"):
+            cl.parse_autocompact(value)
+
+    def test_should_hand_claude_the_autocompact_window(self, cl):
+        entrypoint, plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(autocompact="500000"), [], ELSEWHERE)
+        assert (entrypoint, plugin_args) == ("claude", ["--autocompact", "500000"])
+
+    def test_should_keep_the_autocompact_window_beside_the_session_settings(self, cl, leonardo_repo):
+        _entrypoint, plugin_args, _entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(autocompact="500000"), [], leonardo_repo)
+        assert plugin_args.count("--settings") == 1
+        assert plugin_args[-2:] == ["--autocompact", "500000"]
+
+    def test_should_hand_the_autocompact_window_to_a_resumed_session(self, cl):
+        entrypoint, plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(resume=CLAUDE_SESSION_ID, autocompact="500000"), [], ELSEWHERE)
+        assert (entrypoint, plugin_args) == ("claude", ["--autocompact", "500000"])
+        assert entrypoint_args[:2] == ["--resume", CLAUDE_SESSION_ID]
+
+    def test_should_forward_the_autocompact_window_through_the_resume_picker(self, cl):
+        _entrypoint, _plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
+            self.args(resume="", autocompact="auto"), [], ELSEWHERE)
+        assert entrypoint_args == ["--", "--autocompact", "auto"]
+
     def test_should_not_hand_claude_settings_to_opencode(self, cl, leonardo_repo):
         _entrypoint, plugin_args, entrypoint_args = cl.build_entrypoint_invocation(
             self.args(opencode=True, opt_in=["claudeai"]), [], leonardo_repo)
@@ -1476,6 +1510,53 @@ class TestMain:
         assert exit_info.value.code == 2
         assert "mutually exclusive" in capsys.readouterr().err
 
+    def should_start_claude_with_the_autocompact_window_instead_of_routing_it_as_a_prompt(
+        self, cl, monkeypatch, mock_cl_run,
+    ):
+        monkeypatch.setattr(sys, "argv", ["cl", "--autocompact", "500k"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert "claude-route" not in cmd
+        assert cmd[cmd.index("--autocompact") + 1] == "500000"
+
+    def should_keep_the_opening_prompt_last_after_the_autocompact_window(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "--autocompact", "500k", "fix the build"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert cmd[cmd.index("--autocompact") + 1] == "500000"
+        assert cmd[-1] == "fix the build"
+
+    def should_resume_a_named_session_with_the_autocompact_window(self, cl, monkeypatch, mock_cl_run):
+        monkeypatch.setattr(sys, "argv", ["cl", "-r", CLAUDE_SESSION_ID, "--autocompact", "500k"])
+        with pytest.raises(SystemExit, match="0"):
+            cl.main()
+        cmd = mock_cl_run[-1]
+        assert cmd[cmd.index("--resume") + 1] == CLAUDE_SESSION_ID
+        assert cmd[cmd.index("--autocompact") + 1] == "500000"
+
+    def should_refuse_an_autocompact_window_claude_would_reject_before_running_anything(
+        self, cl, monkeypatch, mock_cl_run, capsys,
+    ):
+        monkeypatch.setattr(sys, "argv", ["cl", "--autocompact", "50k"])
+        with pytest.raises(SystemExit) as exit_info:
+            cl.main()
+        assert exit_info.value.code == 2
+        assert "at least 100k tokens" in capsys.readouterr().err
+        assert mock_cl_run == []
+
+    @pytest.mark.parametrize("agent", ["-o", "-g", "-m"])
+    def should_refuse_the_autocompact_window_for_agents_other_than_claude(
+        self, cl, monkeypatch, mock_cl_run, capsys, agent,
+    ):
+        monkeypatch.setattr(sys, "argv", ["cl", agent, "--autocompact", "500k"])
+        with pytest.raises(SystemExit) as exit_info:
+            cl.main()
+        assert exit_info.value.code == 2
+        assert "opencode, agy and hermes take none" in capsys.readouterr().err
+        assert mock_cl_run == []
+
     @pytest.mark.parametrize("explicit", [["--effort", "high"], ["--effort=high"]])
     def should_keep_an_explicit_effort_instead_of_injecting_the_default(self, cl, monkeypatch, mock_cl_run, explicit):
         monkeypatch.setattr(sys, "argv", ["cl", *explicit])
@@ -2270,6 +2351,11 @@ class TestRestoreArgs:
 
     def test_should_drop_a_session_id_given_inline(self, cl):
         assert cl.restore_args(cl_namespace(), [f"--session-id={CLAUDE_SESSION_ID}", "--verbose"]) == ["--verbose"]
+
+    def test_should_reopen_the_session_with_its_autocompact_window(self, cl):
+        args = cl_namespace(autocompact="500000")
+
+        assert cl.restore_args(args, ["--model", "opus"]) == ["--autocompact", "500000", "--model", "opus"]
 
 
 class TestBuildSessionRecord:
