@@ -44,7 +44,7 @@ class TestTerminalUrl:
     @pytest.mark.parametrize("environ,markers,expected", [
         ({}, set(), "http://localhost:8122"),
         ({}, {"/.dockerenv"}, "http://host.docker.internal:8122"),
-        ({}, {"/opt/unlock", "/.dockerenv"}, "https://terminal.mazzotta.me"),
+        ({}, {"/opt/unlock", "/.dockerenv"}, "http://web-terminal.web-terminal.svc.cluster.local"),
         ({"WEB_TERMINAL_URL": "https://terminal.test/"}, {"/opt/unlock"}, "https://terminal.test"),
     ])
     def should_take_the_configured_url_else_the_terminal_of_this_runtime(self, fleet, environ, markers, expected):

@@ -24,8 +24,9 @@ and the Claude Code session checks the token with `owner-message verify` before 
 as the owner's words.
 
 WEB_TERMINAL_URL names the terminal: http://localhost:8122 by default,
-http://host.docker.internal:8122 inside a container, and https://terminal.mazzotta.me
-on the dev box (/opt/unlock exists), whose terminal sees the dev box only. The bearer is
+http://host.docker.internal:8122 inside a container, and on the dev box (/opt/unlock exists)
+its in-cluster Service http://web-terminal.web-terminal.svc.cluster.local, whose terminal
+sees the dev box only. The bearer is
 FLEET_WEB_TERMINAL_AUTOMATION_TOKEN, fleet's own, whose texts and prompts the terminal marks as
 sent by a session: the exported one when it is set, else the one the master's holder keeps,
 else one loaded through envify. `fleet master on` loads it past keyguard's cache and starts the
@@ -64,7 +65,7 @@ NOT_HELD: Final = "fleet master on holds no token on this box: each fleet call s
 URL_NAME: Final = "WEB_TERMINAL_URL"
 LOCAL_URL: Final = "http://localhost:8122"
 CONTAINER_URL: Final = "http://host.docker.internal:8122"
-DEVBOX_URL: Final = "https://terminal.mazzotta.me"
+DEVBOX_URL: Final = "http://web-terminal.web-terminal.svc.cluster.local"
 DEVBOX_MARKER: Final = Path("/opt/unlock")
 DEVBOX_UNLOCK_CLIENT: Final = DEVBOX_MARKER / "keyguard-passkey"
 CONTAINER_MARKER: Final = Path("/.dockerenv")
