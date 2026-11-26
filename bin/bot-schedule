@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""List, add and remove the owner's mazzotta-bot schedules from a devbox session.
+
+The bot starts a devbox session at each schedule's time, reads the text as the owner's /schedule
+does ("30.11 12:00 <task>", "every mon-thu 9:15 <task>", "cron 0 12 * * 1 <task>"), marks the task
+of each schedule a session adds, and tells the owner in Telegram of every change a session makes
+(mazzotta-bot UC-016). The API answers in-cluster only, from the dev box: BOT_SCHEDULE_URL
+overrides the URL. The bearer is DEVBOX_TELEGRAM_BOT_SCHEDULE_TOKEN, the exported one when it is
+set, else one loaded through envify.
+
+Exit codes: 0 done, 1 failed or refused, 2 usage.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+from typing import Any, Dict, Final, List, Mapping, Optional, Tuple
+
+import envify
+
+TOKEN_NAME: Final = "DEVBOX_TELEGRAM_BOT_SCHEDULE_TOKEN"
+URL_NAME: Final = "BOT_SCHEDULE_URL"
+DEFAULT_URL: Final = "http://telegram-bot.telegram-bot.svc.cluster.local:8081"
+ROUTE: Final = "/schedules"
+REQUEST_TIMEOUT_S: Final = 30
+UNREACHABLE_TEXT: Final = "the bot's schedule API is not reachable from here: it answers on the dev box only"
+
+
+class ScheduleError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class Answer:
+    status: int
+    body: Dict[str, Any]
+
+
+def parse_args(argv: List[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="bot-schedule", description=__doc__.split("\n\n")[0])
+    commands = parser.add_subparsers(dest="command", required=True, metavar="{list,add,rm}")
+    commands.add_parser("list", help="list the owner's schedules and the built-in ones")
+    add = commands.add_parser("add", help="add a schedule: <when> <task>")
+    add.add_argument("text", nargs="+", help='when, then the task, e.g. 30.11 12:00 check the backups')
+    remove = commands.add_parser("rm", help="remove a schedule by its id")
+    remove.add_argument("id", help="the schedule's id, e.g. S3")
+    return parser.parse_args(argv)
+
+
+def bearer(environ: Mapping[str, str]) -> str:
+    token = environ.get(TOKEN_NAME, "")
+    if token:
+        return token
+    try:
+        token = envify.values_via_shell((TOKEN_NAME,), dict(environ)).get(TOKEN_NAME, "")
+    except envify.EnvifyError as error:
+        raise ScheduleError(f"envify could not load {TOKEN_NAME}: {error}".strip()) from error
+    if not token:
+        raise ScheduleError(f"{TOKEN_NAME} is empty")
+    return token
+
+
+def call(base: str, token: str, method: str, path: str, body: Optional[Dict[str, str]] = None) -> Answer:
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(f"{base.rstrip('/')}{path}", data=data, method=method,
+                                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_S) as response:
+            return Answer(response.status, read_json(response.read()))
+    except urllib.error.HTTPError as error:
+        return Answer(error.code, read_json(error.read()))
+    except (urllib.error.URLError, OSError) as error:
+        raise ScheduleError(f"{UNREACHABLE_TEXT} ({error})") from error
+
+
+def read_json(raw: bytes) -> Dict[str, Any]:
+    try:
+        parsed = json.loads(raw or b"{}")
+    except ValueError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def request_for(args: argparse.Namespace) -> Tuple[str, str, Optional[Dict[str, str]]]:
+    if args.command == "list":
+        return "GET", ROUTE, None
+    if args.command == "add":
+        return "POST", ROUTE, {"text": " ".join(args.text)}
+    return "DELETE", f"{ROUTE}/{args.id}", None
+
+
+def report(answer: Answer) -> int:
+    if answer.status == 401:
+        print(f"bot-schedule: the bot refused {TOKEN_NAME}", file=sys.stderr)
+        return 1
+    if 200 <= answer.status < 300:
+        print(answer.body.get("text", ""))
+        return 0
+    text = answer.body.get("error") or answer.body.get("text") or f"the bot answered {answer.status}"
+    print(f"bot-schedule: {text}", file=sys.stderr)
+    return 1
+
+
+def main(argv: List[str], environ: Mapping[str, str]) -> int:
+    args = parse_args(argv)
+    method, path, body = request_for(args)
+    try:
+        answer = call(environ.get(URL_NAME) or DEFAULT_URL, bearer(environ), method, path, body)
+    except ScheduleError as error:
+        print(f"bot-schedule: {error}", file=sys.stderr)
+        return 1
+    return report(answer)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:], os.environ))
