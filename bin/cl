@@ -297,6 +297,7 @@ OPT_IN_SETS = {
 }
 AUTOCOMPACT_AUTO = "auto"
 AUTOCOMPACT_MIN_TOKENS = 100_000
+AUTOCOMPACT_BARE_THOUSANDS = (100, 1_000)
 AUTOCOMPACT_TOKENS = re.compile(r"(\d+(?:\.\d+)?)([km]?)")
 TOKEN_UNITS = {"": 1, "k": 1_000, "m": 1_000_000}
 KEYGUARD = Path.home() / "Projects" / "private" / "keyguard"
@@ -1140,10 +1141,17 @@ def parse_autocompact(value: str) -> str:
     if text == AUTOCOMPACT_AUTO:
         return text
     match = AUTOCOMPACT_TOKENS.fullmatch(text)
-    tokens = round(float(match.group(1)) * TOKEN_UNITS[match.group(2)]) if match else 0
+    tokens = window_tokens(float(match.group(1)), match.group(2)) if match else 0
     if tokens < AUTOCOMPACT_MIN_TOKENS:
         raise argparse.ArgumentTypeError(f"'{value}' is not auto or at least 100k tokens, such as 500000 or 500k")
     return str(tokens)
+
+
+def window_tokens(number: float, unit: str) -> int:
+    lowest, highest = AUTOCOMPACT_BARE_THOUSANDS
+    if not unit and lowest <= number <= highest:
+        unit = "k"
+    return round(number * TOKEN_UNITS[unit])
 
 
 def autocompact_args(args: argparse.Namespace) -> list[str]:
@@ -1340,7 +1348,7 @@ def main() -> None:
     parser.add_argument(
         "--autocompact",
         type=parse_autocompact, default=None, metavar="WINDOW",
-        help="auto-compact window for this claude session only, auto or at least 100k tokens (500000, 500k)",
+        help="auto-compact window for this claude session only, auto or at least 100k tokens (500k, 500000, or 500 read as 500k)",
     )
     parser.add_argument("--convert", action="store_true", default=False, help="convert sessions between claude and opencode")
     parser.add_argument(

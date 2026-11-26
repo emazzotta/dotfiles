@@ -321,11 +321,12 @@ class TestBuildEntrypointInvocation:
     @pytest.mark.parametrize(("value", "expected"), [
         ("auto", "auto"), (" AUTO ", "auto"), ("100000", "100000"), ("500000", "500000"),
         ("500k", "500000"), ("500K", "500000"), ("0.5m", "500000"), ("1m", "1000000"),
+        ("100", "100000"), ("500", "500000"), ("1000", "1000000"),
     ])
     def test_should_accept_an_autocompact_window_claude_accepts(self, cl, value, expected):
         assert cl.parse_autocompact(value) == expected
 
-    @pytest.mark.parametrize("value", ["99999", "99k", "500", "", "lots", "500kb", "-500000", "5e5"])
+    @pytest.mark.parametrize("value", ["99999", "99k", "99", "1001", "", "lots", "500kb", "-500000", "5e5"])
     def test_should_reject_an_autocompact_window_below_100k_or_not_a_size(self, cl, value):
         with pytest.raises(argparse.ArgumentTypeError, match="at least 100k tokens"):
             cl.parse_autocompact(value)
