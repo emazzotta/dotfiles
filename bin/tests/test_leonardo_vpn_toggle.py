@@ -12,3 +12,26 @@ class TestLeonardoVpnToggle:
         assert "--enable" in result.stdout
         assert "--disable" in result.stdout
         assert not (tmp_path / "calls").exists()
+
+    def should_load_the_vpn_secret_before_connecting(self, run_cli, tmp_path):
+        calls = tmp_path / "calls"
+        mocks = {
+            "leonardo_account": (
+                "GREEN= YELLOW= RED= RESET=\n"
+                f'load_vpn_shared_secret() {{ echo load-vpn-secret >> "{calls}"; VPN_SHARED_SECRET=s3cret; }}'
+            ),
+            "scutil": (
+                f'case "$2" in\n'
+                f'    status) if [ -e "{tmp_path / "started"}" ]; then echo Connected; else echo Disconnected; fi ;;\n'
+                f'    start) echo "scutil $*" >> "{calls}"; touch "{tmp_path / "started"}" ;;\n'
+                f'esac'
+            ),
+        }
+
+        result = run_cli("leonardo_vpn_toggle", ["--enable"], mock_bins=mocks, isolate_path=True)
+
+        assert result.returncode == 0, result.stderr
+        assert calls.read_text().splitlines() == [
+            "load-vpn-secret",
+            "scutil --nc start --secret s3cret LeonardoVPN",
+        ]

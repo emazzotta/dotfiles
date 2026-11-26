@@ -116,14 +116,14 @@ def create_mock_bin(tmp_path):
 
 @pytest.fixture
 def run_script(tmp_path):
-    def _run(script_path, args=None, env_extra=None):
+    def _run(script_path, args=None, env_extra=None, stdin=None):
         env = os.environ.copy()
         env["PATH"] = f"{tmp_path / 'bin'}:{BIN_DIR}:{env['PATH']}"
         if env_extra:
             env.update(env_extra)
         return subprocess.run(
             ["bash", str(script_path)] + (args or []),
-            capture_output=True, text=True, env=env,
+            capture_output=True, text=True, env=env, input=stdin,
         )
     return _run
 

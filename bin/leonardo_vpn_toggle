@@ -61,6 +61,7 @@ connect_vpn() {
         printf "${YELLOW}●${RESET} $VPN_NAME is already connected\n"
         return 0
     fi
+    load_vpn_shared_secret
     if ! is_leonardo_vpn_configured; then
         create_vpn_config
     fi

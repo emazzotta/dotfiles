@@ -92,7 +92,6 @@ export VM_DRIVE_MOUNT_POINT="smb://admin@192.168.5.7:4445/Devserver-Windows-VM"
 
 ensure_passwords_exist() {
     add_password_to_keychain "$AD_ACCOUNT" "$AD_PASSWORD_NAME"
-    add_password_to_keychain "$VPN_SHARED_SECRET_NAME" "VPN:$VPN_SHARED_SECRET_NAME"
 }
 
 get_keychain_password() {
@@ -136,8 +135,11 @@ ensure_passwords_exist
 AD_PASSWORD="$(get_keychain_password "$AD_ACCOUNT" "$AD_PASSWORD_NAME")"
 export AD_PASSWORD
 
-VPN_SHARED_SECRET="$(get_keychain_password "$VPN_SHARED_SECRET_NAME" "VPN:$VPN_SHARED_SECRET_NAME")"
-export VPN_SHARED_SECRET
+load_vpn_shared_secret() {
+    add_password_to_keychain "$VPN_SHARED_SECRET_NAME" "VPN:$VPN_SHARED_SECRET_NAME"
+    VPN_SHARED_SECRET="$(get_keychain_password "$VPN_SHARED_SECRET_NAME" "VPN:$VPN_SHARED_SECRET_NAME")"
+    export VPN_SHARED_SECRET
+}
 
 print_password_rotation_hint() {
     printf "${YELLOW}●${RESET} Most likely cause: AD password rotated. Recover with:\n"

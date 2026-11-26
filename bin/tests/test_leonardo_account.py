@@ -2,6 +2,8 @@ import pytest
 
 INTERACTION_NOT_ALLOWED = 36
 WRONG_PASSPHRASE = 51
+ITEM_NOT_FOUND = 44
+VPN_SECRET_ITEM = "VPN:LeonardoVPNSecret"
 
 SECURITY_MOCK = f'''
 echo "$*" >> "$KEYCHAIN_STATE/calls"
@@ -31,6 +33,9 @@ case "$1" in
             esac
             shift
         done
+        if [ -e "$KEYCHAIN_STATE/empty" ] && [ ! -e "$KEYCHAIN_STATE/item-$service" ]; then
+            exit {ITEM_NOT_FOUND}
+        fi
         [ "$wants_secret" = true ] || exit 0
         if [ -e "$KEYCHAIN_STATE/locked" ]; then
             echo "security: SecKeychainSearchCopyNext: User interaction is not allowed." >&2
@@ -46,6 +51,13 @@ case "$1" in
             echo secret
         fi
         ;;
+    add-generic-password)
+        shift
+        while [ $# -gt 0 ]; do
+            [ "$1" = -s ] && touch "$KEYCHAIN_STATE/item-$2"
+            shift
+        done
+        ;;
 esac
 '''
 
@@ -53,6 +65,13 @@ CALLER = '''#!/bin/bash
 set -euo pipefail
 source leonardo_account
 echo "account=$AD_ACCOUNT"
+'''
+
+VPN_CALLER = '''#!/bin/bash
+set -euo pipefail
+source leonardo_account
+load_vpn_shared_secret
+echo "vpn=$VPN_SHARED_SECRET"
 '''
 
 
@@ -68,7 +87,7 @@ def keychain(tmp_path, create_mock_bin):
 def source_account(tmp_path, run_script, keychain):
     caller = tmp_path / "caller"
     caller.write_text(CALLER)
-    return lambda: run_script(caller, env_extra={"KEYCHAIN_STATE": str(keychain)})
+    return lambda stdin=None: run_script(caller, env_extra={"KEYCHAIN_STATE": str(keychain)}, stdin=stdin)
 
 
 def security_calls(keychain):
@@ -112,3 +131,24 @@ class TestLeonardoAccount:
         assert "account=" not in result.stdout
         assert "passphrase you entered is not correct" in result.stderr
         assert "add-generic-password" not in security_calls(keychain)
+
+    def should_ask_only_for_the_ad_login_when_a_tool_needs_no_vpn(self, source_account, keychain):
+        (keychain / "empty").touch()
+
+        result = source_account(stdin="first.last\nad-password\n")
+
+        assert result.returncode == 0, result.stderr
+        assert "account=first.last" in result.stdout
+        assert VPN_SECRET_ITEM not in security_calls(keychain)
+
+    def should_ask_for_the_vpn_secret_when_a_tool_loads_it(self, tmp_path, run_script, keychain):
+        (keychain / "empty").touch()
+        caller = tmp_path / "vpn_caller"
+        caller.write_text(VPN_CALLER)
+
+        result = run_script(caller, env_extra={"KEYCHAIN_STATE": str(keychain)},
+                            stdin="first.last\nad-password\nvpn-secret\n")
+
+        assert result.returncode == 0, result.stderr
+        assert "vpn=secret" in result.stdout
+        assert f"-s {VPN_SECRET_ITEM} -w vpn-secret" in security_calls(keychain)
