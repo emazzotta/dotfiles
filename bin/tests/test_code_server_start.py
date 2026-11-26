@@ -33,8 +33,11 @@ def test_should_refuse_to_start_without_an_address(run_cli, tmp_path):
     assert not (tmp_path / "calls").exists()
 
 
-def test_should_fail_when_code_server_is_missing(run_cli):
-    result = run_cli("code-server-start", ["127.0.0.1:8125"], isolate_path=True)
+def test_should_fail_when_code_server_is_missing(run_cli, tmp_path):
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+
+    result = run_cli("code-server-start", ["127.0.0.1:8125"], env_extra={"PATH": str(empty_dir)})
 
     assert result.returncode == 127
     assert "code-server is not installed" in result.stderr

@@ -44,6 +44,10 @@ min_key_bits() {
     esac
 }
 
+public_key_bits() {
+    sed -n 's/.*Public-Key: (\([0-9][0-9]*\) bit.*/\1/p'
+}
+
 run_with_timeout() {
     if command -v timeout >/dev/null 2>&1; then
         timeout "$@"
@@ -212,7 +216,7 @@ print_section "Public Key Information"
 PUBKEY_INFO=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep -A2 "Public Key Algorithm")
 echo "$PUBKEY_INFO"
 
-KEY_SIZE=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | grep "Public-Key:" | grep -o "[0-9]*")
+KEY_SIZE=$(openssl x509 -in /tmp/cert.pem -noout -text 2>/dev/null | public_key_bits)
 echo "Key Size: ${KEY_SIZE} bits"
 
 KEY_ALGO=$(echo "$PUBKEY_INFO" | head -n1)

@@ -192,6 +192,18 @@ class TestKeySize:
 
         assert result.stdout.strip() == str(minimum)
 
+    @pytest.mark.parametrize("line,bits", [
+        ("Public-Key: (256 bit)", 256),
+        ("Public-Key: (256 bit field, 128 bit security level)", 256),
+        ("Public-Key: (2048 bit)", 2048),
+    ], ids=["openssl 3", "openssl 4 elliptic curve", "rsa"])
+    def test_should_read_the_key_size_from_the_public_key_line(self, tmp_path, line, bits):
+        text = f"        Subject Public Key Info:\n                {line}\n"
+
+        result = run_script_function(tmp_path, "public_key_bits", f"printf '%s' '{text}' | public_key_bits")
+
+        assert result.stdout == f"{bits}\n"
+
 
 @requires_tool("openssl")
 @requires_tool("nc")

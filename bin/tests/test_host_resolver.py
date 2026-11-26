@@ -4,6 +4,8 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
+TIMEOUT_BEYOND_PROCESS_START_MS = 10_000
+
 
 @pytest.fixture
 def mod(load_script):
@@ -168,8 +170,10 @@ class TestHelpExample:
     ):
         help_text = run_cli("host-resolver", ["--help"]).stdout
         example = next(line.strip() for line in help_text.splitlines() if "-a -s &&" in line)
+        command = example.replace("host-resolver ", f"host-resolver -t {TIMEOUT_BEYOND_PROCESS_START_MS} ", 1)
+        assert command != example
         script = tmp_path / "example.sh"
-        script.write_text(example + "\n")
+        script.write_text(command + "\n")
 
         result = run_bash(str(script), mock_bins={"dig": "echo 10.0.0.9", "ping": ping, "ping6": ping})
 
