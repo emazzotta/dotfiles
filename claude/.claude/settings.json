@@ -11,7 +11,7 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "fable",
+  "model": "sonnet",
   "disableClaudeAiConnectors": true,
   "skillOverrides": {
     "artifact-capabilities": "name-only",
