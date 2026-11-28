@@ -8,8 +8,8 @@
 #          A bare eval "$(...)" hides a failed load; scripts use "|| exit 1" instead of "&&".
 #          (passphraseless key: pass "" for PASSPHRASE_VAR)
 # Prints an `export SSH_AUTH_SOCK=...` line for the caller to eval.
-# The key lives in the agent for ENVIFY_CACHE_TIMEOUT seconds (120 by default, envify's own
-# cache window), so a released key never outlives a fresh approval: within the window a rerun
+# The key lives in the agent for ENVIFY_CACHE_TIMEOUT seconds (300 by default and 600 at most,
+# envify's own cache window), so a released key never outlives a fresh approval: within the window a rerun
 # is free, after it the next run asks again (Touch ID on the Mac, the phone on the dev box).
 set -uo pipefail
 
@@ -20,12 +20,16 @@ if [ -z "$key_var" ]; then
   echo "usage: out=\$(keyguard-ssh-agent KEY_B64_VAR [PASSPHRASE_VAR] [HOST ...]) && eval \"\$out\"" >&2
   exit 2
 fi
-lifetime="${ENVIFY_CACHE_TIMEOUT:-120}"
+readonly MAX_LIFETIME=600
+lifetime="${ENVIFY_CACHE_TIMEOUT:-300}"
 case "$lifetime" in
   ''|0|*[!0-9]*)
     echo "keyguard-ssh-agent: ENVIFY_CACHE_TIMEOUT must be a positive number of seconds" >&2
     exit 2 ;;
 esac
+if [ "$lifetime" -gt "$MAX_LIFETIME" ]; then
+  lifetime=$MAX_LIFETIME
+fi
 
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"

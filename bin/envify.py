@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import NoReturn, TextIO
 
 _SERVER_PORT: int = int(os.environ.get("PARAM_SERVER_PORT", "7777"))
-_CACHE_TIMEOUT: int = int(os.environ.get("ENVIFY_CACHE_TIMEOUT", "120"))
+_CACHE_TIMEOUT: int = int(os.environ.get("ENVIFY_CACHE_TIMEOUT", "300"))
 _STORE_TIMEOUT: int = 120
 _GLOBAL_ENV_FILE: Path = Path.home() / "dotfiles" / ".env"
 # keyguard-server's own wait for Touch ID (its SUBPROCESS_TIMEOUT).

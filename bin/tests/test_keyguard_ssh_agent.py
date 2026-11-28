@@ -35,13 +35,18 @@ class TestKeyguardSshAgent:
         result, logged, _ = agent_run()
 
         assert result.returncode == 0
-        assert logged == ["-l", "-t 120 -"]
+        assert logged == ["-l", "-t 300 -"]
         assert "export SSH_AUTH_SOCK=" in result.stdout
 
     def test_should_follow_envify_cache_timeout_when_set(self, agent_run):
         _, logged, _ = agent_run(cache_timeout="45")
 
         assert logged[-1] == "-t 45 -"
+
+    def test_should_hold_the_key_for_ten_minutes_at_most(self, agent_run):
+        _, logged, _ = agent_run(cache_timeout="9999")
+
+        assert logged[-1] == "-t 600 -"
 
     def test_should_reuse_a_key_the_agent_still_holds_without_asking(self, agent_run):
         result, logged, asked = agent_run(agent_has_key=True)
