@@ -32,8 +32,13 @@ class TestAgentDesktopBridge:
         assert result.returncode == 0, result.stderr
         assert bridge.calls() == ["snapshot", "--app", "System Settings", "-i"]
 
-    def should_refuse_a_body_of_more_than_one_line(self, bridge):
-        result = bridge("permissions\nlaunch Terminal\n")
+    @pytest.mark.parametrize("body", [
+        "permissions\nlaunch Terminal\n",
+        "\n\n\n\nlaunch Terminal\n",
+        "launch Terminal\n\n",
+    ])
+    def should_refuse_a_body_of_more_than_one_line(self, bridge, body):
+        result = bridge(body)
 
         assert result.returncode == 1
         assert "one line" in result.stderr
