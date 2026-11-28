@@ -2,14 +2,47 @@
 
 set -euo pipefail
 
+readonly BUILD_FILES="Makefile pom.xml package.json"
+
 find_build_file() {
     local file
-    for file in Makefile pom.xml package.json; do
+    for file in $BUILD_FILES; do
         if [ -f "$file" ]; then
             echo "$file"
             return 0
         fi
     done
+}
+
+# The subfolders one level down that hold a build file, skipping hidden ones and node_modules.
+subfolders_with_build_file() {
+    local folder file
+    for folder in */; do
+        [ "$folder" = "node_modules/" ] && continue
+        for file in $BUILD_FILES; do
+            if [ -f "$folder$file" ]; then
+                echo "$folder"
+                break
+            fi
+        done
+    done
+}
+
+# Without a build file here, step into the one subfolder that has one, as in a repository whose build sits in mac/.
+enter_build_folder() {
+    local quiet="$1" candidates count
+    [ -n "$(find_build_file)" ] && return 0
+    candidates=$(subfolders_with_build_file)
+    count=$(grep -c . <<< "$candidates" || true)
+    if [ "$count" -eq 1 ]; then
+        cd "$candidates"
+        if [ "$quiet" = false ]; then
+            echo "m: building in $candidates" >&2
+        fi
+    elif [ "$count" -gt 1 ] && [ "$quiet" = false ]; then
+        echo "Error: No build file here, and several subfolders have one: $(tr '\n' ' ' <<< "$candidates")" >&2
+        exit 1
+    fi
 }
 
 makefile_targets() {
@@ -60,11 +93,14 @@ run_package_goals() {
 
 main() {
     local build_file
-    build_file=$(find_build_file)
     if [ "${1:-}" = "--complete" ]; then
+        enter_build_folder true
+        build_file=$(find_build_file)
         list_goals "$build_file" 2>/dev/null || true
         return 0
     fi
+    enter_build_folder false
+    build_file=$(find_build_file)
     case "$build_file" in
         Makefile) exec make "$@" ;;
         pom.xml) exec mvn "$@" ;;

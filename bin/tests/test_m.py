@@ -50,6 +50,57 @@ class TestBuildFile:
         assert m.calls() == []
 
 
+class TestSubfolder:
+    def should_build_in_the_one_subfolder_that_holds_a_build_file(self, m):
+        (m.work / "mac").mkdir()
+        (m.work / "mac" / "Makefile").touch()
+        (m.work / "docs").mkdir()
+
+        result = m("test")
+
+        assert result.returncode == 0, result.stderr
+        assert m.calls() == ["make test"]
+        assert "mac/" in result.stderr
+
+    def should_prefer_the_build_file_of_the_current_folder(self, m):
+        (m.work / "pom.xml").touch()
+        (m.work / "mac").mkdir()
+        (m.work / "mac" / "Makefile").touch()
+
+        m("test")
+
+        assert m.calls() == ["mvn test"]
+
+    def should_name_each_candidate_when_several_subfolders_hold_one(self, m):
+        for name in ("api", "web"):
+            (m.work / name).mkdir()
+            (m.work / name / "Makefile").touch()
+
+        result = m("test")
+
+        assert result.returncode == 1
+        assert "api/" in result.stderr and "web/" in result.stderr
+        assert m.calls() == []
+
+    @pytest.mark.parametrize("folder", [".hidden", "node_modules"])
+    def should_skip_hidden_and_dependency_folders(self, m, folder):
+        (m.work / folder).mkdir()
+        write_scripts(m.work / folder, "build")
+
+        result = m("build")
+
+        assert result.returncode == 1
+        assert m.calls() == []
+
+    def should_complete_the_targets_of_the_subfolder(self, m):
+        (m.work / "mac").mkdir()
+        (m.work / "mac" / "Makefile").write_text("build:\n\ttrue\n")
+
+        result = m("--complete")
+
+        assert (result.stdout.splitlines(), result.stderr) == (["build"], "")
+
+
 class TestPackageJson:
     def should_list_the_scripts_without_a_goal(self, m):
         write_scripts(m.work, "build")
