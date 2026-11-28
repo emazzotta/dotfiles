@@ -573,6 +573,52 @@ class TestSilentMarker:
         assert [body["text"] for body in delivered] == [reply]
 
 
+class TestRoutingLine:
+    ROUTED = "Emanuele, route: a1B2c3D4"
+
+    @pytest.mark.parametrize("last_line", [
+        "route: a1B2c3D4",
+        "Emanuele, route: a1B2c3D4",
+        "`route: a1B2c3D4`",
+        "route: approval",
+        "route: ask a1B2c3D4 e5F6g7H8 i9J0k1L2",
+        "  route: a1B2c3D4  ",
+    ])
+    def should_stay_silent_when_the_last_line_is_a_routing_line(self, notify, spawned, from_telegram, last_line):
+        _stop(notify, f"Looking at the sessions.\n\n{last_line}\n", **NO_WORK)
+
+        assert spawned == []
+
+    def should_cancel_a_ping_still_pending_when_the_reply_is_routed(self, notify, spawned, from_telegram):
+        _stop(notify, "First answer.", **NO_WORK)
+        _stop(notify, self.ROUTED, **NO_WORK)
+
+        assert notify.read_pending(SESSION) is None
+
+    def should_close_a_one_shot_window_without_sending(self, notify, spawned, delivered, one_shot):
+        _stop(notify, self.ROUTED, **NO_WORK)
+
+        assert _fire(notify, spawned) == 0
+        assert delivered == []
+        assert one_shot.events == [("kill-window", "-t", PANE)]
+
+    @pytest.mark.parametrize("reply", [
+        "To route it, write route: a1B2c3D4",
+        "route: a1B2c3D4\n\nBut this line comes last.",
+        "route: a1B2c3D",
+        "route: a1B2c3D45",
+        "route: ask",
+        "route: ask a1B2c3D4 e5F6g7H8 i9J0k1L2 m3N4o5P6",
+        "`route: a1B2c3D4",
+    ])
+    def should_send_when_the_last_line_is_not_a_routing_line(self, notify, spawned, delivered, from_telegram, reply):
+        _stop(notify, reply, **NO_WORK)
+
+        _fire(notify, spawned)
+
+        assert [body["text"] for body in delivered] == [reply]
+
+
 class TestWindowMarks:
     def should_ask_tmux_once_for_both_options_of_the_window_holding_the_pane(self, load_script, monkeypatch):
         notify = load_script("claude-notify")

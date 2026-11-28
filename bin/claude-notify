@@ -20,8 +20,9 @@ before that poll puts it back on the 10 min wait.
   why in its first line, when background shells or crons may still run, or when the last
   line of the reply is a question. It stays too, silently, when the send failed, since the
   answer then lives only there. The flag stays on the window: the next Stop is judged anew.
-- A reply whose last line is `[silent]` (SILENT_MARKER) sends nothing and cancels what is
-  pending. A one-shot window still closes as it would after a send.
+- A reply whose last line is `[silent]` (SILENT_MARKER) or a routing line of mazzotta-bot's
+  router (`route: <id>`, ROUTING_LINE) sends nothing and cancels what is pending. A one-shot
+  window still closes as it would after a send.
 - PermissionRequest notes what the prompt is about. The permission_prompt Notification,
   which Claude Code raises only once a prompt has waited about 6 s unanswered, arms it.
 - PostToolUse and PostToolUseFailure of the prompted tool cancel the prompt's ping: an
@@ -64,6 +65,9 @@ QUESTION_NOTE: Final = "Window kept open: the reply ends with a question."
 SENTENCE_LIMIT: Final = 200
 FINISHED_FALLBACK: Final = "Finished, waiting for your input."
 SILENT_MARKER: Final = "[silent]"
+SHORT_ID: Final = r"[0-9A-Za-z]{8}"
+ROUTING_LINE: Final = re.compile(
+    rf"(?:\w+, )?(`?)route: (?:approval|ask(?: {SHORT_ID}){{1,3}}|{SHORT_ID})\1")
 STATE_DIR: Final = Path.home() / ".cache" / "claude-notify"
 UNATTENDED_ENTRYPOINT_PREFIX: Final = "sdk"
 WAKING_TASK_TYPES_EXEMPT: Final = frozenset({"shell"})
@@ -140,7 +144,8 @@ def last_line(reply: str) -> str:
 
 
 def is_silent(reply: str) -> bool:
-    return last_line(reply) == SILENT_MARKER
+    line = last_line(reply)
+    return line == SILENT_MARKER or ROUTING_LINE.fullmatch(line) is not None
 
 
 def open_note(event: dict, reply: str) -> str | None:
