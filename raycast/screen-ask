@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Raycast script command: add ~/dotfiles/raycast as a Raycast script directory, then give "Screen Ask" a hotkey.
+# @raycast.schemaVersion 1
+# @raycast.title Screen Ask
+# @raycast.mode silent
+# @raycast.packageName Claude
+# @raycast.icon 🖼️
+# @raycast.description Screenshot a region and copy a prompt that hands it to Claude in the container
+
+set -uo pipefail
+
+readonly MAC_SHOT_DIR=/tmp/opencode/shots
+readonly CONTAINER_SHOT_DIR=/tmp/shots
+readonly KEEP_DAYS=1
+
+show_usage() {
+    cat <<EOF
+Usage: $(basename "$0") [-h|--help]
+
+Select a screen region on the Mac, save it to ${MAC_SHOT_DIR}, and copy a prompt
+naming its container path (${CONTAINER_SHOT_DIR}) to the clipboard. Paste the
+prompt into a Claude session in the container. Shots older than ${KEEP_DAYS} day are removed.
+EOF
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help) show_usage; return 0 ;;
+        "") ;;
+        *) echo "Unknown argument: $1" >&2; show_usage >&2; return 2 ;;
+    esac
+    if [ "$(uname -s)" != Darwin ]; then
+        echo "screen-ask runs on the Mac" >&2
+        return 1
+    fi
+
+    mkdir -p "$MAC_SHOT_DIR" || return 1
+    find "$MAC_SHOT_DIR" -name '*.png' -mtime +"$KEEP_DAYS" -delete
+    local name
+    name="$(date +%Y%m%d-%H%M%S)-$$.png"
+    screencapture -i "$MAC_SHOT_DIR/$name"
+    if [ ! -s "$MAC_SHOT_DIR/$name" ]; then
+        echo "Screenshot cancelled"
+        return 0
+    fi
+    printf 'Explain what is on this screenshot. If it shows an error or warning, say what it means and how to fix it: %s' \
+        "$CONTAINER_SHOT_DIR/$name" | pbcopy
+    echo "Prompt copied: paste it into Claude"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
