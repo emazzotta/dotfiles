@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import os
+import shlex
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from macbridge import TOOL_DIRS
+
+PROGRAM = "agent-desktop"
+MAX_PROMPT_LINE = 100
+USAGE = (
+    "Usage: agent-desktop-bridge < arguments\n\n"
+    "Reads one shell-quoted line of agent-desktop arguments from stdin,\n"
+    f"at most {MAX_PROMPT_LINE} characters, and runs agent-desktop with them."
+)
+
+
+class InvalidBodyError(ValueError):
+    pass
+
+
+def parse_body(body: str) -> list[str]:
+    lines = [line for line in body.splitlines() if line.strip()]
+    if not lines:
+        raise InvalidBodyError("agent-desktop arguments required in POST body")
+    if len(lines) > 1:
+        raise InvalidBodyError("POST body must be one line of arguments")
+    if len(lines[0]) > MAX_PROMPT_LINE:
+        raise InvalidBodyError(
+            f"arguments must fit in {MAX_PROMPT_LINE} characters, the approval prompt cuts longer lines"
+        )
+    try:
+        return shlex.split(lines[0])
+    except ValueError as error:
+        raise InvalidBodyError(str(error)) from error
+
+
+def main(argv: list[str]) -> int:
+    if argv[:1] in (["--help"], ["-h"]):
+        print(USAGE)
+        return 0
+    try:
+        args = parse_body(sys.stdin.read())
+    except InvalidBodyError as error:
+        print(error, file=sys.stderr)
+        return 1
+    path = os.pathsep.join((os.environ.get("PATH", ""), *TOOL_DIRS))
+    os.execvpe(PROGRAM, [PROGRAM, *args], {**os.environ, "PATH": path})
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
