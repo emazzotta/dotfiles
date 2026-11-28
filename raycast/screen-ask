@@ -6,22 +6,40 @@
 # @raycast.mode silent
 # @raycast.packageName Claude
 # @raycast.icon 🖼️
-# @raycast.description Screenshot a region and copy a prompt that hands it to Claude in the container
+# @raycast.description Screenshot a region and start a Claude session on the devbox that explains it
 
 set -uo pipefail
 
-readonly MAC_SHOT_DIR=/tmp/opencode/shots
-readonly CONTAINER_SHOT_DIR=/tmp/shots
-readonly KEEP_DAYS=1
+readonly MAC_SHOT_DIR="$HOME/Devbox/shots"
+readonly DEVBOX_SHOT_DIR=/home/opencode/inbox/shots
+readonly DEVBOX_CWD=/home/opencode
+readonly MODEL=sonnet
+readonly EFFORT=high
+readonly KEEP_DAYS=7
+readonly PROMPT="Explain what is on this screenshot. If it shows an error or warning, say what it means and how to fix it:"
+
+# Raycast starts scripts with launchd's PATH, which lacks the dotfiles and Homebrew tools.
+export PATH="$HOME/dotfiles/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+shot_tmp=""
+trap '[ -n "$shot_tmp" ] && command rm -f "$shot_tmp"' EXIT
 
 show_usage() {
     cat <<EOF
 Usage: $(basename "$0") [-h|--help]
 
-Select a screen region on the Mac, save it to ${MAC_SHOT_DIR}, and copy a prompt
-naming its container path (${CONTAINER_SHOT_DIR}) to the clipboard. Paste the
-prompt into a Claude session in the container. Shots older than ${KEEP_DAYS} day are removed.
+Select a screen region on the Mac and save it to ${MAC_SHOT_DIR}, the devbox's
+${DEVBOX_SHOT_DIR}, mounting the Devbox share first when needed. Then start a
+Claude session (${MODEL}, ${EFFORT}) on the devbox through the web terminal that
+explains the shot. Shots older than ${KEEP_DAYS} days are removed.
 EOF
+}
+
+ensure_share_mounted() {
+    if ! devbox-drive --status >/dev/null 2>&1; then
+        devbox-drive --mount >/dev/null 2>&1 || { echo "Could not mount the Devbox share"; return 1; }
+    fi
+    mkdir -p "$MAC_SHOT_DIR"
 }
 
 main() {
@@ -35,18 +53,25 @@ main() {
         return 1
     fi
 
-    mkdir -p "$MAC_SHOT_DIR" || return 1
-    find "$MAC_SHOT_DIR" -name '*.png' -mtime +"$KEEP_DAYS" -delete
     local name
-    name="$(date +%Y%m%d-%H%M%S)-$$.png"
-    screencapture -i "$MAC_SHOT_DIR/$name"
-    if [ ! -s "$MAC_SHOT_DIR/$name" ]; then
+    shot_tmp=$(mktemp "${TMPDIR:-/tmp}/screen-ask.XXXXXX") || return 1
+    screencapture -i -t png "$shot_tmp"
+    if [ ! -s "$shot_tmp" ]; then
         echo "Screenshot cancelled"
         return 0
     fi
-    printf 'Explain what is on this screenshot. If it shows an error or warning, say what it means and how to fix it: %s' \
-        "$CONTAINER_SHOT_DIR/$name" | pbcopy
-    echo "Prompt copied: paste it into Claude"
+
+    ensure_share_mounted || return 1
+    find "$MAC_SHOT_DIR" -name '*.png' -mtime +"$KEEP_DAYS" -delete
+    name="$(date +%Y%m%d-%H%M%S)-$$.png"
+    /bin/cp "$shot_tmp" "$MAC_SHOT_DIR/$name" || { echo "Could not copy the shot to the devbox"; return 1; }
+
+    if ! fleet start devbox claude "$PROMPT $DEVBOX_SHOT_DIR/$name" \
+        --cwd "$DEVBOX_CWD" --model "$MODEL" --effort "$EFFORT" >/dev/null; then
+        echo "Could not start the devbox session"
+        return 1
+    fi
+    echo "Devbox session started: open the web terminal"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
