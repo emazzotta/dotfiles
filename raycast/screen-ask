@@ -8,6 +8,10 @@
 # @raycast.icon 🖼️
 # @raycast.description Screenshot a region and start a Claude session on the devbox that explains it
 
+# Raycast starts scripts with launchd's environment: no dotfiles PATH and none of the KEYGUARD_* exports envify needs.
+# shellcheck source=/dev/null
+source "$HOME/dotfiles/bash/.bashrc.d/00-env.sh"
+
 set -uo pipefail
 
 readonly MAC_SHOT_DIR="$HOME/Devbox/shots"
@@ -16,10 +20,8 @@ readonly DEVBOX_CWD=/home/opencode
 readonly MODEL=sonnet
 readonly EFFORT=high
 readonly KEEP_DAYS=7
+readonly LOG="$HOME/Library/Logs/screen-ask.log"
 readonly PROMPT="Explain what is on this screenshot. If it shows an error or warning, say what it means and how to fix it:"
-
-# Raycast starts scripts with launchd's PATH, which lacks the dotfiles and Homebrew tools.
-export PATH="$HOME/dotfiles/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 shot_tmp=""
 trap '[ -n "$shot_tmp" ] && command rm -f "$shot_tmp"' EXIT
@@ -37,7 +39,7 @@ EOF
 
 ensure_share_mounted() {
     if ! devbox-drive --status >/dev/null 2>&1; then
-        devbox-drive --mount >/dev/null 2>&1 || { echo "Could not mount the Devbox share"; return 1; }
+        devbox-drive --mount >>"$LOG" 2>&1 || { echo "Could not mount the Devbox share, see $LOG"; return 1; }
     fi
     mkdir -p "$MAC_SHOT_DIR"
 }
@@ -61,14 +63,16 @@ main() {
         return 0
     fi
 
+    mkdir -p "${LOG%/*}"
+    printf '%s run\n' "$(date '+%F %T')" >>"$LOG"
     ensure_share_mounted || return 1
     find "$MAC_SHOT_DIR" -name '*.png' -mtime +"$KEEP_DAYS" -delete
     name="$(date +%Y%m%d-%H%M%S)-$$.png"
     /bin/cp "$shot_tmp" "$MAC_SHOT_DIR/$name" || { echo "Could not copy the shot to the devbox"; return 1; }
 
     if ! fleet start devbox claude "$PROMPT $DEVBOX_SHOT_DIR/$name" \
-        --cwd "$DEVBOX_CWD" --model "$MODEL" --effort "$EFFORT" >/dev/null; then
-        echo "Could not start the devbox session"
+        --cwd "$DEVBOX_CWD" --model "$MODEL" --effort "$EFFORT" >/dev/null 2>>"$LOG"; then
+        echo "Could not start the devbox session, see $LOG"
         return 1
     fi
     echo "Devbox session started: open the web terminal"
