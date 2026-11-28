@@ -134,6 +134,7 @@ WORKSPACE_FILES = {
     ".claude/ref-reference/skills/ref/SKILL.md": "pinned upstream\n",
 }
 WORKSPACE_LINKS = {
+    ".agents/skills": "../.claude/skills",
     ".claude/skills/ref": "../ref-reference/skills/ref",
     ".claude/skills/leak": "../knowledge/private",
     ".claude/skills/leak.md": "../knowledge/private/identity.md",
@@ -222,6 +223,7 @@ def workspace_repo(tmp_path, git):
     tree = repo / "opencode/workspace"
     write_tree(tree, WORKSPACE_FILES)
     for relative, target in {**WORKSPACE_LINKS, ".claude/skills/outside": str(tmp_path / "outside")}.items():
+        (tree / relative).parent.mkdir(parents=True, exist_ok=True)
         (tree / relative).symlink_to(target)
     write_tree(tmp_path / "outside", {"secret.txt": "outside the tree\n"})
     write_tree(tree / ".claude/vendored", {"README": "a submodule\n"})
@@ -713,6 +715,12 @@ class TestWorkspaceMirror:
 
     def should_carry_a_linked_pinned_reference_as_content(self, mirrored, devbox):
         assert (devbox / ".claude/skills/ref/SKILL.md").read_text() == "pinned upstream\n"
+
+    def should_keep_a_relative_link_to_a_mirrored_directory_as_a_symlink(self, mirrored, devbox):
+        link = devbox / ".agents/skills"
+        assert link.is_symlink()
+        assert os.readlink(link) == "../.claude/skills"
+        assert (link / "demo/SKILL.md").read_text() == "demo skill\n"
 
     def should_not_follow_a_link_into_a_left_out_part_or_out_of_the_tree(self, mirrored):
         linked = (".claude/skills/leak", ".claude/skills/outside", ".claude/skills/dangling")

@@ -252,19 +252,35 @@ def safe_source(root: Path, source: Path) -> bool:
         return False
 
 
+def mirrored_target(target: str, mirrored: set[str]) -> bool:
+    prefix = f"{target}/"
+    return target in mirrored or any(path.startswith(prefix) for path in mirrored)
+
+
+def stage_entry(raw: Path, source: Path, target: Path, root: Path, mirrored: set[str]) -> None:
+    if raw.is_symlink():
+        link = os.readlink(raw)
+        if not os.path.isabs(link) and mirrored_target(source.relative_to(root).as_posix(), mirrored):
+            target.symlink_to(link)
+            return
+    if source.is_dir():
+        # A link nested in a linked directory is copied as a link, never followed.
+        shutil.copytree(source, target, symlinks=True)
+    else:
+        shutil.copy2(source, target)
+
+
 def stage(tree: Path, relatives: list[str], staging: Path) -> None:
     root = tree.resolve()
+    mirrored = set(relatives)
     for relative in relatives:
-        source = (tree / relative).resolve()
+        raw = tree / relative
+        source = raw.resolve()
         if not source.exists() or not safe_source(root, source):
             continue
         target = staging / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        if source.is_dir():
-            # A link nested in a linked directory is copied as a link, never followed.
-            shutil.copytree(source, target, symlinks=True)
-        else:
-            shutil.copy2(source, target)
+        stage_entry(raw, source, target, root, mirrored)
 
 
 def mirror_rsync() -> list[str]:
